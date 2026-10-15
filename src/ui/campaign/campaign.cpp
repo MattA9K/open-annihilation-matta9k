@@ -310,7 +310,9 @@ bool load_unit_availability(
     if (path == nullptr || files == nullptr || files->size == nullptr || files->read == nullptr)
         return false;
     const int32_t size = files->size(files->context, path);
-    if (size < 0 || static_cast<uint32_t>(size) > oa::formats::tdf::max_input_bytes)
+    // 3.1c's TDF loader refuses an empty file, so an empty use-only list
+    // leaves every unit type available, as missing one does.
+    if (size <= 0 || static_cast<uint32_t>(size) > oa::formats::tdf::max_input_bytes)
         return false;
     auto* text = static_cast<char*>(std::malloc(static_cast<std::size_t>(size) + 1));
     if (text == nullptr)

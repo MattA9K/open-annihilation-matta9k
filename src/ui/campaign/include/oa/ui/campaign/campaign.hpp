@@ -255,8 +255,8 @@ void ingame_briefing_click(
 /// @param count Number of records in `table`.
 /// @param campaign Campaign object with the bound mission.
 /// @param files Campaign file services.
-/// @return false, with the table untouched, when the file is missing, too
-///         large or does not parse.
+/// @return false, with the table untouched, when the file is missing, empty
+///         (3.1c's TDF loader refuses an empty file), too large or does not parse.
 bool load_unit_availability(
     UnitDef* table,
     uint32_t count,

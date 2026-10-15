@@ -627,6 +627,45 @@ void installed_data_tests(const oa::AssetStore& assets) {
 // The SOLARSYSTEM lines and the panorama's scroll: gravity reads as a
 // multiple of the standard 112, the wind stays in the mission's range, and
 // the panorama steps one pixel every third tick and wraps at its strip.
+// An empty use-only list, as The Lost Legacy Campaign's missions 13 and 14
+// ship, leaves every unit type available: 3.1c's TDF loader refuses it.
+void empty_use_only_tests() {
+    auto* campaign = new oa::data::campaign::CampaignFile;
+    oa::data::campaign::campaign_file_init(campaign);
+    oa::base::text::copy_terminated(
+        campaign->paths[static_cast<uint32_t>(oa::data::campaign::CampaignPath::use_only)],
+        "camps/useonly/missiontll13.tdf"
+    );
+
+    struct Empty {
+        static int32_t size(void*, const char*) { return 0; }
+
+        static int32_t read(void*, const char*, char*, uint32_t) { return 0; }
+    };
+
+    oa::data::campaign::CampaignFiles files{};
+    files.size = Empty::size;
+    files.read = Empty::read;
+    auto* table = new oa::UnitDef[3]{};
+    const char* names[] = {"", "TLLCOM", "ARMCOM"};
+    for (int i = 0; i < 3; ++i) {
+        oa::base::text::copy_terminated(table[i].unit_name, names[i]);
+        table[i].flags = OA_UNIT_DEF_FLAG_AVAILABLE;
+    }
+    expect(
+        !load_unit_availability(table, 3, campaign, &files),
+        "empty use-only: the empty file is refused"
+    );
+    for (int i = 0; i < 3; ++i)
+        expect(
+            (table[i].flags & OA_UNIT_DEF_FLAG_AVAILABLE) != 0,
+            "empty use-only: every unit type stays available"
+        );
+    delete[] table;
+    oa::data::campaign::campaign_file_free(campaign);
+    delete campaign;
+}
+
 void solar_system_tests() {
     auto* campaign = new oa::data::campaign::CampaignFile;
     campaign->min_wind = 100;
@@ -667,6 +706,7 @@ int main(int argc, char** argv) {
         single_player_tests();
         new_game_tests();
         layered_campaign_list_tests();
+        empty_use_only_tests();
         solar_system_tests();
     }
     if (failures != 0) {
