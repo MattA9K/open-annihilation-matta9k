@@ -570,6 +570,14 @@ void side_and_alliance_tests() {
     check(ui::offered_side(2, 4, 1U << 2) == 3, "a saved hidden side opens on the next");
     check(ui::offered_side(1, 4, 1U << 2) == 1, "an offered side is kept");
     check(ui::offered_side(1, 2, 0b11U) == 1, "with every side hidden the side is kept");
+    // A side saved under another mod: The Lost Legacy's TLL (3) or Rhyoss
+    // (2) opens on Arm in the base game's two sides, never on the art past
+    // Core, which is WATCH; and past a hidden first side on the next.
+    check(ui::offered_side(3, 2, 0) == 0, "a side past the loaded ones opens on the first");
+    check(ui::offered_side(2, 2, 0) == 0, "the side just past the last opens on the first");
+    check(ui::offered_side(-1, 4, 0) == 0, "a negative side opens on the first");
+    check(ui::offered_side(4, 4, 1U << 0) == 1, "out of range, past a hidden first side");
+    check(ui::offered_side(5, 2, 0b11U) == 0, "with every side hidden it is still a loaded side");
     s.slots[2].alliance = 5;
     ui::cycle_alliance(s, 2, h);
     check(s.slots[2].alliance == 0, "alliance wraps after six groups");

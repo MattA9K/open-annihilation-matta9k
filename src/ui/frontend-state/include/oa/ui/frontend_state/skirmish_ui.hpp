@@ -327,12 +327,15 @@ void cycle_color(Settings& settings, int32_t slot, bool reverse, Host& h);
 void advance_side(Settings& settings, int32_t slot, int32_t side_count, uint32_t hidden_sides = 0);
 
 /// Returns the side a slot shows: its own, or the next one offered when its
-/// own is hidden, as a skirmish saved on a hidden side opens.
+/// own is hidden, as a skirmish saved on a hidden side opens. A side past
+/// the loaded ones, saved while a mod with more sides was played, wraps to
+/// the first, as the Side button does after the last.
 ///
 /// @param side The slot's side.
 /// @param side_count Number of loaded sides.
 /// @param hidden_sides Bit n set for a side the Side button never offers.
-/// @return the side, unchanged when it is offered or every side is hidden
+/// @return the side, unchanged when it is loaded and offered; a loaded side
+///         when every side is hidden
 [[nodiscard]] int32_t
 offered_side(int32_t side, int32_t side_count, uint32_t hidden_sides) noexcept;
 

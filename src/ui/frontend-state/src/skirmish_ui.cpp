@@ -360,14 +360,19 @@ int32_t offered_side(int32_t side, int32_t side_count, uint32_t hidden_sides) no
     const auto hidden = [&](int32_t at) {
         return at >= 0 && at < 32 && (hidden_sides & (1U << static_cast<uint32_t>(at))) != 0;
     };
-    if (side_count <= 0 || !hidden(side))
+    if (side_count <= 0)
         return side;
+    // A side past the loaded ones, saved while another mod with more sides
+    // was played, wraps to the first, as the Side button does after the last.
+    const int32_t first = side >= 0 && side < side_count ? side : 0;
+    if (!hidden(first))
+        return first;
     for (int32_t step = 1; step < side_count; ++step) {
-        const int32_t next = add_wrapped(side, step) % side_count;
+        const int32_t next = add_wrapped(first, step) % side_count;
         if (!hidden(next))
             return next;
     }
-    return side;
+    return first;
 }
 
 void advance_side(Settings& s, int32_t index, int32_t side_count, uint32_t hidden_sides) {
