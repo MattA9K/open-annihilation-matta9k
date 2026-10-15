@@ -413,6 +413,12 @@ data::defs::DataLayout data_layout_of(const mod_profile::ModProfile* profile) {
         version_byte(profile->identity.network_version[1])
     };
     layout.side_names = profile->identity.side_names;
+    layout.watcher_side_frame =
+        static_cast<uint8_t>(std::clamp(profile->identity.watcher_side_frame, 0, 15));
+    const auto& hidden = profile->identity.skirmish_hidden_sides;
+    for (uint16_t at = 0; at < hidden.count; ++at)
+        if (hidden.items[at] >= 0 && hidden.items[at] < 32)
+            layout.skirmish_hidden_sides |= 1U << static_cast<uint32_t>(hidden.items[at]);
     return layout;
 }
 

@@ -19,6 +19,7 @@ struct UiState {
     int32_t selected_slot{};     // the digit that ends the selected gadget's name
     int32_t base_widget_count{}; // the GUI's signed record count before the slot rows
     int32_t side_count{};        // Game.side_count, loaded side definitions
+    uint32_t hidden_sides{};     // bit n: the Side button never offers side n
 };
 enum class Button {
     start,
@@ -315,13 +316,25 @@ void cycle_player(Settings& settings, int32_t slot, Host& h);
 ///         colour is in use, and std::out_of_range for a bad slot.
 void cycle_color(Settings& settings, int32_t slot, bool reverse, Host& h);
 
-/// Steps a slot to the next loaded side, wrapping to the first.
+/// Steps a slot to the next loaded side, wrapping to the first, past the
+/// hidden ones; when every side is hidden, to the next side.
 ///
 /// @param[in,out] settings Skirmish settings.
 /// @param slot Slot index.
 /// @param side_count Number of loaded sides.
+/// @param hidden_sides Bit n set for a side the Side button never offers.
 /// @throws std::invalid_argument for an empty side table, and std::out_of_range for a bad slot.
-void advance_side(Settings& settings, int32_t slot, int32_t side_count);
+void advance_side(Settings& settings, int32_t slot, int32_t side_count, uint32_t hidden_sides = 0);
+
+/// Returns the side a slot shows: its own, or the next one offered when its
+/// own is hidden, as a skirmish saved on a hidden side opens.
+///
+/// @param side The slot's side.
+/// @param side_count Number of loaded sides.
+/// @param hidden_sides Bit n set for a side the Side button never offers.
+/// @return the side, unchanged when it is offered or every side is hidden
+[[nodiscard]] int32_t
+offered_side(int32_t side, int32_t side_count, uint32_t hidden_sides) noexcept;
 
 /// Steps a slot to the next of the six alliance groups and refreshes the alliance images.
 ///

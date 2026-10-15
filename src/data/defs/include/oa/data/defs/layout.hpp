@@ -56,6 +56,12 @@ struct DataLayout {
     /// every side but the first takes the second. SIDEDATA keeps its own
     /// names for everything else.
     std::vector<std::string> side_names{"Arm", "Core"};
+    /// The frame of the battle room's SIDEx art a watching player's side
+    /// button shows: 2 in 3.1c, the art after Arm and Core.
+    uint8_t watcher_side_frame{2};
+    /// The SIDEDATA sides the skirmish Side button never offers, bit n for
+    /// side n: none in 3.1c.
+    uint32_t skirmish_hidden_sides{};
 
     /// Compares every field.
     bool operator==(const DataLayout&) const = default;
@@ -108,6 +114,16 @@ void use_data_layout(const DataLayout& layout);
 /// @param side the side's index; a side past the last name is named as the last
 /// @return the name, NUL-terminated
 [[nodiscard]] const char* side_name(uint8_t side) noexcept;
+
+/// Returns the frame of the battle room's side art a watcher's button shows.
+///
+/// @return the frame, 2 in 3.1c
+[[nodiscard]] uint8_t watcher_side_frame() noexcept;
+
+/// Returns the SIDEDATA sides the skirmish Side button never offers.
+///
+/// @return bit n set for side n; 0 in 3.1c
+[[nodiscard]] uint32_t skirmish_hidden_sides() noexcept;
 
 /// Returns the map schema section that places a mission's units.
 ///

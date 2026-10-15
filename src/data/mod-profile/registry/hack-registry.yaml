@@ -1549,6 +1549,22 @@ entries:
     scope: sim
     key: side-names
     value: {type: list<string>, length: [2, 5], max-length: 16, baseline: [Arm, Core], scope: sim}
+  identity.watcher-side-frame:
+    kind: identity
+    area: sides
+    summary: "Frame of the battle room's SIDEx art that a watching player's side button shows. 3.1c draws frame 2, the art after Arm and Core; a mod whose SIDEDATA adds sides draws its watcher art further on."
+    ownership: local-view
+    scope: view
+    key: watcher-side-frame
+    value: {type: int, min: 0, max: 15, baseline: 2, scope: view}
+  identity.skirmish-hidden-sides:
+    kind: identity
+    area: sides
+    summary: "SIDEDATA sides, by number, that the skirmish Side button never offers: a mod's spare side kept only to line up its SIDEx art. The battle room and the side's own data are unchanged."
+    ownership: local-view
+    scope: view
+    key: skirmish-hidden-sides
+    value: {type: list<int>, length: [0, 4], min: 0, max: 4, distinct: true, baseline: [], scope: view}
   layout.archive-patterns.ccx:
     kind: layout
     area: paths

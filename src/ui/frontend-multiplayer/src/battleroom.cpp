@@ -6,6 +6,7 @@
 #include "oa/ui/frontend_multiplayer/screens.hpp"
 
 #include "oa/base/game_loop.hpp"
+#include "oa/data/defs/layout.hpp"
 #include "oa/data/map_pack/map_name.hpp"
 #include "oa/data/mod_profile.hpp"
 #include "oa/data/mod_profile/overrides.hpp"
@@ -2165,7 +2166,7 @@ void lobby_update_side_button(Lobby& lobby, Panel& panel, int32_t slot) noexcept
     char name[64];
     format(name, "SIDE%d", slot);
     const bool watcher = player.in_use != 0 && (info.options & option::watcher) != 0;
-    panel_set_stage(panel, name, watcher ? 2 : info.side);
+    panel_set_stage(panel, name, watcher ? oa::data::defs::watcher_side_frame() : info.side);
 }
 
 void lobby_on_max_units(Panel& panel, void* user) noexcept {

@@ -229,6 +229,8 @@ template <class Visitor, class Profile> void visit_bindings(Visitor& visitor, Pr
     visitor.value("identity.replay-network-version", profile.identity.replay_network_version);
     visitor.value("identity.display-version", profile.identity.display_version);
     visitor.value("identity.side-names", profile.identity.side_names);
+    visitor.value("identity.watcher-side-frame", profile.identity.watcher_side_frame);
+    visitor.value("identity.skirmish-hidden-sides", profile.identity.skirmish_hidden_sides);
     visitor.value("layout.directories.gamedata", profile.layout.directories.gamedata);
     visitor.value("layout.directories.guis", profile.layout.directories.guis);
     visitor.value("layout.directories.unitpics", profile.layout.directories.unitpics);

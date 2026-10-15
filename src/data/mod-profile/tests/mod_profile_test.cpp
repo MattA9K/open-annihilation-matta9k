@@ -515,6 +515,56 @@ void test_blocks() {
             "9feedf99c534fd7b70012f8b8d559f852ef11ddb90335e822eba2f3b4d43362f"
         );
     }
+    // The watcher's side frame: 2, 3.1c's, hashes as a profile without the
+    // key, which is the hash that profile had before the key existed; another
+    // frame is view scope, so it changes the full hash and not the sim hash.
+    const ResolveResult watcher_baseline =
+        resolve(profile_text("minimal", "identity:\n  watcher-side-frame: 2\n"));
+    const ResolveResult watcher_moved =
+        resolve(profile_text("minimal", "identity:\n  watcher-side-frame: 4\n"));
+    OA_CHECK(watcher_baseline.resolution && watcher_moved.resolution);
+    if (watcher_baseline.resolution && watcher_moved.resolution && left_out.resolution) {
+        const auto& base = left_out.resolution->profile;
+        OA_CHECK(watcher_baseline.resolution->profile.full_hash == base.full_hash);
+        OA_CHECK(watcher_baseline.resolution->profile.sim_hash == base.sim_hash);
+        OA_CHECK(
+            watcher_baseline.resolution->canonical.find("watcher-side-frame") == std::string::npos
+        );
+        OA_CHECK(watcher_moved.resolution->profile.identity.watcher_side_frame == 4);
+        OA_CHECK(watcher_moved.resolution->profile.sim_hash == base.sim_hash);
+        OA_CHECK(watcher_moved.resolution->profile.full_hash != base.full_hash);
+        OA_CHECK(
+            watcher_moved.resolution->canonical.find("\"watcher-side-frame\":4") !=
+            std::string::npos
+        );
+    }
+    // The skirmish's hidden sides: an empty list hashes as a profile without
+    // the key; a side named changes the full hash and not the sim hash.
+    const ResolveResult hidden_none =
+        resolve(profile_text("minimal", "identity:\n  skirmish-hidden-sides: []\n"));
+    const ResolveResult hidden_watch =
+        resolve(profile_text("minimal", "identity:\n  skirmish-hidden-sides: [3]\n"));
+    OA_CHECK(hidden_none.resolution && hidden_watch.resolution);
+    if (hidden_none.resolution && hidden_watch.resolution && left_out.resolution) {
+        const auto& base = left_out.resolution->profile;
+        OA_CHECK(hidden_none.resolution->profile.full_hash == base.full_hash);
+        OA_CHECK(hidden_watch.resolution->profile.sim_hash == base.sim_hash);
+        OA_CHECK(hidden_watch.resolution->profile.full_hash != base.full_hash);
+        const auto& hidden = hidden_watch.resolution->profile.identity.skirmish_hidden_sides;
+        OA_CHECK(hidden.count == 1 && hidden.items[0] == 3);
+    }
+    OA_CHECK(refused_with(
+        profile_text("hidden-side-past", "identity:\n  skirmish-hidden-sides: [5]\n"),
+        "is outside [0, 4]"
+    ));
+    OA_CHECK(refused_with(
+        profile_text("hidden-side-twice", "identity:\n  skirmish-hidden-sides: [2, 2]\n"),
+        "repeated items"
+    ));
+    OA_CHECK(refused_with(
+        profile_text("watcher-frame-past", "identity:\n  watcher-side-frame: 16\n"),
+        "is outside [0, 15]"
+    ));
     OA_CHECK(refused_with(
         profile_text("archives-slash", "layout:\n  installation-archives: [\"dir/addon.ccx\"]\n"),
         "does not match"

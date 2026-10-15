@@ -1817,9 +1817,9 @@ class Resolver {
             return;
         strip_positions(effective);
 
-        // The hashes read a copy with an empty installation-archives list
-        // left out, or the effective profile itself when there is no such
-        // list to leave out. The effective profile still holds the list, and
+        // The hashes read a copy with the keys added after grammar 1's first
+        // release left out at their baselines, or the effective profile
+        // itself when there is nothing to leave out. The effective profile still holds the list, and
         // --print-profile prints the effective profile.
         const std::optional<Value> stripped = canonical_source(effective);
         const Value& hashed = stripped ? *stripped : effective;
@@ -1913,31 +1913,61 @@ class Resolver {
 
     /// Returns the profile the hashes read, when it is not the effective one.
     ///
-    /// `layout.installation-archives` was added after grammar 1's first
-    /// release. An empty list mounts nothing, the same as a profile that
-    /// never wrote the key, so the canonical form leaves it out and existing
-    /// profiles keep both hashes. A list that names an archive stays, in the
-    /// order written, and the effective profile is read as it is, uncopied.
-    /// The effective profile itself still holds the empty list.
+    /// Three keys were added after grammar 1's first release: an empty
+    /// `layout.installation-archives` list mounts nothing, an
+    /// `identity.watcher-side-frame` of 2 shows 3.1c's watcher art, and an
+    /// empty `identity.skirmish-hidden-sides` list hides no side, the same as
+    /// a profile that never wrote the key. So the canonical form leaves each
+    /// out at that value, and existing profiles keep both hashes. Any other
+    /// value stays, and the effective profile is read as it is, uncopied.
+    /// The effective profile itself still holds every key.
     ///
     /// @param effective the effective profile
-    /// @return a copy without the empty list; nothing when there is none to leave out
+    /// @return a copy without those keys; nothing when there are none to leave out
     static std::optional<Value> canonical_source(const Value& effective) {
-        const Value* found_layout = find_member(effective, "layout");
-        if (found_layout == nullptr)
-            return std::nullopt;
-        const Value* archives = find_member(*found_layout, "installation-archives");
-        if (archives == nullptr || archives->kind != ValueKind::list || !archives->items.empty())
-            return std::nullopt;
-        Value copy = effective;
-        Value* layout = find_member(copy, "layout");
-        std::vector<Member> kept;
-        kept.reserve(layout->members.size());
-        for (Member& member : layout->members) {
-            if (member.key != "installation-archives")
-                kept.push_back(std::move(member));
+        struct LateKey {
+            std::string_view block;
+            std::string_view key;
+            bool (*at_baseline)(const Value&);
+        };
+
+        static constexpr std::array<LateKey, 3> late_keys{{
+            {"layout",
+             "installation-archives",
+             [](const Value& value) {
+                 return value.kind == ValueKind::list && value.items.empty();
+             }},
+            {"identity",
+             "watcher-side-frame",
+             [](const Value& value) {
+                 int64_t frame = 0;
+                 return value.kind == ValueKind::number &&
+                        formats::oamod::integer_value(value.number, frame) && frame == 2;
+             }},
+            {"identity", "skirmish-hidden-sides", [](const Value& value) {
+                 return value.kind == ValueKind::list && value.items.empty();
+             }},
+        }};
+        std::optional<Value> copy;
+        for (const LateKey& late : late_keys) {
+            const Value* source = copy ? &*copy : &effective;
+            const Value* found_block = find_member(*source, late.block);
+            if (found_block == nullptr)
+                continue;
+            const Value* found = find_member(*found_block, late.key);
+            if (found == nullptr || !late.at_baseline(*found))
+                continue;
+            if (!copy)
+                copy = effective;
+            Value* block = find_member(*copy, late.block);
+            std::vector<Member> kept;
+            kept.reserve(block->members.size());
+            for (Member& member : block->members) {
+                if (member.key != late.key)
+                    kept.push_back(std::move(member));
+            }
+            block->members = std::move(kept);
         }
-        layout->members = std::move(kept);
         return copy;
     }
 

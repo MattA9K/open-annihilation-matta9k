@@ -289,7 +289,8 @@ void populate(Settings& s, Preferences& p, UiState& ui, Host& h) {
         for (uint32_t i = 0; i < *team_frames; ++i)
             h.zero_team_icon_frame_origin(0); // Frame zero is fetched every time.
     for (int32_t i = 0; i < s.slot_count; ++i) {
-        const auto& value = s.slots[static_cast<std::size_t>(i)];
+        auto& value = s.slots[static_cast<std::size_t>(i)];
+        value.side = offered_side(value.side, ui.side_count, ui.hidden_sides);
         if (value.controller >= 0 && value.controller <= 2)
             h.set_text(
                 h.frontend_menu(),
@@ -355,11 +356,26 @@ void setup(State&, Settings& s, Preferences& p, UiState& ui, Host& h) {
     h.select_cursor_animation(active_cursor_index);
 }
 
-void advance_side(Settings& s, int32_t index, int32_t side_count) {
+int32_t offered_side(int32_t side, int32_t side_count, uint32_t hidden_sides) noexcept {
+    const auto hidden = [&](int32_t at) {
+        return at >= 0 && at < 32 && (hidden_sides & (1U << static_cast<uint32_t>(at))) != 0;
+    };
+    if (side_count <= 0 || !hidden(side))
+        return side;
+    for (int32_t step = 1; step < side_count; ++step) {
+        const int32_t next = add_wrapped(side, step) % side_count;
+        if (!hidden(next))
+            return next;
+    }
+    return side;
+}
+
+void advance_side(Settings& s, int32_t index, int32_t side_count, uint32_t hidden_sides) {
     if (side_count <= 0)
         throw std::invalid_argument("empty side table");
     auto& value = slot(s, index);
-    value.side = add_wrapped(value.side, 1) % side_count;
+    const int32_t next = add_wrapped(value.side, 1) % side_count;
+    value.side = offered_side(next, side_count, hidden_sides);
 }
 
 void cycle_alliance(Settings& s, int32_t index, Host& h) {
@@ -442,7 +458,12 @@ bool handle_event(
         cycle_player(s, ui.selected_slot, h);
     } else if (selected == "Side") {
         sound();
-        advance_side(s, ui.selected_slot, ui.side_count);
+        advance_side(s, ui.selected_slot, ui.side_count, ui.hidden_sides);
+        // The button's own two stages wrap at Core; its frame follows the
+        // side instead, so a third or later SIDEDATA side shows its own art.
+        h.set_side_stage(
+            widget("Side", ui.selected_slot), static_cast<uint8_t>(slot(s, ui.selected_slot).side)
+        );
     } else if (selected == "Allies") {
         sound();
         cycle_alliance(s, ui.selected_slot, h);

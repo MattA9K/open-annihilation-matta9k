@@ -123,6 +123,7 @@ void Runtime::load_side_table() {
     if (auto problem = side_table_problem(loaded, side_table_); !problem.empty())
         throw std::runtime_error(problem);
     skirmish_ui_.side_count = static_cast<int32_t>(side_table_.count);
+    skirmish_ui_.hidden_sides = oa::data::defs::skirmish_hidden_sides();
 }
 
 std::string Runtime::side_data_path() const {

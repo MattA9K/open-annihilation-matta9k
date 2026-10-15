@@ -54,6 +54,14 @@ const char* side_name(uint8_t side) noexcept {
     return names[std::min<std::size_t>(side, names.size() - 1)].c_str();
 }
 
+uint8_t watcher_side_frame() noexcept {
+    return current_layout().watcher_side_frame;
+}
+
+uint32_t skirmish_hidden_sides() noexcept {
+    return current_layout().skirmish_hidden_sides;
+}
+
 const char* map_units_section() noexcept {
     return current_layout().map_units_section.c_str();
 }

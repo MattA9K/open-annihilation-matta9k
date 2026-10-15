@@ -372,9 +372,29 @@ void event_tests() {
     run("Energy0");
     check(s.slots[0].energy == 10000 && h.saw("capture"), "energy upper clamp/input capture");
     run("Side0");
-    check(s.slots[0].side == 1, "side cycle");
+    check(s.slots[0].side == 1 && h.saw("side:Side0:1"), "side cycle");
     run("Side0");
-    check(s.slots[0].side == 0, "side wrap");
+    check(s.slots[0].side == 0 && h.saw("side:Side0:0"), "side wrap");
+    // A SIDEDATA with four sides: the button shows each side's frame, not
+    // its own two stages.
+    u.side_count = 4;
+    for (const int32_t side : {1, 2, 3, 0}) {
+        h.calls.clear();
+        run("Side0");
+        check(
+            s.slots[0].side == side && h.saw("side:Side0:" + std::to_string(side)),
+            ("the side button shows side " + std::to_string(side) + " of four").c_str()
+        );
+    }
+    // The Lost Legacy: WATCH (2) is hidden, so Core steps to TLL (3).
+    u.hidden_sides = 1U << 2;
+    s.slots[0].side = 1;
+    h.calls.clear();
+    run("Side0");
+    check(s.slots[0].side == 3 && h.saw("side:Side0:3"), "the side button skips a hidden side");
+    u.hidden_sides = 0;
+    u.side_count = 2;
+    s.slots[0].side = 0;
     run("Allies0");
     check(s.slots[0].alliance == 0, "alliance modulo6");
     for (auto b : {ui::Button::commander_death, ui::Button::start_location, ui::Button::mapping}) {
@@ -536,6 +556,20 @@ void side_and_alliance_tests() {
     check(s.slots[1].side == 0, "side wraps at the loaded side count");
     ui::advance_side(s, 1, 2);
     check(s.slots[1].side == 1, "side steps forward");
+    // Rhyoss: four sides, the spare WATCH (3) hidden; The Lost Legacy: its
+    // spare WATCH (2) hidden before its own side, 3.
+    s.slots[1].side = 2;
+    ui::advance_side(s, 1, 4, 1U << 3);
+    check(s.slots[1].side == 0, "a hidden last side is stepped past to the first");
+    s.slots[1].side = 1;
+    ui::advance_side(s, 1, 4, 1U << 2);
+    check(s.slots[1].side == 3, "a hidden middle side is stepped past");
+    ui::advance_side(s, 1, 2, 0b11U);
+    check(s.slots[1].side == 0, "with every side hidden the button still steps");
+    check(ui::offered_side(3, 4, 1U << 3) == 0, "a saved hidden last side opens on the first");
+    check(ui::offered_side(2, 4, 1U << 2) == 3, "a saved hidden side opens on the next");
+    check(ui::offered_side(1, 4, 1U << 2) == 1, "an offered side is kept");
+    check(ui::offered_side(1, 2, 0b11U) == 1, "with every side hidden the side is kept");
     s.slots[2].alliance = 5;
     ui::cycle_alliance(s, 2, h);
     check(s.slots[2].alliance == 0, "alliance wraps after six groups");

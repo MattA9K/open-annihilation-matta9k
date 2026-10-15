@@ -501,6 +501,14 @@ struct Identity {
     /// everything else): one a side, two to five; every side past the last name takes the last.
     /// 3.1c: [Arm, Core].
     std::vector<std::string> side_names{"Arm", "Core"};
+    /// identity.watcher-side-frame: Frame of the battle room's SIDEx art that a watching player's
+    /// side button shows. 3.1c draws frame 2, the art after Arm and Core; a mod whose SIDEDATA adds
+    /// sides draws its watcher art further on. 3.1c: 2.
+    int32_t watcher_side_frame{2};
+    /// identity.skirmish-hidden-sides: SIDEDATA sides, by number, that the skirmish Side button
+    /// never offers: a mod's spare side kept only to line up its SIDEx art. The battle room and the
+    /// side's own data are unchanged. 3.1c: [].
+    FixedList<int32_t, 4> skirmish_hidden_sides{};
     /// Compares every field.
     bool operator==(const Identity&) const = default;
 };

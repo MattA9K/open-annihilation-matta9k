@@ -739,6 +739,8 @@ Identity keys are written directly under `identity`.
 | `settings-file` | The name of the INI file the game reads its settings from | `totala.ini` | string, at most 64 | view |
 | `registry-root` | The registry key the game keeps its settings under | 3.1c's own key | string, at most 128 | view |
 | `side-names` | The side names the game itself uses: computer players' names, elimination messages and the side buttons, one name a side in SIDEDATA's order. A side past the last name takes the last, so with two names every side but the first takes the second, as in 3.1c; a mod with more sides names each. SIDEDATA keeps its own names for everything else. | `[Arm, Core]` | two to five strings, at most 16 each | sim |
+| `watcher-side-frame` | The frame of the battle room's `SIDEx` art that a watching player's side button shows. 3.1c shows frame 2, the art after Arm and Core; a mod whose SIDEDATA adds sides, and whose art puts its watcher picture further on, names that frame | `2` | integer, 0 to 15 | view |
+| `skirmish-hidden-sides` | The SIDEDATA sides, by number from 0, that the skirmish Side button never offers, such as a spare side a mod keeps only so that its `SIDEx` art lines up. The button steps past them, and a skirmish saved on one opens on the next side offered. The battle room still offers them, and the sides keep their data | `[]` | up to four distinct integers, 0 to 4 | view |
 
 ### 6.2 `layout`
 
@@ -989,7 +991,7 @@ part of playing 3.1c:
 | Unit scripts | `set ARMORED` turns on `DamageModifier`; a negative `EnergyUse` is paid out while the unit is activated; a script can attach and drop any unit, and attaching to piece −1 hides the passenger; scripts may scan every unit slot in one tick without sleeping; `MoveRate` calls reach ground units. |
 | Deaths and wrecks | `setSFXoccupy` codes reach `Killed`; corpse types up to 25; wrecks that turn into further wrecks over several steps. |
 | AI and builds | Build orders named `MAKENUKE` and `MAKEANTI` become stockpile orders; manual fire of the third weapon works with an empty second weapon. |
-| Sides | A side's HUD panels come from the GAF its SIDEDATA `intgaf` names, its resource numbers and unit panel are drawn in the font its `font` names, and its resource bars come from its own `SIDEn` section; the rest of its interface, such as its general build pages, follows its `nameprefix`. Commanders and build lists come from SIDEDATA, never from fixed unit names. |
+| Sides | A side's HUD panels come from the GAF its SIDEDATA `intgaf` names, its resource numbers and unit panel are drawn in the font its `font` names, and its resource bars come from its own `SIDEn` section; the rest of its interface, such as its general build pages, follows its `nameprefix`. Commanders and build lists come from SIDEDATA, never from fixed unit names. The skirmish side button shows the `SIDEx` frame of the side it has chosen, for every SIDEDATA side, where 3.1c's two-stage button wraps back to Arm after Core. |
 | Transports | A script may drop every passenger at once; a blocked drop cell is handled as 3.1c handles it. |
 | Loading | Missing weapons, sounds, fonts and sprite sequences; unknown unit names in AI profiles; misspelled SIDEDATA sections; duplicate unit and feature names; a missing semicolon; brackets inside weapon names; non-square footprints of mobile units; maps without a terrain file. Each loads as 3.1c loads it. |
 | Files | An empty file wins its path and contributes nothing, hiding the file beneath it. |
