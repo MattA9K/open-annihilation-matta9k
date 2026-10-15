@@ -161,10 +161,45 @@ struct TextRun {
 /// Splits UTF-8 text into the runs a game font draws and the runs it leaves
 /// to the modern fonts.
 ///
+/// A text that holds a letter the game font lacks (a Cyrillic or Greek
+/// letter, a Latin letter beyond its code page) is drawn whole by the modern
+/// fonts, its digits, Latin words and marks with it, so that neither a word
+/// such as "будь-якого" nor its line changes typeface part way. Otherwise
+/// each character is drawn by the game font when it has it, and only the
+/// others by the modern fonts: all of English keeps the game font, and so
+/// do the digits and Latin letters beside a symbol the font lacks (→) or a
+/// Chinese, Japanese or Korean character.
+///
 /// @param text UTF-8 text
 /// @param font the characters the game font draws
 /// @return the runs, in order; adjacent characters of one kind share a run
 [[nodiscard]] std::vector<TextRun> split_text(std::string_view text, const FontCharacters& font);
+
+/// The step a caption too wide for its gadget shrinks its modern text by,
+/// in percent of the game font's size.
+inline constexpr int32_t fitted_text_size_step = 5;
+
+/// Returns the most size, in percent of the game font's, a caption's modern
+/// runs may be drawn at so that the caption is no wider than its room: the
+/// game font's own size when it fits, else the largest size, a step of
+/// fitted_text_size_step at a time, down to lowest_text_size, at which it
+/// fits, else lowest_text_size. A caption whose width does not change with
+/// the size, as one the game font draws whole, keeps the game font's size.
+///
+/// @param width_at the caption's width with its modern runs drawn at most a
+///        size, in pixels
+/// @param room the room, in pixels
+/// @return the size, from lowest_text_size to game_font_text_size
+[[nodiscard]] int32_t
+fitted_text_size(const std::function<int32_t(int32_t most_size)>& width_at, int32_t room);
+
+/// Tells whether split_text draws a text whole in the modern fonts: it holds
+/// a letter the game font lacks.
+///
+/// @param text UTF-8 text
+/// @param font the characters the game font draws
+/// @return true when the modern fonts draw all of it
+[[nodiscard]] bool drawn_whole_in_modern_fonts(std::string_view text, const FontCharacters& font);
 
 // ---- Modern text ----
 

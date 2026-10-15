@@ -415,7 +415,10 @@ app removes the folder (`Runtime::library_uninstall`,
     holding the rest, and BACK. BACK returns to the list and keeps its tab,
     filter, search, scroll and row. The list page's button stays CLOSE;
   - **Regular** shows "Open Annihilation Library" and "v0.8.0", the same
-    refresh icon, the tabs with their All counts and a 240-point search, a row of pills (All, New,
+    refresh icon, the tabs with their All counts and a 240-point search
+    beside them (on a row of its own under them when the tabs do not all
+    fit beside it, so that none hides beside the search; the same at
+    Large), a row of pills (All, New,
     Installed and Updates with their counts, and the tags while they fit,
     the chosen one in the accent ground and the others in the muted ground,
     TAGS ▾ holding the rest; on Updates, "{n} updates" and UPDATE ALL on a

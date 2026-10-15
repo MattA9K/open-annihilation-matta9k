@@ -57,6 +57,7 @@
 #include "oa/ui/engine_settings/prompt.hpp"
 #include "oa/ui/kit/canvas.hpp"
 #include "oa/ui/kit/input.hpp"
+#include "oa/ui/kit/text.hpp"
 #include "oa/ui/paint/painter.hpp"
 #include "oa/test/game_assets.hpp"
 #include "oa/test/game_data.hpp"
@@ -9947,6 +9948,84 @@ void the_header_close_mark_closes_as_cancel_does() {
     }
 }
 
+/// Counts a text's characters.
+///
+/// @param text the text, in UTF-8
+/// @return its characters
+int32_t characters_in(std::string_view text) {
+    int32_t count = 0;
+    for (const char byte : text)
+        if ((static_cast<unsigned char>(byte) & 0xC0U) != 0x80U)
+            ++count;
+    return count;
+}
+
+// Game Content's sentence breaks where the hint's font measures it: a
+// language whose letters are wider than the estimate keeps every line in
+// the section, and a no-break space joins the words beside it, measured
+// with them, as Documents ›\u00a0Open Annihilation.
+void game_content_sentence_breaks_where_measured() {
+    const settings::Dialog dialog = opened(Page::game_content);
+    oa::data::languages::InterfaceText catalogue;
+    CHECK(catalogue.add(
+        "[OA plays from its own copy in Documents \u203a\u00a0Open Annihilation. The "
+        "installation is not used or changed.]\n{\nde=OA spielt aus seiner eigenen Kopie unter "
+        "Dokumente \u203a\u00a0Open Annihilation. Die Installation wird weder benutzt noch "
+        "ver\u00e4ndert.;\n}\n"
+    ));
+    oa::data::languages::set_interface_language(
+        &catalogue, *oa::data::languages::find_by_tag("de")
+    );
+    // Wider letters than the estimate: 9 points each, a space 4.
+    const geometry::TextWidth wide = [](std::string_view text) {
+        int32_t width = 0;
+        for (std::size_t at = 0; at < text.size();) {
+            const std::size_t bytes =
+                std::max<std::size_t>(oa::ui::kit::character_bytes(text.substr(at)), 1);
+            width += text[at] == ' ' ? 4 : 9;
+            at += bytes;
+        }
+        return width;
+    };
+    oa::ui::kit::PlacedRows placed;
+    std::ignore = geometry::place_section(dialog, Page::game_content, {}, nullptr, wide, &placed);
+    oa::data::languages::set_interface_language(nullptr, oa::data::languages::english());
+    CHECK(!placed.rows.empty());
+    if (placed.rows.empty())
+        return;
+    const std::vector<std::string>& lines = placed.rows.front().view.hints;
+    const int32_t room = geometry::sizes_of(dialog).content_width;
+    std::string joined;
+    for (const std::string& line : lines) {
+        if (wide(line) > room)
+            std::cerr << "too wide (" << wide(line) << " of " << room << "): " << line << '\n';
+        CHECK(wide(line) <= room);
+        CHECK(
+            line.find("\u00a0") == std::string::npos ||
+            line.find("\u203a\u00a0Open") != std::string::npos
+        );
+        joined += joined.empty() ? line : " " + line;
+    }
+    CHECK(characters_in(joined) > 100);
+    CHECK(joined.find("Dokumente \u203a\u00a0Open Annihilation.") != std::string::npos);
+
+    // In the sizes a language's wide section names fit, the page's rows and
+    // its sentence lie in the narrower section, as every page's do.
+    geometry::Sizes fitted = geometry::sizes_of(dialog);
+    fitted.content_left += 40;
+    fitted.content_width -= 40;
+    oa::ui::kit::PlacedRows narrow;
+    std::ignore =
+        geometry::place_section(dialog, Page::game_content, {}, nullptr, wide, &narrow, &fitted);
+    CHECK(!narrow.rows.empty());
+    for (const oa::ui::kit::PlacedRow& row : narrow.rows) {
+        for (const auto& line : row.hints)
+            CHECK(line.width <= 0 || line.x >= fitted.content_left);
+        for (const std::string& line : row.view.hints)
+            CHECK(wide(line) <= fitted.content_width);
+    }
+}
+
 void game_content_lists_each_bundle_and_three_actions() {
     settings::Dialog dialog = opened(Page::game_content);
     settings::GameContentRow base;
@@ -10007,6 +10086,7 @@ int main(int argc, char** argv) {
         every_part_lies_inside_the_dialog_and_apart();
         each_section_shows_its_rows();
         game_content_lists_each_bundle_and_three_actions();
+        game_content_sentence_breaks_where_measured();
         a_click_on_an_entry_shows_its_section();
         every_control_is_pressed_where_it_is_drawn();
         switches_take_a_click_on_either_half_and_keys();

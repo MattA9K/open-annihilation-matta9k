@@ -495,6 +495,7 @@ const std::vector<ValueCase>& value_cases() {
         {"--render-fault", "present", {"--check-renderer-ladder"}},
         {"--check-unit-pages", "whole:ARMCOM", {}},
         {"--check-unit-language", "fr", {}},
+        {"--check-language", "uk", {"--check-text-fit"}},
         {"--game-files-route", "demo", {"--check-game-files"}},
         {"--game-files-expect", "resumed", {"--check-game-files"}},
         {"--game-files-source", "folder", {"--check-game-files"}},
@@ -669,6 +670,32 @@ void value_options() {
         unit_checks.check_unit_pages == "whole:ARMCOM,CORCOM" &&
             unit_checks.check_unit_language == "fr" && unit_checks.fixed_clock,
         "--check-unit-pages and --check-unit-language take their pages and language"
+    );
+    // The text-fit and language switch checks take the languages they check,
+    // such as an installed pack's, in place of their own.
+    const auto fit =
+        parse({"--check-text-fit", "--check-language", "uk", "--check-language", "de"});
+    expect(
+        fit.check_text_fit && fit.check_languages == std::vector<std::string>({"uk", "de"}),
+        "--check-text-fit takes each --check-language"
+    );
+    const auto switched = parse({"--check-language", "uk", "--check-language-switch"});
+    expect(
+        switched.check_language_switch &&
+            switched.check_languages == std::vector<std::string>({"uk"}),
+        "--check-language-switch takes --check-language"
+    );
+    expect(parse({"--check-text-fit"}).check_languages.empty(), "the checks keep their own");
+    expect(
+        rejection({"--check-language", "uk"}) ==
+            "--check-language needs --check-text-fit or --check-language-switch",
+        "--check-language alone is refused"
+    );
+    expect(
+        rejection(
+            {"--check-language-switch", "--check-language", "uk", "--check-language", "de"}
+        ) == "--check-language-switch takes one --check-language",
+        "the switch starts in one language"
     );
     expect(
         parse({"--trace-lookups", "lookups.txt"}).trace_lookups == path_from_utf8("lookups.txt"),

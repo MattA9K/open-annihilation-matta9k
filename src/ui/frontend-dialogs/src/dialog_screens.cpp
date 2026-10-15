@@ -332,6 +332,13 @@ int32_t help_page() noexcept {
     return dialog == nullptr || dialog->kind != DialogKind::help ? 0 : dialog->help_page;
 }
 
+uint8_t dialog_button_stage(std::size_t index) noexcept {
+    const auto* dialog = dialog_top();
+    if (dialog == nullptr || index >= dialog->stages.size())
+        return 0;
+    return dialog->stages[index];
+}
+
 bool dialog_click(app::ScreenContext* ctx, const char* name) {
     auto* dialog = dialog_top();
     if (dialog == nullptr || name == nullptr)

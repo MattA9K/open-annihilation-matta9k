@@ -6,10 +6,12 @@
 #include "content_page.hpp"
 
 #include "oa/ui/kit/rows.hpp"
+#include "oa/ui/kit/text.hpp"
 
 #include <algorithm>
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -50,17 +52,29 @@ geometry::Rows place(
     const Dialog& dialog,
     const Locks& locks,
     const geometry::TextWidth& width,
-    kit::PlacedRows* placed
+    kit::PlacedRows* placed,
+    const geometry::Sizes* sizes
 ) {
     static_cast<void>(locks);
-    static_cast<void>(width);
     std::vector<kit::RowView> views;
     views.reserve(dialog.game_content.size() + 4);
 
+    // The sentence breaks between words where the hint's font measures it,
+    // as every row's hint does, so that a language whose letters are wider
+    // than the estimate keeps within the section. A no-break space, as in
+    // Documents ›\u00a0Open Annihilation, is no place to break, and is
+    // measured with the words it joins.
     const std::string intro(geometry::shown_text(kIntro));
-    const std::size_t columns = geometry::sizes_of(dialog).hint_line_characters;
-    std::vector<std::string> lines =
-        geometry::break_lines(intro, columns, 1 + geometry::most_row_lines);
+    // The rows lie where the dialog places every section's, in the sizes a
+    // language's wide section names fit.
+    const geometry::Sizes& sized = sizes != nullptr ? *sizes : geometry::sizes_of(dialog);
+    const int32_t room =
+        geometry::estimated_measure(width)
+            ? static_cast<int32_t>(sized.hint_line_characters) * estimated_character_width
+            : sized.content_width;
+    std::vector<std::string> lines = kit::wrap(intro, std::max(room, int32_t{1}), width);
+    if (lines.size() > 1 + geometry::most_row_lines)
+        lines.resize(1 + geometry::most_row_lines);
     kit::RowView lead;
     lead.kind = kit::RowKind::text;
     lead.id = "plays-from";
@@ -98,7 +112,6 @@ geometry::Rows place(
     views.push_back(button_row("content-copy", "copy-again", "Copy again from…"));
     views.push_back(button_row("content-open", "open-folder", "Open folder"));
 
-    const geometry::Sizes& sized = geometry::sizes_of(dialog);
     kit::RowPlacement placement;
     placement.left = sized.content_left;
     placement.right = sized.content_right;

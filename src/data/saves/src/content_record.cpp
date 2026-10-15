@@ -175,9 +175,11 @@ ContentGap content_gap(
     if (!saved.present)
         return gap;
     std::vector<std::string> missing;
+    std::vector<std::string> missing_ids;
     if (saved.base_game != now.base_game) {
         gap.base_differs = true;
         missing.push_back(bundle_english_name(saved.base_game));
+        missing_ids.push_back(saved.base_game);
     }
     for (const std::string& id : saved.expansions) {
         bool on = false;
@@ -185,13 +187,19 @@ ContentGap content_gap(
             if (current == id)
                 on = true;
         }
-        if (!on)
+        if (!on) {
             missing.push_back(bundle_english_name(id));
+            missing_ids.push_back(id);
+        }
     }
     if (missing.empty())
         return gap;
     gap.needed = true;
     gap.focus = gap.base_differs ? bundle_english_name(saved.base_game) : join_names(missing);
+    if (gap.base_differs)
+        gap.focus_ids.push_back(saved.base_game);
+    else
+        gap.focus_ids = std::move(missing_ids);
 
     std::vector<std::string_view> enabled;
     for (const std::string& id : now.expansions) {

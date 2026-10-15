@@ -5698,6 +5698,10 @@ class Runtime final : public menu::Host,
     /// Lists the chosen side's campaigns, selects the side's own campaign and loads its missions.
     void discover_campaigns();
 
+    /// Writes the names the Campaign list shows, campaign_shown_labels_, for
+    /// campaign_labels_ in the language shown (oa::ui::campaign::shown_campaign_name).
+    void name_campaigns();
+
     /// Selects the Campaign or Missions row under a canvas row.
     ///
     /// Two campaign files or fewer leave the new-campaign screen to the side
@@ -11897,11 +11901,12 @@ class Runtime final : public menu::Host,
     void check_unit_language();
 
     /// Changes the language in the settings over the main menu, and over a
-    /// skirmish's in-game menu, from Simplified Chinese, the language the
-    /// run starts in, to English, German and back, and checks that after
-    /// each change the screen under the settings, closed with OK, shows
-    /// what it shows opened again in the language, and back in Chinese what
-    /// it showed as the run started. Writes each step's frame beside
+    /// skirmish's in-game menu, from the language the run starts in,
+    /// Simplified Chinese or the installed pack's language --check-language
+    /// names, to English, German and back, and checks that after each
+    /// change the screen under the settings, closed with OK, shows what it
+    /// shows opened again in the language, and back in the first language
+    /// what it showed as the run started. Writes each step's frame beside
     /// --snapshot when one is named; throws std::runtime_error naming what
     /// differed.
     void check_language_switch();
@@ -11938,9 +11943,11 @@ class Runtime final : public menu::Host,
     void check_progress();
 
     /// Opens every Open Annihilation screen in English, German, French,
-    /// Spanish, Italian and Simplified Chinese, at 640x480 and 1280x720.
-    /// Throws std::runtime_error naming each text drawn wider than its box
-    /// or across another text, with the screen, the language and the size.
+    /// Spanish, Italian and Simplified Chinese, or in the languages
+    /// --check-language names, at 640x480 and 1280x720. Throws
+    /// std::runtime_error naming each text drawn wider than its box or
+    /// across another text, with the screen, the language and the size, or
+    /// a named language the game does not show.
     void check_text_fit();
 
     /// Writes the first-run check's registries file before content starts.
@@ -15622,6 +15629,9 @@ class Runtime final : public menu::Host,
     bool session_cheats_allowed_ = false;
     std::vector<std::string> campaign_files_{};
     std::vector<std::string> campaign_labels_{};
+    // The names the Campaign list shows, one for each of campaign_labels_, in
+    // the language shown as the list was filled (name_campaigns).
+    std::vector<std::string> campaign_shown_labels_{};
     std::vector<std::string> campaign_mission_files_{};
     std::vector<std::string> campaign_mission_labels_{};
     std::vector<std::string> end_mission_rows_{}; // ENDMSN Missions list, with result markers

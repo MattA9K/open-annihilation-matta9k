@@ -106,6 +106,11 @@ struct GadgetRenderer {
         int32_t color
     ) = nullptr;
     int32_t text_color = 0; // FNT text colour as last set
+    // The most size, in percent of the game font's, the modern fonts draw
+    // and measure text at: 100, the game font's own, but while a button's
+    // caption too wide for it is fitted and drawn, which draws its modern
+    // text smaller first (present::fitted_text_size).
+    int32_t most_text_size = 100;
     PanelSurfaces panels[kPanelSlots];
 };
 

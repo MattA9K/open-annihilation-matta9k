@@ -152,6 +152,14 @@ bool render_panel(
     auto panel = std::make_unique<ui::gui_input::GadgetPanel>();
     ui::gui_input::init_gadget_panel(*panel);
     ui::gadget_render::bind_renderer(*panel, stack.renderer);
+    // A button with stages, such as HELP.GUI's Page 1|Page 2|Page 3, is
+    // translated stage by stage as its captions are split, as on the game's
+    // own screens. The renderer holds the panel's context, so the hook reads
+    // the dialogs' host itself.
+    panel->host.translate = [](void*, const char* text) -> const char* {
+        const auto& host = dialog_stack().host;
+        return host.translate != nullptr ? host.translate(host.context, text) : nullptr;
+    };
     ui::gui_input::set_gaf_path(*panel, kGuiArtDirectory);
     ui::gui_input::set_default_font(
         *panel, stack.art->default_font.empty() ? nullptr : stack.art->default_font.data()

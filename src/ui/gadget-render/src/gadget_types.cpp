@@ -5,6 +5,7 @@
 #include "render_internal.hpp"
 
 #include "oa/ui/frontend_renderer/gadget_draw.hpp"
+#include "oa/present/game_text.hpp"
 #include "oa/base/game_math.hpp"
 #include "oa/present/model/mesh_raster.hpp"
 #include "oa/ui/gui_layout.hpp"
@@ -51,6 +52,9 @@ constexpr uint32_t kValueFromOne = 0x8;    // scroll bars: the value caption cou
 constexpr uint32_t kScrollGrayed = 0x10;   // scroll bars: grayed like a locked bar
 constexpr int32_t kPressedFrameOffset = 2; // grayed frames sit two past the pressed state
 constexpr int32_t kCaptionInset = 3;
+// The pixels a fitted caption leaves free of its gadget's width, as
+// ui::gui_input::fit_text_to_width leaves them.
+constexpr int32_t kFittedCaptionMargin = 6;
 constexpr int32_t kBottomCaptionGap = 4;
 
 // List rows: image rows keep one texel of their frame's border unsampled;
@@ -102,8 +106,31 @@ std::string bounded_text(const GadgetRecord& record, size_t offset) {
 
 // The caption width the caption fitting leaves behind: the
 // last measure, taken with font slot 1 for labels and alternate-font buttons.
-int32_t fit_caption(const GadgetRenderer& renderer, GadgetPanel& panel, int32_t index) {
+// A caption wider than its gadget less 6 pixels first draws its modern text
+// smaller, down to present::lowest_text_size, until it fits: the renderer's
+// most_text_size, which the caller puts back. Only a caption still too
+// wide, or one the game font draws, loses characters from its end.
+int32_t fit_caption(GadgetRenderer& renderer, GadgetPanel& panel, int32_t index) {
     const void* active = panel.active_gaf_font;
+    renderer.most_text_size = present::game_font_text_size;
+    {
+        const auto& record = record_at(panel, index);
+        const char* caption =
+            ui::gui_input::gadget_text_by_name(panel, bounded_text(record, field::name), nullptr);
+        const auto type = layout::gadget_type_of(record);
+        if (type == gadget_type::label ||
+            (type == gadget_type::button && (attributes(record) & attribute::alternate_font) != 0))
+            panel.active_gaf_font = panel.gaf_fonts[1];
+        if (caption != nullptr)
+            renderer.most_text_size = present::fitted_text_size(
+                [&](int32_t most_size) {
+                    renderer.most_text_size = most_size;
+                    return text_width(renderer, panel, caption);
+                },
+                i16(record, field::width) - kFittedCaptionMargin
+            );
+        panel.active_gaf_font = active;
+    }
     ui::gui_input::fit_text_to_width(panel, index);
     auto& record = record_at(panel, index);
     const std::string name = bounded_text(record, field::name);
@@ -344,6 +371,13 @@ void draw_skin(GadgetRenderer& renderer, GadgetPanel& panel, int32_t index, cons
 }
 
 void draw_button(GadgetRenderer& renderer, GadgetPanel& panel, int32_t index) {
+    // The size a caption too wide is fitted at holds while it is drawn.
+    struct SizeKept {
+        GadgetRenderer& renderer;
+
+        ~SizeKept() { renderer.most_text_size = present::game_font_text_size; }
+    } size_kept{renderer};
+
     panel.owner->redraw = 1;
     GadgetRecord& record = record_at(panel, index);
     Rect32 rect = record_rect(record);
@@ -741,6 +775,25 @@ void draw_label(GadgetRenderer& renderer, GadgetPanel& panel, int32_t index) {
     GadgetRecord& label = record_at(panel, index);
     const int32_t font_record = ui::gui_input::apply_gadget_font(panel, index);
     char* text = layout::record_chars(label, field::text);
+
+    // A one-line label wider than its gadget draws its modern text smaller,
+    // down to present::lowest_text_size, until it fits, and is placed at that
+    // width; a label that wraps keeps the game font's size.
+    struct SizeKept {
+        GadgetRenderer& renderer;
+
+        ~SizeKept() { renderer.most_text_size = present::game_font_text_size; }
+    } size_kept{renderer};
+
+    if (const Rect32 lines = record_rect(label);
+        font_record == layout::kNoGadget && text_height(renderer, panel) * 2 >= lines.y2 - lines.y1)
+        renderer.most_text_size = present::fitted_text_size(
+            [&](int32_t most_size) {
+                renderer.most_text_size = most_size;
+                return text_width(renderer, panel, text);
+            },
+            lines.x2 - lines.x1 + 1
+        );
     if (i16(label, field::x) == -1) {
         const int32_t root_width = i16(root_of(panel), field::width);
         layout::set_record_i16(

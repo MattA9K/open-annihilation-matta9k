@@ -134,18 +134,55 @@ void wrap_tests() {
     expect(std::strcmp(reflowed, "a") == 0, "0xFF ends the text");
 }
 
-void chinese_row_tests() {
-    // A row longer than a row's bytes keeps the whole characters that fit:
-    // 42 hanzi, 126 bytes, of 50.
-    std::string text;
-    for (int i = 0; i < 50; ++i)
-        text += "中";
+/// Lays out the first page of a one-row briefing.
+///
+/// @param text the briefing
+/// @return the page
+const BriefingPage& first_page(const std::string& text) {
     BriefingPager pager{};
     briefing_pager_reset(&pager, text.c_str());
     BriefingRegion region{10, 20, 30, 10};
     static BriefingPage page;
     briefing_next_page(&pager, &region, measure, nullptr, &page);
-    expect(std::strlen(page.rows[0].text) == 126, "Chinese row cut between characters");
+    return page;
+}
+
+/// Repeats a text.
+///
+/// @param text the text
+/// @param count how many times
+/// @return the text `count` times
+std::string repeated(std::string_view text, int count) {
+    std::string out;
+    for (int i = 0; i < count; ++i)
+        out += text;
+    return out;
+}
+
+void chinese_row_tests() {
+    // A row holds as many characters as a row of the game's code page, 127,
+    // whatever their bytes: 50 hanzi, 150 bytes, are kept whole, and of 130
+    // the first 127 are, never part of one.
+    expect(first_page(repeated("中", 50)).rows[0].text == repeated("中", 50), "50 hanzi kept");
+    expect(first_page(repeated("中", 130)).rows[0].text == repeated("中", 127), "127 hanzi kept");
+    // Cyrillic letters take two bytes each: a row of 120 is kept whole.
+    expect(
+        first_page(repeated("ї", 120)).rows[0].text == repeated("ї", 120),
+        "120 Cyrillic letters kept"
+    );
+    // A highlight holds as many as its row.
+    const BriefingPage& marked = first_page("&G" + repeated("ж", 100) + "&");
+    expect(
+        marked.highlight_count == 1 && marked.highlights[0].text == repeated("ж", 100),
+        "a highlight keeps 100 Cyrillic letters"
+    );
+    // The game's own one-byte text ends at 127 bytes, as in 3.1c, whether
+    // its bytes are ASCII or the code page's own (0x92, a closing quote).
+    expect(first_page(repeated("a", 130)).rows[0].text == repeated("a", 127), "127 ASCII bytes");
+    expect(
+        first_page(repeated("\x92", 130)).rows[0].text == repeated("\x92", 127),
+        "127 code page bytes"
+    );
 }
 
 void page_tests() {
@@ -694,6 +731,49 @@ void solar_system_tests() {
 
 } // namespace
 
+/// Answers campaign names as a language's text table does: 3.1c's German
+/// table names the Arm campaign, and a pack names a Core Contingency one by
+/// its name without the space its file ends in.
+///
+/// @param text the text
+/// @return its translation, or null for any other text
+const char* translated_campaigns(void*, const char* text) {
+    if (std::strcmp(text, "Arm Campaign") == 0)
+        return "Arm Missionen";
+    if (std::strcmp(text, "Core Campaign - Core Contingency") == 0)
+        return "Core-Feldzug - Core Contingency";
+    return nullptr;
+}
+
+// The Campaign list shows a campaign's name from the text table, and the
+// file's own name where the table has none or nothing translates.
+void campaign_name_tests() {
+    FrontendHost host{};
+    expect(shown_campaign_name(&host, "Arm Campaign") == "Arm Campaign", "no table keeps the name");
+    expect(
+        shown_campaign_name(nullptr, "Arm Campaign") == "Arm Campaign", "no host keeps the name"
+    );
+    host.translate = translated_campaigns;
+    expect(
+        shown_campaign_name(&host, "Arm Campaign") == "Arm Missionen", "a listed name is translated"
+    );
+    expect(
+        shown_campaign_name(&host, "Core Campaign - Core Contingency ") ==
+            "Core-Feldzug - Core Contingency",
+        "a name with an end space is looked up without it"
+    );
+    expect(
+        shown_campaign_name(&host, "Battle Tactics - Arm Very Short") ==
+            "Battle Tactics - Arm Very Short",
+        "a name the table lacks shows as the file is named"
+    );
+    expect(
+        shown_campaign_name(&host, "Arm Campaign - Core Contingency ") ==
+            "Arm Campaign - Core Contingency ",
+        "an untranslated name keeps its end space"
+    );
+}
+
 int main(int argc, char** argv) {
     if (oa::test::game_data_requested(argc, argv)) {
         installed_data_tests(
@@ -704,6 +784,7 @@ int main(int argc, char** argv) {
         page_tests();
         chinese_row_tests();
         single_player_tests();
+        campaign_name_tests();
         new_game_tests();
         layered_campaign_list_tests();
         empty_use_only_tests();

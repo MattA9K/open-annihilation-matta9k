@@ -28,8 +28,8 @@ endpoint's input, which reaches it through SDL's event queue:
 - F2 opens the game menu; in Save Game the name field holds the name typed,
   OK saves the match under it, and Load Game lists it, selected; Cancel and
   Resume go back to the match;
-- quit there asks the surrender question, and its Yes ends the game with
-  status 0.
+- quit there leaves the match with no question and ends the game with
+  status 0, as the main menu's Exit does.
 """
 import argparse
 import os
@@ -266,27 +266,25 @@ def check_camera(client, connect):
         raise AutomationFailure(f"the camera moved on from {left} once its client had left")
 
     check_save(client)
+    # quit leaves the match with no question and ends the game, as the main
+    # menu's Exit does: the link closes, and the game ends with status 0
+    # (wait_end). A further request finds the link closed, or is answered
+    # before the game ends, never with the surrender question up.
     if not client.request("quit").get("ok"):
         raise AutomationFailure("quit in the match was not answered")
     deadline = time.monotonic() + automation.TIMEOUT
-    question = client.request("screen")
-    while question.get("dialogs") != ["yesorno"] and time.monotonic() < deadline:
+    while time.monotonic() < deadline:
+        client.next_id += 1
+        try:
+            client.send_raw(automation.encode({"id": client.next_id, "op": "screen"}))
+            answer = client.read_frame()
+        except OSError:
+            break
+        if answer is None:
+            break
+        if answer[0].get("dialogs") == ["yesorno"]:
+            raise AutomationFailure(f"quit in the match asked the surrender question: {answer[0]}")
         time.sleep(0.1)
-        question = client.request("screen")
-    if question.get("dialogs") != ["yesorno"]:
-        raise AutomationFailure(f"quit in the match asked no question: {question}")
-    yes = automation.find_control(client, "CHOICE1")
-    if yes.get("text") != "Yes" or yes.get("dialog") != "yesorno":
-        raise AutomationFailure(f"the surrender question's first choice is {yes}")
-    # The game ends as it takes the click, before the frame that would
-    # answer it: the link closes instead, or the answer comes first.
-    x, y, width, height = yes["rect"]
-    client.next_id += 1
-    client.send_raw(automation.encode({"id": client.next_id, "op": "input", "expect_screen": "match",
-                                       "events": automation.click_events(x + width // 2, y + height // 2)}))
-    answer = client.read_frame()
-    if answer is not None and not answer[0].get("ok"):
-        raise AutomationFailure(f"the click on Yes was answered {answer[0]}")
     return client
 
 

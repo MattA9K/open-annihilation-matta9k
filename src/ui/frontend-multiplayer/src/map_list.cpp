@@ -51,7 +51,9 @@ std::string pack_mark(const MapListFact& row) {
     return std::string(split->id);
 }
 
-/// The greyed reason in the language being shown.
+/// The greyed reason in the language being shown. The name it holds is
+/// looked up too, so an expansion or a game shows its own name in the
+/// language; a mod's name is not in the catalogue and shows as it is.
 ///
 /// @param english the English reason, with its name already filled
 /// @return the words the row shows; empty when there is no reason
@@ -66,14 +68,20 @@ std::string shown_reason(std::string_view english) {
         std::string text(oa::data::languages::interface_text("needs {name}"));
         const std::string field = "{name}";
         if (const std::size_t at = text.find(field); at != std::string::npos)
-            text.replace(at, field.size(), english.substr(needs.size()));
+            text.replace(
+                at, field.size(), oa::data::languages::interface_text(english.substr(needs.size()))
+            );
         return text;
     }
     if (english.starts_with(for_name)) {
         std::string text(oa::data::languages::interface_text("for {name}"));
         const std::string field = "{name}";
         if (const std::size_t at = text.find(field); at != std::string::npos)
-            text.replace(at, field.size(), english.substr(for_name.size()));
+            text.replace(
+                at,
+                field.size(),
+                oa::data::languages::interface_text(english.substr(for_name.size()))
+            );
         return text;
     }
     return std::string(english);

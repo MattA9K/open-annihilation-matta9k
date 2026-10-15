@@ -149,6 +149,9 @@ struct TextClip {
 /// @param clip the pixels that may change
 /// @param game_text the text is game text, which the settings may draw in the
 ///        modern fonts
+/// @param most_size the most size, in percent of the game font's, its modern
+///        runs are drawn at, as a caption shrunk to fit its gadget's
+///        (present::fitted_text_size)
 /// @return the pen column after the text
 int32_t draw_fnt_game_text(
     Surface& surface,
@@ -159,7 +162,8 @@ int32_t draw_fnt_game_text(
     std::array<uint8_t, 3> color,
     const PaletteBytes& palette,
     const TextClip& clip,
-    bool game_text
+    bool game_text,
+    int32_t most_size = present::game_font_text_size
 );
 
 /// Draws the input method's composition at the end of a line of FNT-font
@@ -195,9 +199,29 @@ int32_t draw_fnt_composition(
 /// @param font the FNT font
 /// @param text the game text
 /// @param game_text the text is game text
+/// @param most_size the most size, in percent of the game font's, its modern
+///        runs are drawn at
 /// @return the width in pixels
-[[nodiscard]] int32_t
-measure_fnt_game_text(const formats::fnt::Font& font, std::string_view text, bool game_text);
+[[nodiscard]] int32_t measure_fnt_game_text(
+    const formats::fnt::Font& font,
+    std::string_view text,
+    bool game_text,
+    int32_t most_size = present::game_font_text_size
+);
+
+/// Returns the most size a caption's modern runs are drawn at so that the
+/// caption, measured as measure_fnt_game_text measures it, fits its room
+/// (present::fitted_text_size): the game font's own size when it fits, as
+/// every caption the game font draws whole keeps.
+///
+/// @param font the FNT font
+/// @param text the game text
+/// @param room the room, in pixels
+/// @param game_text the text is game text
+/// @return the size, in percent of the game font's
+[[nodiscard]] int32_t fitted_fnt_text_size(
+    const formats::fnt::Font& font, std::string_view text, int32_t room, bool game_text
+);
 
 /// Gives the rows FNT-font game text, as draw_fnt_game_text draws it, rises
 /// above the pen row: the modern fonts' letters, such as ideographs, may

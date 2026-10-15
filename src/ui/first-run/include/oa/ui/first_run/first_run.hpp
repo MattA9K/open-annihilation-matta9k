@@ -170,6 +170,7 @@ enum class SourceMark : uint8_t {
 struct SourceChip {
     std::string name{}; ///< the bundle's name, already the words to show
     bool held{true};    ///< the source holds it
+    std::string id{};   ///< the bundle's id, which the host matches it by; never shown
 };
 
 /// One place the game can be copied from. The host fills it.
@@ -193,7 +194,8 @@ enum class CopyPhase : uint8_t {
 
 /// One bundle on the copying step.
 struct CopyBundle {
-    std::string name{};                  ///< the bundle's name
+    std::string name{};                  ///< the bundle's name, in the language shown
+    std::string id{};                    ///< the bundle's id, which the host matches it by
     std::string file{};                  ///< the file being copied, or empty
     std::string amount{};                ///< how much, as the player reads it
     int32_t done{};                      ///< the bar's filled part

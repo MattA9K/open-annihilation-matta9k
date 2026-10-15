@@ -1061,25 +1061,19 @@ std::string tab_caption(const Library& library, Tab tab) {
     );
 }
 
-/// Appends the strip of tabs. Each tab after Active shows its count in
-/// brackets after its title, in that title's font and colour. Active has
-/// no count. The names are always the full ones. When they do not fit, the
-/// strip scrolls sideways and an arrow at an end moves it by one tab. The
-/// counts the kit would draw beside a caption stay unset, so the brackets
-/// are the only digits. The scroll is written back so the open tab stays
-/// wholly in view.
+/// Returns the strip's look: each tab's caption and reading, the open tab,
+/// the hovered one and the scroll asked for. The counts the kit would draw
+/// beside a caption stay unset, so the brackets are the only digits.
 ///
-/// @param[in,out] building the layout
-/// @param strip the strip
-void add_tabs(Building& building, const kit::Rect& strip) {
+/// @param building the layout
+/// @return the look
+kit::TabsLook tabs_look(const Building& building) {
     const Library& library = *building.library;
     kit::TabsLook look;
     look.count_style = kit::TabCountStyle::words;
     look.scroll = building.state->tab_scroll;
     look.left_arrow_hovered = hovered(building, controls::tab_scroll_left);
     look.right_arrow_hovered = hovered(building, controls::tab_scroll_right);
-    std::array<kit::ControlId, tab_order.size()> ids{};
-    std::array<std::string, tab_order.size()> names{};
     for (std::size_t index = 0; index < tab_order.size(); ++index) {
         const Tab tab = tab_order[index];
         const std::string caption = tab_caption(library, tab);
@@ -1092,10 +1086,37 @@ void add_tabs(Building& building, const kit::Rect& strip) {
             look.readings.push_back(caption);
         if (tab == library.tab)
             look.selected = index;
-        ids[index] = controls::tab_control(tab);
-        names[index] = unique_name(building, named("tab." + std::string(tab_words[index])));
-        if (hovered(building, ids[index]))
+        if (hovered(building, controls::tab_control(tab)))
             look.hovered = index;
+    }
+    return look;
+}
+
+/// Tells whether every tab fits a strip of a width, with no scroll.
+///
+/// @param building the layout
+/// @param width the strip's width, in points
+/// @return true when the tabs fit
+bool tabs_fit(const Building& building, int32_t width) {
+    const kit::Rect strip{0, 0, width, building.metrics->tab_height};
+    return !kit::place_tabs(*building.fonts, strip, tabs_look(building)).overflows;
+}
+
+/// Appends the strip of tabs. Each tab after Active shows its count in
+/// brackets after its title, in that title's font and colour. Active has
+/// no count. The names are always the full ones. When they do not fit, the
+/// strip scrolls sideways and an arrow at an end moves it by one tab. The
+/// scroll is written back so the open tab stays wholly in view.
+///
+/// @param[in,out] building the layout
+/// @param strip the strip
+void add_tabs(Building& building, const kit::Rect& strip) {
+    const kit::TabsLook look = tabs_look(building);
+    std::array<kit::ControlId, tab_order.size()> ids{};
+    std::array<std::string, tab_order.size()> names{};
+    for (std::size_t index = 0; index < tab_order.size(); ++index) {
+        ids[index] = controls::tab_control(tab_order[index]);
+        names[index] = unique_name(building, named("tab." + std::string(tab_words[index])));
     }
     const std::string left_name = unique_name(building, named("tab.scroll-left"));
     const std::string right_name = unique_name(building, named("tab.scroll-right"));
@@ -5934,12 +5955,17 @@ kit::DisplayList library_layout(
         }
     } else {
         // Active and Registries draw no search, so the tabs take the whole
-        // row. A catalogue tab keeps room for the search. The names stay
-        // whole; a strip they do not fit scrolls.
-        const int32_t tab_width =
-            catalogue ? content_width - wide_search_width - window.padding : content_width;
+        // row. A catalogue tab keeps room for the search beside them while
+        // every tab fits there; when they do not, as a wordier language's
+        // names do, the tabs take the whole row and the search a row of its
+        // own under them, at the same place on the right, so that no tab is
+        // hidden beside it. The names stay whole; a strip they do not fit
+        // even then scrolls.
+        const int32_t beside_width = content_width - wide_search_width - window.padding;
+        const bool search_beside = catalogue && tabs_fit(building, beside_width);
+        const int32_t tab_width = search_beside ? beside_width : content_width;
         add_tabs(building, {window.left, top, tab_width, metrics.tab_height});
-        if (catalogue)
+        if (search_beside)
             add_search(
                 building,
                 {window.right - wide_search_width,
@@ -5948,6 +5974,13 @@ kit::DisplayList library_layout(
                  metrics.field_height}
             );
         top += metrics.tab_height + window.gap;
+        if (catalogue && !search_beside) {
+            add_search(
+                building,
+                {window.right - wide_search_width, top, wide_search_width, metrics.field_height}
+            );
+            top += metrics.field_height + window.gap;
+        }
         if (active)
             add_active(building, body_of(top));
         else if (registries) {

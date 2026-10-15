@@ -211,7 +211,7 @@ struct AutomationHostAccess {
     static const Runtime& runtime(void* context) { return *static_cast<const Runtime*>(context); }
 
     /// Returns the runtime an automation host's context names, for the
-    /// entries that set what it copies.
+    /// entries that set what it copies or end its run.
     ///
     /// @param context AutomationHost::context
     /// @return the runtime
@@ -301,9 +301,18 @@ struct AutomationHostAccess {
         placement.y = root.y;
         placement.dialog = dialog_name(oa::ui::frontend_dialogs::dialog_layout_name());
         std::vector<AutomationControl> stacked;
+        // A button with stages reports the caption of the stage it shows,
+        // as HELP.GUI's Page does on each page.
         for (std::size_t index = 1; index < gadgets.size(); ++index)
             if (const auto kind = control_kind(gadgets[index]))
-                stacked.push_back(gadget_control(gadgets, index, *kind, placement, 0, false));
+                stacked.push_back(gadget_control(
+                    gadgets,
+                    index,
+                    *kind,
+                    placement,
+                    oa::ui::frontend_dialogs::dialog_button_stage(index),
+                    false
+                ));
         controls.insert(controls.begin(), stacked.begin(), stacked.end());
     }
 
@@ -401,13 +410,19 @@ struct AutomationHostAccess {
             };
         }
         if ((game.screen_ == Screen::any_mission || game.screen_ == Screen::new_campaign) &&
-            named("Campaign"))
+            named("Campaign")) {
+            // The rows are the names shown; a campaign's file name is its key.
+            const bool named_rows =
+                game.campaign_shown_labels_.size() == game.campaign_labels_.size();
             return ListRows{
-                game.campaign_labels_,
+                named_rows ? std::span<const std::string>{game.campaign_shown_labels_}
+                           : std::span<const std::string>{game.campaign_labels_},
                 first(game.campaign_first_visible_),
                 game.selected_campaign_index_,
-                {}
+                named_rows ? std::span<const std::string>{game.campaign_labels_}
+                           : std::span<const std::string>{}
             };
+        }
         if (game.screen_ == Screen::any_mission && named("Missions"))
             return ListRows{
                 game.campaign_mission_labels_,
@@ -555,6 +570,16 @@ struct AutomationHostAccess {
     /// @return the digest, as Runtime::match_world_digest gives it
     static uint64_t match_digest(void* context) { return runtime(context).match_world_digest(); }
 
+    /// Ends the run as the main menu's Exit does (AutomationHost::quit): the
+    /// frame's end leaves a running match and quits (finish_quit_request).
+    ///
+    /// @param context AutomationHost::context
+    static void quit(void* context) {
+        Runtime& game = capturing_runtime(context);
+        game.quit_requested_ = true;
+        game.quit_reason_.clear();
+    }
+
     /// Collects the controls of the windows extensions show (AutomationHost::windows).
     ///
     /// @param context AutomationHost::context
@@ -632,11 +657,12 @@ constexpr AutomationHost kAutomationHostEntries{
     AutomationHostAccess::start_frame_capture,
     AutomationHostAccess::stop_frame_capture,
     AutomationHostAccess::match_world,
-    AutomationHostAccess::match_digest
+    AutomationHostAccess::match_digest,
+    AutomationHostAccess::quit
 };
 
 // The entries above, one for each of the table's after its context.
-constexpr std::size_t kAutomationHostEntryCount = 11;
+constexpr std::size_t kAutomationHostEntryCount = 12;
 static_assert(
     sizeof(AutomationHost) == sizeof(void*) * (1 + kAutomationHostEntryCount),
     "the automation host's entries changed: set every one of them here"

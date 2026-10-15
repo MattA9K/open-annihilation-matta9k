@@ -2673,6 +2673,87 @@ const lib::ExpansionPill* pill_of(const lib::ActiveContent& face, std::string_vi
     return nullptr;
 }
 
+/// Ukrainian names of the bundles, as the interface catalogue gives them.
+///
+/// @param english the English text
+/// @return the translation, or the English
+std::string_view ukrainian_bundles(void*, std::string_view english) {
+    if (english == "Campaign")
+        return "Кампанія";
+    if (english == "Music")
+        return "Музика";
+    if (english == "Cavedog units")
+        return "Підрозділи Cavedog";
+    if (english == "Cavedog tilesets")
+        return "Набори тайлів Cavedog";
+    return english;
+}
+
+/// The Active tab, its hints, the base game chooser and the question before
+/// an expansion goes off name the bundles in the language shown.
+void test_expansion_names_translated() {
+    lib::Inputs inputs;
+    inputs.content.base_id = "totala";
+    inputs.content.copied = {"totala", "campaign", "music", "cavedog-units", "cavedog-tilesets"};
+    inputs.content.enabled = {"campaign", "music", "cavedog-tilesets"};
+    lib::Library library;
+    library.text.shown = ukrainian_bundles;
+    lib::refresh(library, inputs);
+
+    const lib::ActiveContent face = lib::active_content(library);
+    const lib::ExpansionPill* campaign = pill_of(face, "campaign");
+    const lib::ExpansionPill* music = pill_of(face, "music");
+    const lib::ExpansionPill* units = pill_of(face, "cavedog-units");
+    const lib::ExpansionPill* tilesets = pill_of(face, "cavedog-tilesets");
+    OA_CHECK(campaign != nullptr && campaign->text == "Кампанія");
+    OA_CHECK(music != nullptr && music->text == "Музика");
+    OA_CHECK(units != nullptr && units->text == "Підрозділи Cavedog");
+    OA_CHECK(tilesets != nullptr && tilesets->text == "Набори тайлів Cavedog");
+    for (const lib::ExpansionPill& pill : face.pills)
+        OA_CHECK(pill.text.find("Cavedog units") == std::string::npos);
+
+    // The hint after a press names the expansion in the language.
+    OA_CHECK(lib::press_expansion(library, "campaign").kind == lib::ContentPressKind::redraw);
+    OA_CHECK_TEXT(lib::active_content(library).hint, "Кампанія turns off when the Library closes.");
+    OA_CHECK(lib::press_expansion(library, "campaign").kind == lib::ContentPressKind::redraw);
+
+    const lib::BaseOpen opened = lib::open_base_chooser(library);
+    OA_CHECK(opened.opened);
+    bool saw_retail = false;
+    for (const lib::BaseGameRow& row : library.chooser.rows) {
+        if (row.id != "totala")
+            continue;
+        saw_retail = true;
+        OA_CHECK(
+            row.expansions ==
+            std::vector<std::string>({"Кампанія", "Музика", "Набори тайлів Cavedog"})
+        );
+    }
+    OA_CHECK(saw_retail);
+    lib::close_base_chooser(library);
+
+    // The question before a mod's expansion goes off.
+    lib::Installed ridge;
+    ridge.kind = Kind::mod;
+    ridge.key = "ridge";
+    ridge.folder = "ridge";
+    ridge.name = "Ridge";
+    ridge.playing = true;
+    inputs.installed.push_back(ridge);
+    inputs.content.mod_required = {"campaign"};
+    lib::refresh(library, inputs);
+    OA_CHECK(lib::press_expansion(library, "campaign").kind == lib::ContentPressKind::ask);
+    const oa::ui::kit::Question question = lib::expansion_off_question(library);
+    OA_CHECK_TEXT(question.title, "Turn off Кампанія?");
+    OA_CHECK(!question.paragraphs.empty());
+    if (!question.paragraphs.empty()) {
+        OA_CHECK_TEXT(
+            question.paragraphs.front().text,
+            "Ridge needs Кампанія, so it is unloaded and the game plays with No Mod."
+        );
+    }
+}
+
 /// An offered expansion shows a download arrow. The pill turns on once the
 /// copy is in the game's folder, and only on the pending draft.
 void test_expansion_download() {
@@ -4214,6 +4295,7 @@ int main() {
     test_base_game();
     test_expansion_pills();
     test_expansion_download();
+    test_expansion_names_translated();
     test_base_chooser();
     test_base_chooser_through_refresh();
     test_expansion_off_question_through_refresh();

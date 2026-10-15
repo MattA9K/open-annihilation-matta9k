@@ -80,11 +80,14 @@ struct StandIn {
     std::string_view in_place{}; ///< what the game font draws instead
 };
 
-/// The ellipsis as three full stops, and the mark between a location's folders
-/// as a greater-than sign.
-constexpr std::array<StandIn, 2> stand_ins{{
+/// The ellipsis as three full stops, the mark between a location's folders
+/// as a greater-than sign, and a no-break space as the font's own space, so
+/// that it is drawn and measured as wide as a space. The wrap reads the text
+/// before these stand in, so a line never breaks at a no-break space.
+constexpr std::array<StandIn, 3> stand_ins{{
     {U'\u2026', "\xE2\x80\xA6", "..."},
     {U'\u203a', "\xE2\x80\xBA", ">"},
+    {U'\u00a0', "\xC2\xA0", " "},
 }};
 
 /// Returns the characters a GUI font draws: every glyph that is not the
@@ -205,7 +208,8 @@ int32_t measured_line(const TextMeasureHooks& hooks, int32_t pixel_size, bool bo
 std::string with_stand_ins(const Fonts& fonts, FontRole role, std::string_view text) {
     const FaceFont font = face_of(fonts, role);
     std::string shown(text);
-    if (font.modern_only)
+    // A line the modern fonts draw whole draws these characters itself.
+    if (font.modern_only || present::drawn_whole_in_modern_fonts(text, font.characters))
         return shown;
     for (const StandIn& stand_in : stand_ins) {
         if (font.characters.byte_for(stand_in.character))

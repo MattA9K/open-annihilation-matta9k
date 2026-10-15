@@ -1041,6 +1041,12 @@ using TextWidth = std::function<int32_t(std::string_view)>;
 /// @return the width, in source pixels
 [[nodiscard]] int32_t estimated_width(std::string_view text);
 
+/// Tells whether a measure is the stand-in that counts every character the same.
+///
+/// @param measure a text's width
+/// @return true when n and W are both the estimated character width
+[[nodiscard]] bool estimated_measure(const TextWidth& measure);
+
 /// Returns a setting's row as the dialog shows it, read from its row spec:
 /// the spec's view, with the lock the dialog puts on the row, whether its
 /// hint lines are its status, a switch a language sets showing On, and each

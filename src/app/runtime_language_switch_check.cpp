@@ -2,11 +2,14 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // --check-language-switch: the language chosen in the settings over the main
-// menu, and over a skirmish's in-game menu, from Simplified Chinese, the
-// language the run starts in, to English, German and back to Chinese. After
-// each change, with the settings closed by OK, the screen under them shows
-// what it shows opened again in the language, and back in Chinese what it
-// showed as the run started in it.
+// menu, and over a skirmish's in-game menu, from the language the run starts
+// in, Simplified Chinese or the installed pack's language --check-language
+// names, to English, German and back. After each change, with the settings
+// closed by OK, the screen under them shows what it shows opened again in the
+// language, and back in the first language what it showed as the run started
+// in it.
+
+#include "language_state.hpp"
 
 #include "oa/app/runtime.hpp"
 #include "oa/platform/preferences.hpp"
@@ -23,6 +26,7 @@
 #include <string>
 #include <string_view>
 #include <tuple>
+#include <vector>
 
 namespace oa::app {
 
@@ -30,11 +34,12 @@ namespace {
 
 namespace settings = oa::ui::engine_settings;
 
-/// The language the run starts in, which the check's preferences file chooses.
+/// The language the run starts in unless --check-language names another;
+/// the check's preferences file chooses it.
 constexpr std::string_view kStartTag = "zh-Hans";
-/// The languages the settings choose in turn; the last is the one the run
-/// starts in.
-constexpr std::array<std::string_view, 3> kChosenTags{"en", "de", kStartTag};
+/// The languages the settings choose before going back to the one the run
+/// starts in: the first two of these that are not that one.
+constexpr std::array<std::string_view, 3> kOtherTags{"en", "de", "fr"};
 /// The most steps the bars' numbers take to come to rest.
 constexpr int kMostReadoutSteps = 10000;
 /// A point of the main menu's picture over none of its buttons, where the
@@ -82,27 +87,42 @@ void Runtime::check_language_switch() {
     // The check saves settings, so it never runs over the player's own file.
     if (!options_.preferences_file)
         fail("needs --preferences-file");
-    if (shown_language().tag != kStartTag)
+    const std::string start_tag = options_.check_languages.empty()
+                                      ? std::string(kStartTag)
+                                      : options_.check_languages.front();
+    // The other languages chosen in turn, then the first again.
+    std::vector<std::string> chosen_tags;
+    for (const std::string_view other : kOtherTags)
+        if (other != start_tag && chosen_tags.size() < 2)
+            chosen_tags.emplace_back(other);
+    chosen_tags.push_back(start_tag);
+    if (shown_language().tag != start_tag)
         fail(
-            "the run shows " + std::string(shown_language().tag) + ", not " +
-            std::string(kStartTag) + ": its preferences file chooses the language"
+            "the run shows " + std::string(shown_language().tag) + ", not " + start_tag +
+            ": its preferences file chooses the language"
         );
     if (language_pack_folders().empty())
-        fail("no installed language pack holds " + std::string(kStartTag));
-    // The Chinese on screen comes from the pack's own face.
-    if (modern_font_pack_faces() != 1)
-        fail("the modern font stack does not hold the pack's face");
+        fail("no installed language pack holds " + start_tag);
+    // The first language's text is drawn in the faces its pack brings, as
+    // Simplified Chinese's own: the stack holds each of them.
+    const std::size_t pack_faces = language_ != nullptr ? language_->fonts.size() : 0;
+    if (modern_font_pack_faces() != pack_faces)
+        fail(
+            "the modern font stack holds " + std::to_string(modern_font_pack_faces()) +
+            " of the pack's faces, not " + std::to_string(pack_faces)
+        );
 
     // However the check ends, its preferences file chooses the language the
     // run started in again, for the next run.
     struct StartLanguageKept {
         Runtime& runtime;
+        std::string start_tag;
 
         ~StartLanguageKept() {
             namespace preferences = oa::platform::preferences;
             try {
                 auto values = preferences::load(runtime.preference_path_);
-                values[std::string(settings::key::language)] = std::string(kStartTag);
+                values[std::string(settings::key::language)] = start_tag;
                 preferences::save(runtime.preference_path_, values);
             } catch (const std::exception& error) {
                 std::cerr << "language switch check: the preferences file keeps the last "
@@ -110,7 +130,7 @@ void Runtime::check_language_switch() {
                           << error.what() << '\n';
             }
         }
-    } start_language_kept{*this};
+    } start_language_kept{*this, start_tag};
 
     // The extensions' overlays are set aside while the check holds the main
     // menu to the engine's own drawing, and put back when it ends.
@@ -128,7 +148,7 @@ void Runtime::check_language_switch() {
     };
     // Chooses a language in the open settings, as a click on its list does,
     // and closes them with OK.
-    const auto choose = [this](std::string_view tag, auto&& close) {
+    const auto choose = [this, &start_tag, pack_faces](std::string_view tag, auto&& close) {
         auto* dialog = engine_settings_dialog();
         if (dialog == nullptr)
             fail("the settings did not open");
@@ -142,8 +162,8 @@ void Runtime::check_language_switch() {
                 "the settings chose " + std::string(tag) + ", but the run shows " +
                 std::string(shown_language().tag)
             );
-        if (tag == kStartTag && modern_font_pack_faces() != 1)
-            fail("the modern font stack does not hold the pack's face");
+        if (tag == start_tag && modern_font_pack_faces() != pack_faces)
+            fail("the modern font stack does not hold the pack's faces");
     };
     // Requires a frame shown after a change to be the one the screen shows
     // opened again, and to differ from the frame of the language before.
@@ -164,9 +184,13 @@ void Runtime::check_language_switch() {
     // top bar's metal and energy among them, to show each of its
     // characters: the captions' fonts hold the pack's face, and none of its
     // words draws the missing-glyph box.
-    const auto expect_captions_whole = [this](std::string_view when) {
-        if (language_pictures().all().empty())
-            fail("no installed pack gives " + std::string(kStartTag) + " captions over pictures");
+    const auto expect_captions_whole = [this, &start_tag](std::string_view when) {
+        // The Chinese fixture pack gives captions; another pack may give none.
+        if (language_pictures().all().empty()) {
+            if (start_tag == kStartTag)
+                fail("no installed pack gives " + start_tag + " captions over pictures");
+            return;
+        }
         const auto missing = picture_captions_missing_glyphs();
         if (!missing.empty())
             fail(
@@ -187,9 +211,9 @@ void Runtime::check_language_switch() {
         fail("the main menu did not open");
     send_check_pointer(SDL_EVENT_MOUSE_MOTION, kRestingPointer, 0);
     const auto menu_started = menu_frame();
-    snapshot("menu-" + std::string(kStartTag) + "-start", menu_started);
+    snapshot("menu-" + start_tag + "-start", menu_started);
     auto menu_before = menu_started;
-    for (const auto tag : kChosenTags) {
+    for (const std::string& tag : chosen_tags) {
         open_engine_settings_from_menu();
         choose(tag, [this](settings::DialogAction action) { take_settings_screen_action(action); });
         const auto switched = menu_frame();
@@ -202,8 +226,8 @@ void Runtime::check_language_switch() {
     }
     if (const auto differing = differing_pixels(menu_before, menu_started); differing != 0)
         fail(
-            "back in " + std::string(kStartTag) + " the main menu shows " +
-            std::to_string(differing) + " pixels other than it showed as the run started"
+            "back in " + start_tag + " the main menu shows " + std::to_string(differing) +
+            " pixels other than it showed as the run started"
         );
     std::cout << "language switch check: the main menu shows each language as it opens in it\n";
 
@@ -237,10 +261,10 @@ void Runtime::check_language_switch() {
         return frame;
     };
     const auto match_started = match_frame();
-    snapshot("match-" + std::string(kStartTag) + "-start", match_started);
+    snapshot("match-" + start_tag + "-start", match_started);
     expect_captions_whole("as the skirmish starts,");
     auto match_before = match_started;
-    for (const auto tag : kChosenTags) {
+    for (const std::string& tag : chosen_tags) {
         open_engine_settings_in_match();
         choose(tag, [this](settings::DialogAction action) { take_settings_screen_action(action); });
         if (!ingame_menu_column_shown())
@@ -258,20 +282,20 @@ void Runtime::check_language_switch() {
         const auto reopened = match_frame();
         snapshot("match-" + std::string(tag) + "-opened-again", reopened);
         expect_shown("the in-game menu", tag, switched, reopened, match_before);
-        if (tag == kStartTag)
-            expect_captions_whole("back in " + std::string(kStartTag) + ",");
+        if (tag == start_tag)
+            expect_captions_whole("back in " + start_tag + ",");
         match_before = switched;
     }
     if (const auto differing = differing_pixels(match_before, match_started); differing != 0)
         fail(
-            "back in " + std::string(kStartTag) + " the in-game menu shows " +
-            std::to_string(differing) + " pixels other than it showed as the skirmish started"
+            "back in " + start_tag + " the in-game menu shows " + std::to_string(differing) +
+            " pixels other than it showed as the skirmish started"
         );
     std::cout << "language switch check: the in-game menu shows each language as it opens in "
                  "it\n";
     std::cout << "language switch check: every caption over the match's pictures shows each of "
                  "its characters in "
-              << kStartTag << '\n';
+              << start_tag << '\n';
 }
 
 } // namespace oa::app

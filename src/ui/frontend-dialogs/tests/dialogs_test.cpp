@@ -417,6 +417,109 @@ void test_help(oa::app::ScreenContext& ctx, Host& host) {
     expect(dialogs::dialog_count() == 0, "OK releases the help panel");
 }
 
+/// Answers HELP.GUI's page captions as a language pack's translate.tdf does.
+///
+/// @param text the text
+/// @return its translation, or null for any other text
+const char* ukrainian_pages(void*, const char* text) {
+    if (std::strcmp(text, "Page 1") == 0)
+        return "Стор. 1";
+    if (std::strcmp(text, "Page 2") == 0)
+        return "Стор. 2";
+    if (std::strcmp(text, "Page 3") == 0)
+        return "Стор. 3";
+    return nullptr;
+}
+
+/// Returns the frame's pixels inside a rectangle, row by row.
+///
+/// @param surface the frame
+/// @param x the rectangle's left
+/// @param y the rectangle's top
+/// @param width the rectangle's width
+/// @param height the rectangle's height
+/// @return the RGB bytes
+std::vector<uint8_t>
+pixels_in(const oa::ui::frontend_renderer::Surface& surface, int x, int y, int width, int height) {
+    std::vector<uint8_t> bytes;
+    for (int row = y; row < y + height; ++row)
+        for (int column = x; column < x + width; ++column) {
+            const auto at =
+                (static_cast<std::size_t>(row) * surface.width + static_cast<std::size_t>(column)) *
+                3U;
+            bytes.insert(bytes.end(), surface.rgb.begin() + at, surface.rgb.begin() + at + 3);
+        }
+    return bytes;
+}
+
+// HELP.GUI's Page button shows each page's caption in the language: its
+// stages are translated one by one as 3.1c translates them, on every page,
+// and the automation host reads the stage the button shows.
+void test_help_page_caption(oa::app::ScreenContext& ctx, Host& host) {
+    const auto draw_page_button = [&](int clicks, bool translated) {
+        dialogs::dialogs_bind_host(
+            {&host,
+             dialog_sound,
+             translated ? ukrainian_pages : nullptr,
+             cd_check_click,
+             nullptr,
+             panel_below,
+             nullptr,
+             nullptr,
+             nullptr}
+        );
+        std::vector<uint8_t> drawn;
+        if (!dialogs::open_help(&ctx))
+            return drawn;
+        for (int click = 0; click < clicks; ++click)
+            dialogs::dialog_click(&ctx, "Page");
+        std::size_t page = 0;
+        const auto& gadgets = dialogs::dialog_resources()->layout.gadgets;
+        for (std::size_t index = 1; index < gadgets.size(); ++index)
+            if (gadgets[index].common.name == "Page")
+                page = index;
+        expect(
+            page != 0 && dialogs::dialog_button_stage(page) == clicks,
+            "Page's stage follows the page shown"
+        );
+        auto frame = blank_frame();
+        auto* previous = ctx.surface;
+        ctx.surface = &frame;
+        dialogs::dialog_draw(&ctx);
+        ctx.surface = previous;
+        if (page != 0) {
+            const auto& panel = root().common;
+            const auto& button = gadgets[page].common;
+            drawn = pixels_in(
+                frame, panel.x + button.x, panel.y + button.y, button.width, button.height
+            );
+        }
+        dialogs::close_dialog();
+        return drawn;
+    };
+    for (int clicks = 0; clicks < 3; ++clicks) {
+        const std::vector<uint8_t> english = draw_page_button(clicks, false);
+        const std::vector<uint8_t> translated = draw_page_button(clicks, true);
+        expect(!english.empty() && english.size() == translated.size(), "Page is drawn");
+        expect(english != translated, "Page's caption is translated on every page");
+    }
+    expect(
+        draw_page_button(1, false) == draw_page_button(1, false),
+        "the English caption draws the same each time"
+    );
+    dialogs::dialogs_bind_host(
+        {&host,
+         dialog_sound,
+         nullptr,
+         cd_check_click,
+         nullptr,
+         panel_below,
+         nullptr,
+         nullptr,
+         nullptr}
+    );
+}
+
 // A dialog opened against one frame size is placed again when it is drawn
 // on a frame of another size, and a shading dialog darkens only the panel
 // the host reports below it.
@@ -986,6 +1089,7 @@ int main(int argc, char** argv) {
         test_keyboard_focus(registry, ctx);
         test_cd_check(ctx, host);
         test_help(ctx, host);
+        test_help_page_caption(ctx, host);
         test_placement_and_shade(ctx, host);
         test_layer(ctx);
         test_continue_watching(ctx, host);

@@ -703,7 +703,7 @@ struct AvailableLanguage {
 /// as they are, so a product name is not looked up again.
 struct GameContentRow {
     std::string id;       ///< the bundle's id, a row word such as totala
-    std::string name;     ///< the name shown, as the table writes it
+    std::string name;     ///< the name shown, in the language shown
     std::string size;     ///< the size, already as the page shows it
     std::string check;    ///< the check, already in the language shown
     bool warn{};          ///< the check names files that differ

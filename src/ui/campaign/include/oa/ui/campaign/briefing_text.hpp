@@ -17,7 +17,15 @@ namespace oa::ui::campaign {
 // Text byte that ends a briefing buffer as well as NUL.
 inline constexpr char kTextEnd = static_cast<char>(0xff);
 inline constexpr char kSpanMarker = '&';
-inline constexpr std::size_t kRowTextBytes = 0x80;
+/// The characters a row, or a highlight, holds at most: 3.1c's row of 128
+/// bytes holds 127 characters of its one-byte code page and its end.
+inline constexpr std::size_t kRowCharacters = 0x7f;
+/// The bytes a row's or a highlight's text takes: kRowCharacters characters
+/// of up to four bytes each in UTF-8, and the end. A row of the game's
+/// one-byte code page still ends at 127 characters, so 3.1c's own briefings
+/// lay out as they do there, while a language whose letters take two bytes
+/// (Cyrillic) or three (CJK) holds as many characters as English does.
+inline constexpr std::size_t kRowTextBytes = kRowCharacters * 4 + 1;
 inline constexpr std::size_t kMaxRows = 64;
 // MSNBRIEF allocates a 15-entry blink-word table for the highlights.
 inline constexpr std::size_t kMaxHighlights = 15;

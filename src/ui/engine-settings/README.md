@@ -418,9 +418,13 @@ Where a game font has no ellipsis, as neither of the dialog's has, the
 dialog draws and measures each ellipsis in a text as three full stops in
 the game font, so that a caption such as MANAGE… keeps the game font's
 look and fits its button like every other caption; the mark between a
-location's folders (›) is drawn as a greater-than sign the same way. The
-texts themselves, and their translations, keep their characters; every
-other character the game font lacks is drawn in the modern fonts.
+location's folders (›) is drawn as a greater-than sign the same way, and
+a no-break space as the font's space. The texts themselves, and their
+translations, keep their characters; every other character the game font
+lacks is drawn in the modern fonts. A line that holds a letter the game
+font lacks, as a Ukrainian line's Cyrillic, is drawn whole in the modern
+fonts, its digits, Latin words, marks and spaces with it, so that no word
+of it changes typeface part way.
 
 It is 480 by 324 source pixels, a dark gunmetal panel with a one-pixel raised
 edge and hairline rules, and one green accent for what is selected:

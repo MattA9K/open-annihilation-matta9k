@@ -3613,9 +3613,15 @@ into the records and decisions of the modules that carry them out, and
   `native-language-switch`) changes the language in the settings from
   Simplified Chinese to English, German and back, over the main menu and
   over a skirmish's in-game menu, and checks each screen shows what it
-  shows opened again in the language, and that in Chinese every caption
-  over the match's pictures shows each of its characters, none as the
-  missing-glyph box (`picture_captions_missing_glyphs`).
+  shows opened again in the language, that the stack holds each face the
+  pack brings, and that in Chinese every caption over the match's
+  pictures shows each of its characters, none as the missing-glyph box
+  (`picture_captions_missing_glyphs`). `--check-language TAG` starts it in
+  another installed pack's language (French takes the place of English or
+  German when that is the one named), whose pack may bring no face and no
+  captions. `--check-text-fit` (`runtime_text_fit_check.cpp`,
+  `native-text-fit`) takes the same option, once for each language, to
+  check those in place of its own six (`native-text-fit-language`).
 - **Picture captions** (`runtime_picture_captions.cpp`): while a language
   other than English is shown, the words its packs' `pictures.tdf` gives
   (`language_pictures`, drawn by `oa/present/picture_captions.hpp`) are

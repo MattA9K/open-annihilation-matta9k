@@ -2272,7 +2272,8 @@ ContentNoticeCopy content_difference_notice(const ContentCheck& check) {
         if (bundle.files_differ == 0)
             continue;
         copy.lines.push_back(
-            bundle.english_name + " / " + differ_count_line(bundle.files_differ, bundle.file_count)
+            std::string(oa::data::languages::interface_text(bundle.english_name)) + " / " +
+            differ_count_line(bundle.files_differ, bundle.file_count)
         );
     }
     copy.lines.push_back(
@@ -2297,7 +2298,10 @@ ContentNoticeCopy content_file_notice(const ContentCheck& check) {
     copy.lines.push_back(std::string(oa::data::languages::interface_text("Files that differ:")));
     for (const ContentBundleCheck& bundle : check.bundles) {
         for (const ContentFileDifference& file : bundle.differing)
-            copy.lines.push_back(bundle.english_name + ": " + file.copy_name);
+            copy.lines.push_back(
+                std::string(oa::data::languages::interface_text(bundle.english_name)) + ": " +
+                file.copy_name
+            );
     }
     copy.ok = std::string(oa::data::languages::interface_text("OK"));
     return copy;

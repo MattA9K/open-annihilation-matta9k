@@ -46,26 +46,28 @@ oa::ui::kit::Question switch_refused_note(std::string_view reason, const TextHoo
 
 namespace {
 
-/// Returns the name a bundle shows. An unknown id is shown as itself.
+/// Returns the name a bundle shows, in the language shown. An unknown id is
+/// shown as itself.
 ///
+/// @param text how texts are looked up
 /// @param id the bundle id
 /// @return the name
-std::string bundle_name(std::string_view id) {
+std::string bundle_name(const TextHooks& text, std::string_view id) {
     const oa::data::content_bundles::Bundle* bundle = oa::data::content_bundles::find_bundle(id);
     if (bundle == nullptr)
         return std::string(id);
-    return std::string(bundle->english_name);
+    return std::string(shown(text, bundle->english_name));
 }
 
 } // namespace
 
 oa::ui::kit::Question expansion_off_question(const Library& library) {
     const TextHooks& text = library.text;
-    const std::string pressed = bundle_name(library.content.ask_id);
+    const std::string pressed = bundle_name(text, library.content.ask_id);
     oa::ui::kit::Question question;
     question.title = filled(text, words::expansion_off_title, {{"name", pressed}});
     for (const std::string& id : library.content.turned_off) {
-        const std::string name = bundle_name(id);
+        const std::string name = bundle_name(text, id);
         question.paragraphs.push_back(
             {filled(text, words::expansion_off_too, {{"name", name}, {"need", pressed}}), false}
         );

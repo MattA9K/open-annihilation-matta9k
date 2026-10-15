@@ -153,7 +153,7 @@ print(read(sock)[0]["screen"])  # main_menu
 | `match` | the running match: pause, speed, each player's name, side, team, allies, units, kills and losses, the outcome and winner; with `state_hash`, the digest of its state that a saved game carries |
 | `room` | the battle room: the game's name, its host, the seated players with their ready flags, sides, colours, teams and pings, the map, the options and the chat |
 | `subscribe` | the kinds of event the client is sent from then on |
-| `quit` | nothing more: the game then quits as a player closing its window does |
+| `quit` | nothing more: the game then quits as the main menu's Exit does, leaving a running match first with no question |
 
 [src/app/automation](../src/app/automation/README.md#the-protocol) gives
 every request's fields and answers, and the errors it is refused with.
@@ -377,7 +377,7 @@ See [what a game reports as it is played](multiplayer/status.md).
 
 ## A map list's names
 
-A map list's `items` are the words each row shows. A pack map's row shows the title its pack's index gives, or the title in its map file when the index has none. When that title would read the same as another row, the pack map's row adds its pack's name in brackets, as in `Comet Catcher (Cavedog: Comet Catcher)`. The game's own maps keep their file names. The same list gives `item_keys`, one key for each row, in the same order: the name the battle room, a saved game and GET MAP use, `<stem>@<id>` for a pack map and the file name for one of the game's own maps. `select_item` takes either the shown text or the key, matched exactly, the shown text first, so a request that names `isle_one@oa-test-isles` still chooses that map when the row reads its title. Other lists omit `item_keys`.
+A map list's `items` are the words each row shows. A pack map's row shows the title its pack's index gives, or the title in its map file when the index has none. When that title would read the same as another row, the pack map's row adds its pack's name in brackets, as in `Comet Catcher (Cavedog: Comet Catcher)`. The game's own maps keep their file names. The same list gives `item_keys`, one key for each row, in the same order: the name the battle room, a saved game and GET MAP use, `<stem>@<id>` for a pack map and the file name for one of the game's own maps. `select_item` takes either the shown text or the key, matched exactly, the shown text first, so a request that names `isle_one@oa-test-isles` still chooses that map when the row reads its title. The Campaign list's rows are each campaign's name in the language shown, and its `item_keys` the campaigns' file names (`Arm Campaign`), which `select_item` takes too. Other lists omit `item_keys`.
 
 ## A list that does not fit
 

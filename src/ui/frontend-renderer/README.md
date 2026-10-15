@@ -169,7 +169,15 @@ text as the player's Language settings choose
   as labels, so the loading screen keeps the game's fonts.
   `draw_gadget_glyphs` draws a font's bytes as they are.
 - `draw_fnt_game_text` and `measure_fnt_game_text` do the same with an FNT
-  font on the RGB screens.
+  font on the RGB screens. Both take the most size the modern runs are
+  drawn at: a button's caption or a one-line label wider than its gadget,
+  as a wordier language's may be, draws its modern text smaller, a step of
+  5% at a time down to 50% (`fitted_fnt_text_size`,
+  `present::fitted_text_size`), before a caption still too wide, or one the
+  game font draws whole, loses characters from its end as before. Every
+  caption that fits, all of 3.1c's English among them, draws as it did. The
+  8-bit panels (`gadget-render`) fit their buttons' captions and one-line
+  labels the same way.
 
 `frontend-gadget-draw` (`test_gadget_text_game_runs`) checks a missing
 character drawn in the modern fonts on the font's baseline, the text after

@@ -187,7 +187,9 @@ std::string game_label(std::string_view profile_name) {
     return std::string(oa::data::languages::interface_text(kBaseGameText));
 }
 
-/// A ready sentence translated, or empty when `reason` is a fit detail.
+/// A ready sentence translated, or empty when `reason` is a fit detail. The
+/// name it holds is looked up too: a game's or an expansion's name shows in
+/// the language, and a mod's name, which the catalogue lacks, as it is.
 ///
 /// @param reason the stored reason, in English
 /// @return the sentence the description shows; empty when it should be wrapped
@@ -202,7 +204,7 @@ std::string ready_sentence(std::string_view reason) {
             reason.substr(for_head.size(), reason.size() - for_head.size() - 1);
         return filled(
             std::string(oa::data::languages::interface_text("This map is for {name}.")),
-            {{"name", name}}
+            {{"name", oa::data::languages::interface_text(name)}}
         );
     }
     constexpr std::string_view needs_head = "Needs ";
@@ -213,7 +215,7 @@ std::string ready_sentence(std::string_view reason) {
             const std::string_view name = reason.substr(needs_head.size(), mid - needs_head.size());
             std::string first = filled(
                 std::string(oa::data::languages::interface_text("Needs {name}, which is off.")),
-                {{"name", name}}
+                {{"name", oa::data::languages::interface_text(name)}}
             );
             first.push_back(' ');
             first.append(oa::data::languages::interface_text("Turn it on in the Library."));

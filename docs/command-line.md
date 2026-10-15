@@ -337,14 +337,15 @@ Network play's own checks, the last rows, are in every build.
 | `--check-simulation-hash` | Checks the simulation hash with no mod, with a mod and after a Developer Mode override. |
 | `--check-zoom-memory` | Zooms a large battlefield out and back with a small model budget. |
 | `--check-unit-language TAG` | Checks units' names and descriptions show in the language `TAG` names. |
-| `--check-language-switch` | Changes the language over the main menu and over a skirmish. |
+| `--check-language-switch` | Changes the language over the main menu and over a skirmish, from Simplified Chinese, or the installed pack's language `--check-language TAG` names, to English and German and back. |
 | `--check-language-registry` | Lists every language the game knows. |
 | `--check-language-notice` | Shows the notice for a language that is only available to download. |
 | `--check-first-run` | Walks the welcome at the first main menu. |
 | `--check-setup-window` | Walks the window before the game: the language, the game and the copy. |
 | `--check-window-place` | Checks the next start opens the window at the same size and place. |
 | `--check-progress` | Shows the progress dialog for a slow piece of work. |
-| `--check-text-fit` | Opens every Open Annihilation screen in each built-in language at two sizes, and fails when a text does not fit. |
+| `--check-text-fit` | Opens every Open Annihilation screen in each built-in language and Simplified Chinese at two sizes, and fails when a text does not fit. |
+| `--check-language TAG` | With `--check-text-fit`, the language to check in place of those, such as an installed pack's (`uk`); give it once for each. With `--check-language-switch`, the language it starts in. The language must be one the game shows. |
 | `--check-folder-chooser` | Chooses the game folder in the game's own locator. |
 | `--check-patrol-reclaim` | Checks a construction kbot on patrol reclaims on its way. |
 | `--check-reclaim-cursor` | Checks the cursor over trees, features and wrecks. |

@@ -6,11 +6,11 @@
 // (check_host.hpp) reads: the preferences as the game holds them now, the
 // file they live in, the running match's Game block, world and digest, the
 // controls of the screen shown and the frames the game presents in its
-// window; and through which it holds keys and pointer buttons down for the
+// window; through which it holds keys and pointer buttons down for the
 // game's reads of what is held (the input it hands the game goes through
-// SDL's event queue, as a device's does). The other entries only read, or
-// have the game copy what it presents; none changes what the game shows,
-// plays or simulates. The endpoint gets the table with
+// SDL's event queue, as a device's does); and through which it ends the run.
+// The other entries only read, or have the game copy what it presents; none
+// changes what the game shows, plays or simulates. The endpoint gets the table with
 // automation_host() from a hook that is given the runtime, and may keep it
 // while the runtime lives, on the thread that runs main(). What an entry
 // returns stays valid until the runtime next runs a frame, a pass of its
@@ -194,6 +194,13 @@ struct AutomationHost {
     /// @param context AutomationHost::context
     /// @return the digest; that of no match while none runs
     uint64_t (*match_digest)(void* context){};
+    /// Ends the run once the frame being run has been handled, as the main
+    /// menu's Exit does: a running match is left first, with no question, as
+    /// the surrender question's Yes leaves it, and a match being loaded is
+    /// stopped. The run's exit status is left as it is.
+    ///
+    /// @param context AutomationHost::context
+    void (*quit)(void* context){};
 };
 
 /// Returns the table through which the automation endpoint reads the running game.

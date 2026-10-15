@@ -10,6 +10,8 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <string>
+#include <string_view>
 
 namespace oa::ui::campaign {
 namespace {
@@ -272,6 +274,20 @@ void single_player_click(CampaignSetup* setup, const FrontendHost* host, const c
 
 const char* campaign_list_entry(const CampaignSetup* setup, int32_t index) {
     return list_entry(setup->campaigns, setup->campaign_count, index);
+}
+
+std::string shown_campaign_name(const FrontendHost* host, std::string_view name) {
+    const std::string listed(name);
+    if (const char* shown = host_translate(host, listed.c_str()); shown != listed.c_str())
+        return shown;
+    const std::size_t first = name.find_first_not_of(' ');
+    const std::size_t last = name.find_last_not_of(' ');
+    if (first == std::string_view::npos || (first == 0 && last + 1 == name.size()))
+        return listed;
+    const std::string trimmed(name.substr(first, last + 1 - first));
+    if (const char* shown = host_translate(host, trimmed.c_str()); shown != trimmed.c_str())
+        return shown;
+    return listed;
 }
 
 void populate_campaign_list(CampaignSetup* setup, const FrontendHost* host) {

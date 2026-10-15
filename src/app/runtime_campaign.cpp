@@ -535,6 +535,7 @@ void Runtime::enter_new_game_panel(bool any_mission) {
     setup.mission_selected = 0;
     campaign_files_.clear();
     campaign_labels_.clear();
+    campaign_shown_labels_.clear();
     campaign_mission_labels_.clear();
     campaign_mission_files_.clear();
     selected_campaign_index_ = 0;
@@ -578,6 +579,7 @@ void Runtime::enter_new_game_panel(bool any_mission) {
             runtime.campaign_files_.clear();
             for (const auto& label : rows)
                 runtime.campaign_files_.push_back("camps/" + label + ".tdf");
+            runtime.name_campaigns();
             return;
         }
         auto& file = campaign_runtime().file;
@@ -1032,6 +1034,7 @@ void Runtime::discover_campaigns() {
         campaign_files_.push_back("camps/" + campaign_labels_.back() + ".tdf");
         entry += std::strlen(entry) + 1;
     }
+    name_campaigns();
     const char* preferred = preferences_.side != 0 ? "Core Campaign" : "Arm Campaign";
     for (std::size_t i = 0; i < campaign_labels_.size(); ++i)
         if (names_equal(campaign_labels_[i], preferred)) {
@@ -1043,6 +1046,16 @@ void Runtime::discover_campaigns() {
         select_frontend_list_row("Campaign", selected_campaign_index_);
     }
     load_campaign_missions(selected_campaign_index_);
+}
+
+void Runtime::name_campaigns() {
+    campaign::FrontendHost host;
+    host.context = this;
+    host.translate = translation_hook;
+    campaign_shown_labels_.clear();
+    campaign_shown_labels_.reserve(campaign_labels_.size());
+    for (const std::string& label : campaign_labels_)
+        campaign_shown_labels_.push_back(campaign::shown_campaign_name(&host, label));
 }
 
 bool Runtime::select_campaign_list_row(std::string_view gadget_name, float canvas_y) {

@@ -294,7 +294,7 @@ std::string bytes_text(uint64_t bytes) {
     return std::to_string(tenths / 10ULL) + "." + std::to_string(tenths % 10ULL) + " GB";
 }
 
-/// The bundle's name, in English, as the table writes it.
+/// The bundle's name, in the language shown.
 ///
 /// @param table the table
 /// @param id the bundle id
@@ -302,7 +302,7 @@ std::string bytes_text(uint64_t bytes) {
 std::string bundle_name(std::span<const bundles::Bundle> table, std::string_view id) {
     for (const bundles::Bundle& bundle : table) {
         if (bundle.id == id)
-            return std::string(bundle.english_name);
+            return std::string(oa::data::languages::interface_text(bundle.english_name));
     }
     return std::string(id);
 }
@@ -348,6 +348,7 @@ bool add_described(
         first_run::SourceChip chip;
         chip.name = bundle_name(table, id);
         chip.held = true;
+        chip.id = id;
         row.chips.push_back(std::move(chip));
     }
     memory.push_back(Remembered{token, kind, path});
@@ -515,6 +516,7 @@ void gather_installer(
         first_run::SourceChip chip;
         chip.name = bundle_name(table, id);
         chip.held = true;
+        chip.id = id;
         held.row.chips.push_back(std::move(chip));
     }
     held.remembered = Remembered{token, kind, file};
@@ -564,6 +566,7 @@ void gather_folder(
         first_run::SourceChip chip;
         chip.name = bundle_name(table, id);
         chip.held = true;
+        chip.id = id;
         held.row.chips.push_back(std::move(chip));
     }
     held.remembered = Remembered{token, SourceKind::folder, folder};
@@ -1507,13 +1510,14 @@ void prime_bundles(
     for (const bundles::Bundle& bundle : table) {
         bool held = false;
         for (const first_run::SourceChip& chip : chips) {
-            if (chip.held && chip.name == bundle.english_name)
+            if (chip.held && chip.id == bundle.id)
                 held = true;
         }
         if (!held)
             continue;
         first_run::CopyBundle row;
-        row.name = std::string(bundle.english_name);
+        row.name = bundle_name(table, bundle.id);
+        row.id = std::string(bundle.id);
         row.whole = 1000;
         row.phase = first_run::CopyPhase::waiting;
         job.bundle_ids.emplace_back(bundle.id);
@@ -1547,7 +1551,7 @@ void apply_check(first_run::CopyView& view, const ContentCheck& check, bool fini
                                    ? job.bundle_ids[static_cast<std::size_t>(index)]
                                    : std::string{};
         for (const ContentBundleCheck& bundle : check.bundles) {
-            if (bundle.id == id || bundle.english_name == row.name)
+            if (bundle.id == id || bundle.id == row.id)
                 found = &bundle;
         }
         if (found == nullptr)

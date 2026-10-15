@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <limits>
 #include <unordered_map>
+#include <utility>
 
 namespace oa::present {
 
@@ -291,19 +292,75 @@ bool same_glyph(const Sprite* glyph, const Sprite* other) {
     return true;
 }
 
+namespace {
+
+/// Tells whether a character is a letter of an alphabet beyond ASCII: the
+/// Latin-1 letters, and every character from Latin Extended up to the
+/// general punctuation, among them the Greek, Cyrillic, Armenian, Hebrew
+/// and Arabic letters and the combining marks. Symbols and punctuation
+/// (× ÷ « » · and from U+2000 on, the CJK characters among them) are not.
+///
+/// @param character the character
+/// @return true for such a letter
+bool script_letter(char32_t character) noexcept {
+    if (character < 0xC0 || character >= 0x2000)
+        return false;
+    return character != 0xD7 && character != 0xF7;
+}
+
+/// Reads the character at a place in a text: a UTF-8 sequence, or a byte of
+/// the game's code page.
+///
+/// @param text the text
+/// @param at the place, inside the text
+/// @return the character and its bytes
+std::pair<char32_t, std::size_t> character_at(std::string_view text, std::size_t at) {
+    const auto sequence = utf8_sequence(text.substr(at));
+    if (sequence.bytes != 0)
+        return {sequence.code_point, sequence.bytes};
+    return {code_page_character(static_cast<uint8_t>(text[at])), std::size_t{1}};
+}
+
+} // namespace
+
+int32_t fitted_text_size(const std::function<int32_t(int32_t most_size)>& width_at, int32_t room) {
+    const int32_t whole = width_at(game_font_text_size);
+    if (whole <= room)
+        return game_font_text_size;
+    // A caption the game font draws whole is as wide at every size.
+    if (width_at(lowest_text_size) == whole)
+        return game_font_text_size;
+    for (int32_t size = game_font_text_size - fitted_text_size_step; size > lowest_text_size;
+         size -= fitted_text_size_step)
+        if (width_at(size) <= room)
+            return size;
+    return lowest_text_size;
+}
+
+bool drawn_whole_in_modern_fonts(std::string_view text, const FontCharacters& font) {
+    for (std::size_t at = 0; at < text.size();) {
+        const auto [character, length] = character_at(text, at);
+        if (script_letter(character) && !font.byte_for(character))
+            return true;
+        at += length;
+    }
+    return false;
+}
+
 std::vector<TextRun> split_text(std::string_view text, const FontCharacters& font) {
     std::vector<TextRun> runs;
+    // A letter the game font lacks draws the whole text in the modern fonts.
+    if (drawn_whole_in_modern_fonts(text, font)) {
+        runs.push_back({true, std::string(text), game_font_text_size});
+        return runs;
+    }
     const auto take = [&runs](bool modern) -> std::string& {
         if (runs.empty() || runs.back().modern != modern)
             runs.push_back({modern, {}, game_font_text_size});
         return runs.back().text;
     };
     for (std::size_t at = 0; at < text.size();) {
-        const auto sequence = utf8_sequence(text.substr(at));
-        const std::size_t length = sequence.bytes != 0 ? sequence.bytes : 1;
-        const char32_t character = sequence.bytes != 0
-                                       ? sequence.code_point
-                                       : code_page_character(static_cast<uint8_t>(text[at]));
+        const auto [character, length] = character_at(text, at);
         if (const auto byte = font.byte_for(character))
             take(false).push_back(static_cast<char>(*byte));
         else

@@ -242,10 +242,6 @@ RowContext row_context(const Dialog& dialog) noexcept {
     };
 }
 
-/// Tells whether a measure is the stand-in that counts every character the same.
-///
-/// @param measure a text's width
-/// @return true when n and W are both the estimated character width
 bool estimated_measure(const TextWidth& measure) {
     return measure("n") == estimated_character_width && measure("W") == estimated_character_width;
 }
@@ -526,7 +522,7 @@ Rows place_section(
     if (page == Page::downloads)
         return downloads::place(dialog, locks, small_width, placed, &sized_here, regular_width);
     if (page == Page::game_content)
-        return content::place(dialog, locks, small_width, placed);
+        return content::place(dialog, locks, small_width, placed, &sized_here);
     const auto settings = section_settings(page, section, row_context(dialog));
     std::vector<kit::RowView> views;
     std::vector<Lock> row_locks;

@@ -139,6 +139,46 @@ void splits_runs_between_fonts() {
     OA_CHECK(present::split_text("", gui).empty());
 }
 
+/// Returns the runs of a text as "game:" or "modern:" and their text.
+///
+/// @param runs the runs
+/// @return one line per run
+std::vector<std::string> run_lines(const std::vector<present::TextRun>& runs) {
+    std::vector<std::string> lines;
+    for (const present::TextRun& run : runs)
+        lines.push_back((run.modern ? "modern:" : "game:") + run.text);
+    return lines;
+}
+
+void keeps_a_word_in_one_face() {
+    // A GUI font of ASCII and the code page's letters, as hattfont12 is.
+    const auto gui = present::FontCharacters::gui_font([](uint8_t) { return true; });
+    using Lines = std::vector<std::string>;
+    // A text with letters the font lacks is drawn whole in the modern fonts,
+    // the hyphen in a word and the Latin words and digits beside it with it.
+    OA_CHECK(run_lines(present::split_text("будь-якого", gui)) == Lines({"modern:будь-якого"}));
+    OA_CHECK(
+        run_lines(present::split_text("Набори тайлів Cavedog (16)", gui)) ==
+        Lines({"modern:Набори тайлів Cavedog (16)"})
+    );
+    OA_CHECK(run_lines(present::split_text("Mapa1 \u0103", gui)) == Lines({"modern:Mapa1 \u0103"}));
+    // English, and the letters the font has, keep the game font.
+    OA_CHECK(
+        run_lines(present::split_text("Copy again from... caf\u00e9", gui)) ==
+        Lines({"game:Copy again from... caf\xE9"})
+    );
+    // Beside a symbol the font lacks, or a Chinese character, the rest keeps
+    // the game font, as before.
+    OA_CHECK(
+        run_lines(present::split_text("16\u219216", gui)) ==
+        Lines({"game:16", "modern:\u2192", "game:16"})
+    );
+    OA_CHECK(
+        run_lines(present::split_text("共16张", gui)) ==
+        Lines({"modern:共", "game:16", "modern:张"})
+    );
+}
+
 void same_glyph_compares_pictures() {
     std::array<uint8_t, 4> one{1, 2, 3, 4};
     std::array<uint8_t, 4> other{1, 2, 3, 5};
@@ -574,6 +614,7 @@ int main() {
     reads_and_writes_the_code_page();
     maps_characters_to_font_bytes();
     splits_runs_between_fonts();
+    keeps_a_word_in_one_face();
     same_glyph_compares_pictures();
     builds_borders();
     lays_text_on_pixels();

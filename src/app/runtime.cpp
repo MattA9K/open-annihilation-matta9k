@@ -1643,9 +1643,14 @@ void Runtime::rebuild_surface() {
     if (const auto first = frontend_list_first("Missions"))
         campaign_mission_first_visible_ = *first;
     if (screen_ == Screen::any_mission || screen_ == Screen::new_campaign) {
+        // The list shows each campaign's name in the language; its file's
+        // name stays the row's key.
+        const std::vector<std::string>& shown_campaigns =
+            campaign_shown_labels_.size() == campaign_labels_.size() ? campaign_shown_labels_
+                                                                     : campaign_labels_;
         if (!campaign_labels_.empty())
             lists.push_back(
-                {"Campaign", campaign_labels_, campaign_first_visible_, selected_campaign_index_}
+                {"Campaign", shown_campaigns, campaign_first_visible_, selected_campaign_index_}
             );
         if (screen_ == Screen::any_mission && !campaign_mission_labels_.empty())
             lists.push_back(

@@ -9,6 +9,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
+#include <string_view>
 
 namespace oa::ui::campaign {
 
@@ -145,6 +147,21 @@ void populate_mission_list(CampaignSetup* setup, const FrontendHost* host);
 /// @param index Entry index.
 /// @return The campaign name, or null out of range.
 [[nodiscard]] const char* campaign_list_entry(const CampaignSetup* setup, int32_t index);
+
+/// Returns the name the Campaign list shows for a campaign: its file's name
+/// looked up in the game's text table, as 3.1c's table names the Arm and Core
+/// campaigns ([Arm Campaign]), or the file's name when the table has none.
+/// A name the table does not hold as it is listed is looked up again without
+/// the spaces at its ends, as Core Contingency's files end in one. The file's
+/// name stays the campaign's key: a save and the list's choice name it.
+///
+/// @param host Frontend services; may be null, which shows the file's name.
+/// @param name The campaign's file name, without its folder and suffix.
+/// @return The name to show.
+/// @quirk 3.1c lists a campaign by its file's name in every language and
+///        takes a translated name only from a file in the language's own
+///        camps folder; in English the name shown is the file's name, as there.
+[[nodiscard]] std::string shown_campaign_name(const FrontendHost* host, std::string_view name);
 
 // Record types the NEWGAME setup finds its lists and knobs by.
 inline constexpr uint8_t kListControl = 2;

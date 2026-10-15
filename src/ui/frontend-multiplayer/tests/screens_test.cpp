@@ -14,6 +14,8 @@
 #include "oa/data/defs/asset_files.hpp"
 #include "oa/data/defs/locale.hpp"
 #include "oa/data/defs/unit_header.hpp"
+#include "oa/data/languages.hpp"
+#include "oa/data/languages/interface_text.hpp"
 #include "oa/formats/hpi.hpp"
 #include "oa/formats/ota.hpp"
 #include "oa/formats/tnt.hpp"
@@ -1671,6 +1673,40 @@ void check_map_list_words() {
     expect(mp::map_list_row(texts, keys, "Comet Catcher") == 1, "the base map's words choose it");
     expect(mp::map_list_row(texts, keys, "") == -1, "an empty choice matches nothing");
     expect(mp::map_list_row(texts, keys, "Missing") == -1, "an unknown choice matches nothing");
+
+    // A greyed row names an expansion or a game in the language shown; a
+    // mod's name, which the catalogue does not hold, stays as it is.
+    oa::data::languages::InterfaceText catalogue;
+    expect(
+        catalogue.add(
+            "[needs {name}]\n{\nde=braucht {name};\n}\n"
+            "[for {name}]\n{\nde=für {name};\n}\n"
+            "[Cavedog units]\n{\nde=Cavedog-Einheiten;\n}\n"
+        ),
+        "the catalogue reads"
+    );
+    const oa::data::languages::Language* german = oa::data::languages::find_by_tag("de");
+    expect(german != nullptr, "German is known");
+    if (german == nullptr)
+        return;
+    oa::data::languages::set_interface_language(&catalogue, *german);
+    const mp::MapListFact greyed[] = {
+        {"moon@sample", "Moon Pond", {}, "Moon Pack", true, "needs Cavedog units"},
+        {"ridge@sample", "Ridge Pond", {}, "Ridge Pack", true, "for ridge"},
+    };
+    const std::vector<std::string> german_texts = mp::map_list_texts(greyed);
+    oa::data::languages::set_interface_language(nullptr, oa::data::languages::english());
+    expect(german_texts.size() == 2, "every greyed row has words");
+    if (german_texts.size() != 2)
+        return;
+    expect(
+        german_texts[0] == "Moon Pond  braucht Cavedog-Einheiten",
+        ("an expansion's name is translated: " + german_texts[0]).c_str()
+    );
+    expect(
+        german_texts[1] == "Ridge Pond  für ridge",
+        ("a mod's name stays as it is: " + german_texts[1]).c_str()
+    );
 }
 
 /// The keys `map_list_order` puts first.

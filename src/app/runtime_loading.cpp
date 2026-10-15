@@ -145,6 +145,10 @@ void Runtime::pump_loading_screen() {
     render();
     SDL_PumpEvents();
     SDL_Event event;
+    // A quit asked through ScreenServices::quit or the automation endpoint
+    // stops the load as the window's close button does; the run then ends.
+    if (quit_requested_)
+        throw std::runtime_error("loading cancelled");
     while (SDL_PollEvent(&event)) {
         if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED)
             throw std::runtime_error("loading cancelled");

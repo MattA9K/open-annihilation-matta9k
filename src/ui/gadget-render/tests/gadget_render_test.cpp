@@ -506,6 +506,71 @@ void test_button(render::GadgetRenderer& renderer, TestFile& font) {
     );
 }
 
+/// The sizes the modern fonts were asked to draw at, and the last text.
+struct SizedDraws {
+    present::TextSettings settings{};
+    std::vector<uint8_t> palette{};
+    std::vector<int32_t> sizes{};
+    std::string last{};
+};
+
+// A button's caption the modern fonts draw, wider than the button less 6
+// pixels, is drawn smaller until it fits and keeps every character; the
+// renderer's size is put back once the button is drawn. Each character is
+// 4 pixels wide at the game font's size and 3 at 75%.
+void test_button_caption_shrinks(render::GadgetRenderer& renderer, TestFile& font) {
+    SizedDraws draws;
+    draws.settings.style = {false, false, false, false, present::default_text_size};
+    draws.settings.utf8 = true;
+    draws.palette.assign(8 * 4, 0);
+    present::GameTextHooks hooks{};
+    hooks.context = &draws;
+    hooks.settings = [](void* context) { return static_cast<SizedDraws*>(context)->settings; };
+    hooks.draw = [](
+                     void* context, std::string_view text, present::TextFace, int32_t, int32_t size
+                 ) -> std::shared_ptr<const present::TextMask> {
+        auto& sized = *static_cast<SizedDraws*>(context);
+        sized.sizes.push_back(size);
+        sized.last = std::string(text);
+        int32_t characters = 0;
+        for (std::size_t at = 0; at < text.size();) {
+            const auto sequence = present::utf8_sequence(text.substr(at));
+            at += sequence.bytes != 0 ? sequence.bytes : 1;
+            ++characters;
+        }
+        auto mask = std::make_shared<present::TextMask>();
+        mask->width = mask->advance = characters * size / 25;
+        mask->height = mask->baseline = 2;
+        mask->alpha.assign(static_cast<std::size_t>(mask->width) * 2U, 255);
+        return mask;
+    };
+    hooks.palette = [](void* context) -> std::span<const uint8_t> {
+        return static_cast<SizedDraws*>(context)->palette;
+    };
+    present::set_game_text_hooks(hooks);
+    TestPanel test;
+    make_panel(test, renderer, 34, 10);
+    GadgetPanel& panel = *test.panel;
+    panel.gaf_fonts[0] = &font;
+    panel.active_gaf_font = &font;
+    const int32_t index = add_record(panel, layout::gadget_type::button, 2, 1, 30, 8, "WIDE");
+    layout::set_record_u32(record(panel, index), field::attributes, layout::attribute::centered);
+    const std::string caption =
+        "\u041a\u043d\u043e\u043f\u043a\u0430\u0430\u0430"; // eight letters, 32 wide
+    layout::copy_record_cstring(record(panel, index), field::text, caption);
+    render::draw_button(renderer, panel, index);
+    require(
+        layout::record_string(record(panel, index), field::text) == caption,
+        "a caption the modern fonts draw keeps every character"
+    );
+    require(
+        !draws.sizes.empty() && draws.sizes.back() == 75 && draws.last == caption,
+        "the caption is drawn at the size it fits at"
+    );
+    require(renderer.most_text_size == present::game_font_text_size, "the size is put back");
+    present::set_game_text_hooks({});
+}
+
 void test_button_art(render::GadgetRenderer& renderer, TestFile& font) {
     TestPanel test;
     make_panel(test, renderer, 14, 10);
@@ -954,6 +1019,7 @@ int main() {
     test_forget_font_characters(renderer);
     test_shade_level(display);
     test_button(renderer, font);
+    test_button_caption_shrinks(renderer, font);
     test_button_art(renderer, font);
     test_label(renderer, font, small);
     test_text_list(renderer, font);

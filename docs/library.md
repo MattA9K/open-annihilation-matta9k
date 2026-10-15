@@ -249,7 +249,10 @@ and **Registries**. Each tab after Active shows how many it lists under
 All, before a search or a tag, in brackets after its title and in that
 title's own font and colour: "Mods (11)", "Maps (2)", "Languages (2)",
 "Updates (2)", "Registries (2)". The names are always the full ones.
-When they do not fit the strip, the strip scrolls sideways. The open tab
+At Regular and Large the search sits beside the tabs; when the tabs do
+not all fit beside it, as a wordier language's names may not, the tabs
+take the whole row and the search a row of its own under them. When they
+do not fit the strip even so, the strip scrolls sideways. The open tab
 stays wholly in view. A small arrow at an end shows when more tabs lie
 that way, and pressing it moves the strip by one tab. The wheel over the
 strip scrolls it the same way. Where every tab fits, there are no arrows

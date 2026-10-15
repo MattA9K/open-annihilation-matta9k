@@ -202,7 +202,8 @@ int32_t draw_fnt_game_text(
     std::array<uint8_t, 3> color,
     const PaletteBytes& palette,
     const TextClip& clip,
-    bool game_text
+    bool game_text,
+    int32_t most_size
 ) {
     const int32_t clip_right = clip.right;
     if (text.empty())
@@ -227,7 +228,7 @@ int32_t draw_fnt_game_text(
     canvas.clip_right = std::min(canvas.clip_right, clip.right);
     canvas.clip_bottom = std::min(canvas.clip_bottom, clip.bottom);
     for (const auto& run : runs) {
-        const int32_t size = screen_text_size(run);
+        const int32_t size = std::min(screen_text_size(run), most_size);
         std::optional<present::TextLayers> layers;
         if (run.modern)
             layers = present::modern_text(run.text, face, 1, size);
@@ -363,15 +364,17 @@ int32_t draw_fnt_composition(
     return x + layers->advance;
 }
 
-int32_t
-measure_fnt_game_text(const formats::fnt::Font& font, std::string_view text, bool game_text) {
+int32_t measure_fnt_game_text(
+    const formats::fnt::Font& font, std::string_view text, bool game_text, int32_t most_size
+) {
     if (!needs_text_runs(text, game_text))
         return static_cast<int32_t>(formats::fnt::measure_text(font, text));
     int32_t width = 0;
     for (const auto& run : split_game_text(text, fnt_font_characters(font), game_text)) {
         if (run.modern)
-            if (const auto layers =
-                    present::modern_text(run.text, fnt_font_face(font), 1, screen_text_size(run))) {
+            if (const auto layers = present::modern_text(
+                    run.text, fnt_font_face(font), 1, std::min(screen_text_size(run), most_size)
+                )) {
                 width += layers->advance;
                 continue;
             }
@@ -380,6 +383,17 @@ measure_fnt_game_text(const formats::fnt::Font& font, std::string_view text, boo
         width += static_cast<int32_t>(formats::fnt::measure_text(font, bytes));
     }
     return width;
+}
+
+int32_t fitted_fnt_text_size(
+    const formats::fnt::Font& font, std::string_view text, int32_t room, bool game_text
+) {
+    if (!needs_text_runs(text, game_text))
+        return present::game_font_text_size;
+    return present::fitted_text_size(
+        [&](int32_t most_size) { return measure_fnt_game_text(font, text, game_text, most_size); },
+        room
+    );
 }
 
 int32_t fnt_game_text_rise(const formats::fnt::Font& font, std::string_view text, bool game_text) {

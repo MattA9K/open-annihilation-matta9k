@@ -161,6 +161,13 @@ void reset_dialogs();
 /// @return The page from 0, or 0 when the top dialog is not the help panel.
 [[nodiscard]] int32_t help_page() noexcept;
 
+/// Returns the stage a button of the top dialog shows, such as HELP.GUI's
+/// Page on its second page.
+///
+/// @param index The button's record, from 1.
+/// @return The stage from 0; 0 when no dialog is open or the record is not one of its.
+[[nodiscard]] uint8_t dialog_button_stage(std::size_t index) noexcept;
+
 /// Activates a named button of the top dialog as a click would.
 ///
 /// @param ctx Screen context passed to the dialog's handler.

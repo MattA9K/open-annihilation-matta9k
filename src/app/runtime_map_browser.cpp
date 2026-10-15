@@ -246,17 +246,18 @@ bool read_whole_file(const fs::path& file, uintmax_t most, std::vector<uint8_t>&
 namespace bundles = oa::data::content_bundles;
 
 /// The catalogue key the base game's overlay shows. Other bundles show the
-/// table's English name as given.
+/// table's name in the language shown.
 constexpr std::string_view base_overlay = "TA 3.1c";
 
 /// Returns the overlay a bundle's maps show.
 ///
 /// @param bundle the bundle
-/// @return "TA 3.1c" for the base game, otherwise its English name
+/// @return "TA 3.1c" for the base game, otherwise its name in the language
+///     shown
 std::string bundle_overlay(const bundles::Bundle& bundle) {
     if (bundle.id == bundles::default_base_game_id)
         return std::string(base_overlay);
-    return std::string(bundle.english_name);
+    return std::string(oa::data::languages::interface_text(bundle.english_name));
 }
 
 /// Returns the overlay of the base game being played.

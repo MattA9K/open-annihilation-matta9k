@@ -148,15 +148,17 @@ std::vector<const bundles::Bundle*> expansions_of(std::string_view base) {
     return found;
 }
 
-/// Returns the name a bundle shows. An unknown id is shown as itself.
+/// Returns the name a bundle shows, in the language shown. An unknown id is
+/// shown as itself.
 ///
+/// @param text how texts are looked up
 /// @param id the bundle id
 /// @return the name
-std::string bundle_name(std::string_view id) {
+std::string bundle_name(const TextHooks& text, std::string_view id) {
     const bundles::Bundle* bundle = bundles::find_bundle(id);
     if (bundle == nullptr)
         return std::string(id);
-    return std::string(bundle->english_name);
+    return std::string(shown(text, bundle->english_name));
 }
 
 /// Returns the expansions that went off with a press, apart from the one pressed.
@@ -251,7 +253,7 @@ void keep_choice(
 std::string display_name(const TextHooks& text, std::string_view id) {
     if (id == bundles::default_base_game_id)
         return std::string(shown(text, words::active_game_name));
-    return bundle_name(id);
+    return bundle_name(text, id);
 }
 
 /// Joins names with "and" before the last.
@@ -748,7 +750,7 @@ ActiveContent active_content(const Library& library) {
         face.name = std::string(shown(text, words::active_game_name));
     } else {
         const bundles::Bundle* game = bundles::find_bundle(pending.base);
-        face.name = game != nullptr ? std::string(game->english_name) : pending.base;
+        face.name = game != nullptr ? bundle_name(text, game->id) : pending.base;
     }
     std::string version;
     if (retail)
@@ -801,7 +803,8 @@ ActiveContent active_content(const Library& library) {
         const bool music_short = bundle->id == "music" && stored.music_tracks &&
                                  *stored.music_tracks < stored.music_track_count;
         if (pill.face == ExpansionFace::add)
-            pill.text = filled(text, words::active_add_from, {{"name", bundle->english_name}});
+            pill.text =
+                filled(text, words::active_add_from, {{"name", bundle_name(text, bundle->id)}});
         else if (music_short)
             pill.text = filled(
                 text,
@@ -810,14 +813,14 @@ ActiveContent active_content(const Library& library) {
                  {"total", std::to_string(stored.music_track_count)}}
             );
         else
-            pill.text = std::string(bundle->english_name);
+            pill.text = bundle_name(text, bundle->id);
         pill.enabled = pills_on;
         if (!copied && !on)
             set_download_arrow(pill, library, offer, pills_on);
         if (locked_by_command_line(library, pending, bundle->id)) {
             pill.locked = true;
             pill.enabled = false;
-            locked_names.push_back(bundle_name(bundle->id));
+            locked_names.push_back(bundle_name(text, bundle->id));
         }
         face.pills.push_back(std::move(pill));
     }
@@ -846,10 +849,10 @@ ActiveContent active_content(const Library& library) {
         face.hint = filled(
             text,
             words::mod_unloaded_because,
-            {{"mod", draft.unloaded_mod}, {"name", bundle_name(draft.unloaded_for)}}
+            {{"mod", draft.unloaded_mod}, {"name", bundle_name(text, draft.unloaded_for)}}
         );
     } else if (draft.edited && !draft.last_id.empty()) {
-        const std::string name = bundle_name(draft.last_id);
+        const std::string name = bundle_name(text, draft.last_id);
         face.hint = filled(
             text, draft.last_on ? words::active_turns_on : words::active_turns_off, {{"name", name}}
         );
@@ -867,9 +870,10 @@ ActiveContent active_content(const Library& library) {
         for (const bundles::Bundle* bundle : expansions) {
             if (holds(pending.choice.expansions, bundle->id) || bundle->needs.empty())
                 continue;
-            const std::string need = bundle_name(bundle->needs.front());
-            face.hint =
-                filled(text, words::active_needs, {{"name", bundle->english_name}, {"need", need}});
+            const std::string need = bundle_name(text, bundle->needs.front());
+            face.hint = filled(
+                text, words::active_needs, {{"name", bundle_name(text, bundle->id)}, {"need", need}}
+            );
             break;
         }
     }
@@ -1030,7 +1034,7 @@ void fill_chooser(Library& library, std::string_view marked) {
         else if (demo)
             row.name = std::string(shown(text, words::base_demo_name));
         else
-            row.name = std::string(game->english_name);
+            row.name = bundle_name(text, game->id);
         if (retail)
             row.version = std::string(shown(text, words::active_version));
         else if (demo)
@@ -1076,12 +1080,12 @@ void fill_chooser(Library& library, std::string_view marked) {
         if (game->id == pending.base) {
             for (const bundles::Bundle* expansion : expansions_of(game->id)) {
                 if (holds(pending.choice.expansions, expansion->id))
-                    row.expansions.emplace_back(expansion->english_name);
+                    row.expansions.push_back(bundle_name(text, expansion->id));
             }
         } else if (copied) {
             for (const bundles::Bundle* expansion : expansions_of(game->id)) {
                 if (holds(stored.copied, expansion->id))
-                    row.expansions.emplace_back(expansion->english_name);
+                    row.expansions.push_back(bundle_name(text, expansion->id));
             }
         }
         row.marked = row.id == chooser.marked;

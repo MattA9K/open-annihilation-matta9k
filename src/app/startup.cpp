@@ -631,6 +631,7 @@ void refuse_left_out_self_checks([[maybe_unused]] const Options& options) {
             {options.check_window_place, "--check-window-place"},
             {options.check_progress, "--check-progress"},
             {options.check_text_fit, "--check-text-fit"},
+            {!options.check_languages.empty(), "--check-language"},
             {options.check_folder_chooser, "--check-folder-chooser"},
             {options.check_patrol_reclaim, "--check-patrol-reclaim"},
             {options.check_reclaim_cursor, "--check-reclaim-cursor"},
@@ -1128,6 +1129,10 @@ take_check_option(std::string_view argument, ArgumentCursor& cursor, Options& op
         options.check_unit_language = option_value(cursor);
         return true;
     }
+    if (argument == "--check-language") {
+        options.check_languages.emplace_back(option_value(cursor));
+        return true;
+    }
     return false;
 }
 
@@ -1401,12 +1406,12 @@ void write_startup_line(std::string_view text) {
                      "[--check-kill-board] [--check-paused-save] [--check-simulation-hash] "
                      "[--check-zoom-memory] "
                      "[--check-unit-language TAG] "
-                     "[--check-language-switch] "
+                     "[--check-language-switch [--check-language TAG]] "
                      "[--check-language-registry] "
                      "[--check-language-notice] [--check-first-run] [--check-setup-window] "
                      "[--check-window-place] "
                      "[--check-progress] "
-                     "[--check-text-fit] "
+                     "[--check-text-fit [--check-language TAG]...] "
                      "[--check-folder-chooser] "
                      "[--check-patrol-reclaim] [--check-reclaim-cursor] [--check-build-preview] "
                      "[--check-megamap-clicks] [--check-radar-orders] "
@@ -1601,6 +1606,12 @@ void write_startup_line(std::string_view text) {
         );
     if (result.render_fault && !result.check_renderer_ladder)
         throw std::runtime_error("--render-fault needs --check-renderer-ladder");
+    if (!result.check_languages.empty() && !result.check_text_fit && !result.check_language_switch)
+        throw std::runtime_error(
+            "--check-language needs --check-text-fit or --check-language-switch"
+        );
+    if (result.check_languages.size() > 1 && result.check_language_switch)
+        throw std::runtime_error("--check-language-switch takes one --check-language");
     check_game_files_options(result);
     result.fixed_clock =
         result.headless_check || result.check_match_layers || result.check_render_tiers ||

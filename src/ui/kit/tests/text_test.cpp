@@ -662,6 +662,35 @@ void stand_ins_replace_what_the_font_lacks() {
     OA_CHECK(kit::tracked_width(fonts, kit::FontRole::regular, "a\u2026b", 1) == 17);
     OA_CHECK(kit::capitals(fonts, kit::FontRole::regular) == 11);
     OA_CHECK(kit::with_stand_ins(fonts, kit::FontRole::small, "a\u2026b") == "a\u2026b");
+
+    // A no-break space is drawn and measured as the font's own space, so it
+    // keeps the gap between the words it joins.
+    fonts.regular.font.glyphs[static_cast<unsigned char>(' ')] = glyph(3);
+    OA_CHECK(kit::with_stand_ins(fonts, kit::FontRole::regular, "a\u00a0b") == "a b");
+    OA_CHECK(kit::text_width(fonts, kit::FontRole::regular, "a\u00a0b") == 12);
+    OA_CHECK(
+        kit::text_width(fonts, kit::FontRole::regular, "a\u00a0b") ==
+        kit::text_width(fonts, kit::FontRole::regular, "a b")
+    );
+    // A line the modern fonts draw whole, as one with a letter the font
+    // lacks, keeps its own marks, which those fonts draw.
+    OA_CHECK(
+        kit::with_stand_ins(fonts, kit::FontRole::regular, "\u0436\u00a0a\u203Ab") ==
+        "\u0436\u00a0a\u203Ab"
+    );
+    // A wrap never breaks a line at a no-break space, and measures the words
+    // it joins with it: "b\u00a0a" goes whole to the next line.
+    const kit::Measure measure = [&fonts](std::string_view text) {
+        return kit::text_width(fonts, kit::FontRole::regular, text);
+    };
+    const auto lines = kit::wrap("a a b\u00a0a", 16, measure);
+    OA_CHECK(lines.size() == 2);
+    if (lines.size() == 2) {
+        OA_CHECK(lines[0] == "a a");
+        OA_CHECK(lines[1] == "b\u00a0a");
+    }
+    for (const std::string& line : lines)
+        OA_CHECK(measure(line) <= 16);
 }
 
 /// Checks the notice lines the dialog's test already names.

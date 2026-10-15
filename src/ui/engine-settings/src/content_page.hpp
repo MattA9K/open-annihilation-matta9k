@@ -16,19 +16,25 @@ namespace oa::ui::engine_settings::content {
 /// Places Game Content's rows from the bundles the host listed.
 ///
 /// An empty list is the sentence and the three buttons. The host's rows are
-/// read as they are: a bundle's name is a product name, and its size and
-/// check are already the words to show.
+/// read as they are: a bundle's name, its size and its check are already the
+/// words to show. The sentence breaks between words where it is measured, as
+/// every row's hint does: a no-break space joins the words beside it into
+/// one, measured whole.
 ///
 /// @param dialog the dialog
 /// @param locks unused; nothing on this page is locked
-/// @param width unused; the sentence breaks on characters
+/// @param width a text's width in the small font the sentence is drawn in;
+///        the estimated measure counts characters
 /// @param[out] placed the kit's rows, when not null
+/// @param sizes the sizes the rows are placed in, as a language's wide
+///        section names fit them; null for the class's own
 /// @return the rows
 [[nodiscard]] geometry::Rows place(
     const Dialog& dialog,
     const Locks& locks,
     const geometry::TextWidth& width,
-    oa::ui::kit::PlacedRows* placed
+    oa::ui::kit::PlacedRows* placed,
+    const geometry::Sizes* sizes = nullptr
 );
 
 /// Returns what one of the three buttons asks for.

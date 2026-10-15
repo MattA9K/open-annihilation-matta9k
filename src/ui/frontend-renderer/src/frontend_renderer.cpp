@@ -353,23 +353,30 @@ void blit_stretched(
 }
 
 // Cuts characters from a caption's end until it is no wider than `limit`
-// pixels, or nothing is left; a character is a byte of the game's code
-// page, or a whole UTF-8 sequence where the game text is UTF-8.
+// pixels, its modern runs drawn at most `most_size`, or nothing is left; a
+// character is a byte of the game's code page, or a whole UTF-8 sequence
+// where the game text is UTF-8.
 std::string_view fitted_caption(
-    const formats::fnt::Font& font, std::string_view text, int32_t limit, bool game_text
+    const formats::fnt::Font& font,
+    std::string_view text,
+    int32_t limit,
+    bool game_text,
+    int32_t most_size = present::game_font_text_size
 ) {
     const bool utf8 = present::game_text_settings().utf8;
-    while (!text.empty() && measure_fnt_game_text(font, text, game_text) > limit)
+    while (!text.empty() && measure_fnt_game_text(font, text, game_text, most_size) > limit)
         text = text.substr(0, utf8 ? present::last_character_start(text) : text.size() - 1);
     return text;
 }
 
 // Draws a button's caption, and the underline under its quick key when the
-// caption is centred and the button is not grayed. The caption, or the
-// first stage's of a button with stages, loses characters from its end
-// until it is no wider than the record less caption_margin, and is then
-// placed as a caption that fits: centred, a long label shows its start
-// inside the button rather than running past both its sides.
+// caption is centred and the button is not grayed. A caption wider than the
+// record less caption_margin first draws its modern text smaller, down to
+// present::lowest_text_size, until it fits (fitted_fnt_text_size). The
+// caption, or the first stage's of a button with stages, that the game font
+// draws, or that is still too wide, then loses characters from its end until
+// it fits. It is placed as a caption that fits: centred, a long label shows
+// its start inside the button rather than running past both its sides.
 void draw_button_text(
     Surface& surface,
     const ui::gui_layout::Gadget& gadget,
@@ -390,11 +397,13 @@ void draw_button_text(
     const auto translated = translated_stage_caption(*fields, selected_stage);
     if (translated)
         text = *translated;
+    const int32_t limit = record_width - caption_margin;
+    const int32_t most_size = fitted_fnt_text_size(selected_font, text, limit, game_text);
     if (fitted)
-        text = fitted_caption(selected_font, text, record_width - caption_margin, game_text);
+        text = fitted_caption(selected_font, text, limit, game_text, most_size);
     if (text.empty())
         return;
-    const auto text_width = measure_fnt_game_text(selected_font, text, game_text);
+    const auto text_width = measure_fnt_game_text(selected_font, text, game_text, most_size);
     const auto text_height = formats::fnt::line_height(selected_font);
     const int depressed_offset = condition == ButtonCondition::pressed ? 1 : 0;
     // A caption is placed within the record's inclusive rectangle, whose far
@@ -433,7 +442,8 @@ void draw_button_text(
              0,
              static_cast<int32_t>(surface.width) - 1,
              static_cast<int32_t>(surface.height) - 1},
-            game_text
+            game_text,
+            most_size
         );
         return;
     }
@@ -535,7 +545,8 @@ void draw_clipped_text(
     const Rectangle& clip,
     const PaletteBytes& active_palette,
     const uint8_t* light_row = nullptr,
-    bool game_text = false
+    bool game_text = false,
+    int32_t most_size = present::game_font_text_size
 ) {
     if (text.empty() || clip.left > clip.right || clip.top > clip.bottom)
         return;
@@ -553,7 +564,8 @@ void draw_clipped_text(
             palette_rgb(active_palette, index),
             active_palette,
             {clip.left, clip.top, clip.right, clip.bottom},
-            game_text
+            game_text,
+            most_size
         );
         return;
     }
@@ -805,9 +817,10 @@ void shade_rectangle(Surface& surface, const Rectangle& rectangle, GrayedShade& 
     const formats::fnt::Font& selected_font,
     int left_inset,
     int right_inset,
-    bool game_text = false
+    bool game_text = false,
+    int32_t most_size = present::game_font_text_size
 ) {
-    const auto width = measure_fnt_game_text(selected_font, text, game_text);
+    const auto width = measure_fnt_game_text(selected_font, text, game_text, most_size);
     const auto attributes = static_cast<uint32_t>(gadget.common.attributes);
     constexpr uint32_t align_left = 1U;
     constexpr uint32_t align_center = 2U;
@@ -849,7 +862,12 @@ void draw_label(
     // The label drawing switches to wrapped text only when two line heights
     // fit strictly inside the gadget. Wrapped text advances by line_height+2.
     if (line_height * 2 >= static_cast<int>(gadget.common.height) - 1) {
-        const int x = aligned_text_x(gadget, fields->text, selected_font, 0, 0);
+        // A line wider than the label draws its modern text smaller until it
+        // fits (fitted_fnt_text_size), and is placed at that width.
+        const int32_t most_size = fitted_fnt_text_size(
+            selected_font, fields->text, std::max(0, static_cast<int>(gadget.common.width)), false
+        );
+        const int x = aligned_text_x(gadget, fields->text, selected_font, 0, 0, false, most_size);
         // The single-line path limits the text by width only, so a label
         // authored with no height (MAINMENU's DebugString) still draws a line.
         Rectangle line_clip = clip;
@@ -862,7 +880,9 @@ void draw_label(
             gadget.common.y,
             line_clip,
             active_palette,
-            light_row
+            light_row,
+            false,
+            most_size
         );
         return;
     }
@@ -880,9 +900,11 @@ void draw_label(
             }
             if (fields->text[scan] == ' ')
                 last_break = scan + 1;
+            // Each line is measured as it is drawn, the modern fonts' letters
+            // at their own widths.
             const auto candidate = std::string_view(fields->text).substr(start, scan - start + 1);
-            if (formats::fnt::measure_text(selected_font, candidate) >
-                static_cast<uint32_t>(std::max(0, static_cast<int>(gadget.common.width)))) {
+            if (measure_fnt_game_text(selected_font, candidate, false) >
+                std::max(0, static_cast<int>(gadget.common.width))) {
                 end = last_break != std::string_view::npos ? last_break : scan;
                 if (end == start)
                     end = scan + 1;

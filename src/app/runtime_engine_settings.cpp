@@ -433,7 +433,7 @@ void lay_game_content(settings::Dialog& dialog, const fs::path& user_folder) {
     for (const auto& bundle : table) {
         settings::GameContentRow row;
         row.id = std::string(bundle.id);
-        row.name = std::string(bundle.english_name);
+        row.name = std::string(oa::data::languages::interface_text(bundle.english_name));
         uint64_t bytes = 0;
         for (const auto& file : bundle.files)
             bytes += file.size;
@@ -481,12 +481,12 @@ void paint_checking(settings::Dialog& dialog, uint32_t done, uint32_t total) {
     }
 }
 
-/// The bundle of this name, or -1.
+/// The bundle of this id, or -1.
 int find_copy_bundle(
-    const std::vector<oa::ui::first_run::CopyBundle>& bundles, std::string_view name
+    const std::vector<oa::ui::first_run::CopyBundle>& bundles, std::string_view id
 ) {
     for (int index = 0; index < static_cast<int>(bundles.size()); ++index) {
-        if (bundles[static_cast<std::size_t>(index)].name == name)
+        if (bundles[static_cast<std::size_t>(index)].id == id)
             return index;
     }
     return -1;
@@ -505,7 +505,7 @@ void paint_copy(
         // The bytes have landed. Cancel stays on the row that was copying, so
         // the check can be stopped without closing Settings.
         for (settings::GameContentRow& row : dialog.game_content) {
-            const int index = find_copy_bundle(view.bundles, row.name);
+            const int index = find_copy_bundle(view.bundles, row.id);
             if (index < 0)
                 continue;
             if (view.bundles[static_cast<std::size_t>(index)].phase ==
@@ -516,7 +516,7 @@ void paint_copy(
     }
     const bool landed = view.bytes_landed && !view.running && !view.checked;
     for (settings::GameContentRow& row : dialog.game_content) {
-        const int index = find_copy_bundle(view.bundles, row.name);
+        const int index = find_copy_bundle(view.bundles, row.id);
         row.copying = false;
         row.checking = false;
         row.bar_done = -1;

@@ -38,7 +38,7 @@ if(BUILD_TESTING)
   add_executable(oa-ui-frontend-multiplayer-screens-test tests/screens_test.cpp)
   target_link_libraries(oa-ui-frontend-multiplayer-screens-test PRIVATE oa-ui-frontend-multiplayer oa-formats-hpi
     oa-formats-tnt oa-ui-frontend-renderer oa-present oa-data-unit-definitions oa-data-defs-assets
-    oa-test-game-data)
+    oa-data-languages oa-test-game-data)
   add_test(NAME ui-multiplayer-screens COMMAND oa-ui-frontend-multiplayer-screens-test)
   set_tests_properties(ui-multiplayer-screens PROPERTIES TIMEOUT 120)
   # The presence card's words, its hover card and place by the badge, and

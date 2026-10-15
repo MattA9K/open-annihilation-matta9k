@@ -51,12 +51,19 @@ constexpr RequestKind kRequests[] = {
 };
 
 /// Has the game quit once the client's answer to quit has been written, as
-/// the window's close button does: through the main loop's own events.
+/// the main menu's Exit does: a running match is left with no question
+/// (AutomationHost::quit). Without that entry the game is sent the system's
+/// quit, as the window's close button sends it.
 ///
 /// @param[in,out] endpoint the endpoint
 void quit_once_answered(Endpoint& endpoint, FrameStage /*stage*/) {
     if (!endpoint.take_quit())
         return;
+    const AutomationHost& host = endpoint.automation_host();
+    if (host.quit != nullptr) {
+        host.quit(host.context);
+        return;
+    }
     SDL_Event quit{};
     quit.type = SDL_EVENT_QUIT;
     quit.quit.timestamp = SDL_GetTicksNS();

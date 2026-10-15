@@ -134,7 +134,7 @@ int32_t measure_with_font(const GadgetRenderer& renderer, const void* gaf_font, 
                     run.text,
                     font_face(renderer, glyphs),
                     1,
-                    frontend_renderer::screen_text_size(run)
+                    std::min(frontend_renderer::screen_text_size(run), renderer.most_text_size)
                 )) {
                 width += layers->advance;
                 continue;
@@ -205,7 +205,10 @@ void draw_text(
         std::optional<present::TextLayers> layers;
         if (run.modern)
             layers = present::modern_text(
-                run.text, font_face(renderer, glyphs), 1, frontend_renderer::screen_text_size(run)
+                run.text,
+                font_face(renderer, glyphs),
+                1,
+                std::min(frontend_renderer::screen_text_size(run), renderer.most_text_size)
             );
         if (layers) {
             if (max_width != kNoLimit && max_width < layers->advance)

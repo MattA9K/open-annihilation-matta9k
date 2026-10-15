@@ -482,10 +482,16 @@ struct Options {
     // give them there; empty for no check.
     std::string check_unit_language;
     // Changes the language in the settings over the main menu and over a
-    // skirmish's in-game menu, from Simplified Chinese to English, German
-    // and back, and checks each screen under them shows it as it shows
-    // opened again in it.
+    // skirmish's in-game menu, from Simplified Chinese, or the language
+    // check_languages names, to English and German (French in place of the
+    // one named) and back, and checks each screen under them shows it as it
+    // shows opened again in it.
     bool check_language_switch = false;
+    // --check-language: the BCP-47 tags of the languages --check-text-fit
+    // opens every screen in, in place of its own six, and the one
+    // --check-language-switch starts in and comes back to, such as an
+    // installed pack's (uk). Empty keeps each check's own languages.
+    std::vector<std::string> check_languages;
     // Lists every language the game knows and the one the run shows, and
     // checks English comes first, the built-in languages follow in their
     // order, and the pseudo pack is installed and shown.
@@ -514,8 +520,9 @@ struct Options {
     // closes with no input, writes pictures, and checks the four languages.
     bool check_progress = false;
     // Opens every Open Annihilation screen in English, German, French,
-    // Spanish, Italian and Simplified Chinese, at 640x480 and 1280x720, and
-    // fails when any text is wider than its box or crosses another text.
+    // Spanish, Italian and Simplified Chinese, or in the languages
+    // check_languages names, at 640x480 and 1280x720, and fails when any
+    // text is wider than its box or crosses another text.
     bool check_text_fit = false;
     // Opens the locator on --game-dir's parent, moves onto that folder with
     // Tab and chooses it. With --snapshot, writes that PNG and a Deck PNG.

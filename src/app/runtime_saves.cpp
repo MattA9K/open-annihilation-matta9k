@@ -67,20 +67,36 @@ std::vector<std::string_view> views_of(const std::vector<std::string>& ids) {
     return views;
 }
 
-/// Joins the English names of the note's expansions.
+/// The name a bundle shows, in the language shown.
+///
+/// @param id the bundle id
+/// @return the name; an unknown id as it was given
+std::string shown_bundle_name(std::string_view id) {
+    return std::string(oa::data::languages::interface_text(saves::bundle_english_name(id)));
+}
+
+/// Joins the names of bundles, in the language shown.
+///
+/// @param ids the bundle ids
+/// @return the names, joined with ", "
+std::string shown_bundle_names(const std::vector<std::string>& ids) {
+    std::string line;
+    for (const std::string& id : ids) {
+        if (!line.empty())
+            line += ", ";
+        line += shown_bundle_name(id);
+    }
+    return line;
+}
+
+/// Joins the names of the note's expansions, in the language shown.
 ///
 /// @param record the note
 /// @return the names, or None when there are none
 std::string expansion_line(const saves::ContentRecord& record) {
     if (!record.present || record.expansions.empty())
         return std::string(oa::data::languages::interface_text("None"));
-    std::string line;
-    for (const std::string& id : record.expansions) {
-        if (!line.empty())
-            line += ", ";
-        line += saves::bundle_english_name(id);
-    }
-    return line;
+    return shown_bundle_names(record.expansions);
 }
 
 /// One column of the comparison.
@@ -89,8 +105,7 @@ std::string expansion_line(const saves::ContentRecord& record) {
 /// @return the names the question shows
 dialogs::ContentColumn column_of(const saves::ContentRecord& record) {
     dialogs::ContentColumn column;
-    column.base_game =
-        record.present ? saves::bundle_english_name(record.base_game) : std::string{};
+    column.base_game = record.present ? shown_bundle_name(record.base_game) : std::string{};
     column.expansions = expansion_line(record);
     column.mod = record.mod.empty() ? std::string(oa::data::languages::interface_text("No Mod"))
                                     : record.mod;
@@ -134,7 +149,11 @@ saves::ContentGap gap_for(
     const saves::ContentRecord saved = saves::content_record_from_text(read_note(note));
     const std::vector<std::string> copied = copied_content_bundles(game_dir);
     const std::vector<std::string_view> copied_ids = views_of(copied);
-    return saves::content_gap(saved, choice, copied_ids);
+    saves::ContentGap gap = saves::content_gap(saved, choice, copied_ids);
+    // The question names the bundles in the language shown.
+    if (!gap.focus_ids.empty())
+        gap.focus = shown_bundle_names(gap.focus_ids);
+    return gap;
 }
 
 /// The first sentence of the question.

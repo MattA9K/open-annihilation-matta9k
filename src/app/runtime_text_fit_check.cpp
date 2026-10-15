@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // --check-text-fit: opens every Open Annihilation screen in English, German,
-// French, Spanish, Italian and Simplified Chinese, at 640x480 and 1280x720.
+// French, Spanish, Italian and Simplified Chinese, or in the languages
+// --check-language names, such as an installed pack's, at 640x480 and 1280x720.
 // The kit records a text drawn wider than its box or across another text.
 // The check fails naming the screen, the language and the text. The Game
 // files screen and the folder chooser paint through their own painter, which
@@ -51,8 +52,23 @@ namespace library = oa::ui::library;
 namespace first_run = oa::ui::first_run;
 namespace dialogs = oa::ui::frontend_dialogs;
 
-/// Languages the check opens every screen in, in order.
+/// Languages the check opens every screen in, in order, unless --check-language
+/// names others.
 constexpr std::string_view kLanguages[] = {"en", "de", "fr", "es", "it", "zh-Hans"};
+
+/// Joins the languages for the report: "en, de and zh-Hans".
+///
+/// @param tags the languages
+/// @return the list
+std::string joined_languages(const std::vector<std::string>& tags) {
+    std::string joined;
+    for (std::size_t at = 0; at < tags.size(); ++at) {
+        if (at != 0)
+            joined += at + 1 == tags.size() ? " and " : ", ";
+        joined += tags[at];
+    }
+    return joined;
+}
 
 /// Window sizes. 640x480 is the compact settings dialog; 1280x720 is larger.
 constexpr int32_t kWidths[] = {640, 1280};
@@ -174,6 +190,13 @@ void Runtime::check_text_fit() {
     preference_values_[std::string(first_run::preference_key)] =
         std::string(first_run::preference_done);
     preferences_dirty_ = true;
+
+    // The languages named with --check-language, else the check's own.
+    std::vector<std::string> languages = options_.check_languages;
+    const bool named_languages = !languages.empty();
+    if (!named_languages)
+        for (const std::string_view tag : kLanguages)
+            languages.emplace_back(tag);
 
     std::vector<FitFailure> failures;
     std::size_t extra_failures = 0;
@@ -312,13 +335,21 @@ void Runtime::check_text_fit() {
         );
         apply_output_mode();
 
-        for (const std::string_view choice : kLanguages) {
-            language = std::string(choice);
+        for (const std::string& choice : languages) {
+            language = choice;
             close_covering();
             preference_values_[std::string(settings::key::language)] = language;
             preferences_dirty_ = true;
             oa::platform::preferences::save(preference_path_, preference_values_);
             set_language_choice(language);
+            // A language named on the command line, such as an installed
+            // pack's, must be the one shown, or the check would pass over
+            // another.
+            require(
+                !named_languages || shown_language().tag == language,
+                language + " is not a language the game shows (" +
+                    std::string(shown_language().tag) + " is shown); is its pack installed?"
+            );
             paint("main-menu");
 
             open_engine_settings_from_menu();
@@ -503,7 +534,7 @@ void Runtime::check_text_fit() {
 
     close_covering();
     if (failures.empty()) {
-        std::cout << "text-fit check: every screen fits in en, de, fr, es, it and zh-Hans"
+        std::cout << "text-fit check: every screen fits in " << joined_languages(languages)
                   << " at 640x480 and 1280x720\n";
         return;
     }

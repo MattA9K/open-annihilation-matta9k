@@ -101,6 +101,8 @@ void test_missing_expansion_turns_that_one_on() {
     OA_CHECK(!gap.clears_mod);
     OA_CHECK(gap.block == ContentBlock::none);
     OA_CHECK(gap.focus == "Core Contingency");
+    // The ids let the host name the bundles in the language it shows.
+    OA_CHECK(gap.focus_ids == std::vector<std::string>({"core-contingency"}));
     OA_CHECK(gap.next.base_game == "totala");
     OA_CHECK(has_expansion(gap.next, "campaign"));
     OA_CHECK(has_expansion(gap.next, "core-contingency"));
@@ -118,6 +120,7 @@ void test_other_base_game() {
     OA_CHECK(gap.base_differs);
     OA_CHECK(gap.clears_mod);
     OA_CHECK(gap.focus == "Total Annihilation demo");
+    OA_CHECK(gap.focus_ids == std::vector<std::string>({"totala-demo"}));
     OA_CHECK(gap.next.base_game == "totala-demo");
     OA_CHECK(gap.next.expansions.empty());
 }

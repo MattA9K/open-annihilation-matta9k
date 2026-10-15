@@ -120,29 +120,41 @@ wrap_wide_text(std::string_view text, int32_t width, MeasureText measure, void* 
     }
 }
 
+/// What a row's or a highlight's text holds as its bytes are copied in.
+struct RowFill {
+    std::size_t length{};     ///< the bytes copied
+    std::size_t characters{}; ///< the characters begun, at most kRowCharacters
+    std::size_t pending{};    ///< bytes of the last character still to come
+    bool full{};              ///< a character did not fit; nothing more is copied
+};
+
 /// Copies a byte of a row's text into a buffer while the whole character it
-/// belongs to fits, so that no character is cut in part.
+/// belongs to fits, so that no character is cut in part. A row holds at most
+/// kRowCharacters characters: a well-formed UTF-8 sequence is one, and any
+/// other byte, as each byte of the game's one-byte code page, is one of its
+/// own (oa::base::text::break_character).
 ///
 /// @param p the byte, within its text
-/// @param[out] out the buffer
-/// @param[in,out] length the bytes in it
-/// @param[in,out] full set once a character did not fit; nothing more is
-///        copied after it
-void put_whole(const char* p, char* out, std::size_t& length, bool& full) {
-    if (full)
+/// @param[out] out the buffer, kRowTextBytes bytes
+/// @param[in,out] fill what the buffer holds
+void put_whole(const char* p, char* out, RowFill& fill) {
+    if (fill.full)
         return;
-    if ((static_cast<unsigned char>(*p) & 0xC0U) != 0x80U) {
+    if (fill.pending == 0) {
         std::size_t available = 0;
         while (available < 4 && !at_end(p[available]))
             ++available;
         const auto read = oa::base::text::break_character(std::string_view(p, available));
-        if (length + std::max<std::size_t>(read.bytes, 1) > kRowTextBytes - 1) {
-            full = true;
+        const std::size_t bytes = std::max<std::size_t>(read.bytes, 1);
+        if (fill.characters + 1 > kRowCharacters || fill.length + bytes > kRowTextBytes - 1) {
+            fill.full = true;
             return;
         }
+        ++fill.characters;
+        fill.pending = bytes;
     }
-    if (length < kRowTextBytes - 1)
-        out[length++] = *p;
+    --fill.pending;
+    out[fill.length++] = *p;
 }
 
 } // namespace
@@ -296,8 +308,7 @@ void briefing_next_page(
         out.x = x;
         out.y = y;
         y += line_height;
-        std::size_t length = 0;
-        bool full = false;
+        RowFill fill;
         char c = *p;
         while (c != '\n') {
             if (at_end(c))
@@ -316,16 +327,15 @@ void briefing_next_page(
                         highlight.x = measure(context, out.text) + x;
                         highlight.y = out.y;
                         highlight.color = color;
-                        std::size_t kept = 0;
-                        bool kept_full = false;
+                        RowFill kept;
                         for (std::size_t i = 0; !at_end(p[i]) && p[i] != kSpanMarker; ++i)
-                            put_whole(p + i, highlight.text, kept, kept_full);
+                            put_whole(p + i, highlight.text, kept);
                     }
                 }
                 if (at_end(*p))
                     break;
             }
-            put_whole(p, out.text, length, full);
+            put_whole(p, out.text, fill);
             ++p;
             c = *p;
         }

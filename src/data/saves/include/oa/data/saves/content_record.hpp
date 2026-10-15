@@ -49,8 +49,11 @@ struct ContentGap {
     /// The base game in the note is not the one this run plays.
     bool base_differs{};
     /// The names the sentence names: the other base game, or the expansions
-    /// that are off, in English.
+    /// that are off, in English, joined with ", ".
     std::string focus{};
+    /// The ids of the bundles `focus` names, in its order, so that a host can
+    /// name them in the language it shows.
+    std::vector<std::string> focus_ids{};
     /// The choice TURN ON AND LOAD stores. Expansions already on stay on.
     content_bundles::ContentChoice next{};
     /// Choosing the note's base game clears the remembered mod.

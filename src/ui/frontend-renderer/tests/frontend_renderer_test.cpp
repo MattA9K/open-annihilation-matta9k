@@ -12,6 +12,9 @@
 #include <cstdio>
 #include <string>
 #include <string_view>
+#include <utility>
+#include <tuple>
+#include <memory>
 #include <variant>
 #include <vector>
 
@@ -459,6 +462,116 @@ void test_caption_cut_to_button() {
     CHECK(cut.rgb == drawn.rgb);
 }
 
+/// What the modern fonts were last asked to draw, and at what size.
+struct ModernDraws {
+    std::vector<std::pair<std::string, int32_t>> asked{};
+};
+
+/// Counts a UTF-8 text's characters.
+///
+/// @param text the text
+/// @return its characters
+int32_t characters_of(std::string_view text) {
+    int32_t count = 0;
+    for (const char byte : text)
+        if ((static_cast<unsigned char>(byte) & 0xC0U) != 0x80U)
+            ++count;
+    return count;
+}
+
+// A caption the modern fonts draw that is wider than its button less 6
+// pixels is drawn smaller, a step of 5 at a time, until it fits, and keeps
+// every character; one that fits is drawn at the game font's size, and a
+// caption the game font draws still loses characters from its end.
+void test_caption_shrinks_to_button() {
+    namespace renderer = oa::ui::frontend_renderer;
+    ModernDraws draws;
+    oa::present::GameTextHooks hooks{};
+    hooks.context = &draws;
+    hooks.settings = [](void*) {
+        oa::present::TextSettings settings;
+        settings.style = {false, false, false, false, oa::present::default_text_size};
+        settings.utf8 = true;
+        return settings;
+    };
+    // Each character is 4 pixels wide at the game font's size, 3 at 75%.
+    hooks.draw = [](void* context,
+                    std::string_view text,
+                    oa::present::TextFace,
+                    int32_t,
+                    int32_t size) -> std::shared_ptr<const oa::present::TextMask> {
+        static_cast<ModernDraws*>(context)->asked.emplace_back(std::string(text), size);
+        auto mask = std::make_shared<oa::present::TextMask>();
+        mask->advance = characters_of(text) * size / 25;
+        mask->width = mask->advance;
+        mask->height = 2;
+        mask->baseline = 2;
+        mask->alpha.assign(static_cast<std::size_t>(mask->width) * 2U, 255);
+        return mask;
+    };
+    oa::present::set_game_text_hooks(hooks);
+
+    renderer::ScreenResources resources;
+    resources.background.width = 60;
+    resources.background.height = 20;
+    resources.background.rgb.assign(60U * 20U * 3U, 0);
+    for (std::size_t index = 0; index < 256; ++index)
+        resources.gui_palette[index * 4] = static_cast<uint8_t>(index);
+    resources.background.palette = resources.gui_palette;
+    oa::formats::fnt::Glyph glyph;
+    glyph.width = 3;
+    glyph.height = 4;
+    glyph.pixels.assign(12, 7);
+    glyph.coverage.assign(12, 1);
+    for (const char character : {'A', 'B'})
+        resources.font.glyphs[static_cast<unsigned char>(character)] = glyph;
+    const renderer::ButtonPresentation state{
+        "CAPTION", renderer::ButtonCondition::normal, std::nullopt, std::nullopt, std::nullopt
+    };
+    // The modern fonts' last draw of a button 30 wide, room 24.
+    const auto drawn = [&](const std::string& text) {
+        auto caption = button("CAPTION", 5, 5, 30, 10);
+        caption.common.attributes = 2;
+        std::get<oa::ui::gui_layout::ButtonFields>(caption.fields).text = text;
+        resources.layout.gadgets = {caption};
+        draws.asked.clear();
+        std::ignore = renderer::render_screen(resources, {&state, 1});
+        return draws.asked.empty() ? std::pair<std::string, int32_t>{} : draws.asked.back();
+    };
+    // Six letters, 24 wide, fit at the game font's size.
+    const std::string fits = "\u041a\u043d\u043e\u043f\u043a\u0430";
+    CHECK(drawn(fits) == std::make_pair(fits, oa::present::game_font_text_size));
+    // Eight letters, 32 wide, fit at 75%, 24 wide, whole.
+    const std::string wide = fits + "\u0430\u0430";
+    CHECK(drawn(wide) == std::make_pair(wide, 75));
+    // Twenty letters do not fit at 50% either: they are drawn at 50% and
+    // cut to the twelve that fit.
+    std::string longest;
+    for (int letter = 0; letter < 20; ++letter)
+        longest += "\u0430";
+    const auto cut = drawn(longest);
+    CHECK(cut.second == oa::present::lowest_text_size && characters_of(cut.first) == 12);
+
+    // A one-line label wider than itself is drawn smaller until it fits:
+    // eight letters in a label 20 wide fit at 65%, 20 wide.
+    oa::ui::gui_layout::Gadget label;
+    label.common.type = oa::ui::gui_layout::GadgetType::label;
+    label.common.name = "LABEL";
+    label.common.x = 5;
+    label.common.y = 5;
+    label.common.width = 20;
+    label.common.height = 4;
+    label.common.active = 1;
+    oa::ui::gui_layout::LabelFields label_text;
+    label_text.text = wide;
+    label.fields = label_text;
+    resources.layout.gadgets = {label};
+    draws.asked.clear();
+    std::ignore = renderer::render_screen(resources, {});
+    CHECK(!draws.asked.empty() && draws.asked.back() == std::make_pair(wide, 65));
+    oa::present::set_game_text_hooks({});
+}
+
 // Six grayed-out 64x64 art buttons drawn in all 256 colours of a palette
 // whose colours all differ, as a builder's page of empty build slots is:
 // every pixel is darkened to the shade table's colour for its own gray, and
@@ -767,6 +880,7 @@ void test_font_ink() {
 
 int main() {
     check_translated_stage_captions();
+    test_caption_shrinks_to_button();
     test_font_ink();
     using oa::ui::frontend_renderer::staged_caption;
     CHECK(staged_caption("Easy|Medium|Hard", 0) == "Easy");

@@ -4016,8 +4016,90 @@ void tabs_scroll_and_the_queue_shows_its_bar() {
 
 } // namespace
 
+/// Answers the tabs' names in a wordier language, as Ukrainian's run longer
+/// than English's.
+///
+/// @param english the English text
+/// @return the longer words, or the English
+std::string_view wordy_tabs(void*, std::string_view english) {
+    if (english == lib::words::tab_active)
+        return "Aktivnistyyy";
+    if (english == lib::words::tab_mods)
+        return "Modyfikatsiyi";
+    if (english == lib::words::tab_maps)
+        return "Mapyyyyyyy";
+    if (english == lib::words::tab_languages)
+        return "Movyyyyyyyy";
+    if (english == lib::words::tab_updates)
+        return "Onovlennyayyy";
+    if (english == lib::words::tab_registries)
+        return "Reyestryyyyy";
+    return english;
+}
+
+/// Returns a control's rectangle that a press reaches: within its clip.
+///
+/// @param control the control
+/// @return the rectangle; empty when the clip hides it
+kit::Rect pressed_area(const kit::Control& control) {
+    if (control.clip.width <= 0 || control.clip.height <= 0)
+        return control.rect;
+    return kit::intersect(control.rect, control.clip);
+}
+
+/// Where a catalogue tab's names do not fit beside the search, at Regular
+/// and Large, the tabs take the whole row and the search a row under them:
+/// every tab is shown whole and none lies under the search, so a press on
+/// a tab, Registries among them, opens it. English keeps the search beside.
+void wordy_tabs_take_the_row_over_the_search() {
+    for (const fixture::NamedFrame& named : fixture::frames()) {
+        if (named.frame.size_class == kit::SizeClass::compact)
+            continue;
+        for (const bool wordy : {false, true}) {
+            lib::Library library = with_ridge();
+            if (wordy)
+                library.text.shown = wordy_tabs;
+            lib::set_tab(library, lib::Tab::mods);
+            const kit::DisplayList list = laid_out(library, {}, named.frame);
+            const kit::Item* strip = tab_strip(list);
+            const kit::Control* search = fixture::named(list, "library.search");
+            OA_CHECK(strip != nullptr && search != nullptr);
+            if (strip == nullptr || search == nullptr)
+                continue;
+            const auto* look = std::get_if<kit::TabsLook>(&strip->look);
+            OA_CHECK(look != nullptr && !kit::place_tabs(fonts(), strip->rect, *look).overflows);
+            const bool beside = search->rect.y < strip->rect.y + strip->rect.height;
+            if (!wordy)
+                OA_CHECK(beside);
+            for (const std::string_view word :
+                 {"active", "mods", "maps", "languages", "updates", "registries"}) {
+                const kit::Control* tab = fixture::named(list, "library.tab." + std::string(word));
+                OA_CHECK(tab != nullptr);
+                if (tab == nullptr)
+                    continue;
+                const kit::Rect area = pressed_area(*tab);
+                OA_CHECK(kit::wholly_in(tab->rect, strip->rect));
+                const kit::Rect shared = kit::intersect(area, search->rect);
+                OA_CHECK(area.width > 0 && (shared.width == 0 || shared.height == 0));
+            }
+            if (wordy) {
+                // The words were chosen to need the whole row at Regular.
+                if (named.name == "regular")
+                    OA_CHECK(!beside);
+                if (!beside)
+                    OA_CHECK(search->rect.y >= strip->rect.y + strip->rect.height);
+            }
+            // Registries opens with a press at its centre.
+            lib::ScreenState state;
+            click(library, state, list, "library.tab.registries");
+            OA_CHECK(library.tab == lib::Tab::registries);
+        }
+    }
+}
+
 int main() {
     every_frame_holds_its_invariants();
+    wordy_tabs_take_the_row_over_the_search();
     larger_classes_show_more();
     built_in_languages_show_on_the_list();
     rows_name_their_entries();
