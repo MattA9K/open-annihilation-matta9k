@@ -556,7 +556,8 @@ void set_gadget_active_by_name(GadgetPanel& panel, std::string_view name, int32_
 /// Picks a quick key for a button or linked label from its caption.
 ///
 /// The first caption character (spaces skipped) not already used as a quick
-/// key by any button or label becomes the record's quick key. Buttons with
+/// key by any button or label becomes the record's quick key, as
+/// free_quick_key() chooses it: one a single key types. Buttons with
 /// stages or no_quick_key, and labels without a link, get none.
 ///
 /// @param[in,out] panel GUI context.
@@ -588,7 +589,11 @@ caption_quick_key(uint32_t attributes, int32_t stages, std::string_view caption)
 ///
 /// The key is the caption's first character, spaces skipped, that none of
 /// `taken` matches with A-Z compared without regard to case; the character
-/// keeps the case the caption has.
+/// keeps the case the caption has. Only a one-byte character can be a key: a
+/// well-formed UTF-8 sequence of two to four bytes, such as a Hangul
+/// syllable or a Chinese character, is passed over whole
+/// (oa::base::text::break_character), so a caption of those alone takes
+/// none. A byte of the game's one-byte code page is a character of its own.
 ///
 /// @param caption the record's caption
 /// @param taken the quick keys the panel's buttons and labels hold, 0 for none
@@ -973,9 +978,11 @@ int32_t update_panel(GadgetPanel& panel);
 /// Breaks after spaces or hyphens once a line reaches the width; lines end
 /// with CR LF. A width too small to hold one "d" gives one character per line.
 /// Text with Chinese, Japanese or Korean characters breaks before a line
-/// reaches the width, at a space or between two of those characters, never
-/// starting a line with a closing mark or ending one with an opening mark
-/// (oa::base::text::first_row).
+/// reaches the width where the line breaker lets it
+/// (oa::base::text::first_row): at a space or between two Chinese or
+/// Japanese characters, never starting a line with a closing mark or ending
+/// one with an opening mark, and inside a word, a Korean one among them,
+/// only when the word is wider than the line.
 ///
 /// @param[in,out] panel GUI context; its font selection is used for measuring.
 /// @param text Text to wrap.

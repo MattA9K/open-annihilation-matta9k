@@ -3,6 +3,7 @@
 
 #include "gadget_internal.hpp"
 #include "oa/base/game_math.hpp"
+#include "oa/base/text/line_break.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -399,8 +400,13 @@ caption_quick_key(uint32_t attributes, int32_t stages, std::string_view caption)
 }
 
 char free_quick_key(std::string_view caption, std::span<const int8_t> taken) noexcept {
-    for (const char character : caption) {
-        if (character == ' ')
+    for (std::size_t at = 0; at < caption.size();) {
+        // A character of two to four bytes is passed over whole: no one key
+        // types it, and its first byte alone is no character.
+        const auto read = oa::base::text::break_character(caption.substr(at));
+        const char character = caption[at];
+        at += read.bytes;
+        if (read.bytes != 1 || character == ' ')
             continue;
         const auto wanted = lower(static_cast<int8_t>(character));
         if (std::none_of(taken.begin(), taken.end(), [wanted](int8_t key) {

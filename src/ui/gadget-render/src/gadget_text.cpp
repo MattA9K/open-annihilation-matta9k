@@ -6,10 +6,12 @@
 
 #include "oa/data/defs/files.hpp"
 #include "oa/base/text.hpp"
+#include "oa/base/text/line_break.hpp"
 #include "oa/base/threads.hpp"
 #include "oa/present/game_text.hpp"
 #include "oa/ui/frontend_renderer/game_text.hpp"
 
+#include <algorithm>
 #include <cstring>
 #include <map>
 #include <optional>
@@ -148,6 +150,25 @@ int32_t measure_with_font(const GadgetRenderer& renderer, const void* gaf_font, 
     return width;
 }
 
+bool split_for_quick_key(std::string_view text) noexcept {
+    return std::all_of(text.begin(), text.end(), [](char byte) {
+        return static_cast<unsigned char>(byte) < kFirstHighByte;
+    });
+}
+
+bool drawn_in_game_font(
+    const GadgetRenderer& renderer, const GadgetPanel& panel, const char* text
+) {
+    if (text == nullptr)
+        return true;
+    if (panel.active_gaf_font == nullptr)
+        return split_for_quick_key(text);
+    const auto runs = text_runs(renderer, active_glyphs(renderer, panel), text);
+    return std::none_of(runs.begin(), runs.end(), [](const present::TextRun& run) {
+        return run.modern;
+    });
+}
+
 int32_t line_height_with_font(const GadgetRenderer& renderer, const void* gaf_font) {
     if (gaf_font == nullptr)
         return present::active_font_height();
@@ -256,6 +277,46 @@ void draw_text(
     }
 }
 
+namespace {
+
+// Draws a text with Chinese, Japanese or Korean characters in the rows the
+// line breaker gives it (oa::base::text::first_row), as draw_wrapped_text
+// draws its lines: each CR ends a row, and the rows stop once the height
+// is used.
+int32_t draw_wrapped_rows(
+    GadgetRenderer& renderer,
+    const GadgetPanel& panel,
+    Surface* target,
+    std::string_view text,
+    int32_t x,
+    int32_t y,
+    int32_t width,
+    int32_t height,
+    int32_t level
+) {
+    std::string row_text;
+    const auto fits = [&](std::string_view start) {
+        row_text.assign(start);
+        return text_width(renderer, panel, row_text.c_str()) <= width;
+    };
+    while (!text.empty()) {
+        const auto row = oa::base::text::first_row(text.substr(0, text.find('\r')), fits);
+        row_text.assign(text.substr(0, row.bytes));
+        draw_text(renderer, panel, target, row_text.c_str(), x, y, width, level);
+        const int32_t step = text_height(renderer, panel) + kLineGap;
+        y += step;
+        height -= step;
+        text.remove_prefix(row.next);
+        if (!text.empty() && text.front() == '\r')
+            text.remove_prefix(1);
+        if (height < 1)
+            return y;
+    }
+    return y;
+}
+
+} // namespace
+
 int32_t draw_wrapped_text(
     GadgetRenderer& renderer,
     const GadgetPanel& panel,
@@ -268,6 +329,8 @@ int32_t draw_wrapped_text(
     int32_t level
 ) {
     const size_t length = std::strlen(text);
+    if (const std::string_view whole(text, length); oa::base::text::has_wide_script(whole))
+        return draw_wrapped_rows(renderer, panel, target, whole, x, y, width, height, level);
     size_t last_break = 0;
     size_t start = 0;
     size_t scan = 0;

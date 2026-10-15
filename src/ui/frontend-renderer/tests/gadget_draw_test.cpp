@@ -429,10 +429,10 @@ void test_composition_is_underlined() {
     oa::present::set_game_text_hooks({});
 }
 
-// Modern letters that stand taller over the baseline than an FNT font's own
-// rise above the pen row by the rows they stand taller, and lowered by
-// those rows they keep below it; text the font draws itself does not rise.
-void test_fnt_game_text_rise() {
+// The rows the modern fonts draw on in a line, counted from its pen row on
+// an FNT font's baseline: placed by them, the line keeps to the rows it is
+// given. Text the font draws itself has none.
+void test_fnt_game_text_modern_rows() {
     namespace draw = oa::ui::frontend_renderer;
     GameTextAnswers answers;
     answers.settings.style = {false, false, false, false, oa::present::default_text_size};
@@ -446,12 +446,20 @@ void test_fnt_game_text_rise() {
     const std::array<uint8_t, 3> ink{200, 100, 50};
     oa::PaletteBytes palette{};
     std::copy(ink.begin(), ink.end(), palette.begin() + 4);
-    // A font with no glyphs: its baseline is the pen row.
+    // A font with no glyphs: its baseline is the pen row. The letters stand
+    // on the two rows above it, and the clear row under them draws nothing.
     const oa::formats::fnt::Font font{};
     const std::string_view hanzi = "\xE4\xB8\xAD";
-    require(draw::fnt_game_text_rise(font, hanzi, true) == 2, "rise: the letters stand 2 rows");
-    require(draw::fnt_game_text_rise(font, "ab", false) == 0, "rise: the font's own text");
-    require(draw::fnt_game_text_rise(font, "", true) == 0, "rise: no text");
+    const auto rows = draw::fnt_game_text_modern_rows(font, hanzi, true);
+    require(
+        rows.has_value() && rows->top == -2 && rows->bottom == -1,
+        "modern rows: the two rows the letters stand on above the baseline"
+    );
+    require(
+        !draw::fnt_game_text_modern_rows(font, "ab", false).has_value(),
+        "modern rows: none for the font's own text"
+    );
+    require(!draw::fnt_game_text_modern_rows(font, "", true).has_value(), "modern rows: no text");
     draw::Surface surface;
     surface.width = 6;
     surface.height = 6;
@@ -465,21 +473,79 @@ void test_fnt_game_text_rise() {
         }
         return false;
     };
-    const int32_t pen_row = 1;
+    const int32_t first_row = 1;
     std::ignore = draw::draw_fnt_game_text(
         surface,
         font,
         hanzi,
         1,
-        pen_row + draw::fnt_game_text_rise(font, hanzi, true),
+        first_row - (rows ? rows->top : 0),
         ink,
         palette,
         {0, 0, 5, 5},
         true
     );
     require(
-        !row_inked(pen_row - 1) && row_inked(pen_row) && row_inked(pen_row + 1),
-        "rise: lowered by it, the letters keep below the pen row from it down"
+        !row_inked(first_row - 1) && row_inked(first_row) && row_inked(first_row + 1) &&
+            !row_inked(first_row + 2),
+        "modern rows: placed by them, the letters keep to their rows"
+    );
+    oa::present::set_game_text_hooks({});
+}
+
+// A line whose letters stand on as many rows above the baseline as its
+// size has whole quarters of the game font's (4 at 100%, 2 at 70%), with
+// one row below it, each character 3 columns wide.
+std::shared_ptr<const oa::present::TextMask> rows_by_size(std::string_view text, int32_t size) {
+    auto mask = std::make_shared<oa::present::TextMask>();
+    const int32_t above = size / 25;
+    mask->width = mask->advance = static_cast<int32_t>(text.size()) * 3;
+    mask->height = above + 1;
+    mask->baseline = above;
+    mask->alpha.assign(static_cast<std::size_t>(mask->width * mask->height), 255);
+    return mask;
+}
+
+// A caption's modern letters keep to a box's rows: lowered by what they
+// would draw above it, raised by what they would draw below it, and drawn
+// smaller while they stand taller than it. The font's own caption stands
+// on the box's top row at the font's size.
+void test_fnt_caption_rows() {
+    namespace draw = oa::ui::frontend_renderer;
+    GameTextAnswers answers;
+    answers.settings.style = {false, false, false, false, oa::present::default_text_size};
+    answers.settings.utf8 = true;
+    oa::present::GameTextHooks hooks{};
+    hooks.context = &answers;
+    hooks.settings = [](void* context) { return static_cast<GameTextAnswers*>(context)->settings; };
+    hooks.draw = [](void*, std::string_view text, oa::present::TextFace, int32_t, int32_t size)
+        -> std::shared_ptr<const oa::present::TextMask> { return rows_by_size(text, size); };
+    oa::present::set_game_text_hooks(hooks);
+    // A font with no glyphs: its baseline is the pen row.
+    const oa::formats::fnt::Font font{};
+    const std::string_view hanzi = "\xE4\xB8\xAD";
+    // A character the font lacks is drawn at the font's own size, 100%:
+    // 4 rows above the baseline and 1 below, rows -4 to 0 from the pen row.
+    const auto rows = draw::fnt_game_text_modern_rows(font, hanzi, true);
+    require(rows && rows->top == -4 && rows->bottom == 0, "caption rows: the letters' rows");
+    const auto roomy = draw::fnt_caption_rows(font, hanzi, true, 10, 6);
+    require(
+        roomy.pen_row == 14 && roomy.most_size == oa::present::game_font_text_size,
+        "caption rows: lowered by the rows they stand above the pen row"
+    );
+    const auto exact = draw::fnt_caption_rows(font, hanzi, true, 10, 5);
+    require(exact.pen_row == 14, "caption rows: five rows fill a box of five");
+    // In a box of three rows the letters are drawn at 70%, 2 rows above the
+    // baseline and 1 below.
+    const auto short_box = draw::fnt_caption_rows(font, hanzi, true, 10, 3);
+    require(
+        short_box.most_size == 70 && short_box.pen_row == 12,
+        "caption rows: drawn smaller while taller than the box"
+    );
+    const auto own = draw::fnt_caption_rows(font, "ab", false, 10, 3);
+    require(
+        own.pen_row == 10 && own.most_size == oa::present::game_font_text_size,
+        "caption rows: the font's own caption stands on the box's top row"
     );
     oa::present::set_game_text_hooks({});
 }
@@ -534,10 +600,31 @@ int main() {
         draw::draw_value_marker(&buffer.surface, rect, 4, 6, 1);
         require(at(buffer, 2, 2) == 6, "attribute 4 draws the diagonal");
     }
+    {
+        // The key is found among whole characters: a byte of a Hangul
+        // syllable, which takes three, is never the key.
+        const std::string_view korean_ok = "\xED\x99\x95\xEC\x9D\xB8"; // 확인
+        require(
+            draw::quick_key_offset(korean_ok, '\xED') == std::string_view::npos,
+            "quick key: a byte within a character is not the key"
+        );
+        require(
+            draw::quick_key_offset("\xED\x99\x95\xEC\x9D\xB8 OK", 'O') == 7,
+            "quick key: a letter after a syllable"
+        );
+        require(draw::quick_key_offset("Cancel", 'n') == 2, "quick key: an English caption's key");
+        const std::string code_page_caption = std::string(1, '\xDC') + "ber";
+        require(
+            draw::quick_key_offset(code_page_caption, '\xDC') == 0,
+            "quick key: a letter of the one-byte code page"
+        );
+        require(draw::quick_key_offset("OK", '\0') == std::string_view::npos, "quick key: none");
+    }
     test_gadget_text();
     test_gadget_text_game_runs();
     test_composition_is_underlined();
-    test_fnt_game_text_rise();
+    test_fnt_game_text_modern_rows();
+    test_fnt_caption_rows();
     test_gui_font();
     test_forget_gui_font_characters();
     return failures == 0 ? 0 : 1;

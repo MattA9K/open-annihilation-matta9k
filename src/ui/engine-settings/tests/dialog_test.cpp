@@ -5656,6 +5656,15 @@ void summaries_break_into_lines_the_fonts_hold() {
     CHECK(broken.size() == 2);
     CHECK(broken[0] == "Commands +sharemetal/+shareenergy/+setshare*/");
     CHECK(broken[1] == "+shootall/+noshake work.");
+    // A summary in Chinese breaks between whole characters, as the line
+    // breaker lets it: 43 bytes, then the six characters left.
+    std::string hanzi_summary = "a";
+    for (int count = 0; count < 20; ++count)
+        hanzi_summary += "\xE4\xB8\xAD";
+    const auto hanzi_lines = geometry::summary_lines(hanzi_summary);
+    CHECK(hanzi_lines.size() == 2);
+    CHECK(hanzi_lines.size() == 2 && hanzi_lines[0] == hanzi_summary.substr(0, 43));
+    CHECK(hanzi_lines.size() == 2 && hanzi_lines[1] == hanzi_summary.substr(43));
     CHECK(geometry::list_value_text(profiles::make_string(""), {}) == "\"\"");
 }
 
@@ -7058,6 +7067,18 @@ void game_files_shows_what_is_installed_the_backups_and_the_folder() {
     CHECK(cut.size() == 2 && cut[0].size() == 50 && cut[1].size() == 50);
     const auto words = geometry::break_lines("one two three four", 9, 5);
     CHECK(words == (std::vector<std::string>{"one two", "three", "four"}));
+    // Lines break where the line breaker lets them, as every wrap does:
+    // Korean at its spaces, each word whole, though "반드시 살" fits five;
+    // Chinese between its characters, a full-width comma never starting a
+    // line.
+    CHECK(
+        geometry::break_lines("반드시 살아남아야 합니다", 5, 5) ==
+        (std::vector<std::string>{"반드시", "살아남아야", "합니다"})
+    );
+    CHECK(
+        geometry::break_lines("建造完成，单位已就绪", 4, 5) ==
+        (std::vector<std::string>{"建造完", "成，单位", "已就绪"})
+    );
 }
 
 void manage_asks_the_host_and_the_backups_switch_changes_at_once() {

@@ -3,6 +3,7 @@
 
 #include "oa/ui/frontend_renderer/gadget_draw.hpp"
 
+#include "oa/base/text/line_break.hpp"
 #include "oa/present/blit.hpp"
 #include "oa/present/raster.hpp"
 #include "oa/present/display.hpp"
@@ -122,7 +123,15 @@ void draw_focus_outline(oa::Surface* target, const ui::gui_layout::GadgetRect& r
 }
 
 std::size_t quick_key_offset(std::string_view caption, char key) noexcept {
-    return key == '\0' ? std::string_view::npos : caption.find(key);
+    if (key == '\0')
+        return std::string_view::npos;
+    for (std::size_t at = 0; at < caption.size();) {
+        const auto read = oa::base::text::break_character(caption.substr(at));
+        if (read.bytes == 1 && caption[at] == key)
+            return at;
+        at += read.bytes;
+    }
+    return std::string_view::npos;
 }
 
 void draw_value_marker(

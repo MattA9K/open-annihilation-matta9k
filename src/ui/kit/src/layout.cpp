@@ -387,7 +387,8 @@ int32_t text_part(
     };
     WrapRules rules;
     rules.newlines = true;
-    rules.wide_scripts = false;
+    // A folder's path keeps to its separators, as break_word gives them.
+    rules.wide_scripts = break_word == nullptr;
     rules.most_lines = most_lines;
     if (break_word != nullptr)
         rules.break_word = [break_word, room, &measure](std::string_view word) {

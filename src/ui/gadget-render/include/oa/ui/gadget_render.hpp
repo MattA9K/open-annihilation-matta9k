@@ -172,6 +172,11 @@ void draw_text(
 
 /// Draws text wrapped at spaces and CRs, one line per text height plus two, while the height lasts.
 ///
+/// A text with Chinese, Japanese or Korean characters breaks where the line
+/// breaker lets it (oa::base::text::first_row): at its spaces, between
+/// Chinese or Japanese characters, and inside a word only when the word is
+/// wider than the line; each CR still ends a line.
+///
 /// @param[in,out] renderer Renderer supplying the art and FNT hook.
 /// @param panel GUI context whose active GAF font is used.
 /// @param[in,out] target 8-bit surface drawn into.
@@ -183,7 +188,7 @@ void draw_text(
 /// @param level Light level passed to draw_text().
 /// @return The y below the last line drawn.
 /// @quirk A first word wider than `width` draws an empty line and loses its
-///        first character.
+///        first character, in a text without those characters.
 int32_t draw_wrapped_text(
     GadgetRenderer& renderer,
     const GadgetPanel& panel,
@@ -236,7 +241,9 @@ void draw_skin(GadgetRenderer& renderer, GadgetPanel& panel, int32_t index, cons
 /// Draws a type-1 button.
 ///
 /// Draws the GAF frame for its state or a filled bevel, the caption aligned
-/// by the attributes with its quick key underlined, and the grayed shade.
+/// by the attributes with its quick key underlined, and the grayed shade. A
+/// caption past ASCII is drawn whole, never split around its key, and a
+/// caption the modern fonts draw part of leaves its key unmarked.
 ///
 /// @param[in,out] renderer Renderer supplying the art.
 /// @param[in,out] panel GUI context.
@@ -287,6 +294,8 @@ void draw_progress(GadgetRenderer& renderer, GadgetPanel& panel, int32_t index);
 void draw_hot_image(GadgetRenderer& renderer, GadgetPanel& panel, int32_t index);
 
 /// Draws a type-5 label: background and text (wrapped when two lines fit), its quick key underlined or the grayed shade.
+///
+/// A label the modern fonts draw part of leaves its quick key unmarked.
 ///
 /// @param[in,out] renderer Renderer supplying the art.
 /// @param[in,out] panel GUI context.

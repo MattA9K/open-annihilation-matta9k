@@ -61,7 +61,8 @@ add_library(oa-app-netgame-launch-binding STATIC launch_binding.cpp battle_lines
 add_library(oa::app::netgame_launch_binding ALIAS oa-app-netgame-launch-binding)
 target_include_directories(oa-app-netgame-launch-binding PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}" include)
 target_link_libraries(oa-app-netgame-launch-binding
-  PUBLIC oa-app-netgame-close-handlers oa-app-netgame-launch oa-ui-frontend-multiplayer oa-core-types)
+  PUBLIC oa-app-netgame-close-handlers oa-app-netgame-launch oa-ui-frontend-multiplayer oa-core-types
+  PRIVATE oa-base-text)
 
 # The sources that define NetworkPlay, Runtime's friend, and the hooks that reach it.
 set(oa_app_netgame_sources

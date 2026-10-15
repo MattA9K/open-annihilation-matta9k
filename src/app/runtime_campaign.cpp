@@ -1141,33 +1141,61 @@ void Runtime::stop_briefing_audio() {
     audio_player_.stop_stream();
 }
 
+bool Runtime::briefing_in_modern_fonts() const {
+    return missions::campaign_briefing_text(&campaign_runtime().file) != nullptr &&
+           oa::present::game_text_hooks().draw != nullptr &&
+           oa::present::game_text_settings().style.modern_fonts;
+}
+
 campaign::BriefingRegion Runtime::briefing_region() {
     const auto* text_region = widget("TextRegion");
     const auto& font = briefing_text_font();
     auto line_height = static_cast<int32_t>(oa::formats::fnt::line_height(font));
-    // A briefing in Chinese, Japanese or Korean, drawn in the modern fonts,
-    // spaces its rows to hold the ideographs, which may stand taller than
-    // the font's letters.
+    int32_t row_reach = 0;
+    // A briefing the modern fonts draw takes their line's height: a
+    // Chinese, Japanese or Korean one that of its ideographs, which may
+    // stand taller than the font's letters, any other that of a capital.
+    // In Chinese, Japanese or Korean the rows are spaced to hold it, and
+    // in every language the page holds the rows whose line, standing on the
+    // font's baseline, ends inside the region.
     const char* text = missions::campaign_briefing_text(&campaign_runtime().file);
-    if (const auto settings = oa::present::game_text_settings();
-        settings.style.modern_fonts && text != nullptr && oa::base::text::has_wide_script(text))
+    if (briefing_in_modern_fonts()) {
+        const bool wide = oa::base::text::has_wide_script(text);
         if (const auto layers = oa::present::modern_text(
-                "\xE4\xB8\xAD",
+                wide ? "\xE4\xB8\xAD" : "H",
                 oa::ui::frontend_renderer::fnt_font_face(font),
                 1,
                 std::min(
-                    oa::present::held_text_size(settings.style.size),
+                    oa::present::held_text_size(oa::present::game_text_settings().style.size),
                     oa::present::game_font_text_size
                 ),
                 false
-            ))
-            line_height = std::max(line_height, layers->height);
+            )) {
+            if (wide)
+                line_height = std::max(line_height, layers->height);
+            row_reach = oa::ui::frontend_renderer::fnt_font_baseline(font) - layers->baseline +
+                        layers->height;
+        }
+    }
     return {
         text_region != nullptr ? text_region->common.x : 0,
         text_region != nullptr ? text_region->common.y : 0,
         text_region != nullptr ? text_region->common.height : 0,
-        line_height
+        line_height,
+        row_reach
     };
+}
+
+int32_t Runtime::briefing_wrap_width() {
+    const auto* text_region = widget("TextRegion");
+    if (text_region == nullptr)
+        return 0;
+    // 3.1c wraps a briefing at its TextRegion's width though the rows start
+    // campaign::kRowInset in, and the font's letters, broken at spaces, keep
+    // inside. A row the modern fonts draw wraps at the width it has, so that
+    // its last letter and that letter's shadow stay inside the region.
+    return briefing_in_modern_fonts() ? text_region->common.width - campaign::kRowInset
+                                      : text_region->common.width;
 }
 
 void Runtime::show_mission_briefing() {
@@ -1251,10 +1279,8 @@ void Runtime::show_mission_briefing() {
             gadget.common.active = 1;
     }
     load_briefing_fonts();
-    const auto* text_region = widget("TextRegion");
     const auto region = briefing_region();
-    // The text wraps at the TextRegion's width.
-    const int32_t wrap_width = text_region != nullptr ? text_region->common.width : 0;
+    const int32_t wrap_width = briefing_wrap_width();
     state.font = &briefing_text_font();
     state.events = {};
     const auto host = event_host();
@@ -1341,8 +1367,7 @@ void Runtime::show_in_game_briefing() {
     auto& state = campaign_runtime();
     load_briefing_fonts();
     const auto region = briefing_region();
-    const auto* text_region = widget("TextRegion");
-    const int32_t wrap_width = text_region != nullptr ? text_region->common.width : 0;
+    const int32_t wrap_width = briefing_wrap_width();
     state.events = {};
     auto host = event_host();
     host.context = this;
@@ -1592,7 +1617,8 @@ void Runtime::draw_briefing_overlays() {
                                int32_t x,
                                int32_t y,
                                uint8_t colour,
-                               int32_t max_width) {
+                               int32_t max_width,
+                               int32_t most_size = oa::present::game_font_text_size) {
         const bool bounded = max_width != kBriefingTextUnbounded;
         int32_t room = std::max(max_width, 0); // the width left, when bounded
         int32_t pen = x;
@@ -1623,7 +1649,7 @@ void Runtime::draw_briefing_overlays() {
         for (const auto& run :
              renderer::split_game_text(text, renderer::fnt_font_characters(text_font), true)) {
             if (run.modern) {
-                const int32_t size = renderer::screen_text_size(run);
+                const int32_t size = std::min(renderer::screen_text_size(run), most_size);
                 if (const auto layers = oa::present::modern_text(run.text, face, 1, size)) {
                     if (bounded && layers->advance > room) {
                         const std::size_t fitted =
@@ -1707,7 +1733,14 @@ void Runtime::draw_briefing_overlays() {
         return;
     const auto& label_font =
         resources_.label_font.glyphs['I'] ? resources_.label_font : resources_.font;
-    const auto width = renderer::measure_fnt_game_text(label_font, caption, true);
+    // Letters the modern fonts draw keep to the bar's rows, as the font's
+    // own do: ideographs standing taller than the font's letters stay clear
+    // of the page's last row, and descenders and the shadow clear of the
+    // panel's art under the bar.
+    const auto& more_font = briefing_more_font_ ? *briefing_more_font_ : resources_.font;
+    const auto placed =
+        renderer::fnt_caption_rows(more_font, caption, true, more->common.y, more->common.height);
+    const auto width = renderer::measure_fnt_game_text(label_font, caption, true, placed.most_size);
     const auto attributes = static_cast<uint32_t>(more->common.attributes);
     int32_t x = more->common.x;
     if ((attributes & oa::ui::gui_layout::attribute::right_aligned) != 0)
@@ -1715,17 +1748,15 @@ void Runtime::draw_briefing_overlays() {
     else if ((attributes & oa::ui::gui_layout::attribute::centered) != 0)
         x += more->common.width / 2 - width / 2;
     // The caption is placed from its measured width; where the pen stops is
-    // not needed. Letters the modern fonts draw taller than the bar's font,
-    // such as ideographs, are lowered to rise no higher than the bar, clear
-    // of the page's last row.
-    const auto& more_font = briefing_more_font_ ? *briefing_more_font_ : resources_.font;
+    // not needed.
     draw_text(
         more_font,
         caption,
         x,
-        more->common.y + renderer::fnt_game_text_rise(more_font, caption, true),
+        placed.pen_row,
         colours[kBriefingMoreColour],
-        kBriefingTextUnbounded
+        kBriefingTextUnbounded,
+        placed.most_size
     );
     copy_glyphs(colours[kBriefingMoreColour], briefing_more_font_.has_value());
 }

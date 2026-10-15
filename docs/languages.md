@@ -524,7 +524,11 @@ need drawing the game has in part or not yet:
 - **Traditional Chinese and Japanese** need their own faces: a Simplified
   Chinese face draws their characters in Chinese forms.
 - **Korean** needs a face that holds Hangul. The faces that travel with
-  the game hold the Korean language's own name and no more of it.
+  the game hold the Korean language's own name and no more of it; a
+  Korean pack brings its own. Korean is written with spaces between its
+  words, so its lines break at those spaces and keep each word whole, as
+  Latin text does; a word breaks inside only when it is wider than the
+  line.
 - **Hindi** needs a Devanagari face and complex text shaping (HarfBuzz),
   since its letters join and change order; the FreeType-only drawing lays
   characters side by side.

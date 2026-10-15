@@ -7,10 +7,12 @@
 
 #include "oa/app/netgame/extension_api.hpp"
 #include "oa/ui/frontend_multiplayer/screens.hpp"
+#include "oa/base/text/line_break.hpp"
 
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <string_view>
 
 namespace oa::app {
 
@@ -55,8 +57,24 @@ void post_wrapped_line(
     const char* text = line;
     while (*text == ' ')
         ++text;
-    std::size_t remaining = std::strlen(text);
     char part[kNoticePartLength + 1];
+    // A line with a character of several bytes breaks where the line
+    // breaker lets it (oa::base::text::first_row), into parts of whole
+    // characters; the game's one-byte text breaks as below.
+    if (const std::string_view whole(text); oa::base::text::has_multibyte_character(whole)) {
+        std::string_view rest = whole;
+        const auto fits = [](std::string_view start) { return start.size() <= kNoticePartLength; };
+        while (!rest.empty()) {
+            const auto row = oa::base::text::first_row(rest, fits);
+            std::memcpy(part, rest.data(), row.bytes);
+            part[row.bytes] = '\0';
+            post(context, part);
+            rest.remove_prefix(row.next);
+        }
+        game.gui_flags = static_cast<uint8_t>(game.gui_flags | kGuiFlagMessage);
+        return;
+    }
+    std::size_t remaining = std::strlen(text);
     while (remaining > kNoticePartLength) {
         std::size_t length = kNoticePartLength;
         if (*text != ' ') {

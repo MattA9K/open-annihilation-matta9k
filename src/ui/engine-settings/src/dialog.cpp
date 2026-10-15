@@ -14,6 +14,7 @@
 #include "registered.hpp"
 #include "settings_rows.hpp"
 
+#include "oa/base/text/line_break.hpp"
 #include "oa/data/languages.hpp"
 #include "oa/data/languages/interface_text.hpp"
 #include "oa/data/mod_profile/overrides.hpp"
@@ -983,56 +984,44 @@ break_lines(std::string_view text, std::size_t characters, std::size_t most_line
     constexpr std::string_view location_mark = "›";
     std::vector<std::string> lines;
     characters = std::max<std::size_t>(characters, 1);
-    // Where each character starts, so that lines count characters and never
-    // cut one.
-    const auto next = [&text](std::size_t at) {
-        const auto lead = static_cast<unsigned char>(text[at]);
-        std::size_t bytes = 1;
-        if (lead >= 0xf0)
-            bytes = 4;
-        else if (lead >= 0xe0)
-            bytes = 3;
-        else if (lead >= 0xc0)
-            bytes = 2;
-        return std::min(at + bytes, text.size());
+    // A line holds at most `characters` whole characters, so that no line
+    // cuts one.
+    const auto leading_bytes = [](std::string_view part, std::size_t most) {
+        std::size_t bytes = 0;
+        for (std::size_t count = 0; count < most && bytes < part.size(); ++count)
+            bytes += oa::base::text::break_character(part.substr(bytes)).bytes;
+        return bytes;
     };
-    std::size_t start = 0;
-    while (start < text.size() && lines.size() < most_lines) {
-        while (start < text.size() && text[start] == ' ')
-            ++start;
-        if (start >= text.size())
+    const auto fits = [&](std::string_view start) {
+        return leading_bytes(start, characters) == start.size();
+    };
+    while (!text.empty() && lines.size() < most_lines) {
+        while (!text.empty() && text.front() == ' ')
+            text.remove_prefix(1);
+        if (text.empty())
             break;
-        std::size_t end = start;
-        std::size_t count = 0;
-        std::size_t last_space = std::string_view::npos;
-        // A space after a location's separator, which keeps the folders'
-        // names whole.
-        std::size_t last_separator = std::string_view::npos;
-        while (end < text.size() && count < characters) {
-            if (text[end] == ' ') {
-                last_space = end;
-                if (end >= start + location_mark.size() &&
-                    text.substr(end - location_mark.size(), location_mark.size()) == location_mark)
-                    last_separator = end;
-            }
-            end = next(end);
-            ++count;
+        // The line breaks where the line breaker lets it, as every wrap
+        // does (oa::base::text::first_row): at a space, or between Chinese
+        // or Japanese characters; a word longer than a line is cut at the
+        // line's end. A line that does not hold the rest breaks after a
+        // location's last separator instead when that stands in its second
+        // half, which keeps the folders' names whole.
+        auto row = oa::base::text::first_row(text, fits);
+        if (row.next < text.size()) {
+            const std::size_t span = leading_bytes(text, characters);
+            std::size_t separator = std::string_view::npos;
+            for (std::size_t at = location_mark.size(); at < span; ++at)
+                if (text[at] == ' ' &&
+                    text.substr(at - location_mark.size(), location_mark.size()) == location_mark)
+                    separator = at;
+            if (separator != std::string_view::npos && separator >= span / 2)
+                row = {separator, separator};
         }
-        // The rest fits, or the line breaks after its last separator in its
-        // second half, else where a word ends, at its last space, or a word
-        // longer than a line is cut.
-        if (end < text.size()) {
-            if (last_separator != std::string_view::npos &&
-                last_separator - start >= (end - start) / 2)
-                end = last_separator;
-            else if (text[end] != ' ' && last_space != std::string_view::npos && last_space > start)
-                end = last_space;
-        }
-        std::string_view line = text.substr(start, end - start);
+        std::string_view line = text.substr(0, row.bytes);
         while (!line.empty() && line.back() == ' ')
             line.remove_suffix(1);
         lines.emplace_back(line);
-        start = end;
+        text.remove_prefix(row.next);
     }
     return lines;
 }

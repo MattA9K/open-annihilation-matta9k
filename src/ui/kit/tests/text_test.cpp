@@ -726,6 +726,18 @@ void the_known_notice_lines_stay() {
         before_kit::notice_wrap("建造完成，单位已就绪", 4, measure) ==
         kit::wrap("建造完成，单位已就绪", 4, measure)
     );
+    // Korean, as Settings' hints show it, breaks at its spaces and keeps
+    // each word whole, where Chinese would fill the row: "반드시 살" fits
+    // five, but 살아남아야 is one word.
+    OA_CHECK(
+        (kit::wrap("스파이더 한 대는 반드시 살아남아야", 5, measure) ==
+         std::vector<std::string>{"스파이더", "한 대는", "반드시", "살아남아야"})
+    );
+    // A word wider than the line still breaks inside.
+    OA_CHECK(
+        (kit::wrap("커맨더를 제외한", 3, measure) ==
+         std::vector<std::string>{"커맨더", "를", "제외한"})
+    );
 }
 
 /// The rules a site's call passes to the one wrap.

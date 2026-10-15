@@ -11,6 +11,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string_view>
 
 namespace oa::ui::gadget_render::detail {
 
@@ -34,6 +35,8 @@ inline constexpr int32_t kLineGap = 2;
 // modern message face: hattfont12's; smaller fonts take the status face.
 inline constexpr int32_t kMessageFaceHeight = 12;
 inline constexpr int32_t kFirstPrintable = 0x20;
+// The first byte past ASCII.
+inline constexpr unsigned char kFirstHighByte = 0x80;
 inline constexpr int32_t kNoLimit = -1;
 inline constexpr const char* kGafExtension = "GAF";
 
@@ -180,6 +183,28 @@ art_frame(const GadgetRenderer& renderer, const void* sequence, int32_t index);
 /// @return the sequence, or null when it or the file is missing
 [[nodiscard]] const void*
 art_find(const GadgetRenderer& renderer, const void* file, const char* name);
+
+/// Tells whether a caption is split around its quick key to mark it: only
+/// a caption of ASCII alone is. A caption past ASCII is drawn whole, so that
+/// its letters keep one typeface (present::split_text) and a character of
+/// several bytes is never drawn a byte at a time.
+///
+/// @param text the caption
+/// @return true for a caption of ASCII alone
+[[nodiscard]] bool split_for_quick_key(std::string_view text) noexcept;
+
+/// Tells whether the panel's active font draws every character of a text
+/// with its own glyphs, the modern fonts drawing none of it: only then is a
+/// caption drawn whole still marked under its quick key, measured as it is
+/// drawn.
+///
+/// @param renderer the renderer whose art table reads the font
+/// @param panel the panel
+/// @param text the text
+/// @return true when no run of it goes to the modern fonts; false for a
+///         text past ASCII drawn in the display's FNT font
+[[nodiscard]] bool
+drawn_in_game_font(const GadgetRenderer& renderer, const GadgetPanel& panel, const char* text);
 
 /// Returns the glyph sequence of the panel's active GAF font.
 ///

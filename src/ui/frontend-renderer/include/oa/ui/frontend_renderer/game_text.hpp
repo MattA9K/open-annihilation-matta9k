@@ -223,16 +223,63 @@ int32_t draw_fnt_composition(
     const formats::fnt::Font& font, std::string_view text, int32_t room, bool game_text
 );
 
-/// Gives the rows FNT-font game text, as draw_fnt_game_text draws it, rises
-/// above the pen row: the modern fonts' letters, such as ideographs, may
-/// stand taller over the font's baseline than the font's own letters, and
-/// their outline with them.
+/// The rows of a line, counted from its pen row.
+struct LineRows {
+    int32_t top{};    ///< the first row; negative above the pen row
+    int32_t bottom{}; ///< the last row, inclusive
+};
+
+/// Gives the rows the modern fonts draw on in a line of FNT-font game text,
+/// as draw_fnt_game_text draws it: their letters, outline and shadow, which
+/// may stand taller over the font's baseline than the font's own letters,
+/// as ideographs do, and reach further below it.
 ///
 /// @param font the FNT font
 /// @param text the game text
 /// @param game_text the text is game text
-/// @return the rows; 0 when nothing is drawn above the pen row
-[[nodiscard]] int32_t
-fnt_game_text_rise(const formats::fnt::Font& font, std::string_view text, bool game_text);
+/// @param most_size the most size, in percent of the game font's, its modern
+///        runs are drawn at
+/// @return the rows from the first modern run's top to the last's bottom;
+///         none when the modern fonts draw nothing of it, as for text the
+///         font draws whole
+[[nodiscard]] std::optional<LineRows> fnt_game_text_modern_rows(
+    const formats::fnt::Font& font,
+    std::string_view text,
+    bool game_text,
+    int32_t most_size = present::game_font_text_size
+);
+
+/// Where a caption of FNT-font game text stands in a box's rows, and the
+/// size its modern runs are drawn at.
+struct CaptionRows {
+    int32_t pen_row{}; ///< the pen row raster_text takes
+    /// the most size, in percent of the game font's, its modern runs are
+    /// drawn at
+    int32_t most_size{present::game_font_text_size};
+};
+
+/// Keeps what the modern fonts draw of a caption to a box's rows, as the
+/// font's own letters keep to them: drawn smaller, a step of
+/// present::fitted_text_size_step at a time down to the lowest text size,
+/// while it stands taller than the box (present::fitted_text_size), then
+/// raised by what it would draw below the box, such as descenders and the
+/// shadow, and lowered by what it would draw above it, such as ideographs
+/// standing taller than the font's letters. A caption still taller than
+/// the box keeps to its top. A caption the font draws whole stands on the
+/// box's top row at the game font's size, where 3.1c puts it.
+///
+/// @param font the FNT font
+/// @param text the game text
+/// @param game_text the text is game text
+/// @param top the box's first row
+/// @param height the box's rows
+/// @return the pen row and the most size
+[[nodiscard]] CaptionRows fnt_caption_rows(
+    const formats::fnt::Font& font,
+    std::string_view text,
+    bool game_text,
+    int32_t top,
+    int32_t height
+);
 
 } // namespace oa::ui::frontend_renderer

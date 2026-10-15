@@ -347,6 +347,10 @@ struct TextLayers {
     bool background{};
     int32_t background_top{};
     int32_t background_bottom{};
+    /// The first and last rows the letters, the outline or the shadow lie
+    /// on, inclusive; both -1 for a line with nothing drawn.
+    int32_t drawn_top{-1};
+    int32_t drawn_bottom{-1};
 };
 
 /// Adds the borders a style asks for to a line.
@@ -445,10 +449,11 @@ struct TextRowSpan {
 ///
 /// A row ends at the last place that lets it fit where it may break
 /// (oa::base::text::first_row): at a space, whose spaces belong to neither
-/// row, or between two Chinese, Japanese or Korean characters, never
-/// starting a row with a closing mark or ending one with an opening mark.
-/// A word wider than a row is broken after its last character that fits,
-/// and every row holds at least one character.
+/// row, or between two Chinese or Japanese characters, never starting a row
+/// with a closing mark or ending one with an opening mark; a Korean word,
+/// like a Latin one, is kept whole. A word wider than a row is broken after
+/// its last character that fits, and every row holds at least one
+/// character.
 ///
 /// @param text UTF-8 text
 /// @param face the game font it stands in for

@@ -8,6 +8,7 @@
 // It reads the model and decides none of its rules.
 #include "oa/ui/library/screen.hpp"
 
+#include "oa/base/text/line_break.hpp"
 #include "oa/ui/kit/chrome.hpp"
 #include "oa/ui/kit/components.hpp"
 #include "oa/ui/kit/components_more.hpp"
@@ -5232,7 +5233,10 @@ Building start(
 
 /// Appends one line of a key tooltip, splitting it so each piece fits the
 /// card's text width. A public key that is wider than the window is split
-/// across consecutive lines, so the card shows every character.
+/// across consecutive lines, so the card shows every character; a sentence
+/// breaks where the line breaker lets it (oa::base::text::first_row), at a
+/// space or between Chinese or Japanese characters, and never inside a
+/// character.
 ///
 /// @param building the layout
 /// @param[in,out] lines the tooltip's block
@@ -5241,16 +5245,13 @@ Building start(
 void append_fitted(
     const Building& building, std::vector<std::string>& lines, std::string_view text, int32_t inner
 ) {
-    if (text.empty())
-        return;
-    std::size_t start = 0;
-    while (start < text.size()) {
-        std::size_t count = text.size() - start;
-        while (count > 1 &&
-               width_of(building, kit::FontRole::small, text.substr(start, count)) > inner)
-            --count;
-        lines.emplace_back(text.substr(start, count));
-        start += count;
+    const auto fits = [&](std::string_view start) {
+        return width_of(building, kit::FontRole::small, start) <= inner;
+    };
+    while (!text.empty()) {
+        const auto row = oa::base::text::first_row(text, fits);
+        lines.emplace_back(text.substr(0, row.bytes));
+        text.remove_prefix(row.next);
     }
 }
 

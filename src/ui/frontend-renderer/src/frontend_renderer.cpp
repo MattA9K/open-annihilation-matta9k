@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "oa/ui/frontend_renderer.hpp"
+#include "oa/base/text/line_break.hpp"
 #include "oa/ui/frontend_renderer/game_text.hpp"
 #include "oa/ui/decoded.hpp"
 #include "oa/data/defs/layout.hpp"
@@ -886,42 +887,35 @@ void draw_label(
         );
         return;
     }
+    // A CR ends a line. Each line is measured as it is drawn, the modern
+    // fonts' letters at their own widths, and breaks where the line breaker
+    // lets it (oa::base::text::first_row): at a space, or between Chinese or
+    // Japanese characters; a word wider than the label breaks before the
+    // character that does not fit.
+    const std::string_view text = fields->text;
+    const int32_t room = std::max(0, static_cast<int>(gadget.common.width));
+    const auto fits = [&](std::string_view start) {
+        return measure_fnt_game_text(selected_font, start, false) <= room;
+    };
     std::size_t start = 0;
     int y = gadget.common.y;
     const int fixed_x = aligned_text_x(gadget, fields->text, selected_font, 0, 0);
-    while (start < fields->text.size() && y <= clip.bottom) {
-        std::size_t scan = start;
-        std::size_t last_break = std::string_view::npos;
-        std::size_t end = start;
-        while (scan < fields->text.size()) {
-            if (fields->text[scan] == '\r') {
-                end = scan;
-                break;
-            }
-            if (fields->text[scan] == ' ')
-                last_break = scan + 1;
-            // Each line is measured as it is drawn, the modern fonts' letters
-            // at their own widths.
-            const auto candidate = std::string_view(fields->text).substr(start, scan - start + 1);
-            if (measure_fnt_game_text(selected_font, candidate, false) >
-                std::max(0, static_cast<int>(gadget.common.width))) {
-                end = last_break != std::string_view::npos ? last_break : scan;
-                if (end == start)
-                    end = scan + 1;
-                break;
-            }
-            ++scan;
-            end = scan;
-        }
-        auto line = std::string_view(fields->text).substr(start, end - start);
-        while (!line.empty() && (line.back() == ' ' || line.back() == '\r'))
-            line.remove_suffix(1);
+    while (start < text.size() && y <= clip.bottom) {
+        const auto paragraph =
+            text.substr(start, std::min(text.find('\r', start), text.size()) - start);
+        const auto row = oa::base::text::first_row(paragraph, fits);
         draw_clipped_text(
-            surface, selected_font, line, fixed_x, y, clip, active_palette, light_row
+            surface,
+            selected_font,
+            paragraph.substr(0, row.bytes),
+            fixed_x,
+            y,
+            clip,
+            active_palette,
+            light_row
         );
-        start = end;
-        while (start < fields->text.size() &&
-               (fields->text[start] == ' ' || fields->text[start] == '\r'))
+        start += row.next;
+        while (start < text.size() && (text[start] == ' ' || text[start] == '\r'))
             ++start;
         y += line_height + 2;
     }

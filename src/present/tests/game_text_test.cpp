@@ -274,6 +274,16 @@ void lays_text_on_pixels() {
     canvas = present::indexed_canvas(buffer.surface, test_palette);
     present::lay_text(canvas, shadow, 0, 2, {255, 255, 255});
     OA_CHECK(pixel(0, 1) == 3 && pixel(1, 2) == 2 && pixel(0, 2) == 3);
+    // The rows anything is drawn on: the letter's and its shadow's, with or
+    // without a box; none for a line with nothing drawn.
+    OA_CHECK(shadow.drawn_top == 1 && shadow.drawn_bottom == 2);
+    present::TextMask blank;
+    blank.width = 2;
+    blank.height = 3;
+    blank.baseline = 2;
+    blank.alpha.assign(6, 0);
+    const auto nothing = present::build_text_layers(blank, shadowed, 1);
+    OA_CHECK(nothing.drawn_top == -1 && nothing.drawn_bottom == -1);
     // The box spans the rows the letter and its shadow take, across the line.
     present::TextStyle boxed{true, false, true, true, present::default_text_size};
     const auto box = present::build_text_layers(dot(), boxed, 1);

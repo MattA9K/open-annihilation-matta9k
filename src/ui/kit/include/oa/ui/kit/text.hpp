@@ -203,9 +203,11 @@ inline constexpr int32_t estimated_character_width = 7;
 /// broken between characters, a line has no limit, and a new line is not a
 /// paragraph of its own.
 struct WrapRules {
-    /// A text with Chinese, Japanese or Korean characters breaks between them,
-    /// and never starts a line with a closing mark or ends one with an opening
-    /// mark.
+    /// A text with Chinese, Japanese or Korean characters breaks where the
+    /// line breaker lets it (oa::base::text::first_row): at its spaces and
+    /// between Chinese or Japanese characters, never starting a line with a
+    /// closing mark or ending one with an opening mark, and inside a word,
+    /// a Korean one among them, only when the word is wider than a line.
     bool wide_scripts{true};
     /// A new line starts a paragraph. An empty paragraph adds no blank line.
     bool newlines{};

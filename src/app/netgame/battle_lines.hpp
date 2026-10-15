@@ -15,7 +15,9 @@ namespace oa::app {
 /// The line is cut into 63-character parts at a blank within the last 12
 /// characters, as the message log's notices are, each posted through
 /// `post` (or into the battle room's chat ring without one), and bit 0 of
-/// the Game's gui flags rises.
+/// the Game's gui flags rises. A line with a character of several bytes is
+/// cut where the line breaker lets it (oa::base::text::first_row), into
+/// parts of at most 63 bytes of whole characters.
 ///
 /// @param line the line
 /// @param post posts one part to the battle's message log; null uses the chat ring

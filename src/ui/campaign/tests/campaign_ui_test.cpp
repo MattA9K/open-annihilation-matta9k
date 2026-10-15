@@ -118,6 +118,19 @@ void wrap_tests() {
     expect(std::strcmp(out, "建造完\r\n成，单\r\n位已就\r\n绪") == 0, "Chinese breaks by kinsoku");
     wrap_text("我们&R敌人&北方", 61, measure, nullptr, out, sizeof(out));
     expect(std::strcmp(out, "我们\r\n&R敌人&\r\n北方") == 0, "markers stay with their words");
+    // Korean is written with spaces between its words: a row breaks at a
+    // space and keeps each word whole, 18 pixels a syllable here, and a
+    // word wider than a row breaks inside only then.
+    wrap_text("스파이더 한 대는 반드시 살아남아야", 121, measure, nullptr, out, sizeof(out));
+    expect(
+        std::strcmp(out, "스파이더 한\r\n대는 반드시\r\n살아남아야") == 0,
+        "Korean breaks at its spaces"
+    );
+    wrap_text("살아남아야합니다 반드시", 121, measure, nullptr, out, sizeof(out));
+    expect(
+        std::strcmp(out, "살아남아야합\r\n니다 반드시") == 0,
+        "a Korean word wider than a row breaks inside"
+    );
     // Out of room, the text stops before a character it cannot hold whole.
     wrap_text("指挥官", 100, measure, nullptr, out, 10);
     expect(std::strcmp(out, "指挥") == 0, "Chinese cut between characters");
@@ -218,6 +231,33 @@ void page_tests() {
     expect(page.more == MoreLabel::back_to_start, "back to start label");
     briefing_next_page(&pager, &region, measure, nullptr, &page);
     expect(page.page == 0, "wraps to first page");
+
+    // A region 148 rows high with 21-row lines, as a Korean or Chinese
+    // briefing's are, has seven whole lines. Rows start half a line down,
+    // and the modern fonts' line reaches 18 rows below each row's pen row:
+    // the seventh row's would end at 10 + 6 * 21 + 18 = 154, past the
+    // region, so the page holds six, and the next page starts at the
+    // seventh line.
+    briefing_pager_reset(&pager, "1\r\n2\r\n3\r\n4\r\n5\r\n6\r\n7\r\n8");
+    BriefingRegion reaching{24, 17, 148, 21, 18};
+    briefing_next_page(&pager, &reaching, measure, nullptr, &page);
+    expect(page.row_count == 6, "rows whose line ends inside the region");
+    expect(
+        page.rows[5].y - reaching.y + reaching.row_reach <= reaching.height,
+        "the last row's line ends inside the region"
+    );
+    briefing_next_page(&pager, &reaching, measure, nullptr, &page);
+    expect(page.page == 1 && std::strncmp(page.rows[0].text, "7", 1) == 0, "the next page");
+    // Without a reach, the game font's rows: as many as the height has lines.
+    briefing_pager_reset(&pager, "1\r\n2\r\n3\r\n4\r\n5\r\n6\r\n7\r\n8");
+    BriefingRegion font_rows{24, 17, 148, 21};
+    briefing_next_page(&pager, &font_rows, measure, nullptr, &page);
+    expect(page.row_count == 7, "the game font's rows fill the region's lines");
+    // A row that cannot fit still shows.
+    briefing_pager_reset(&pager, "1\r\n2");
+    BriefingRegion short_region{24, 17, 30, 21, 40};
+    briefing_next_page(&pager, &short_region, measure, nullptr, &page);
+    expect(page.row_count == 1, "at least one row");
 }
 
 void single_player_tests() {

@@ -53,7 +53,10 @@ std::string break_characters(
     return line;
 }
 
-/// Breaks a text that holds Chinese, Japanese or Korean between its characters.
+/// Breaks a text that holds Chinese, Japanese or Korean characters where the
+/// line breaker lets it (oa::base::text::first_row): at its spaces, between
+/// Chinese or Japanese characters, and inside a word only when it is wider
+/// than a line.
 ///
 /// @param text the text
 /// @param width the room

@@ -320,7 +320,7 @@ Network play's own checks, the last rows, are in every build.
 | `--display-modes MODES` | A made-up monitor for a check on SDL's dummy video driver: `WIDTHxHEIGHT[@RATE][/DENSITY]` modes, separated by commas, or `none`. |
 | `--force-capable` | Counts the renderer as one the graphics card can scale frames on, for `--check-render-tiers`, `--check-build-preview`, `--check-engine-settings` and `--check-kill-board` only. |
 | `--check-navigation [GROUP]` | Walks the menus and a skirmish through their keys and buttons: every group, or one of `screens`, `orders`, `outcomes`, `zoom`, `zoom-1366x768`, `zoom-1920x1080`, `zoom-2560x1440` and `campaign`. |
-| `--check-match-dialogs` | Opens the help dialog over a live match. |
+| `--check-match-dialogs` | Opens the help dialog over a live match, then the briefing and the in-game dialogs, in the language the preferences file names, such as an installed pack's. |
 | `--check-match-layers` | Checks the presented match frame against the processor's composition. |
 | `--check-render-tiers` | Checks the accelerated drawing of the main menu and a skirmish against the processor's. |
 | `--check-match-orders` | Clicks the order page's buttons and checks what the units do. |

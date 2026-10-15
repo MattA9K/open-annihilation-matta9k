@@ -1459,7 +1459,6 @@ void paint_tip(const PaintContext& context) {
             return paint::text_width(*context.fonts, shown, pixel_size, true);
         };
         kit::WrapRules rules;
-        rules.wide_scripts = false;
         rules.shorten_word = [&](std::string_view word) {
             return paint::fit_text(*context.fonts, word, pixel_size, true, room);
         };

@@ -840,8 +840,11 @@ enum class TextFit : uint8_t {
 /// The text breaks at its spaces, every new line starts a paragraph, and a
 /// word wider than the room breaks between its characters, or where
 /// break_word says when one is given (path_break breaks a folder's path after
-/// a separator); Chinese, Japanese and Korean break as other text does. An
-/// empty line is dropped. When there are more lines than most_lines, the last
+/// a separator). Without break_word, a text with Chinese, Japanese or Korean
+/// characters breaks as wrap's rules break it (WrapRules::wide_scripts):
+/// between Chinese or Japanese characters too, keeping a Korean word whole;
+/// a path, with break_word, breaks as other text does. An empty line is
+/// dropped. When there are more lines than most_lines, the last
 /// one kept takes the rest of the text and ends with an ellipsis, shortened
 /// to the room (fit). The part is a line high (measured_line) for each line,
 /// and as wide as `sits` says.

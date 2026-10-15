@@ -396,17 +396,52 @@ int32_t fitted_fnt_text_size(
     );
 }
 
-int32_t fnt_game_text_rise(const formats::fnt::Font& font, std::string_view text, bool game_text) {
+std::optional<LineRows> fnt_game_text_modern_rows(
+    const formats::fnt::Font& font, std::string_view text, bool game_text, int32_t most_size
+) {
     if (!needs_text_runs(text, game_text))
-        return 0;
+        return std::nullopt;
+    // Each run lies with its baseline on the font's.
     const int32_t baseline = fnt_font_baseline(font);
-    int32_t rise = 0;
-    for (const auto& run : split_game_text(text, fnt_font_characters(font), game_text))
-        if (run.modern)
-            if (const auto layers =
-                    present::modern_text(run.text, fnt_font_face(font), 1, screen_text_size(run)))
-                rise = std::max(rise, layers->baseline - baseline);
-    return rise;
+    std::optional<LineRows> rows;
+    for (const auto& run : split_game_text(text, fnt_font_characters(font), game_text)) {
+        if (!run.modern)
+            continue;
+        const auto layers = present::modern_text(
+            run.text, fnt_font_face(font), 1, std::min(screen_text_size(run), most_size)
+        );
+        if (!layers || layers->drawn_top < 0)
+            continue;
+        const int32_t top = baseline - layers->baseline + layers->drawn_top;
+        const int32_t bottom = baseline - layers->baseline + layers->drawn_bottom;
+        rows = rows ? LineRows{std::min(rows->top, top), std::max(rows->bottom, bottom)}
+                    : LineRows{top, bottom};
+    }
+    return rows;
+}
+
+CaptionRows fnt_caption_rows(
+    const formats::fnt::Font& font,
+    std::string_view text,
+    bool game_text,
+    int32_t top,
+    int32_t height
+) {
+    CaptionRows placed{top, present::game_font_text_size};
+    if (!fnt_game_text_modern_rows(font, text, game_text))
+        return placed;
+    placed.most_size = present::fitted_text_size(
+        [&](int32_t most_size) {
+            const auto rows = fnt_game_text_modern_rows(font, text, game_text, most_size);
+            return rows ? rows->bottom - rows->top + 1 : 0;
+        },
+        height
+    );
+    if (const auto rows = fnt_game_text_modern_rows(font, text, game_text, placed.most_size)) {
+        placed.pen_row = std::min(placed.pen_row, top + height - 1 - rows->bottom);
+        placed.pen_row = std::max(placed.pen_row, top - rows->top);
+    }
+    return placed;
 }
 
 } // namespace oa::ui::frontend_renderer

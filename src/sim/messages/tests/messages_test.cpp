@@ -118,6 +118,28 @@ int main() {
     CHECK(std::strlen(message_line(v->game, 3)->text) == 49);
     post_notice(*v, "   ", h);
     CHECK(v->game.chat_head == 4);
+    // A notice with characters of several bytes breaks where the line
+    // breaker lets it: Korean at its spaces, each word whole, into lines of
+    // at most 63 bytes.
+    World* korean = world_create();
+    set_capacity(korean->game, 30);
+    post_notice(
+        *korean,
+        "스파이더 한 대는 반드시 살아남아야 합니다. 스파이더 전차 한 대를 기지로 데려오십시오.",
+        h
+    );
+    CHECK(korean->game.chat_head == 2);
+    CHECK(
+        std::strcmp(
+            message_line(korean->game, 0)->text, "스파이더 한 대는 반드시 살아남아야 합니다."
+        ) == 0
+    );
+    CHECK(
+        std::strcmp(
+            message_line(korean->game, 1)->text, "스파이더 전차 한 대를 기지로 데려오십시오."
+        ) == 0
+    );
+    world_destroy(korean);
 
     Player& p = v->game.players[1];
     p.index = 1;

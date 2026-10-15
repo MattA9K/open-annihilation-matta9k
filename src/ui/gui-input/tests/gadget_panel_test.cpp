@@ -460,6 +460,28 @@ void state_setters() {
     require(input::free_quick_key("Yes", taken) == 'e', "a taken key is passed over");
     require(input::free_quick_key(" No", taken) == 'o', "keys compare without regard to case");
     require(input::free_quick_key(" y N", taken) == '\0', "no key when every letter is taken");
+    // Hangul and Chinese characters take three bytes each, which no one key
+    // types: they are passed over whole, never cut to their first byte.
+    const std::string_view korean_ok = "\xED\x99\x95\xEC\x9D\xB8"; // 확인
+    require(input::free_quick_key(korean_ok, {}) == '\0', "a Korean caption takes no key");
+    require(
+        input::free_quick_key("\xE7\xA1\xAE\xE5\xAE\x9A", {}) == '\0',
+        "a Chinese caption takes no key"
+    );
+    require(
+        input::free_quick_key("\xED\x99\x95\xEC\x9D\xB8 OK", taken) == 'O',
+        "the first one-byte letter after them is the key"
+    );
+    // A byte of the game's one-byte code page is a letter of its own.
+    const std::string code_page_caption = std::string(1, '\xDC') + "bersicht";
+    require(input::free_quick_key(code_page_caption, {}) == '\xDC', "a code-page letter is a key");
+    auto& ok_record = f.record("OK");
+    input::set_gadget_text_by_name(f.panel, "OK", korean_ok, 0);
+    require(
+        ok_record.bytes[field::button_quick_key] == 0,
+        "a button captioned in Korean holds no key, not the caption's first byte"
+    );
+    input::set_gadget_text_by_name(f.panel, "OK", "Accept", 0);
     using input::CaptionQuickKey;
     require(
         input::caption_quick_key(0, 0, "Yes") == CaptionQuickKey::assign,

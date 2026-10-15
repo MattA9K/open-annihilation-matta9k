@@ -2487,6 +2487,23 @@ if(OA_BUILD_PLATFORM)
       set_tests_properties(native-text-fit-language PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_text_fit_language_check_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # The match dialog check in the Chinese fixture's language, which the
+      # modern fonts draw: the briefing's rows and its MORE caption keep to
+      # their boxes, and the dialogs' texts and quick keys are the ones the
+      # language gives. A translator's own pack is checked the same way, with
+      # its language in the preferences file.
+      set(oa_match_dialogs_language_check_dir
+        "${CMAKE_CURRENT_BINARY_DIR}/native-checks/match-dialogs-language")
+      file(MAKE_DIRECTORY "${oa_match_dialogs_language_check_dir}")
+      file(WRITE "${oa_match_dialogs_language_check_dir}/match-dialogs.conf"
+        "open-annihilation-preferences 1\n\"open-annihilation.language\" \"zh-Hans\"\n\"open-annihilation.first-run\" \"done\"\n")
+      add_test(NAME native-match-dialogs-language COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-match-dialogs
+        --preferences-file "${oa_match_dialogs_language_check_dir}/match-dialogs.conf")
+      set_tests_properties(native-match-dialogs-language PROPERTIES
+        TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_match_dialogs_language_check_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # Each language-notice check rewrites its preferences. The starting
       # file is copied over the live one before every run, and anything else
       # the check leaves in its folder, which a later run would read, is removed.
@@ -2832,12 +2849,13 @@ endforeach()
       add_test(NAME language-fixture-pack COMMAND ${CMAKE_COMMAND}
         -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/src/data/languages/tests/fixture-packs/zh-Hans
         -DFONT=${OA_TEXT_FONT_TESTS_DIR}/NotoSansCJKsc-Bold-Fixture.otf
-        "-DDESTINATIONS=${oa_language_switch_check_dir}/Open Annihilation;${oa_pointer_check_dir}/Open Annihilation;${oa_touch_check_dir}/Open Annihilation;${oa_touch_phone_check_dir}/Open Annihilation;${oa_text_fit_check_dir}/Open Annihilation;${oa_text_fit_language_check_dir}/Open Annihilation"
+        "-DDESTINATIONS=${oa_language_switch_check_dir}/Open Annihilation;${oa_pointer_check_dir}/Open Annihilation;${oa_touch_check_dir}/Open Annihilation;${oa_touch_phone_check_dir}/Open Annihilation;${oa_text_fit_check_dir}/Open Annihilation;${oa_text_fit_language_check_dir}/Open Annihilation;${oa_match_dialogs_language_check_dir}/Open Annihilation"
         -P ${CMAKE_CURRENT_SOURCE_DIR}/tools/install_fixture_pack.cmake)
       set_tests_properties(language-fixture-pack PROPERTIES
         FIXTURES_SETUP language-fixture-pack TIMEOUT 30)
       set_tests_properties(native-language-switch native-pointer-interfaces
         native-touch-controls native-touch-controls-phone native-text-fit native-text-fit-language
+        native-match-dialogs-language
         PROPERTIES FIXTURES_REQUIRED language-fixture-pack)
       # --check-pad-controls: the gamepad controls, driven through the event
       # path by SDL virtual pads imitating a Steam Deck and an Xbox pad, on a

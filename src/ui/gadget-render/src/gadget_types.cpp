@@ -471,6 +471,19 @@ void draw_button(GadgetRenderer& renderer, GadgetPanel& panel, int32_t index) {
         }
         if (found == nullptr) {
             draw_text(renderer, panel, face, text, x, y, span, 0);
+        } else if (!split_for_quick_key(copy)) {
+            // A caption past ASCII is drawn whole. Its key is underlined
+            // where the font draws the caption glyph by glyph, as measured.
+            draw_text(renderer, panel, face, text, x, y, span, 0);
+            if (drawn_in_game_font(renderer, panel, copy)) {
+                *found = '\0';
+                const int32_t key_x = x + text_width(renderer, panel, copy);
+                const int32_t key_end = key_x + text_width(renderer, panel, needle);
+                const uint8_t underline =
+                    status != 0 ? dark : mapped_color(panel, color_slot::underline);
+                const int32_t line_y = text_height(renderer, panel) - 1 + y;
+                present::draw_clipped_line(face, key_x, line_y, key_end - 1, line_y, underline);
+            }
         } else {
             *found = '\0';
             draw_text(renderer, panel, face, copy, x, y, span, 0);
@@ -488,10 +501,14 @@ void draw_button(GadgetRenderer& renderer, GadgetPanel& panel, int32_t index) {
         }
     } else if ((attrs & kBottomCaption) != 0) {
         // Bottom caption: the quick key is cut out of the record text itself,
-        // so a later draw shows only the part before it.
+        // so a later draw shows only the part before it. A caption the
+        // modern fonts draw part of is drawn whole, its key unmarked.
         int32_t x = rect.x1 + (rect.x2 - rect.x1 - fit_width) / 2 + press + 1;
         const int32_t bottom_y = rect.y2 + press - text_height(renderer, panel) - kBottomCaptionGap;
-        char* found = key != '\0' ? std::strchr(text, key) : nullptr;
+        const auto offset = ui::frontend_renderer::quick_key_offset(text, key);
+        char* found = offset != std::string_view::npos && drawn_in_game_font(renderer, panel, text)
+                          ? text + offset
+                          : nullptr;
         if (found == nullptr) {
             draw_text(renderer, panel, face, text, x, bottom_y, span, 0);
         } else {
@@ -833,11 +850,14 @@ void draw_label(GadgetRenderer& renderer, GadgetPanel& panel, int32_t index) {
     }
     if ((label.bytes[field::label_flags] & 1) == 0) {
         const char key = static_cast<char>(label.bytes[field::label_quick_key]);
-        if (key != '\0') {
+        // A label the modern fonts draw part of leaves its key unmarked.
+        if (key != '\0' && drawn_in_game_font(renderer, panel, text)) {
             char copy[field::text_bytes + 1]{};
             oa::base::text::copy_padded(copy, text, field::text_bytes);
             char needle[2] = {key, '\0'};
-            if (char* found = std::strstr(copy, needle); found != nullptr) {
+            if (const auto offset = ui::frontend_renderer::quick_key_offset(copy, key);
+                offset != std::string_view::npos) {
+                char* found = copy + offset;
                 *found = '\0';
                 const int32_t before = text_width(renderer, panel, copy);
                 const int32_t key_width = text_width(renderer, panel, needle);

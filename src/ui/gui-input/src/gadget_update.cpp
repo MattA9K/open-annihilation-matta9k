@@ -338,11 +338,11 @@ int32_t update_panel(GadgetPanel& panel) {
 
 namespace {
 
-/// Wraps text with Chinese, Japanese or Korean characters, which are
-/// written without spaces: a line breaks at a space or between two of
-/// those characters where the line breaker allows (oa::base::text), before
-/// it reaches the width. A break at spaces drops them; each break is CR LF,
-/// and the text's own line breaks stay.
+/// Wraps text with Chinese, Japanese or Korean characters: a line breaks
+/// where the line breaker allows (oa::base::text::first_row), at a space
+/// or between two Chinese or Japanese characters, which are written without
+/// spaces, before it reaches the width. A break at spaces drops them; each
+/// break is CR LF, and the text's own line breaks stay.
 ///
 /// @param text the text
 /// @param width the line width, in pixels

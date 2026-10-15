@@ -317,6 +317,22 @@ void test_battle_lines() {
         g_match_lines.size() == 2 && g_match_lines[0].size() == 51,
         "without a blank the part stops 12 characters short"
     );
+    // A line with characters of several bytes breaks where the line breaker
+    // lets it: Korean at its spaces, each word whole, never inside a
+    // syllable's bytes.
+    g_match_lines.clear();
+    post_wrapped_line(
+        "스파이더 한 대는 반드시 살아남아야 합니다. 스파이더 전차 한 대를 기지로 데려오십시오.",
+        post_part,
+        nullptr,
+        game
+    );
+    check(
+        g_match_lines.size() == 2 &&
+            g_match_lines[0] == "스파이더 한 대는 반드시 살아남아야 합니다." &&
+            g_match_lines[1] == "스파이더 전차 한 대를 기지로 데려오십시오.",
+        "a Korean line breaks at its spaces into whole words"
+    );
 
     // A running match takes the line; otherwise it goes into the chat ring
     // and the frontend Game's gui flag rises.

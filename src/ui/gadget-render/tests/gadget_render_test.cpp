@@ -282,6 +282,33 @@ void test_text(render::GadgetRenderer& renderer, TestFile& font) {
     );
     require(cut == 16 && at(short_panel.face, 0, 16) == 0, "the height budget ends the wrap");
 
+    // Text with Chinese characters breaks where the line breaker lets it:
+    // between two whole characters. Each of 中's three bytes has a glyph a
+    // pixel wide, so a line of 7 holds two and the third goes down whole.
+    TestFile hanzi_font = make_font(5, 6);
+    auto& hanzi_glyphs = hanzi_font.sequences.front().frames;
+    hanzi_glyphs.resize(256);
+    hanzi_glyphs[0xE4] = solid(1, 3, 0x50);
+    hanzi_glyphs[0xB8] = solid(1, 3, 0x51);
+    hanzi_glyphs[0xAD] = solid(1, 3, 0x52);
+    TestPanel hanzi_panel;
+    make_panel(hanzi_panel, renderer, 12, 24);
+    hanzi_panel.panel->active_gaf_font = &hanzi_font;
+    char hanzi[] = "\xE4\xB8\xAD\xE4\xB8\xAD\xE4\xB8\xAD";
+    const int32_t below = render::draw_wrapped_text(
+        renderer, *hanzi_panel.panel, &hanzi_panel.face.surface, hanzi, 0, 0, 7, 100, 0
+    );
+    require(below == 16, "Chinese wraps into two lines, each a text height and two more");
+    require(
+        at(hanzi_panel.face, 0, 0) == 0x50 && at(hanzi_panel.face, 5, 0) == 0x52 &&
+            at(hanzi_panel.face, 6, 0) == 0,
+        "the first line holds two whole characters"
+    );
+    require(
+        at(hanzi_panel.face, 0, 8) == 0x50 && at(hanzi_panel.face, 2, 8) == 0x52,
+        "the third character goes down whole"
+    );
+
     require(
         panel.host.text_width(panel.host.context, &font, "AB") == 5,
         "host text width uses the given font"
@@ -504,6 +531,62 @@ void test_button(render::GadgetRenderer& renderer, TestFile& font) {
         layout::record_string(record(panel, index), field::text) == "AB",
         "captions are cut to the width - 6"
     );
+}
+
+// A centred caption past ASCII is drawn whole, never split around its quick
+// key: a caption the modern fonts draw part of keeps one typeface and its
+// key unmarked, while one the font draws glyph by glyph keeps the mark
+// under its key.
+void test_button_whole_caption(render::GadgetRenderer& renderer) {
+    constexpr uint8_t dos_e_acute = 0x82;
+    TestFile font = make_font(5, 6);
+    auto& glyphs = font.sequences.front().frames;
+    glyphs.resize(256);
+    glyphs[dos_e_acute] = solid(2, 3, 7);
+    GameTextAnswers answers;
+    answers.settings.style = {false, false, false, false, present::default_text_size};
+    answers.settings.utf8 = true;
+    answers.palette.assign(8 * 4, 0);
+    answers.palette[4 * 4] = 195;
+    answers.palette[4 * 4 + 1] = 195;
+    answers.palette[4 * 4 + 2] = 155;
+    present::set_game_text_hooks(solid_text_hooks(answers));
+    TestPanel test;
+    make_panel(test, renderer, 20, 10);
+    GadgetPanel& panel = *test.panel;
+    panel.gaf_fonts[0] = &font;
+    panel.active_gaf_font = &font;
+    const int32_t index = add_record(panel, layout::gadget_type::button, 2, 1, 16, 8, "BTN");
+    layout::set_record_u32(record(panel, index), field::attributes, layout::attribute::centered);
+    // "A" and a Cyrillic letter the font lacks: the modern fonts draw all of
+    // it, 3 pixels a character, centred at 7, standing on the baseline at
+    // row 5. Split at its key, the A would take the font's glyph and colour.
+    layout::copy_record_cstring(record(panel, index), field::text, "A\xD0\x91");
+    record(panel, index).bytes[field::button_quick_key] = 'A';
+    render::draw_button(renderer, panel, index);
+    require(
+        at(test.face, 7, 3) == 4 && at(test.face, 12, 4) == 4,
+        "a caption the modern fonts draw part of is drawn whole"
+    );
+    require(
+        at(test.face, 7, 6) == color(render::color_slot::face),
+        "a caption the modern fonts draw part of leaves its key unmarked"
+    );
+    // "é" the font draws with its own glyph, then B: the key is marked
+    // under the B, after the é's 2 pixels.
+    const std::string e_acute_b = std::string("\xC3\xA9") + 'B';
+    layout::copy_record_cstring(record(panel, index), field::text, e_acute_b);
+    record(panel, index).bytes[field::button_quick_key] = 'B';
+    render::draw_button(renderer, panel, index);
+    require(at(test.face, 8, 1) == 7 && at(test.face, 10, 1) == 6, "the font draws it whole");
+    require(
+        at(test.face, 10, 6) == color(render::color_slot::underline) &&
+            at(test.face, 12, 6) == color(render::color_slot::underline) &&
+            at(test.face, 9, 6) == color(render::color_slot::face),
+        "a caption the font draws keeps the mark under its key"
+    );
+    present::set_game_text_hooks({});
+    render::forget_font_characters();
 }
 
 /// The sizes the modern fonts were asked to draw at, and the last text.
@@ -1019,6 +1102,7 @@ int main() {
     test_forget_font_characters(renderer);
     test_shade_level(display);
     test_button(renderer, font);
+    test_button_whole_caption(renderer);
     test_button_caption_shrinks(renderer, font);
     test_button_art(renderer, font);
     test_label(renderer, font, small);

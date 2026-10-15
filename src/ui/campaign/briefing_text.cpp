@@ -38,10 +38,11 @@ bool opens_span(std::size_t markers) {
     return markers % 2 == 0;
 }
 
-/// Wraps a briefing with Chinese, Japanese or Korean characters, which are
-/// written without spaces: a row breaks at a space or between two of those
-/// characters where the line breaker allows (oa::base::text::first_row),
-/// before it reaches the width, but never between a span's opening marker
+/// Wraps a briefing with Chinese, Japanese or Korean characters: a row
+/// breaks where the line breaker allows (oa::base::text::first_row), at a
+/// space or between two Chinese or Japanese characters, which are written
+/// without spaces, before it reaches the width, keeping a Korean word whole
+/// unless it is wider than a row; but never between a span's opening marker
 /// and its colour code and the word after them, nor before its closing
 /// marker. A break at spaces drops them; each break is CR LF, and the
 /// text's own line breaks stay.
@@ -286,8 +287,14 @@ void briefing_next_page(
         pager->fresh = false;
     }
     const int32_t line_height = region->line_height;
-    const int32_t lines = region->height / line_height;
-    const int32_t x = region->x + 5;
+    int32_t lines = region->height / line_height;
+    // Rows the modern fonts draw reach further below their pen row than the
+    // font's letters: a page holds those whose line ends inside the region.
+    if (region->row_reach > 0)
+        while (lines > 1 &&
+               line_height / 2 + (lines - 1) * line_height + region->row_reach > region->height)
+            --lines;
+    const int32_t x = region->x + kRowInset;
     int32_t y = region->y + line_height / 2;
     ++pager->page;
     const char* p = find_text_page(pager->text, lines, pager->page);

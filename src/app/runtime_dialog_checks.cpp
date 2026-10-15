@@ -5,7 +5,9 @@
 // screen, and over a live match through the SDL presenter.
 #include "oa/app/game_directory.hpp"
 #include "oa/app/runtime.hpp"
+#include "oa/base/text/line_break.hpp"
 #include "oa/data/defs/layout.hpp"
+#include "oa/data/languages/unit_texts.hpp"
 #include "oa/ui/decoded.hpp"
 #include "oa/ui/frontend_dialogs.hpp"
 #include "oa/ui/gui_input.hpp"
@@ -14,12 +16,14 @@
 #include "oa/ui/frontend/ingame_menu.hpp"
 #include "oa/ui/frontend/options.hpp"
 #include "oa/ui/frontend/savegame_dialogs.hpp"
+#include "oa/ui/frontend_renderer/gadget_draw.hpp"
 #include "oa/ui/frontend_renderer/scroll_bars.hpp"
 #include "oa/audio/unit_announcements.hpp"
 #include "oa/data/persist/hapibank.hpp"
 #include "oa/data/persist/save_sections.hpp"
 #include "oa/present/model/mesh_raster.hpp"
 #include "oa/present/surface.hpp"
+#include "oa/sim/messages.hpp"
 #include "oa/sim/speed.hpp"
 #include "match_fault.hpp"
 #include "panel_first_draw.hpp"
@@ -227,6 +231,8 @@ constexpr uint8_t kFirstRowBeforeEntry = 0x80;
 constexpr std::array<std::size_t, 6> kFocusRingLevels{31, 28, 24, 19, 13, 6};
 // The GUI palette entry a caption's quick key is underlined in.
 constexpr std::size_t kUnderlineEntry = 2;
+// The first byte of a caption past ASCII.
+constexpr unsigned char kFirstByteAboveAscii = 0x80;
 
 /// Returns the lowest palette entry holding a colour.
 ///
@@ -849,6 +855,11 @@ void Runtime::check_frontend_keyboard() {
 
 void Runtime::check_match_dialogs() {
     namespace dialogs = oa::ui::frontend_dialogs;
+    // A text the game sets, as the language shown gives it.
+    const auto shown_text = [this](const char* english) {
+        const char* translated = game_translation(english);
+        return std::string(translated != nullptr ? translated : english);
+    };
     const fs::path report_directory = "local/reports";
     fs::create_directories(report_directory);
     start_benchmark_skirmish();
@@ -990,7 +1001,7 @@ void Runtime::check_match_dialogs() {
     const auto confirm = oa::data::defs::gui_path("YESORNO.GUI");
     const auto confirming = [&] {
         return match_paused_ && match_hud_ && match_hud_panel_ == confirm &&
-               hud_label("TITLE") == "Surrender this battle and exit to the system?";
+               hud_label("TITLE") == shown_text("Surrender this battle and exit to the system?");
     };
     // A held Escape's repeats open no menu.
     require(send(escape(true)) && !match_paused_, "a held Escape opened the pause menu");
@@ -1526,9 +1537,18 @@ void Runtime::check_match_dialogs() {
     ++match_timing_.tick;
     match_->simulation().tick = match_timing_.tick;
     tick_or_raise(*match_);
-    const auto* definition = definition_for(commander);
-    const std::string caption = (definition != nullptr ? definition->display_name : std::string()) +
-                                ": That unit cannot be captured";
+    // The line names the unit and gives the caption in the language shown,
+    // and keeps what of them fits the line in whole characters.
+    std::string name;
+    if (const auto* def =
+            oa::world_unit_def_of(&match_->state(), &match_->world().slots[commander].record))
+        name = std::string(oa::data::languages::unit_display_name(*def));
+    if (const auto* definition = definition_for(commander); name.empty() && definition != nullptr)
+        name = definition->display_name;
+    const std::string spoken = name + ": " + translate_ui("That unit cannot be captured");
+    const std::string caption = spoken.substr(
+        0, oa::base::text::whole_character_bytes(spoken, oa::sim::messages::text_bytes - 1)
+    );
     bool captioned = false;
     for (std::size_t pump = 0;
          pump < oa::audio::game_audio::AnnouncementQueue::capacity && !captioned;
@@ -1582,14 +1602,14 @@ void Runtime::check_match_dialogs() {
             return title;
         };
         require(
-            ask_main_menu() == "Surrender this battle and return to Portal?",
+            ask_main_menu() == shown_text("Surrender this battle and return to Portal?"),
             "the confirmation does not return to the label"
         );
         // A label longer than nine characters leaves the wording as it is.
         probe_return_label() = "PortalGate";
         take_return_label();
         require(
-            ask_main_menu() == "Surrender this battle and return to main menu?",
+            ask_main_menu() == shown_text("Surrender this battle and return to main menu?"),
             "a ten-character label changed the confirmation"
         );
         probe_return_label() = "Portal";
@@ -1854,6 +1874,11 @@ void Runtime::check_in_game_briefing(const fs::path& report_directory) {
 }
 
 void Runtime::check_placed_dialogs(const fs::path& report_directory) {
+    // A text the game sets, as the language shown gives it.
+    const auto shown_text = [this](const char* english) {
+        const char* translated = game_translation(english);
+        return std::string(translated != nullptr ? translated : english);
+    };
     namespace panel_flag = oa::ui::gui_input::panel_flag;
     const auto require = [](bool ok, const std::string& failure) {
         if (!ok)
@@ -1938,7 +1963,14 @@ void Runtime::check_placed_dialogs(const fs::path& report_directory) {
     // in the GUI palette's entry 2, on the HUD layer's row under the text:
     // the caption's top, (height - 1 - text height) / 2 into the button,
     // plus the text height (the 'I' glyph's and 2), less one. The caption
-    // starts (width - 1 - text width) / 2 + 1 into the button.
+    // starts (width - 1 - text width) / 2 + 1 into the button. In English
+    // each button takes the letter given. In another language its key is
+    // the one its translated caption gives, a whole one-byte character of
+    // it, or none, or the one its GUI file names, which the caption may
+    // lack and which nothing then marks. A caption past ASCII is drawn
+    // whole, its key underlined only where the font draws all of it, so
+    // only a key in a caption of ASCII is measured here.
+    const bool english = game_language() == nullptr;
     const auto check_quick_keys = [&](
                                       const std::string& what,
                                       std::initializer_list<std::pair<std::string_view, char>> keys
@@ -1947,16 +1979,28 @@ void Runtime::check_placed_dialogs(const fs::path& report_directory) {
         const auto& font = match_hud_->font;
         const auto remap = oa::remap_palette(match_hud_->gui_palette, match_palette_);
         const auto* colour = &match_palette_[remap[kUnderlineEntry] * oa::palette_entry_bytes];
-        for (const auto& [name, key] : keys) {
+        for (const auto& [name, english_key] : keys) {
             const auto& gadget = match_hud_->layout.gadgets[record_index(name)];
             const auto* button = std::get_if<oa::ui::gui_layout::ButtonFields>(&gadget.fields);
+            require(button != nullptr, what + "'s " + std::string(name) + " is not a button");
+            const char key = english ? english_key : static_cast<char>(button->quick_key);
             require(
-                button != nullptr && button->quick_key == key,
+                button->quick_key == key,
                 what + "'s " + std::string(name) + " does not have the quick key " + key
             );
+            if (key == '\0')
+                continue;
             const std::string_view text = button->text;
-            const auto at = text.find(key);
-            require(at != std::string_view::npos, what + "'s caption lacks its quick key");
+            const auto at = oa::ui::frontend_renderer::quick_key_offset(text, key);
+            require(
+                at != std::string_view::npos || !english,
+                what + "'s " + std::string(name) + " caption lacks its quick key"
+            );
+            if (at == std::string_view::npos ||
+                std::any_of(text.begin(), text.end(), [](char byte) {
+                    return static_cast<unsigned char>(byte) >= kFirstByteAboveAscii;
+                }))
+                continue;
             const auto text_width =
                 static_cast<int32_t>(oa::formats::fnt::measure_text(font, text));
             const auto text_height = static_cast<int32_t>(oa::formats::fnt::line_height(font));
@@ -2221,7 +2265,7 @@ void Runtime::check_placed_dialogs(const fs::path& report_directory) {
         );
         menu_under(confirm, oa::data::defs::gui_path(kConfirmLayout), false);
         require(
-            hud_label("TITLE") == "Surrender this battle and exit to the system?",
+            hud_label("TITLE") == shown_text("Surrender this battle and exit to the system?"),
             "EXITGAME's confirmation reads \"" + hud_label("TITLE") + '"'
         );
         check_quick_keys(
@@ -2275,7 +2319,7 @@ void Runtime::check_placed_dialogs(const fs::path& report_directory) {
         );
         menu_under(main_menu, "MAINMENU's confirmation", false);
         require(
-            hud_label("TITLE") == "Surrender this battle and return to main menu?",
+            hud_label("TITLE") == shown_text("Surrender this battle and return to main menu?"),
             "MAINMENU's confirmation reads \"" + hud_label("TITLE") + '"'
         );
         activate_pause_gadget("CHOICE2");

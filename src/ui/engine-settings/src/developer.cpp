@@ -1453,6 +1453,27 @@ std::string ascii_text(std::string_view text) {
 
 std::vector<std::string> summary_lines(std::string_view summary) {
     const std::string text = ascii_text(summary);
+    std::vector<std::string> lines;
+    // A summary with Chinese, Japanese or Korean characters breaks where the
+    // line breaker lets it, as every wrap does (oa::base::text::first_row):
+    // at its spaces, between Chinese or Japanese characters, and inside a
+    // word, between whole characters, only when the word is longer than a
+    // line.
+    if (oa::base::text::has_wide_script(text)) {
+        std::string_view rest = text;
+        const auto fits = [](std::string_view start) {
+            return start.size() <= summary_line_characters;
+        };
+        for (;;) {
+            while (!rest.empty() && rest.front() == ' ')
+                rest.remove_prefix(1);
+            if (rest.empty())
+                return lines;
+            const auto row = oa::base::text::first_row(rest, fits);
+            lines.emplace_back(rest.substr(0, row.bytes));
+            rest.remove_prefix(row.next);
+        }
+    }
     // The words, a word longer than a line cut after its last slash that
     // fits, or else where the line ends.
     std::vector<std::string> words;
@@ -1473,7 +1494,6 @@ std::vector<std::string> summary_lines(std::string_view summary) {
         if (!word.empty())
             words.emplace_back(word);
     }
-    std::vector<std::string> lines;
     std::string line;
     for (const std::string& word : words) {
         if (!line.empty() && line.size() + 1 + word.size() > summary_line_characters) {

@@ -43,11 +43,14 @@ using MeasureText = int32_t (*)(void* context, const char* text);
 /// reach `width`; breaks are found only at a following space, hyphen or
 /// newline and are written as CR LF, the CR replacing the separator (so a
 /// hyphen at a break is lost). A word longer than the line is left unbroken.
-/// A text with Chinese, Japanese or Korean characters, which are written
-/// without spaces, also breaks between them, before a row reaches `width`,
-/// never starting a row with a closing mark or ending one with an opening
-/// mark (oa::base::text::first_row), and never parting a highlight's markers
-/// from the words they mark; its output holds whole characters only.
+/// A text with Chinese, Japanese or Korean characters breaks where the line
+/// breaker lets it (oa::base::text::first_row), before a row reaches
+/// `width`: at its spaces, between Chinese or Japanese characters, which are
+/// written without spaces, never starting a row with a closing mark or
+/// ending one with an opening mark, and inside a word, a Korean one among
+/// them, only when it is wider than a row; never parting a highlight's
+/// markers from the words they mark; its output holds whole characters
+/// only.
 ///
 /// @param text Source text, ended by NUL or kTextEnd.
 /// @param width Line width in pixels.
@@ -84,11 +87,20 @@ std::size_t reflow_span_text(const char* text, char* out, std::size_t capacity);
 ///         past the end (or for empty text).
 [[nodiscard]] const char* find_text_page(const char* text, int32_t lines_per_page, int32_t page);
 
+/// The pixels a briefing's rows start right of its TextRegion.
+inline constexpr int32_t kRowInset = 5;
+
 struct BriefingRegion {
     int32_t x{};
     int32_t y{};
     int32_t height{};
     int32_t line_height{}; // font height + 2
+    /// The rows from a row's pen row to the last its line may draw on, and
+    /// one more, for rows the modern fonts draw, whose letters, outline and
+    /// shadow reach further below the font's baseline than the font's own
+    /// letters; 0 for rows the game's font draws, which the region holds as
+    /// many of as its height has whole lines.
+    int32_t row_reach{};
 };
 
 struct BriefingRow {
@@ -130,10 +142,13 @@ void briefing_pager_reset(BriefingPager* pager, const char* text);
 
 /// Advances to the next page of the TextRegion (wrapping to the first) and lays it out.
 ///
-/// Rows start 5 pixels right of the region and half a line down, one per
-/// line; every colour span adds a blinking highlight positioned after the row
-/// text before it. The MOREBAR label becomes MORE... while a further page
-/// exists, BACK TO START on the last of several pages, or nothing.
+/// Rows start kRowInset pixels right of the region and half a line down,
+/// one per line; every colour span adds a blinking highlight positioned
+/// after the row text before it. A page holds as many rows as the region's
+/// height has whole lines; with a row_reach, only those whose line ends
+/// inside the region, and at least one. The MOREBAR label becomes MORE...
+/// while a further page exists, BACK TO START on the last of several pages,
+/// or nothing.
 ///
 /// @param[in,out] pager Paging state; its page advances.
 /// @param region TextRegion position, height and line height in pixels.

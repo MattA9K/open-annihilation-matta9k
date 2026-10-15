@@ -3,7 +3,8 @@
 
 // first_row with a width of one column a byte: Latin text breaks at its
 // spaces alone; Chinese breaks between any two characters, and never puts
-// a closing mark at a row's start or an opening mark at its end; mixed
+// a closing mark at a row's start or an opening mark at its end; Korean
+// breaks at its spaces, keeping each word whole; mixed
 // text keeps its Latin words and numbers whole; the characters the
 // breaker reads from bytes that are not UTF-8; and cuts at whole
 // characters and widths in columns.
@@ -76,6 +77,33 @@ void chinese_breaks_between_characters() {
     OA_CHECK((rows("胜利。「好」", 6) == std::vector<std::string>{"胜利。", "「好」"}));
 }
 
+void korean_breaks_at_spaces() {
+    // Korean is written with spaces between its words: 스파이더 한 대는
+    // 반드시 살아남아야 합니다 breaks at its spaces, each word whole, even
+    // where a row has room for part of the next word.
+    OA_CHECK(
+        (rows("스파이더 한 대는 반드시 살아남아야 합니다", 16) ==
+         std::vector<std::string>{"스파이더 한 대는", "반드시", "살아남아야", "합니다"})
+    );
+    // A word wider than the row breaks inside, before the syllable that
+    // does not fit.
+    OA_CHECK(
+        (rows("커맨더를 제외한 모든 건설 유닛", 6) ==
+         std::vector<std::string>{"커맨더", "를", "제외한", "모든", "건설", "유닛"})
+    );
+    // Hangul beside Latin letters and digits is one word with them.
+    OA_CHECK((rows("1페이지 OK", 6) == std::vector<std::string>{"1페이", "지 OK"}));
+    OA_CHECK(!may_break_between(U'확', U'인'));
+    OA_CHECK(!may_break_between(U'유', U'1'));
+    OA_CHECK(!may_break_between(U'ㄱ', U'ㅏ'));
+    // A Hangul syllable beside a hanzi may still part from it.
+    OA_CHECK(may_break_between(U'中', U'한'));
+    OA_CHECK(may_break_between(U'한', U'中'));
+    // Hangul is still drawn about twice as wide as a Latin letter.
+    OA_CHECK(text_columns("확인") == 4);
+    OA_CHECK(has_wide_script("OK \xED\x99\x95\xEC\x9D\xB8"));
+}
+
 void mixed_text_keeps_words_whole() {
     // A space early in the row does not stop the row filling with hanzi.
     OA_CHECK(
@@ -119,6 +147,7 @@ void cuts_and_measures_whole_characters() {
 int main() {
     latin_breaks_at_spaces();
     chinese_breaks_between_characters();
+    korean_breaks_at_spaces();
     mixed_text_keeps_words_whole();
     reads_characters();
     cuts_and_measures_whole_characters();

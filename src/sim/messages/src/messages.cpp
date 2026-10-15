@@ -3,6 +3,7 @@
 
 #include "oa/sim/messages.hpp"
 #include "oa/base/text.hpp"
+#include "oa/base/text/line_break.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -219,8 +220,25 @@ void post_message(
 void post_notice(World& world, const char* text, const Hooks& hooks) {
     while (*text == ' ')
         ++text;
-    auto remaining = static_cast<int32_t>(std::strlen(text));
     char chunk[text_bytes];
+    // A notice with a character of several bytes breaks where the line
+    // breaker lets it (oa::base::text::first_row), into lines of whole
+    // characters; the game's one-byte text breaks as below.
+    if (const std::string_view whole(text); oa::base::text::has_multibyte_character(whole)) {
+        std::string_view rest = whole;
+        const auto fits = [](std::string_view start) {
+            return start.size() <= static_cast<std::size_t>(wrap_width);
+        };
+        while (!rest.empty()) {
+            const auto row = oa::base::text::first_row(rest, fits);
+            std::memcpy(chunk, rest.data(), row.bytes);
+            chunk[row.bytes] = '\0';
+            post_message(world, chunk, kind_notice, 0, sender_none, hooks);
+            rest.remove_prefix(row.next);
+        }
+        return;
+    }
+    auto remaining = static_cast<int32_t>(std::strlen(text));
     for (;;) {
         if (remaining < static_cast<int32_t>(text_bytes)) {
             if (remaining > 0)

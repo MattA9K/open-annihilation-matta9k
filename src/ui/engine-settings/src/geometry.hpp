@@ -1282,9 +1282,12 @@ void scroll_list(List& list, int32_t by) noexcept;
 [[nodiscard]] const ListRow* list_row(const List& list, int32_t control) noexcept;
 
 /// Returns the lines a summary is broken into: at most
-/// summary_line_characters each, broken between words, a word longer than
-/// a line after one of its slashes or else at the line's end, with each
-/// character the game's fonts lack written as ASCII.
+/// summary_line_characters bytes each, broken between words, a word longer
+/// than a line after one of its slashes or else at the line's end, with
+/// each character the game's fonts lack written as ASCII. A summary with
+/// Chinese, Japanese or Korean characters, which stay, breaks where the
+/// line breaker lets it (oa::base::text::first_row), never inside a
+/// character.
 ///
 /// @param summary the summary, UTF-8
 /// @return the lines, in order
@@ -1536,10 +1539,12 @@ inline constexpr std::string_view steam_deck_rate_text =
 /// @return the line; empty past the last
 [[nodiscard]] HintLine row_hint(const Dialog& dialog, Setting setting, std::size_t line);
 
-/// Breaks a text into lines of at most a number of characters, between
-/// words, after a location's mark between folders (›) where one stands in a
-/// line's second half; a word longer than a line is cut at the line's end.
-/// Characters are counted as UTF-8 characters, not bytes.
+/// Breaks a text into lines of at most a number of characters where the
+/// line breaker lets it (oa::base::text::first_row): between words, or
+/// between Chinese or Japanese characters, and after a location's mark
+/// between folders (›) where one stands in a line's second half; a word
+/// longer than a line is cut at the line's end. Characters are counted as
+/// UTF-8 characters, not bytes.
 ///
 /// @param text the text, UTF-8
 /// @param characters the most characters a line holds, 1 or more

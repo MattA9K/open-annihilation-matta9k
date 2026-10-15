@@ -14348,10 +14348,24 @@ class Runtime final : public menu::Host,
     /// @param y new top edge, in the panel's coordinates
     static void set_widget_y(void* context, const char* name, uint8_t type, int16_t y);
 
-    /// Returns the TextRegion rectangle and row pitch the briefing pages are laid out in.
+    /// Tells whether the modern fonts draw the bound mission's briefing:
+    /// the settings draw game text in them and the mission has a briefing.
+    ///
+    /// @return true when they draw it
+    [[nodiscard]] bool briefing_in_modern_fonts() const;
+
+    /// Returns the TextRegion rectangle and row pitch the briefing pages are
+    /// laid out in, and for a briefing the modern fonts draw, how far below
+    /// its pen row each row's line reaches.
     ///
     /// @return the region; zeros without a TextRegion
     [[nodiscard]] oa::ui::campaign::BriefingRegion briefing_region();
+
+    /// Returns the width a briefing's rows are wrapped at: the TextRegion's,
+    /// less the rows' inset for a briefing the modern fonts draw.
+    ///
+    /// @return the width, in pixels; 0 without a TextRegion
+    [[nodiscard]] int32_t briefing_wrap_width();
 
     /// Sets a button's or label's text, in the language shown, as 3.1c's
     /// gadget text setter translates every text it sets.

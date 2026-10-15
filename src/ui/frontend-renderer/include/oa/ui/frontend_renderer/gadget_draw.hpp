@@ -134,7 +134,9 @@ void draw_focus_outline(oa::Surface* target, const ui::gui_layout::GadgetRect& r
 ///
 /// A caption drawn centred on its button, unless the button is grayed,
 /// underlines the first character that is the quick key itself, in the same
-/// case; a caption without one and a key of 0 underline nothing.
+/// case; a caption without one and a key of 0 underline nothing. The
+/// caption is read in whole characters (oa::base::text::break_character):
+/// a byte within a UTF-8 sequence of two to four bytes is never the key.
 ///
 /// @param caption The caption as drawn.
 /// @param key The button's quick key.

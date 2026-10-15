@@ -455,22 +455,20 @@ TextLayers build_text_layers(const TextMask& mask, const TextStyle& style, int32
             for (int32_t column = 0; column + drop < layers.width; ++column)
                 if (ink[at(column, row)] != 0)
                     layers.shadow[at(column + drop, row + drop)] = 1;
+    for (int32_t row = 0; row < layers.height; ++row)
+        for (int32_t column = 0; column < layers.width; ++column) {
+            const auto index = at(column, row);
+            if (ink[index] != 0 || layers.shadow[index] != 0) {
+                layers.drawn_top = layers.drawn_top < 0 ? row : layers.drawn_top;
+                layers.drawn_bottom = row;
+                break;
+            }
+        }
     // The box spans the rows anything is drawn on.
     if (layers.background) {
-        int32_t first = -1;
-        int32_t last = -1;
-        for (int32_t row = 0; row < layers.height; ++row)
-            for (int32_t column = 0; column < layers.width; ++column) {
-                const auto index = at(column, row);
-                if (ink[index] != 0 || layers.shadow[index] != 0) {
-                    first = first < 0 ? row : first;
-                    last = row;
-                    break;
-                }
-            }
-        layers.background = first >= 0;
-        layers.background_top = first;
-        layers.background_bottom = last;
+        layers.background = layers.drawn_top >= 0;
+        layers.background_top = layers.drawn_top;
+        layers.background_bottom = layers.drawn_bottom;
     }
     return layers;
 }

@@ -4,12 +4,14 @@
 #pragma once
 
 // Where a line of text may break into rows: at spaces, as Latin text breaks,
-// and between any two Chinese, Japanese or Korean characters, which are
-// written without spaces, except where the line-breaking rules of those
-// languages (kinsoku) forbid it: no row starts with a closing mark, a comma
-// or a full stop, and none ends with an opening mark. A Latin word or a
-// number is never broken while there is any other place to break. Nothing
-// here allocates or throws.
+// and between any two Chinese or Japanese characters, which are written
+// without spaces, except where the line-breaking rules of those languages
+// (kinsoku) forbid it: no row starts with a closing mark, a comma or a full
+// stop, and none ends with an opening mark. Korean is written with spaces
+// between its words, so a Hangul word is kept whole as a Latin one is. A
+// word or a number is never broken while there is any other place to
+// break. This is the one rule every wrap of the engine's text follows.
+// Nothing here allocates or throws.
 
 #include <algorithm>
 #include <array>
@@ -69,8 +71,8 @@ struct BreakCharacter {
     return {code_point, length};
 }
 
-/// Tells whether a character is one of the scripts written without spaces
-/// between words, so that a row may break before or after it: the CJK
+/// Tells whether a character is one of the Chinese, Japanese and Korean
+/// scripts, which are drawn about twice as wide as a Latin letter: the CJK
 /// ideographs, radicals, strokes and compatibility forms, kana, bopomofo,
 /// Hangul, Yi, the CJK symbols and punctuation, the enclosed and
 /// compatibility characters, and the full- and half-width forms.
@@ -86,6 +88,30 @@ struct BreakCharacter {
            (character >= 0xFE30 && character <= 0xFE4F) ||
            (character >= 0xFF00 && character <= 0xFFEF) ||
            (character >= 0x20000 && character <= 0x3FFFF);
+}
+
+/// Tells whether a character is a Hangul letter: a syllable, a jamo, a
+/// compatibility jamo or a half-width one.
+///
+/// @param character the code point
+/// @return true for those characters
+[[nodiscard]] constexpr bool is_hangul(char32_t character) noexcept {
+    return (character >= 0x1100 && character <= 0x11FF) ||
+           (character >= 0x3130 && character <= 0x318F) ||
+           (character >= 0xA960 && character <= 0xA97F) ||
+           (character >= 0xAC00 && character <= 0xD7FF) ||
+           (character >= 0xFFA0 && character <= 0xFFDC);
+}
+
+/// Tells whether a character is one of the scripts written without spaces
+/// between words, so that a row may break before or after it: every
+/// is_wide_script character but Hangul, whose words Korean writes between
+/// spaces.
+///
+/// @param character the code point
+/// @return true for those characters
+[[nodiscard]] constexpr bool is_unspaced_script(char32_t character) noexcept {
+    return is_wide_script(character) && !is_hangul(character);
 }
 
 /// The characters no row starts with: closing brackets and quotes, commas,
@@ -128,8 +154,9 @@ inline constexpr std::array<char32_t, 24> row_end_forbidden{
 }
 
 /// Tells whether a row may break between two characters with no space
-/// between them: one of them is_wide_script, the first may end a row and
-/// the second may start one.
+/// between them: one of them is_unspaced_script, the first may end a row
+/// and the second may start one. Two Hangul syllables, like two Latin
+/// letters, are one word.
 ///
 /// @param before the character before the break
 /// @param after the character after it
@@ -137,7 +164,7 @@ inline constexpr std::array<char32_t, 24> row_end_forbidden{
 [[nodiscard]] constexpr bool may_break_between(char32_t before, char32_t after) noexcept {
     if (before == U' ' || after == U' ')
         return false;
-    return (is_wide_script(before) || is_wide_script(after)) && may_end_row(before) &&
+    return (is_unspaced_script(before) || is_unspaced_script(after)) && may_end_row(before) &&
            may_start_row(after);
 }
 
@@ -163,8 +190,9 @@ whole_character_bytes(std::string_view text, std::size_t most) noexcept {
 }
 
 /// Gives a text's width in columns, as a fixed-pitch estimate lays it: two
-/// for a character of the scripts written without spaces (is_wide_script),
-/// which are drawn about twice as wide as a Latin letter, one for any other.
+/// for a character of the Chinese, Japanese and Korean scripts
+/// (is_wide_script), which are drawn about twice as wide as a Latin letter,
+/// one for any other.
 ///
 /// @param text the text, UTF-8
 /// @return the columns
@@ -178,8 +206,9 @@ whole_character_bytes(std::string_view text, std::size_t most) noexcept {
     return columns;
 }
 
-/// Tells whether a text holds a character of the scripts written without
-/// spaces (is_wide_script).
+/// Tells whether a text holds a character of the Chinese, Japanese and
+/// Korean scripts (is_wide_script): the wraps that keep 3.1c's own breaking
+/// for other text break such a text by first_row.
 ///
 /// @param text the text
 /// @return true when one of its characters is_wide_script
@@ -187,6 +216,22 @@ whole_character_bytes(std::string_view text, std::size_t most) noexcept {
     for (std::size_t at = 0; at < text.size();) {
         const BreakCharacter read = break_character(text.substr(at));
         if (is_wide_script(read.character))
+            return true;
+        at += read.bytes;
+    }
+    return false;
+}
+
+/// Tells whether a text holds a character of two to four bytes of UTF-8
+/// (break_character), which a cut by bytes could part. Text of the game's
+/// one-byte code page holds none.
+///
+/// @param text the text
+/// @return true when one of its characters takes more than one byte
+[[nodiscard]] inline bool has_multibyte_character(std::string_view text) noexcept {
+    for (std::size_t at = 0; at < text.size();) {
+        const BreakCharacter read = break_character(text.substr(at));
+        if (read.bytes > 1)
             return true;
         at += read.bytes;
     }
@@ -212,8 +257,9 @@ struct RowBreak {
 /// word wider than the row, it breaks before the character that does not
 /// fit; where either of the two is_wide_script, one character earlier when
 /// that character may not start a row or the one before it may not end
-/// one. Spaces at the break belong to neither row. A text without wide
-/// characters breaks at its spaces alone.
+/// one. Spaces at the break belong to neither row. A text without Chinese
+/// or Japanese characters, Korean among it, breaks at its spaces alone, and
+/// inside a word only when the word is wider than the row.
 ///
 /// @param text the text, from the row's start; its line breaks are not
 ///        read as breaks, so the caller splits the text at them first

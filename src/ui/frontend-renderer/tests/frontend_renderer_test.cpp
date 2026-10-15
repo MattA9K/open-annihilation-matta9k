@@ -878,8 +878,53 @@ void test_font_ink() {
 
 } // namespace
 
+// A label of several lines breaks where the line breaker lets it: a line
+// of Chinese between two whole characters, never among one character's
+// bytes. Each of 中's three bytes has a one-pixel glyph of its own colour,
+// so a line of seven pixels holds two whole characters and the third goes
+// down whole.
+void test_label_lines_keep_characters_whole() {
+    oa::ui::frontend_renderer::ScreenResources screen;
+    screen.background.width = 12;
+    screen.background.height = 16;
+    screen.background.rgb.assign(12U * 16U * 3U, 99);
+    for (std::size_t index = 0; index < 256; ++index)
+        screen.gui_palette[index * 4] = static_cast<uint8_t>(index);
+    const auto glyph = [](uint8_t colour, uint16_t height) {
+        oa::formats::fnt::Glyph made;
+        made.width = 1;
+        made.height = height;
+        made.pixels.assign(height, colour);
+        made.coverage.assign(height, 1);
+        return made;
+    };
+    // The 'I' sets the line height: two rows and two more.
+    screen.font.glyphs['I'] = glyph(10, 2);
+    screen.font.glyphs[0xE4] = glyph(50, 1);
+    screen.font.glyphs[0xB8] = glyph(51, 1);
+    screen.font.glyphs[0xAD] = glyph(52, 1);
+    oa::ui::gui_layout::Gadget label;
+    label.common.type = oa::ui::gui_layout::GadgetType::label;
+    label.common.name = "DESCRIPTION";
+    label.common.x = 1;
+    label.common.y = 1;
+    label.common.width = 7;
+    label.common.height = 12; // two line heights fit: the label wraps
+    label.common.attributes = 1;
+    label.common.active = 1;
+    label.fields = oa::ui::gui_layout::LabelFields{"", "\xE4\xB8\xAD\xE4\xB8\xAD\xE4\xB8\xAD", ""};
+    screen.layout.gadgets.push_back(label);
+    const auto drawn = oa::ui::frontend_renderer::render_screen(screen);
+    // The first line holds 中中, its seventh pixel left; the second line,
+    // a line height and two below, starts with the third 中 whole.
+    CHECK(red_at(drawn, 1, 1) == 50 && red_at(drawn, 6, 1) == 52);
+    CHECK(red_at(drawn, 7, 1) == 99);
+    CHECK(red_at(drawn, 1, 7) == 50 && red_at(drawn, 3, 7) == 52);
+}
+
 int main() {
     check_translated_stage_captions();
+    test_label_lines_keep_characters_whole();
     test_caption_shrinks_to_button();
     test_font_ink();
     using oa::ui::frontend_renderer::staged_caption;

@@ -211,6 +211,11 @@ void post_message(
 
 /// Posts a notice, word-wrapped into 63-character lines.
 ///
+/// One-byte text breaks at a space within the last 12 characters of a line,
+/// else at 63. Text with a character of several bytes breaks where the line
+/// breaker lets it (oa::base::text::first_row), into lines of at most 63
+/// bytes of whole characters.
+///
 /// @param[in,out] world message log
 /// @param text notice text
 /// @param hooks sound and panel services
