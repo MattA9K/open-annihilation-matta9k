@@ -1860,6 +1860,30 @@ if(OA_BUILD_PLATFORM)
         WORKING_DIRECTORY "${oa_setup_window_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
         FIXTURES_REQUIRED setup-window-clean)
+      # A mod folder whose maps folder holds a map's OTA, with a multiplayer
+      # schema, and no terrain, under a name that lists first: Total Mayhem
+      # ships such settings for downloadable maps a game may not have. With
+      # no skirmish map stored, the default passes over it to the first map
+      # that can be selected, and the main menu opens.
+      set(oa_no_terrain_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/map-without-terrain")
+      file(MAKE_DIRECTORY "${oa_no_terrain_dir}/mod/maps")
+      file(WRITE "${oa_no_terrain_dir}/mod/maps/AAA No Terrain.ota"
+        "[GlobalHeader]\n{\nmissionname=AAA No Terrain;\nnumplayers=2;\nSCHEMACOUNT=1;\n"
+        "[Schema 0]\n{\nType=Network 1;\nSurfaceMetal=3;\n}\n}\n")
+      add_test(NAME map-without-terrain-clean COMMAND ${CMAKE_COMMAND} -E rm -f
+        "${oa_no_terrain_dir}/map-without-terrain.conf")
+      set_tests_properties(map-without-terrain-clean PROPERTIES
+        FIXTURES_SETUP map-without-terrain-clean)
+      add_test(NAME native-map-without-terrain COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --mod-dir "${oa_no_terrain_dir}/mod" --skip-intro --mute --headless-check --frames 1
+        --preferences-file "${oa_no_terrain_dir}/map-without-terrain.conf"
+        --data-dir "${oa_no_terrain_dir}/data")
+      set_tests_properties(native-map-without-terrain PROPERTIES
+        TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT} WORKING_DIRECTORY "${oa_no_terrain_dir}"
+        FIXTURES_REQUIRED map-without-terrain-clean
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy"
+        PASS_REGULAR_EXPRESSION "native check: main menu open"
+        FAIL_REGULAR_EXPRESSION "cannot be selected")
       # When the main menu's hum starts, read from the log's order: never
       # while the setup shows or a start movie plays, and always with the
       # main menu once they are over. A start without the setup plays the

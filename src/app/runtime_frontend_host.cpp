@@ -401,8 +401,19 @@ void Runtime::select_map_index(int32_t mode) {
     map_list_mode_ = mode;
     if (first_map_name_.empty())
         return;
-    if (select_map(first_map_name_) == 0)
-        throw std::runtime_error("first eligible skirmish map cannot be selected");
+    if (select_map(first_map_name_) != 0)
+        return;
+    // A map the list holds may still not be playable: a mod can ship a
+    // map's OTA without its terrain, such as its settings for a downloadable
+    // map the game does not have. The default is then the first listed map
+    // that can be selected, and only a list with none stops the game.
+    for (const std::string& name : eligible_map_names_) {
+        if (name != first_map_name_ && select_map(name) != 0) {
+            first_map_name_ = name;
+            return;
+        }
+    }
+    throw std::runtime_error("first eligible skirmish map cannot be selected");
 }
 
 std::string Runtime::selected_map_name() {
