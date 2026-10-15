@@ -1623,6 +1623,30 @@ void test_drop_changed_release() {
     OA_CHECK(again.view().empty());
 }
 
+void test_saved_before_start() {
+    // A package queued while the worker waits for work is in the saved queue
+    // before the worker starts it, so the queue keeps it while the installer
+    // holds it.
+    Session session("f10-saved", 40, 0x57);
+    if (!session.open())
+        return;
+    content::Downloads downloads(session.queue_options());
+    downloads.start(*session.service->snapshot());
+    // Time for the worker to read the saved queue and wait for work.
+    threads::sleep_ms(200);
+    std::string why;
+    const auto id = session.enqueue(downloads, content::DownloadReason::install, &why);
+    OA_CHECK(id.has_value());
+    if (!id)
+        return;
+    OA_CHECK(wait_state(downloads, *id, content::DownloadState::installing, kBusyWaitMs));
+    const std::vector<uint8_t> bytes =
+        file_bytes(session.downloads() / std::string(content::queue_file_name));
+    OA_CHECK(std::string(bytes.begin(), bytes.end()).find(session.package_id) != std::string::npos);
+    finish(downloads, *id, content::InstallOutcome::installed);
+    OA_CHECK(wait_state(downloads, *id, content::DownloadState::done, kBusyWaitMs));
+}
+
 void test_install_id_off() {
     fixture::Server server;
     if (!listening(server))
@@ -2161,6 +2185,7 @@ int main() {
     test_one_at_a_time();
     test_resume_after_restart();
     test_drop_changed_release();
+    test_saved_before_start();
     test_install_id_off();
     test_no_install_member();
     test_cancel_keeps_part();

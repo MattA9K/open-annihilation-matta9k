@@ -2545,6 +2545,10 @@ void Downloads::State::run() {
             current_id = id;
             item_cancel.store(false);
         }
+        // An item picked as soon as it was queued is saved before it starts:
+        // the next save comes only once it ends, and it holds the worker
+        // while the installer has the file.
+        save_queue();
         process(client, id);
         {
             threads::LockGuard guard(mutex);
