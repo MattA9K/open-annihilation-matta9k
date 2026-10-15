@@ -1687,6 +1687,14 @@ uint8_t lobby_side_count(const Game& game) noexcept {
     return static_cast<uint8_t>(std::min<uint32_t>(count, 0xff));
 }
 
+uint8_t lobby_offered_side(const Game& game, uint32_t side) noexcept {
+    const uint32_t count = lobby_side_count(game);
+    const uint32_t hidden = oa::data::defs::battle_room_hidden_sides();
+    while (side < count && side < 32 && (hidden & (1U << side)) != 0)
+        ++side;
+    return static_cast<uint8_t>(std::min(side, count));
+}
+
 StartedOptions lobby_started_options(Game& game) noexcept {
     const auto load = [&](std::size_t offset) {
         uint32_t value = 0;
@@ -2918,19 +2926,25 @@ LobbyAction handle_panel_event(Lobby& lobby, Panel& panel) noexcept {
         if (panel_selected_is(panel, name)) {
             if (!lobby_launch_locked(lobby)) {
                 play(lobby, "Multi");
+                // The button steps past a side the mod keeps out of the
+                // battle room, and wraps to the first side offered.
+                const auto first_offered = [&] {
+                    const uint8_t first = lobby_offered_side(game, 0);
+                    return first < lobby_side_count(game) ? first : uint8_t{0};
+                };
                 if (player.in_use != 0 && (info.options & option::watcher) != 0) {
                     info.options &= static_cast<uint16_t>(~option::watcher);
-                    info.side = 0;
+                    info.side = first_offered();
                 } else {
-                    ++info.side;
+                    info.side = lobby_offered_side(game, info.side + 1U);
                     if (info.side >= lobby_side_count(game)) {
-                        info.side = 0;
+                        info.side = first_offered();
                         const auto host = lobby_host_slot(lobby);
                         const auto host_options =
                             host == kNoSlot ? 0 : info_of(lobby, slot_player(lobby, host)).options;
                         if ((host_options & option::watching_allowed) == 0 || player.in_use == 0 ||
                             player.status != kSlotLocal)
-                            panel_set_stage(panel, name, 0);
+                            panel_set_stage(panel, name, info.side);
                         else
                             info.options |= option::watcher;
                     }

@@ -509,6 +509,10 @@ struct Identity {
     /// never offers: a mod's spare side kept only to line up its SIDEx art. The battle room and the
     /// side's own data are unchanged. 3.1c: [].
     FixedList<int32_t, 4> skirmish_hidden_sides{};
+    /// identity.battle-room-hidden-sides: SIDEDATA sides, by number, that the battle room's SIDE
+    /// button never offers: a mod's spare side kept only to line up its SIDEx art. The skirmish,
+    /// launch files and the side's own data are unchanged. 3.1c: [].
+    FixedList<int32_t, 4> battle_room_hidden_sides{};
     /// Compares every field.
     bool operator==(const Identity&) const = default;
 };

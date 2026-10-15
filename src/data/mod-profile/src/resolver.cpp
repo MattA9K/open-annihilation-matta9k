@@ -1913,11 +1913,11 @@ class Resolver {
 
     /// Returns the profile the hashes read, when it is not the effective one.
     ///
-    /// Three keys were added after grammar 1's first release: an empty
+    /// Four keys were added after grammar 1's first release: an empty
     /// `layout.installation-archives` list mounts nothing, an
     /// `identity.watcher-side-frame` of 2 shows 3.1c's watcher art, and an
-    /// empty `identity.skirmish-hidden-sides` list hides no side, the same as
-    /// a profile that never wrote the key. So the canonical form leaves each
+    /// empty `identity.skirmish-hidden-sides` or `battle-room-hidden-sides`
+    /// list hides no side, the same as a profile that never wrote the key. So the canonical form leaves each
     /// out at that value, and existing profiles keep both hashes. Any other
     /// value stays, and the effective profile is read as it is, uncopied.
     /// The effective profile itself still holds every key.
@@ -1931,7 +1931,7 @@ class Resolver {
             bool (*at_baseline)(const Value&);
         };
 
-        static constexpr std::array<LateKey, 3> late_keys{{
+        static constexpr std::array<LateKey, 4> late_keys{{
             {"layout",
              "installation-archives",
              [](const Value& value) {
@@ -1944,7 +1944,12 @@ class Resolver {
                  return value.kind == ValueKind::number &&
                         formats::oamod::integer_value(value.number, frame) && frame == 2;
              }},
-            {"identity", "skirmish-hidden-sides", [](const Value& value) {
+            {"identity",
+             "skirmish-hidden-sides",
+             [](const Value& value) {
+                 return value.kind == ValueKind::list && value.items.empty();
+             }},
+            {"identity", "battle-room-hidden-sides", [](const Value& value) {
                  return value.kind == ValueKind::list && value.items.empty();
              }},
         }};

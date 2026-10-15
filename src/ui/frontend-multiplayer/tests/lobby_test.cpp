@@ -3,6 +3,7 @@
 
 // Battleroom rules and map previews with the loopback net, and (with --data)
 // against the installed game's LOUNGE2.GUI and SELGAME.GUI layouts.
+#include "oa/data/defs/layout.hpp"
 #include "oa/data/languages/unit_texts.hpp"
 #include "oa/data/mod_profile.hpp"
 #include "oa/data/mod_profile/overrides.hpp"
@@ -345,6 +346,38 @@ void test_side_and_watch(const oa::ui::gui_layout::Layout& lounge) {
         (info.options & mp::option::watcher) == 0 && info.side == 0,
         "leaving watch returns to side 0"
     );
+}
+
+// Talon: four sides, the spare OTHER (side 3) kept out of the battle room by
+// identity.battle-room-hidden-sides. The SIDE button steps TALON, ARM, CORE
+// and back to TALON, never to OTHER; leaving watch lands on a side offered.
+void test_hidden_side(const oa::ui::gui_layout::Layout& lounge) {
+    const oa::data::defs::DataLayout base = oa::data::defs::data_layout();
+    oa::data::defs::DataLayout talon = base;
+    talon.battle_room_hidden_sides = 1U << 3;
+    oa::data::defs::use_data_layout(talon);
+    {
+        Fixture f(lounge);
+        f.game->side_count = 4;
+        auto& info = mp::local_info(f.lobby);
+        info.options &= static_cast<uint16_t>(~mp::option::watching_allowed);
+        for (const uint8_t side : {1, 2, 0, 1}) {
+            (void)f.press("SIDE0");
+            expect(info.side == side, "the SIDE button steps past the hidden side");
+        }
+        expect(mp::lobby_offered_side(*f.game, 3) == 4, "a hidden last side offers none after it");
+        expect(mp::lobby_offered_side(*f.game, 2) == 2, "an offered side is itself");
+        info.side = 2;
+        info.options |= mp::option::watching_allowed;
+        (void)f.press("SIDE0");
+        expect((info.options & mp::option::watcher) != 0, "past the last offered side, a watcher");
+        (void)f.press("SIDE0");
+        expect(
+            (info.options & mp::option::watcher) == 0 && info.side == 0,
+            "leaving watch lands on the first side offered"
+        );
+    }
+    oa::data::defs::use_data_layout(base);
 }
 
 void test_teams_and_alliances(const oa::ui::gui_layout::Layout& lounge) {
@@ -6714,6 +6747,7 @@ int main(int argc, char** argv) {
         if (lounge.ok()) {
             test_rows_and_colors(*lounge.layout);
             test_side_and_watch(*lounge.layout);
+            test_hidden_side(*lounge.layout);
             test_teams_and_alliances(*lounge.layout);
             test_options_and_sliders(*lounge.layout);
             test_lounge_sliders(*lounge.layout);

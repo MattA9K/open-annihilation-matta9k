@@ -62,6 +62,10 @@ uint32_t skirmish_hidden_sides() noexcept {
     return current_layout().skirmish_hidden_sides;
 }
 
+uint32_t battle_room_hidden_sides() noexcept {
+    return current_layout().battle_room_hidden_sides;
+}
+
 const char* map_units_section() noexcept {
     return current_layout().map_units_section.c_str();
 }

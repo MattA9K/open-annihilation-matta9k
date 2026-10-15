@@ -1565,6 +1565,14 @@ entries:
     scope: view
     key: skirmish-hidden-sides
     value: {type: list<int>, length: [0, 4], min: 0, max: 4, distinct: true, baseline: [], scope: view}
+  identity.battle-room-hidden-sides:
+    kind: identity
+    area: sides
+    summary: "SIDEDATA sides, by number, that the battle room's SIDE button never offers: a mod's spare side kept only to line up its SIDEx art. The skirmish, launch files and the side's own data are unchanged."
+    ownership: local-view
+    scope: view
+    key: battle-room-hidden-sides
+    value: {type: list<int>, length: [0, 4], min: 0, max: 4, distinct: true, baseline: [], scope: view}
   layout.archive-patterns.ccx:
     kind: layout
     area: paths

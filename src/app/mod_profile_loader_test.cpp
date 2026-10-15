@@ -261,7 +261,8 @@ void test_layout(const fs::path& scratch) {
         file,
         std::string{base_profile} +
             "identity: {network-version: [10, 2], side-names: [Red, Blue, Green],\n"
-            "           watcher-side-frame: 4, skirmish-hidden-sides: [3, 1]}\n"
+            "           watcher-side-frame: 4, skirmish-hidden-sides: [3, 1],\n"
+            "           battle-room-hidden-sides: [2]}\n"
             "layout:\n"
             "  revision-archive: modrev.gp4\n"
             "  archive-patterns: {ufo: \"*.SWX\"}\n"
@@ -283,6 +284,7 @@ void test_layout(const fs::path& scratch) {
     OA_CHECK(layout.side_names.size() == 3 && layout.side_names[2] == "Green");
     OA_CHECK(layout.watcher_side_frame == 4);
     OA_CHECK(layout.skirmish_hidden_sides == ((1U << 3) | (1U << 1)));
+    OA_CHECK(layout.battle_room_hidden_sides == (1U << 2));
     const auto plan = discovery_plan_of(&profile);
     OA_CHECK(plan.revision_archive == "modrev.gp4" && plan.ufo_pattern == "*.SWX");
     OA_CHECK(plan.ccx_pattern == "*.CCX" && plan.hpi_pattern == "*.HPI");

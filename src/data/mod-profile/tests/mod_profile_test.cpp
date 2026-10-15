@@ -553,6 +553,20 @@ void test_blocks() {
         const auto& hidden = hidden_watch.resolution->profile.identity.skirmish_hidden_sides;
         OA_CHECK(hidden.count == 1 && hidden.items[0] == 3);
     }
+    // The battle room's hidden sides follow the same rule.
+    const ResolveResult room_none =
+        resolve(profile_text("minimal", "identity:\n  battle-room-hidden-sides: []\n"));
+    const ResolveResult room_other =
+        resolve(profile_text("minimal", "identity:\n  battle-room-hidden-sides: [3]\n"));
+    OA_CHECK(room_none.resolution && room_other.resolution);
+    if (room_none.resolution && room_other.resolution && left_out.resolution) {
+        const auto& base = left_out.resolution->profile;
+        OA_CHECK(room_none.resolution->profile.full_hash == base.full_hash);
+        OA_CHECK(room_other.resolution->profile.sim_hash == base.sim_hash);
+        OA_CHECK(room_other.resolution->profile.full_hash != base.full_hash);
+        const auto& hidden = room_other.resolution->profile.identity.battle_room_hidden_sides;
+        OA_CHECK(hidden.count == 1 && hidden.items[0] == 3);
+    }
     OA_CHECK(refused_with(
         profile_text("hidden-side-past", "identity:\n  skirmish-hidden-sides: [5]\n"),
         "is outside [0, 4]"

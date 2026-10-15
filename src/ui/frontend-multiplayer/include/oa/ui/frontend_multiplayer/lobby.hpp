@@ -529,6 +529,14 @@ struct FieldRef {
 /// Returns the number of playable sides (Game.side_count), capped at 255.
 [[nodiscard]] uint8_t lobby_side_count(const Game& game) noexcept;
 
+/// Returns the first side the SIDE button offers at or after `side`: a side
+/// the mod's profile keeps out of the battle room is passed over.
+///
+/// @param game Game whose side count bounds the search.
+/// @param side The side to start from.
+/// @return the side offered; the side count when none is left after `side`
+[[nodiscard]] uint8_t lobby_offered_side(const Game& game, uint32_t side) noexcept;
+
 // Game options copied from the host's option word when a game starts.
 struct StartedOptions {
     uint32_t commander{};   // Game.start_options[0]
