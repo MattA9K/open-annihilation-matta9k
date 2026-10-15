@@ -354,6 +354,16 @@ Runtime::Runtime(
     : options_(std::move(options)), assets_(assets), extension_(extension),
       unit_sound_catalog_(oa::audio::game_audio::UnitSoundCatalog::load(assets)),
       audio_player_(assets), offline_effects_(effect_boundary_, effect_boundary_) {
+    // The C library's generator draws the choices made outside the
+    // simulation, such as random start positions and the battle room's
+    // random picks. Each start of the game seeds it from the clock, so they
+    // differ from one start to the next; a run with a fixed clock or a seed
+    // keeps the generator's first sequence, so its choices repeat.
+    if (!options_.seed && !options_.fixed_clock) {
+        const auto counter =
+            static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count());
+        std::srand(static_cast<unsigned>(counter) ^ static_cast<unsigned>(counter >> 32U));
+    }
     // The capacities a mod's profile set, before anything reads them.
     if (options_.mod_profile)
         limits_ = options_.mod_profile->limits;

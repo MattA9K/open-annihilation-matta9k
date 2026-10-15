@@ -466,7 +466,11 @@ class Runtime final : public menu::Host,
     ///
     /// @param[in,out] positions each slot's start position
     /// @param[in,out] placing the start position of the player being placed
-    void move_map_unit_computer_last(std::array<int32_t, 10>& positions, int32_t& placing);
+    /// @param fixed_positions whether the game's start positions are fixed:
+    ///        the skirmish's Start Location, or the battle room's
+    void move_map_unit_computer_last(
+        std::array<int32_t, 10>& positions, int32_t& placing, bool fixed_positions
+    );
 
     /// Tells whether the match's map places units for the neutral player,
     /// which the team start positions read.

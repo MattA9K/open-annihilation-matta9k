@@ -6,6 +6,7 @@
 #include "oa/data/campaign/campaign_file.hpp"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <iostream>
@@ -225,12 +226,49 @@ void skirmish_tests() {
     oa::world_destroy(session.world);
 }
 
+/// Draws handed out in order, counting how many were taken.
+struct Draws {
+    std::vector<int32_t> values;
+    std::size_t taken = 0;
+};
+
+int32_t next_draw(void* context) {
+    auto* draws = static_cast<Draws*>(context);
+    return draws->values.at(draws->taken++);
+}
+
+void start_position_shuffle_tests() {
+    Draws low{{0x3fff}};
+    int32_t two[] = {0, 3};
+    shuffle_start_positions(two, 2, next_draw, &low);
+    expect(two[0] == 0 && two[1] == 3 && low.taken == 1, "two players stay on a low coin flip");
+
+    Draws high{{0x4000, 0x1234}};
+    shuffle_start_positions(two, 2, next_draw, &high);
+    expect(two[0] == 3 && two[1] == 0 && high.taken == 2, "two players trade on a high coin flip");
+
+    // Three take no coin flip: the second swaps with the first (any draw
+    // modulo 1), the third with the second (1 modulo 2).
+    Draws three_draws{{0x7fff, 1}};
+    int32_t three[] = {0, 1, 2};
+    shuffle_start_positions(three, 3, next_draw, &three_draws);
+    expect(
+        three[0] == 1 && three[1] == 2 && three[2] == 0 && three_draws.taken == 2,
+        "three players always shuffle and every one moves"
+    );
+
+    int32_t kept[] = {0, 1, 2};
+    shuffle_start_positions(kept, 3, nullptr, nullptr);
+    expect(kept[0] == 0 && kept[1] == 1 && kept[2] == 2, "no random hook keeps the order");
+}
+
 } // namespace
 
 int main() {
     init_tests();
     campaign_mission_tests();
     skirmish_tests();
+    start_position_shuffle_tests();
     if (failures != 0) {
         std::cerr << failures << " failure(s)\n";
         return 1;

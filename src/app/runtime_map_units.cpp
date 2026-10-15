@@ -117,8 +117,10 @@ bool Runtime::place_map_units(uint8_t player, int32_t start_position) {
     return true;
 }
 
-void Runtime::move_map_unit_computer_last(std::array<int32_t, 10>& positions, int32_t& placing) {
-    if (!map_units_.active || !match_ || preferences_.skirmish_location != 0)
+void Runtime::move_map_unit_computer_last(
+    std::array<int32_t, 10>& positions, int32_t& placing, bool fixed_positions
+) {
+    if (!map_units_.active || !match_ || fixed_positions)
         return;
     const auto* map = match_map_context();
     if (map == nullptr || !map_units::has_neutral_map_units(map->units, map->unit_count))

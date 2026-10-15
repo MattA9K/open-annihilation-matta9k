@@ -1254,11 +1254,12 @@ struct NetworkPlay::NetHost {
         start_positions.fill(-1);
         for (const auto& [slot, start] : starts)
             start_positions[slot] = start;
+        const bool fixed_positions = (host->options & OA_SETUP_OPTION_FIXED_LOCATIONS) != 0;
         for (const auto& placed : starts) {
             const uint8_t slot = placed.first;
             // A position an earlier move swapped is read from the table.
             int32_t start = start_positions[slot];
-            runtime.move_map_unit_computer_last(start_positions, start);
+            runtime.move_map_unit_computer_last(start_positions, start, fixed_positions);
             if (runtime.place_map_units(slot, start))
                 continue;
             const auto& info = world.player_info[slot];

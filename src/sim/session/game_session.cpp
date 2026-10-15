@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <utility>
 
 namespace oa::sim::session {
 namespace {
@@ -299,6 +300,20 @@ bool begin_mission(Session* session, const SessionHost* host) {
     run(host, SessionStep::dispatch_flagged_state);
     game->load_flags |= kLoadMissionStarted;
     return true;
+}
+
+void shuffle_start_positions(
+    int32_t* positions, int32_t count, int32_t (*random)(void* context), void* context
+) {
+    if (positions == nullptr || random == nullptr)
+        return;
+    const auto draw = [random, context] {
+        return static_cast<uint32_t>(random(context)) & 0x7fffU;
+    };
+    if (count < 3 && (draw() * 2U) / 0x8000U == 0)
+        return;
+    for (int32_t i = 1; i < count; ++i)
+        std::swap(positions[i], positions[draw() % static_cast<uint32_t>(i)]);
 }
 
 } // namespace oa::sim::session

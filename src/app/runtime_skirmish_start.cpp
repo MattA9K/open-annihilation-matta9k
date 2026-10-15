@@ -284,6 +284,12 @@ void report_rule_key_issues(
     report(keys.build_facings, issues.build_facings);
 }
 
+/// A 15-bit draw from the C library's generator, which a skirmish's random
+/// start positions take, as the network host's do.
+int32_t start_position_draw(void*) {
+    return std::rand() & 0x7fff;
+}
+
 } // namespace
 
 oa::data::unit_definitions::Result<std::vector<oa::formats::tdf::OwnedDocument>>
@@ -1354,14 +1360,29 @@ void Runtime::bootstrap_match(const MatchBootstrap& bootstrap) {
             if (slot.unit != nullptr && slot.unit->type_index)
                 ++started_players;
     } else if (bootstrap.place_commanders) {
-        // The start position of each player, as the commanders are placed.
+        // The start position of each player, as the commanders are placed:
+        // with fixed positions each player starts at its slot's, with
+        // random ones the players' slots are shuffled among them.
+        const bool fixed_positions = preferences_.skirmish_location != 0;
         std::array<int32_t, 10> start_positions{};
         start_positions.fill(-1);
+        std::array<int32_t, 10> starts{};
+        int32_t start_count = 0;
+        for (std::size_t player = 0;
+             player < skirmish_settings_.slots.size() && player < starts.size();
+             ++player)
+            if (skirmish_settings_.slots[player].controller != 0)
+                starts[static_cast<std::size_t>(start_count++)] = static_cast<int32_t>(player);
+        if (!fixed_positions)
+            oa::sim::session::shuffle_start_positions(
+                starts.data(), start_count, start_position_draw, nullptr
+            );
+        std::size_t next_start = 0;
         for (std::size_t player = 0;
              player < skirmish_settings_.slots.size() && player < start_positions.size();
              ++player)
             if (skirmish_settings_.slots[player].controller != 0)
-                start_positions[player] = static_cast<int32_t>(player);
+                start_positions[player] = starts[next_start++];
         for (std::size_t player = 0; player < skirmish_settings_.slots.size(); ++player) {
             const auto& slot = skirmish_settings_.slots[player];
             if (slot.controller == 0)
@@ -1377,7 +1398,7 @@ void Runtime::bootstrap_match(const MatchBootstrap& bootstrap) {
                 continue;
             }
             if (player < start_positions.size()) {
-                move_map_unit_computer_last(start_positions, start_index);
+                move_map_unit_computer_last(start_positions, start_index, fixed_positions);
                 if (place_map_units(static_cast<uint8_t>(player), start_index)) {
                     ++started_players;
                     continue;

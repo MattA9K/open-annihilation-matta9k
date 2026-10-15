@@ -254,4 +254,18 @@ void apply_session_flags(Game* game, const int32_t* record);
 /// @return False when the World tables cannot be allocated.
 bool begin_mission(Session* session, const SessionHost* host);
 
+/// Shuffles the start positions of a game whose positions are random: with
+/// three or more players always, with fewer on a coin flip that takes one
+/// draw. Each position from the second on then swaps with one before it,
+/// the draw modulo its index choosing which, so with two players the two
+/// trade places.
+///
+/// @param[in,out] positions the players' start positions, in slot order
+/// @param count how many there are
+/// @param random a random value from 0 to 32767; null leaves the order as it is
+/// @param context passed to random
+void shuffle_start_positions(
+    int32_t* positions, int32_t count, int32_t (*random)(void* context), void* context
+);
+
 } // namespace oa::sim::session
