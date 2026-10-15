@@ -361,7 +361,7 @@ void test_hidden_side(const oa::ui::gui_layout::Layout& lounge) {
         f.game->side_count = 4;
         auto& info = mp::local_info(f.lobby);
         info.options &= static_cast<uint16_t>(~mp::option::watching_allowed);
-        for (const uint8_t side : {1, 2, 0, 1}) {
+        for (const uint8_t side : std::array<uint8_t, 4>{1, 2, 0, 1}) {
             (void)f.press("SIDE0");
             expect(info.side == side, "the SIDE button steps past the hidden side");
         }

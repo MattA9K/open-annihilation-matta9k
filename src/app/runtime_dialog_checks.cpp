@@ -856,7 +856,7 @@ void Runtime::check_frontend_keyboard() {
 void Runtime::check_match_dialogs() {
     namespace dialogs = oa::ui::frontend_dialogs;
     // A text the game sets, as the language shown gives it.
-    const auto shown_text = [this](const char* english) {
+    const auto game_text = [this](const char* english) {
         const char* translated = game_translation(english);
         return std::string(translated != nullptr ? translated : english);
     };
@@ -1001,7 +1001,7 @@ void Runtime::check_match_dialogs() {
     const auto confirm = oa::data::defs::gui_path("YESORNO.GUI");
     const auto confirming = [&] {
         return match_paused_ && match_hud_ && match_hud_panel_ == confirm &&
-               hud_label("TITLE") == shown_text("Surrender this battle and exit to the system?");
+               hud_label("TITLE") == game_text("Surrender this battle and exit to the system?");
     };
     // A held Escape's repeats open no menu.
     require(send(escape(true)) && !match_paused_, "a held Escape opened the pause menu");
@@ -1602,14 +1602,14 @@ void Runtime::check_match_dialogs() {
             return title;
         };
         require(
-            ask_main_menu() == shown_text("Surrender this battle and return to Portal?"),
+            ask_main_menu() == game_text("Surrender this battle and return to Portal?"),
             "the confirmation does not return to the label"
         );
         // A label longer than nine characters leaves the wording as it is.
         probe_return_label() = "PortalGate";
         take_return_label();
         require(
-            ask_main_menu() == shown_text("Surrender this battle and return to main menu?"),
+            ask_main_menu() == game_text("Surrender this battle and return to main menu?"),
             "a ten-character label changed the confirmation"
         );
         probe_return_label() = "Portal";
@@ -1875,7 +1875,7 @@ void Runtime::check_in_game_briefing(const fs::path& report_directory) {
 
 void Runtime::check_placed_dialogs(const fs::path& report_directory) {
     // A text the game sets, as the language shown gives it.
-    const auto shown_text = [this](const char* english) {
+    const auto game_text = [this](const char* english) {
         const char* translated = game_translation(english);
         return std::string(translated != nullptr ? translated : english);
     };
@@ -2265,7 +2265,7 @@ void Runtime::check_placed_dialogs(const fs::path& report_directory) {
         );
         menu_under(confirm, oa::data::defs::gui_path(kConfirmLayout), false);
         require(
-            hud_label("TITLE") == shown_text("Surrender this battle and exit to the system?"),
+            hud_label("TITLE") == game_text("Surrender this battle and exit to the system?"),
             "EXITGAME's confirmation reads \"" + hud_label("TITLE") + '"'
         );
         check_quick_keys(
@@ -2319,7 +2319,7 @@ void Runtime::check_placed_dialogs(const fs::path& report_directory) {
         );
         menu_under(main_menu, "MAINMENU's confirmation", false);
         require(
-            hud_label("TITLE") == shown_text("Surrender this battle and return to main menu?"),
+            hud_label("TITLE") == game_text("Surrender this battle and return to main menu?"),
             "MAINMENU's confirmation reads \"" + hud_label("TITLE") + '"'
         );
         activate_pause_gadget("CHOICE2");
