@@ -13,6 +13,7 @@
 #include "engine_settings_state.hpp"
 #include "oa/app/runtime.hpp"
 #include "oa/data/languages/translation.hpp"
+#include "oa/data/map_pack/map_name.hpp"
 #include "oa/data/persist/save_sections.hpp"
 #include "oa/ui/console/game_fields.hpp"
 #include "oa/ui/frontend_dialogs.hpp"
@@ -632,9 +633,14 @@ void Runtime::check_frontend_controls() {
               << skirmish_settings_.map_name << "', MapName shows '" << label_text("MapName")
               << "', " << repainted(before, after_map, "MapName") << " pixels repainted\n";
     expect(skirmish_settings_.map_name == chosen, "Load did not choose " + chosen);
+    // MapName shows a pack map, named name@package, by the words the skirmish
+    // screen gives it, and a base map by its own name.
+    const auto shown_map =
+        oa::data::map_pack::split_pack_map_name(chosen) ? pack_map_shown_name(chosen) : chosen;
     expect(
-        label_text("MapName") == chosen,
-        "MapName shows '" + label_text("MapName") + "' for the map " + chosen
+        label_text("MapName") == shown_map,
+        "MapName shows '" + label_text("MapName") + "' for the map " + chosen + " instead of '" +
+            shown_map + "'"
     );
     expect(repainted(before, after_map, "MapName") != 0, "MapName was not repainted");
     for (const auto& rule : rule_buttons)
