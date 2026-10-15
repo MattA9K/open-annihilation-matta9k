@@ -520,6 +520,12 @@ struct DiscoveredArchive {
     // Rejected because its full path was already in the table; such a
     // candidate never counts toward the *.HPI limit.
     bool already_mounted = false;
+    // An empty file a group's pattern or the revision archive's name found:
+    // it wins its path as any file does, so it hides the archive of its name
+    // beneath it, and mounts nothing. It did not fail to open, so `error` is
+    // empty. An installation archive the plan names is never hiding: an
+    // empty one is reported as failing to open.
+    bool hiding = false;
 };
 
 /// The archive groups discovery mounts, in mount order: the revision archive,

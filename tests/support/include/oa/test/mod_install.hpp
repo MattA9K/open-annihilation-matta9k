@@ -143,7 +143,7 @@ file_in(const std::filesystem::path& folder, std::string_view name) {
     }
     const std::filesystem::path disc_roots[]{install.folder};
     for (const auto& outcome : assets.discover("31", disc_roots))
-        if (!outcome.mounted && !outcome.already_mounted)
+        if (!outcome.mounted && !outcome.already_mounted && !outcome.hiding)
             std::cerr << "skipping archive " << outcome.path.string() << ": " << outcome.error
                       << '\n';
     return assets;

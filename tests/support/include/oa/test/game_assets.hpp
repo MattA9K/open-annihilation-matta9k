@@ -33,7 +33,7 @@ inline constexpr std::string_view kGameRevision = "31";
     oa::AssetStore assets(folder);
     const std::filesystem::path disc_roots[]{folder};
     for (const auto& outcome : assets.discover(kGameRevision, disc_roots))
-        if (!outcome.mounted && !outcome.already_mounted)
+        if (!outcome.mounted && !outcome.already_mounted && !outcome.hiding)
             std::cerr << "skipping archive " << outcome.path.string() << ": " << outcome.error
                       << '\n';
     return assets;

@@ -267,11 +267,12 @@ void discover_archives(const fs::path& root, GameInstall& install, const fs::pat
     // would. A scratch store runs the scan so main() mounts the same archives
     // in the same order. --archive bypasses this. A mod folder layers over
     // the folder: discovery runs over both, as over one folder holding the
-    // files of both.
+    // files of both. An empty file in an archive's place hides the archive
+    // of its name on purpose (oamod-standard 4.1), so it is not skipped.
     const auto plan = discovery_plan_of(install.profile.get());
     oa::AssetStore probe(install.folders);
     for (const auto& outcome : probe.discover(plan)) {
-        if (outcome.mounted || outcome.already_mounted)
+        if (outcome.mounted || outcome.already_mounted || outcome.hiding)
             continue;
         std::cerr << "open-annihilation: skipping archive " << path_to_utf8(outcome.path.filename())
                   << ": " << outcome.error << '\n';

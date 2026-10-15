@@ -20,8 +20,10 @@
 #include <fstream>
 #include <functional>
 #include <initializer_list>
+#include <iostream>
 #include <map>
 #include <optional>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -1651,6 +1653,85 @@ void check_skipped_and_overlay(const fs::path& temporary) {
     );
 }
 
+// Sends standard error to a stream while it lives.
+struct ErrorsTo {
+    explicit ErrorsTo(std::ostream& stream) : previous(std::cerr.rdbuf(stream.rdbuf())) {}
+
+    ErrorsTo(const ErrorsTo&) = delete;
+    ErrorsTo& operator=(const ErrorsTo&) = delete;
+
+    ~ErrorsTo() { std::cerr.rdbuf(previous); }
+
+    std::streambuf* previous;
+};
+
+// Inspects a folder under a mod folder and keeps what the inspection wrote to
+// standard error.
+GameInstall inspect_logged(const fs::path& folder, const fs::path& mod, std::string& log) {
+    std::ostringstream captured;
+    const ErrorsTo redirect(captured);
+    auto install = inspect_game_install(folder, {}, demo_1997, {mod, {}, false, nullptr});
+    log = captured.str();
+    return install;
+}
+
+// An empty archive in a mod folder hides the folder's archive of its name, as
+// any empty file hides the file beneath it, and is not reported as skipped;
+// an archive that has bytes and does not open still is.
+void check_hiding_archives(const fs::path& temporary) {
+    const auto folder = temporary / "hidden-base";
+    const auto mod = temporary / "hiding-mod";
+    for (const auto& path : {folder, mod})
+        fs::create_directories(path);
+    write_file(
+        folder / "totala1.hpi",
+        archive_of(
+            {"guis/mainmenu.gui",
+             "palettes/palette.pal",
+             "gamedata/sidedata.tdf",
+             "gamedata/sound.tdf"}
+        )
+    );
+    write_file(folder / "AFark.ufo", archive_of({"units/armfark.fbi"}));
+    const auto names = [](const GameInstall& install) {
+        std::vector<std::string> found;
+        for (const auto& archive : install.archives)
+            found.push_back(archive.filename().string());
+        return found;
+    };
+    expect(
+        names(inspect_game_install(folder)) == std::vector<std::string>{"AFark.ufo", "totala1.hpi"},
+        "the folder's own archive mounts without the mod"
+    );
+
+    write_file(mod / "AFark.ufo", {});
+    std::string log;
+    const auto hidden = inspect_logged(folder, mod, log);
+    expect(
+        usable(hidden) && names(hidden) == std::vector<std::string>{"totala1.hpi"},
+        "an empty archive in the mod folder hides the folder's archive of its name"
+    );
+    expect(hidden.skipped.empty(), "an empty archive is not recorded as skipped");
+    expect(!contains(log, "skipping archive"), "an empty archive writes no skip line");
+
+    write_file(mod / "Broken.ufo", {'n', 'o', 't', ' ', 'a', 'n', ' ', 'a', 'r', 'c', 'h'});
+    const auto broken = inspect_logged(folder, mod, log);
+    expect(
+        broken.skipped.size() == 1 && broken.skipped[0].path.filename() == "Broken.ufo" &&
+            !broken.skipped[0].error.empty(),
+        "an archive with bytes that does not open is still recorded"
+    );
+    expect(
+        contains(log, "open-annihilation: skipping archive Broken.ufo: ") &&
+            !contains(log, "AFark.ufo"),
+        "only the archive with bytes writes a skip line"
+    );
+    expect(
+        usable(broken) && names(broken) == std::vector<std::string>{"totala1.hpi"},
+        "the empty archive still hides beside a broken one"
+    );
+}
+
 void write_text(const fs::path& path, std::string_view text) {
     fs::create_directories(path.parent_path());
     std::ofstream(path, std::ios::binary) << text;
@@ -1944,6 +2025,7 @@ int main(int argc, char** argv) {
     try {
         check_installs(temporary);
         check_skipped_and_overlay(temporary);
+        check_hiding_archives(temporary);
         check_mod_folders(temporary);
         check_preferences(temporary);
         check_content_choice(temporary);

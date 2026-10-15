@@ -287,6 +287,17 @@ bool dot_entry(const LooseItem& item) noexcept {
     return item.name == kCurrentDirectory || item.name == kParentDirectory;
 }
 
+/// Tests whether a listing entry is an empty file. A listing also gives size
+/// 0 to an entry it could not size, so the file is asked again: one that
+/// cannot be sized is not taken as empty.
+bool empty_file(const LooseItem& item) {
+    if (item.directory || item.size != 0)
+        return false;
+    std::error_code error;
+    const auto size = std::filesystem::file_size(item.path, error);
+    return !error && size == 0;
+}
+
 /// Lists folders layered in order as one folder, in NTFS order, led by "."
 /// and "..": an entry the folders share by name, compared without case, takes
 /// the earliest folder's file and the latest folder's spelling, as copying
@@ -1102,8 +1113,12 @@ std::vector<DiscoveredArchive> AssetStore::discover(
                     continue;
                 if (pulling && named(item.name))
                     continue;
-                DiscoveredArchive outcome{item.path, false, {}, is_mounted(item.path)};
-                if (!outcome.already_mounted)
+                // An empty file hides the archive of its name beneath it
+                // (oamod-standard 4.1) and is not opened.
+                DiscoveredArchive outcome{
+                    item.path, false, {}, is_mounted(item.path), empty_file(item)
+                };
+                if (!outcome.already_mounted && !outcome.hiding)
                     outcome.mounted = try_mount(item.path, &outcome.error);
                 report.push_back(std::move(outcome));
                 if (report.back().mounted && --remaining == 0)
@@ -1135,12 +1150,14 @@ std::vector<DiscoveredArchive> AssetStore::discover(
                     std::move(path),
                     false,
                     "installation archive '" + archive + "' is missing",
+                    false,
                     false
                 }
             );
             continue;
         }
-        DiscoveredArchive outcome{found->path, false, {}, is_mounted(found->path)};
+        // A named archive is opened even when empty: the profile asks for it.
+        DiscoveredArchive outcome{found->path, false, {}, is_mounted(found->path), false};
         if (!outcome.already_mounted)
             outcome.mounted = try_mount(found->path, &outcome.error);
         report.push_back(std::move(outcome));

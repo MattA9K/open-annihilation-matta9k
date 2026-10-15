@@ -3,8 +3,9 @@
 
 // A mod folder layered over a base folder against a copied install of the
 // same files: discovery, every listing and every read must agree, and a
-// discovery plan replaces the revision archive and a group's pattern; a
-// mod's kept version (.backup) is passed over by every lookup.
+// discovery plan replaces the revision archive and a group's pattern; an
+// empty archive hides the archive of its name; a mod's kept version
+// (.backup) is passed over by every lookup.
 
 #include "oa/formats/hpi.hpp"
 
@@ -287,6 +288,36 @@ void plan_replaces_revision_archive_and_patterns() {
     check(mounted == base_order, "the default plan is the base game's");
 }
 
+void empty_archive_hides_its_name() {
+    TempDir dir;
+    const auto base = dir.path() / "base";
+    const auto mod = dir.path() / "mod";
+    write_file(base / "AFark.ufo", archive("base afark"));
+    write_file(base / "b.ufo", archive("b.ufo"));
+    write_file(mod / "afark.UFO", {});
+    write_file(mod / "Broken.ufo", text("not an archive"));
+    oa::AssetStore store(std::vector<fs::path>{mod, base});
+    bool hiding = false;
+    bool broken = false;
+    for (const auto& outcome : store.discover(oa::DiscoveryPlan{})) {
+        const auto name = lower(outcome.path.filename().string());
+        if (name == "afark.ufo")
+            hiding = outcome.hiding && !outcome.mounted && outcome.error.empty() &&
+                     outcome.path.parent_path() == mod;
+        if (name == "broken.ufo")
+            broken = !outcome.hiding && !outcome.mounted && !outcome.error.empty();
+    }
+    check(hiding, "an empty archive is reported as hiding, without an error");
+    check(broken, "an archive with bytes that does not open still reports its error");
+    std::vector<std::string> mounted;
+    for (const auto& path : store.mount_paths())
+        mounted.push_back(lower(path.filename().string()));
+    check(
+        mounted == std::vector<std::string>{"b.ufo"},
+        "the empty archive hides the base archive of its name"
+    );
+}
+
 void backup_folder_is_hidden() {
     TempDir dir;
     const auto base = dir.path() / "base";
@@ -348,6 +379,7 @@ int main() {
     try {
         layered_folders_match_copied_install();
         plan_replaces_revision_archive_and_patterns();
+        empty_archive_hides_its_name();
         backup_folder_is_hidden();
         lookups_are_observed();
     } catch (const std::exception& error) {
