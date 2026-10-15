@@ -3,6 +3,8 @@
 
 #include "oa/ui/engine_settings.hpp"
 
+#include "stored_words.hpp"
+
 #include "oa/sim/session.hpp"
 
 #include <algorithm>
@@ -176,6 +178,25 @@ std::string switch_text(bool on) {
     return on ? "1" : "0";
 }
 
+/// Tells whether a file-type switch is on. Only the word off turns it off;
+/// a missing key, "on", and any other text leave it on.
+///
+/// @param values the preferences
+/// @param key the switch's key
+/// @return false when the key's text is off
+bool file_type_on(const oa::platform::preferences::Values& values, std::string_view key) {
+    const auto found = values.find(std::string{key});
+    return found == values.end() || found->second != "off";
+}
+
+/// The stored text of a file-type switch.
+///
+/// @param on the switch's state
+/// @return "on" or "off"
+std::string file_type_text(bool on) {
+    return on ? "on" : "off";
+}
+
 /// Returns the level of hardware acceleration a stored value reads as.
 ///
 /// @param text the stored value
@@ -229,129 +250,6 @@ constexpr std::array<TextSwitch, 3> pad_switches{{
     {key::pad_magnetism, &EngineSettings::pad_magnetism},
     {key::pad_left_handed, &EngineSettings::pad_left_handed},
 }};
-
-/// A choice of a setting and the word the preferences keep it as.
-template <typename Choice>
-struct ChoiceWord {
-    Choice choice{};       ///< the choice
-    std::string_view word; ///< its word, in lower case
-};
-
-/// Explosion flash's words, in explosion_flash_choices' order.
-constexpr std::array<ChoiceWord<ExplosionFlash>, 3> explosion_flash_words{{
-    {ExplosionFlash::off, "off"},
-    {ExplosionFlash::reduced, "reduced"},
-    {ExplosionFlash::full, "full"},
-}};
-/// Zoomed out units' words, for the ways a player may choose: Icons, which
-/// the dialog shows but does not offer yet, has none.
-constexpr std::array<ChoiceWord<ZoomedOutUnits>, 2> zoomed_out_units_words{{
-    {ZoomedOutUnits::rendered, "rendered"},
-    {ZoomedOutUnits::dots, "dots"},
-}};
-static_assert(zoomed_out_units_words.size() == offered_zoomed_out_units);
-/// After zoom's words, in zoomed_out_afters' order.
-constexpr std::array<ChoiceWord<ZoomedOutAfter>, 7> zoomed_out_after_words{{
-    {ZoomedOutAfter::one_half, "1/2"},
-    {ZoomedOutAfter::one_third, "1/3"},
-    {ZoomedOutAfter::one_quarter, "1/4"},
-    {ZoomedOutAfter::one_sixth, "1/6"},
-    {ZoomedOutAfter::one_eighth, "1/8"},
-    {ZoomedOutAfter::one_twelfth, "1/12"},
-    {ZoomedOutAfter::one_sixteenth, "1/16"},
-}};
-/// Window frame's words, in window_frame_choices' order.
-constexpr std::array<ChoiceWord<WindowFrame>, 2> window_frame_words{{
-    {WindowFrame::hidden_in_play, "hidden-in-play"},
-    {WindowFrame::always_shown, "always-shown"},
-}};
-/// Maximum zoom out's words, in zoom_out_limits' order.
-constexpr std::array<ChoiceWord<ZoomOutLimit>, 7> zoom_out_words{{
-    {ZoomOutLimit::automatic, "automatic"},
-    {ZoomOutLimit::whole_map, "whole-map"},
-    {ZoomOutLimit::one_thirty_second, "1/32"},
-    {ZoomOutLimit::one_sixteenth, "1/16"},
-    {ZoomOutLimit::one_eighth, "1/8"},
-    {ZoomOutLimit::one_quarter, "1/4"},
-    {ZoomOutLimit::one_half, "1/2"},
-}};
-/// Maximum zoom in's words, in zoom_in_limits' order.
-constexpr std::array<ChoiceWord<ZoomInLimit>, 4> zoom_in_words{{
-    {ZoomInLimit::none, "1"},
-    {ZoomInLimit::twice, "2"},
-    {ZoomInLimit::three_times, "3"},
-    {ZoomInLimit::four_times, "4"},
-}};
-/// View past the map's edge's words, in view_past_map_edge_choices' order.
-constexpr std::array<ChoiceWord<ViewPastMapEdge>, 3> view_past_map_edge_words{{
-    {ViewPastMapEdge::off, "off"},
-    {ViewPastMapEdge::one_quarter, "25"},
-    {ViewPastMapEdge::one_half, "50"},
-}};
-/// Control size's words, in control_size_choices' order.
-constexpr std::array<ChoiceWord<ControlSize>, 3> control_size_words{{
-    {ControlSize::standard, "standard"},
-    {ControlSize::large, "large"},
-    {ControlSize::larger, "larger"},
-}};
-/// Scheme's words.
-constexpr std::array<ChoiceWord<pad_controls::Scheme>, 2> scheme_words{{
-    {pad_controls::Scheme::trackpads, "trackpads"},
-    {pad_controls::Scheme::sticks, "sticks"},
-}};
-/// Right trackpad's words.
-constexpr std::array<ChoiceWord<pad_controls::RightTrackpad>, 2> right_trackpad_words{{
-    {pad_controls::RightTrackpad::relative, "relative"},
-    {pad_controls::RightTrackpad::absolute, "absolute"},
-}};
-/// Pointer acceleration's words.
-constexpr std::array<ChoiceWord<pad_controls::Acceleration>, 3> acceleration_words{{
-    {pad_controls::Acceleration::off, "off"},
-    {pad_controls::Acceleration::low, "low"},
-    {pad_controls::Acceleration::high, "high"},
-}};
-/// Right stick's words.
-constexpr std::array<ChoiceWord<pad_controls::RightStick>, 3> right_stick_words{{
-    {pad_controls::RightStick::zoom_and_pages, "zoom"},
-    {pad_controls::RightStick::pointer, "pointer"},
-    {pad_controls::RightStick::nothing, "nothing"},
-}};
-/// Gyro pointer's words.
-constexpr std::array<ChoiceWord<pad_controls::Gyro>, 4> gyro_words{{
-    {pad_controls::Gyro::off, "off"},
-    {pad_controls::Gyro::right_pad_touched, "right-pad"},
-    {pad_controls::Gyro::right_stick_touched, "right-stick"},
-    {pad_controls::Gyro::always, "always"},
-}};
-/// Haptics' words.
-constexpr std::array<ChoiceWord<pad_controls::Haptics>, 3> haptics_words{{
-    {pad_controls::Haptics::off, "off"},
-    {pad_controls::Haptics::light, "light"},
-    {pad_controls::Haptics::strong, "strong"},
-}};
-/// Button prompts' words.
-constexpr std::array<ChoiceWord<pad_controls::Prompts>, 6> prompts_words{{
-    {pad_controls::Prompts::automatic, "automatic"},
-    {pad_controls::Prompts::steam_deck, "steam-deck"},
-    {pad_controls::Prompts::xbox, "xbox"},
-    {pad_controls::Prompts::playstation, "playstation"},
-    {pad_controls::Prompts::nintendo, "nintendo"},
-    {pad_controls::Prompts::off, "off"},
-}};
-
-/// Returns the word the preferences keep a choice as.
-///
-/// @param words the setting's choices and words
-/// @param choice the choice
-/// @return its word; empty for a choice the table does not hold
-template <typename Choice, std::size_t Count>
-std::string_view
-word_of(const std::array<ChoiceWord<Choice>, Count>& words, Choice choice) noexcept {
-    for (const ChoiceWord<Choice>& entry : words)
-        if (entry.choice == choice)
-            return entry.word;
-    return {};
-}
 
 /// Returns the choice a stored word names.
 ///
@@ -450,6 +348,13 @@ static_assert(on_stop(62, lowest_frame_rate, highest_frame_rate, frame_rate_step
 static_assert(on_stop(63, lowest_frame_rate, highest_frame_rate, frame_rate_step) == 65);
 static_assert(on_stop(240, lowest_frame_rate, highest_frame_rate, frame_rate_step) == 120);
 
+/// Check for content updates' words, in the order the Downloads page lists them.
+constexpr std::array<ChoiceWord<ContentCheck>, 3> content_check_words{{
+    {ContentCheck::automatically, "automatically"},
+    {ContentCheck::when_library_opens, "library"},
+    {ContentCheck::never, "never"},
+}};
+
 } // namespace
 
 EngineSettings default_settings(const Inputs& inputs) {
@@ -533,6 +438,50 @@ std::optional<ScreenSize> screen_size_from_text(std::string_view text) {
     return ScreenSize{*width, *height};
 }
 
+std::string edge_stickiness_text(uint32_t tenths) {
+    return std::to_string(tenths / edge_stickiness_per_level) + "." +
+           std::to_string(tenths % edge_stickiness_per_level);
+}
+
+std::optional<uint32_t> edge_stickiness_from_text(std::string_view text) noexcept {
+    std::size_t at = 0;
+    const bool negative = !text.empty() && text.front() == '-';
+    if (!text.empty() && (text.front() == '-' || text.front() == '+'))
+        at = 1;
+    // The whole part, then at most one point and the fraction's digits.
+    // Hundredths and beyond only round the tenths.
+    int64_t whole = 0;
+    std::size_t digits = 0;
+    while (at < text.size() && text[at] >= '0' && text[at] <= '9') {
+        whole = std::min(whole * 10 + (text[at] - '0'), number_bound);
+        ++at;
+        ++digits;
+    }
+    int64_t tenths = 0;
+    int64_t hundredths = 0;
+    if (at < text.size() && text[at] == '.') {
+        ++at;
+        std::size_t place = 0;
+        while (at < text.size() && text[at] >= '0' && text[at] <= '9') {
+            if (place == 0)
+                tenths = text[at] - '0';
+            else if (place == 1)
+                hundredths = text[at] - '0';
+            ++place;
+            ++at;
+            ++digits;
+        }
+    }
+    if (digits == 0 || at != text.size())
+        return std::nullopt;
+    int64_t level = whole * edge_stickiness_per_level + tenths + (hundredths >= 5 ? 1 : 0);
+    if (negative)
+        level = -level;
+    return static_cast<uint32_t>(
+        std::clamp(level, int64_t{lowest_edge_stickiness}, int64_t{highest_edge_stickiness})
+    );
+}
+
 std::string_view hardware_acceleration_text(HardwareAcceleration level) noexcept {
     switch (level) {
     case HardwareAcceleration::off:
@@ -569,6 +518,31 @@ std::optional<MenuScaling> menu_scaling_from_text(std::string_view text) noexcep
     for (const MenuScaling scaling : menu_scaling_choices)
         if (text == menu_scaling_text(scaling))
             return scaling;
+    return std::nullopt;
+}
+
+std::string_view interface_size_text(InterfaceSize size) noexcept {
+    switch (size) {
+    case InterfaceSize::automatic:
+        return "automatic";
+    case InterfaceSize::size_100:
+        return "100";
+    case InterfaceSize::size_150:
+        return "150";
+    case InterfaceSize::size_200:
+        return "200";
+    case InterfaceSize::size_300:
+        return "300";
+    case InterfaceSize::size_400:
+        return "400";
+    }
+    return {};
+}
+
+std::optional<InterfaceSize> interface_size_from_text(std::string_view text) noexcept {
+    for (const InterfaceSize size : interface_size_choices)
+        if (text == interface_size_text(size))
+            return size;
     return std::nullopt;
 }
 
@@ -623,6 +597,12 @@ EngineSettings read_settings(
     read_word(
         values, key::view_past_map_edge, view_past_map_edge_words, settings.view_past_map_edge
     );
+    read_word(values, key::window_edge, window_edge_words, settings.window_edge);
+    if (const auto found = values.find(std::string{key::edge_stickiness}); found != values.end())
+        settings.edge_stickiness =
+            edge_stickiness_from_text(found->second).value_or(settings.edge_stickiness);
+    if (const auto number = stored_number(values, key::middle_click_pan))
+        settings.middle_click_pan = *number > 0;
     if (const auto number = stored_number(values, key::escape_opens_menu))
         settings.escape_opens_menu = *number > 0;
     if (const auto number = stored_number(values, key::unit_limit))
@@ -656,9 +636,15 @@ EngineSettings read_settings(
     read_word(values, key::window_frame, window_frame_words, settings.window_frame);
     if (const auto number = stored_number(values, key::hud_scaling))
         settings.hud_scaling = *number > 0;
+    if (const auto found = values.find(std::string{key::interface_size}); found != values.end())
+        settings.interface_size =
+            interface_size_from_text(found->second).value_or(settings.interface_size);
     for (const TextSwitch& entry : text_switches)
         if (const auto number = stored_number(values, entry.key))
             settings.*entry.member = *number > 0;
+    // 150% is drawn in the modern fonts: read with them off, it is 100%.
+    settings.interface_size =
+        interface_size_with_fonts(settings.interface_size, settings.modern_fonts);
     if (const auto number = stored_number(values, key::text_size))
         settings.text_size = clamped(*number, lowest_text_size, highest_text_size);
     settings.language = stored_language(values, inputs.players_own_profile);
@@ -666,7 +652,7 @@ EngineSettings read_settings(
     if (const auto found = values.find(std::string{key::mod_directory}); found != values.end()) {
         settings.mod_folder = found->second;
         // A folder the game folder does not offer was picked: it is kept as
-        // the picked one, which the Mods page lists.
+        // the picked one, which the Library lists.
         if (!settings.mod_folder.empty() &&
             std::find(inputs.mod_folders.begin(), inputs.mod_folders.end(), settings.mod_folder) ==
                 inputs.mod_folders.end())
@@ -712,6 +698,13 @@ EngineSettings read_settings(
     if (!inputs.profile_id.empty())
         if (const auto found = values.find(overrides_key(inputs.profile_id)); found != values.end())
             settings.hack_overrides = mod_profile::read_overrides(found->second);
+    // Unknown text leaves the default read_settings started from.
+    read_word(values, key::content_check, content_check_words, settings.content_check);
+    settings.file_type_oamod = file_type_on(values, key::file_type_oamod);
+    settings.file_type_oamap = file_type_on(values, key::file_type_oamap);
+    settings.file_type_oalang = file_type_on(values, key::file_type_oalang);
+    settings.file_type_oareg = file_type_on(values, key::file_type_oareg);
+    settings.file_type_oalaunch = file_type_on(values, key::file_type_oalaunch);
     return settings;
 }
 
@@ -780,6 +773,14 @@ void write_settings(
         opened.view_past_map_edge,
         chosen.view_past_map_edge,
         defaults.view_past_map_edge,
+        restored
+    );
+    store(
+        values,
+        key::middle_click_pan,
+        switch_text(chosen.middle_click_pan),
+        chosen.middle_click_pan != opened.middle_click_pan,
+        chosen.middle_click_pan == defaults.middle_click_pan,
         restored
     );
     store(
@@ -891,6 +892,23 @@ void write_settings(
     );
     store_word(
         values,
+        key::window_edge,
+        window_edge_words,
+        opened.window_edge,
+        chosen.window_edge,
+        defaults.window_edge,
+        restored
+    );
+    store(
+        values,
+        key::edge_stickiness,
+        edge_stickiness_text(chosen.edge_stickiness),
+        chosen.edge_stickiness != opened.edge_stickiness,
+        chosen.edge_stickiness == defaults.edge_stickiness,
+        restored
+    );
+    store_word(
+        values,
         key::window_frame,
         window_frame_words,
         opened.window_frame,
@@ -904,6 +922,14 @@ void write_settings(
         switch_text(chosen.hud_scaling),
         chosen.hud_scaling != opened.hud_scaling,
         chosen.hud_scaling == defaults.hud_scaling,
+        restored
+    );
+    store(
+        values,
+        key::interface_size,
+        std::string{interface_size_text(chosen.interface_size)},
+        chosen.interface_size != opened.interface_size,
+        chosen.interface_size == defaults.interface_size,
         restored
     );
     for (const TextSwitch& entry : text_switches)
@@ -1069,6 +1095,30 @@ void write_settings(
             chosen.*entry.member == defaults.*entry.member,
             restored
         );
+    store_word(
+        values,
+        key::content_check,
+        content_check_words,
+        opened.content_check,
+        chosen.content_check,
+        defaults.content_check,
+        restored
+    );
+    const auto store_file_type = [&](std::string_view key, bool EngineSettings::* member) {
+        store(
+            values,
+            key,
+            file_type_text(chosen.*member),
+            chosen.*member != opened.*member,
+            chosen.*member == defaults.*member,
+            restored
+        );
+    };
+    store_file_type(key::file_type_oamod, &EngineSettings::file_type_oamod);
+    store_file_type(key::file_type_oamap, &EngineSettings::file_type_oamap);
+    store_file_type(key::file_type_oalang, &EngineSettings::file_type_oalang);
+    store_file_type(key::file_type_oareg, &EngineSettings::file_type_oareg);
+    store_file_type(key::file_type_oalaunch, &EngineSettings::file_type_oalaunch);
     // Restore defaults keeps the overrides: Restore profile values clears them.
     if (!profile_id.empty() && chosen.hack_overrides != opened.hack_overrides) {
         if (chosen.hack_overrides.empty())
@@ -1162,6 +1212,7 @@ Locks settings_locks(const GameState& state) noexcept {
                                                                : Lock::in_game;
     locks.path_search = game_lock;
     locks.unit_limit = game_lock;
+    locks.skirmish_players = game_lock;
     locks.max_frame_rate = state.frame_rate_from_command_line ? Lock::command_line : Lock::none;
     locks.shared_game = state.in_game && state.shared_game;
     // A game never locks hardware acceleration: Off must stay possible in a
@@ -1179,11 +1230,9 @@ Locks settings_locks(const GameState& state) noexcept {
                                                                     : Lock::none;
     // The language changes only what players read, so no game locks it.
     locks.language = state.language_from_command_line ? Lock::command_line : Lock::none;
-    // A game keeps the mod it plays; the main menu chooses another. The
-    // command line's lock says more, so it wins.
-    locks.mod = state.mod_from_command_line ? Lock::command_line
-                : state.in_game             ? Lock::in_game
-                                            : Lock::none;
+    // SHOW AGAIN starts the welcome setup at the next main menu, so a game
+    // locks the button until the player is back there.
+    locks.welcome_setup = state.in_game ? Lock::main_menu : Lock::none;
     return locks;
 }
 

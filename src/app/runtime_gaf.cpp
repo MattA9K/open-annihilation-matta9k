@@ -4,6 +4,7 @@
 // Unit naming, GAF sequence helpers and game cursors.
 #include "oa/app/runtime.hpp"
 #include "oa/app/asset_files.hpp"
+#include "oa_layer.hpp"
 #include "oa/data/languages/unit_texts.hpp"
 #include "oa/sim/gameplay_input/order_cursor.hpp"
 #include "world_draws.hpp"
@@ -524,6 +525,7 @@ bool Runtime::pointer_over_top_panel() {
 }
 
 void Runtime::tick_and_draw_cursor() {
+    clear_menu_button_cursor_hold();
     if (!cursors_loaded_ || frame_without_cursor_)
         return;
     const auto tick = frontend_tick();
@@ -533,7 +535,19 @@ void Runtime::tick_and_draw_cursor() {
     if (screen_ == Screen::match)
         select_game_cursor(pick_match_cursor());
     oa::ui::gui_input::follow_hover_cursor(gui_context_, pointer_over_top_panel());
+    // A middle-click pan draws its own direction at the pointer.
+    if (middle_pan_shows_direction())
+        return;
     if (match_use_layers_ && screen_ == Screen::match)
+        return;
+    // Over a screen of the OA layer the cursor is presented above the layer
+    // (present_front_end), never under it in the frame. Over a main-menu
+    // button a larger window draws again, it is presented above that button
+    // too: in the picture it would cover the button, and the window-pixel
+    // icon would not replace it.
+    if (sdl_.renderer != nullptr && screen_ != Screen::match && oa_layer().shows(false))
+        return;
+    if (hold_menu_button_cursor())
         return;
     if (surface_.rgb.empty() || cursor_image_ == nullptr)
         return;

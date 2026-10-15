@@ -15,17 +15,22 @@
 // size Larger, a stored value winning and Restore defaults bringing them
 // back. Control size and the Controller section's settings: their keys,
 // defaults, words, the speeds' ranges and stops, unknown values, and the
-// round trip.
+// round trip. Interface size: its key, its default Auto, its five words,
+// the words it refuses and its round trip, which leaves other keys alone.
 
 #include "oa/ui/engine_settings.hpp"
 
+#include "oa/data/languages.hpp"
+
 #include <array>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <exception>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -78,6 +83,7 @@ void defaults_play_as_without_the_settings() {
     const auto defaults = settings::default_settings({});
     CHECK(defaults.path_search_nodes == settings::base_path_search_nodes);
     CHECK(defaults.wheel_zoom);
+    CHECK(defaults.middle_click_pan);
     CHECK(!defaults.escape_opens_menu);
     CHECK(!defaults.switch_alt);
     CHECK(defaults.unit_limit == settings::default_unit_limit);
@@ -411,6 +417,7 @@ void absent_keys_and_values_that_are_not_numbers_give_the_defaults() {
     for (const std::string_view key :
          {settings::key::path_search_nodes,
           settings::key::wheel_zoom,
+          settings::key::middle_click_pan,
           settings::key::escape_opens_menu,
           settings::key::unit_limit,
           settings::key::max_frame_rate,
@@ -441,6 +448,8 @@ void stored_values_are_read_and_clamped_into_their_ranges() {
     CHECK(!read_one(settings::key::wheel_zoom, "0").wheel_zoom);
     CHECK(read_one(settings::key::wheel_zoom, "1").wheel_zoom);
     CHECK(!read_one(settings::key::wheel_zoom, "-1").wheel_zoom);
+    CHECK(!read_one(settings::key::middle_click_pan, "0").middle_click_pan);
+    CHECK(read_one(settings::key::middle_click_pan, "1").middle_click_pan);
     CHECK(read_one(settings::key::escape_opens_menu, "1").escape_opens_menu);
     CHECK(read_one(settings::key::escape_opens_menu, "7").escape_opens_menu);
     CHECK(!settings::read_settings(
@@ -497,6 +506,7 @@ settings::EngineSettings changed_settings() {
     settings::EngineSettings chosen{};
     chosen.path_search_nodes = 4 * settings::base_path_search_nodes;
     chosen.wheel_zoom = false;
+    chosen.middle_click_pan = false;
     chosen.escape_opens_menu = true;
     chosen.unit_limit = 1000;
     chosen.max_frame_rate = 60;
@@ -523,9 +533,10 @@ void only_changed_settings_are_written() {
 
     const auto chosen = changed_settings();
     settings::write_settings(values, defaults, chosen, defaults, false);
-    CHECK(values.size() == 17);
+    CHECK(values.size() == 18);
     CHECK(values.at(std::string{settings::key::path_search_nodes}) == "5332");
     CHECK(values.at(std::string{settings::key::wheel_zoom}) == "0");
+    CHECK(values.at(std::string{settings::key::middle_click_pan}) == "0");
     CHECK(values.at(std::string{settings::key::escape_opens_menu}) == "1");
     CHECK(values.at(std::string{settings::key::unit_limit}) == "1000");
     CHECK(values.at(std::string{settings::key::max_frame_rate}) == "60");
@@ -555,6 +566,109 @@ void only_changed_settings_are_written() {
     Values kept = one_key(settings::key::unit_limit, "garbage");
     settings::write_settings(kept, defaults, defaults, defaults, false);
     CHECK(kept.at(std::string{settings::key::unit_limit}) == "garbage");
+}
+
+void file_type_switches_store_on_and_off() {
+    const settings::EngineSettings defaults{};
+    CHECK(
+        defaults.file_type_oamod && defaults.file_type_oamap && defaults.file_type_oalang &&
+        defaults.file_type_oareg
+    );
+
+    // Absent keys, "on", and any other text read as on. Only "off" turns one off.
+    const auto from_absent = settings::read_settings({}, {}, false);
+    CHECK(
+        from_absent.file_type_oamod && from_absent.file_type_oamap &&
+        from_absent.file_type_oalang && from_absent.file_type_oareg
+    );
+    Values mixed;
+    mixed[std::string{settings::key::file_type_oamod}] = "off";
+    mixed[std::string{settings::key::file_type_oamap}] = "on";
+    mixed[std::string{settings::key::file_type_oalang}] = "0";
+    mixed[std::string{settings::key::file_type_oareg}] = "no";
+    const auto read = settings::read_settings(mixed, {}, false);
+    CHECK(!read.file_type_oamod);
+    CHECK(read.file_type_oamap);
+    CHECK(read.file_type_oalang);
+    CHECK(read.file_type_oareg);
+
+    // A switch moved off is stored as off. One left on writes nothing.
+    auto chosen = defaults;
+    chosen.file_type_oamod = false;
+    chosen.file_type_oamap = false;
+    Values written;
+    settings::write_settings(written, defaults, chosen, defaults, false);
+    CHECK(written.at(std::string{settings::key::file_type_oamod}) == "off");
+    CHECK(written.at(std::string{settings::key::file_type_oamap}) == "off");
+    CHECK(written.count(std::string{settings::key::file_type_oalang}) == 0);
+    CHECK(written.count(std::string{settings::key::file_type_oareg}) == 0);
+    CHECK(settings::read_settings(written, {}, false).file_type_oamod == false);
+    CHECK(settings::read_settings(written, {}, false).file_type_oalang);
+
+    // Turning one back on stores on. Restore defaults erases a stored off.
+    auto back = chosen;
+    back.file_type_oamod = true;
+    Values again;
+    settings::write_settings(again, chosen, back, defaults, false);
+    CHECK(again.at(std::string{settings::key::file_type_oamod}) == "on");
+    CHECK(again.count(std::string{settings::key::file_type_oamap}) == 0);
+    Values restored = written;
+    settings::write_settings(restored, chosen, defaults, defaults, true);
+    CHECK(restored.count(std::string{settings::key::file_type_oamod}) == 0);
+    CHECK(restored.count(std::string{settings::key::file_type_oamap}) == 0);
+    CHECK(settings::read_settings(restored, {}, false).file_type_oamod);
+}
+
+void the_launch_file_switch_round_trips() {
+    // On by default, read as on from an absent key, "on" or any text but off.
+    const settings::EngineSettings defaults{};
+    CHECK(defaults.file_type_oalaunch);
+    CHECK(settings::key::file_type_oalaunch == "open-annihilation.file-types.oalaunch");
+    CHECK(settings::read_settings({}, {}, false).file_type_oalaunch);
+    for (const std::string_view text : {"on", "0", "no", "OFF", ""})
+        CHECK(
+            settings::read_settings(
+                one_key(settings::key::file_type_oalaunch, std::string(text)), {}, false
+            )
+                .file_type_oalaunch
+        );
+    const auto off =
+        settings::read_settings(one_key(settings::key::file_type_oalaunch, "off"), {}, false);
+    CHECK(!off.file_type_oalaunch);
+    CHECK(
+        off.file_type_oamod && off.file_type_oamap && off.file_type_oalang && off.file_type_oareg
+    );
+
+    // Moved off, it alone is stored, as off, and reads back off with the other four on.
+    auto chosen = defaults;
+    chosen.file_type_oalaunch = false;
+    Values written;
+    settings::write_settings(written, defaults, chosen, defaults, false);
+    CHECK(written.at(std::string{settings::key::file_type_oalaunch}) == "off");
+    for (const std::string_view other :
+         {settings::key::file_type_oamod,
+          settings::key::file_type_oamap,
+          settings::key::file_type_oalang,
+          settings::key::file_type_oareg})
+        CHECK(written.count(std::string{other}) == 0);
+    const auto read = settings::read_settings(written, {}, false);
+    CHECK(!read.file_type_oalaunch);
+    CHECK(
+        read.file_type_oamod && read.file_type_oamap && read.file_type_oalang &&
+        read.file_type_oareg
+    );
+
+    // Moved on again, it is stored as on and reads back on.
+    Values again = written;
+    settings::write_settings(again, chosen, defaults, defaults, false);
+    CHECK(again.at(std::string{settings::key::file_type_oalaunch}) == "on");
+    CHECK(settings::read_settings(again, {}, false).file_type_oalaunch);
+
+    // Restore defaults erases a stored off.
+    Values restored = written;
+    settings::write_settings(restored, chosen, defaults, defaults, true);
+    CHECK(restored.count(std::string{settings::key::file_type_oalaunch}) == 0);
+    CHECK(settings::read_settings(restored, {}, false).file_type_oalaunch);
 }
 
 void restore_defaults_erases_the_keys_of_settings_at_their_defaults() {
@@ -706,23 +820,39 @@ void a_mods_path_budget_scales_the_credit() {
     );
 }
 
+void the_skirmish_player_count_is_not_an_engine_key() {
+    settings::EngineSettings chosen{};
+    chosen.skirmish_players = 6;
+    Values values;
+    settings::write_settings(values, {}, chosen, {}, false);
+    CHECK(values.empty());
+    CHECK(
+        settings::read_settings(values, {}, false).skirmish_players ==
+        settings::default_skirmish_players
+    );
+}
+
 void a_game_locks_the_next_game_settings() {
     const auto alone = settings::settings_locks({true, false, false, false});
     CHECK(alone.path_search == settings::Lock::in_game);
     CHECK(alone.unit_limit == settings::Lock::in_game);
+    CHECK(alone.skirmish_players == settings::Lock::in_game);
     CHECK(alone.max_frame_rate == settings::Lock::none);
     CHECK(!alone.shared_game);
     const auto shared = settings::settings_locks({true, true, false, false});
     CHECK(shared.path_search == settings::Lock::set_by_host);
     CHECK(shared.unit_limit == settings::Lock::set_by_host);
+    CHECK(shared.skirmish_players == settings::Lock::set_by_host);
     CHECK(shared.shared_game);
     const auto replay = settings::settings_locks({true, false, true, false});
     CHECK(replay.path_search == settings::Lock::set_by_host);
     CHECK(replay.unit_limit == settings::Lock::set_by_host);
+    CHECK(replay.skirmish_players == settings::Lock::set_by_host);
     CHECK(!replay.shared_game);
     const auto menu = settings::settings_locks({});
     CHECK(menu.path_search == settings::Lock::none);
     CHECK(menu.unit_limit == settings::Lock::none);
+    CHECK(menu.skirmish_players == settings::Lock::none);
     CHECK(!menu.shared_game);
     const auto command_line = settings::settings_locks({false, false, false, true});
     CHECK(command_line.max_frame_rate == settings::Lock::command_line);
@@ -970,8 +1100,8 @@ void the_language_reads_writes_and_restores() {
         CHECK(read(other, true) == "system");
         CHECK(read(other, false) == "en");
     }
-    for (const auto& language : languages::known_languages())
-        CHECK(read(std::string(language.tag).c_str(), true) == language.tag);
+    for (const languages::Language* language : languages::known_languages())
+        CHECK(read(std::string(language->tag).c_str(), true) == language->tag);
     // A changed language is written as its tag; one left alone is not
     // written, so a tag a later version wrote stays in the file.
     const auto defaults = settings::default_settings(players_own_on_linux);
@@ -1001,6 +1131,24 @@ void the_language_reads_writes_and_restores() {
     CHECK(settings::settings_locks(state).language == settings::Lock::command_line);
     // The language changes nothing the text style draws.
     CHECK(settings::text_style(chosen) == settings::text_style(defaults));
+}
+
+/// A language that is not installed yet is kept when this build can draw
+/// it, and a shorter tag is still the system's language.
+void an_available_language_is_kept_until_its_pack_is_installed() {
+    namespace languages = oa::data::languages;
+    languages::set_pack_languages({}, {});
+    languages::LanguageEntry portuguese;
+    portuguese.tag = "pt-BR";
+    portuguese.endonym = "Portugu\xC3\xAA"
+                         "s";
+    portuguese.english_name = "Portuguese";
+    portuguese.word = "Portuguese";
+    portuguese.needs = languages::TextNeeds::game_fonts;
+    languages::set_pack_languages({}, std::array<languages::LanguageEntry, 1>{portuguese});
+    CHECK(settings::stored_language(one_key(settings::key::language, "pt-BR"), true) == "pt-BR");
+    CHECK(settings::stored_language(one_key(settings::key::language, "pt"), true) == "system");
+    languages::set_pack_languages({}, {});
 }
 
 void a_preferences_file_with_crlf_line_ends_reads_its_settings() {
@@ -2052,6 +2200,107 @@ void the_zoomed_out_units_default_read_and_round_trip() {
     CHECK(pair.empty());
 }
 
+/// Window edge: Capture everywhere by default, also for a file an earlier
+/// build wrote without the key; "capture", "sticky" and "free" read their
+/// choices, so an earlier build's Sticky or Free is kept, and round-trip
+/// alone; any other text reads Capture; writing Sticky leaves every other
+/// key as it is, and Restore defaults then OK erases the key.
+void the_window_edge_default_read_and_round_trip() {
+    CHECK(settings::key::window_edge == "open-annihilation.window-edge");
+    settings::Inputs own_mac = players_own_on_linux;
+    own_mac.macos = true;
+    for (const auto& inputs : {settings::Inputs{}, players_own_on_linux, own_mac}) {
+        const auto defaults = settings::default_settings(inputs);
+        CHECK(defaults.window_edge == settings::WindowEdge::capture);
+        CHECK(settings::read_settings({}, inputs, false) == defaults);
+    }
+    const auto edge = [](const char* text) {
+        return read_one(settings::key::window_edge, text).window_edge;
+    };
+    CHECK(edge("capture") == settings::WindowEdge::capture);
+    CHECK(edge("sticky") == settings::WindowEdge::sticky);
+    CHECK(edge("free") == settings::WindowEdge::free);
+    for (const char* text : {"", "Free", "Capture", "sticky ", "1", "always"})
+        CHECK(edge(text) == settings::WindowEdge::capture);
+
+    const auto defaults = settings::default_settings(players_own_on_linux);
+    for (const auto way : {settings::WindowEdge::sticky, settings::WindowEdge::free}) {
+        auto chosen = defaults;
+        chosen.window_edge = way;
+        Values values;
+        settings::write_settings(values, defaults, chosen, defaults, false);
+        CHECK(values.size() == 1);
+        CHECK(
+            values.at(std::string{settings::key::window_edge}) ==
+            (way == settings::WindowEdge::sticky ? "sticky" : "free")
+        );
+        CHECK(settings::read_settings(values, players_own_on_linux, false) == chosen);
+        settings::write_settings(values, chosen, defaults, defaults, true);
+        CHECK(values.empty());
+    }
+    // Capture chosen again after Sticky is written as such.
+    auto sticky = defaults;
+    sticky.window_edge = settings::WindowEdge::sticky;
+    Values values;
+    values[std::string{settings::key::window_edge}] = "sticky";
+    settings::write_settings(values, sticky, defaults, defaults, false);
+    CHECK(values.at(std::string{settings::key::window_edge}) == "capture");
+    CHECK(settings::read_settings(values, players_own_on_linux, false) == defaults);
+}
+
+/// Edge stickiness: 1.0 everywhere by default and for a file without the
+/// key; a decimal reads to the nearest tenth, a half rounding up, held to
+/// 0.0 to 5.0; any other text reads 1.0; it is written with one decimal,
+/// alone, whatever Window edge is, and Restore defaults then OK erases it.
+void the_edge_stickiness_default_read_and_round_trip() {
+    CHECK(settings::key::edge_stickiness == "open-annihilation.window-edge-stickiness");
+    CHECK(settings::default_edge_stickiness == 10);
+    for (const auto& inputs : {settings::Inputs{}, players_own_on_linux})
+        CHECK(settings::default_settings(inputs).edge_stickiness == 10);
+    const auto level = [](const char* text) {
+        return read_one(settings::key::edge_stickiness, text).edge_stickiness;
+    };
+    CHECK(level("1.0") == 10);
+    CHECK(level("0.0") == 0);
+    CHECK(level("0") == 0);
+    CHECK(level("2.5") == 25);
+    CHECK(level("5.0") == 50);
+    CHECK(level("3") == 30);
+    CHECK(level(".5") == 5);
+    CHECK(level("4.") == 40);
+    CHECK(level("1.25") == 13);
+    CHECK(level("1.249") == 12);
+    CHECK(level("+0.3") == 3);
+    CHECK(level("7.5") == 50);
+    CHECK(level("-1.0") == 0);
+    CHECK(level("99999999999999") == 50);
+    for (const char* text : {"", ".", "1,5", "1.0 ", " 1.0", "1.2.3", "high", "1e1", "-", "0x1"})
+        CHECK(level(text) == 10);
+    CHECK(settings::edge_stickiness_text(0) == "0.0");
+    CHECK(settings::edge_stickiness_text(10) == "1.0");
+    CHECK(settings::edge_stickiness_text(25) == "2.5");
+    CHECK(settings::edge_stickiness_text(50) == "5.0");
+    CHECK(settings::edge_stickiness_from_text("2.5") == std::optional<uint32_t>{25});
+    CHECK(!settings::edge_stickiness_from_text("x"));
+
+    const auto defaults = settings::default_settings(players_own_on_linux);
+    for (const auto way : settings::window_edge_choices) {
+        auto chosen = defaults;
+        chosen.window_edge = way;
+        chosen.edge_stickiness = 25;
+        auto opened = defaults;
+        opened.window_edge = way;
+        Values values;
+        settings::write_settings(values, opened, chosen, defaults, false);
+        CHECK(values.size() == 1);
+        CHECK(values.at(std::string{settings::key::edge_stickiness}) == "2.5");
+        auto read = settings::read_settings(values, players_own_on_linux, false);
+        CHECK(read.edge_stickiness == 25 && read.window_edge == settings::WindowEdge::capture);
+        settings::write_settings(values, chosen, defaults, defaults, true);
+        CHECK(values.empty());
+    }
+}
+
 /// Window frame: Hidden in play everywhere by default; a file written
 /// before it reads the default; each word reads its way and any other text
 /// the default; Always shown written alone and read back, and Restore
@@ -2110,6 +2359,162 @@ void the_hud_scaling_default_read_and_round_trip() {
     CHECK(settings::read_settings(values, players_own_on_linux, false) == unscaled);
     settings::write_settings(values, unscaled, defaults, defaults, true);
     CHECK(values.empty());
+}
+
+/// Interface size: Auto everywhere by default, with the player's own file
+/// and with a named one, a file written before it included; each of its
+/// six words reads its size and round-trips alone, 150 while Use modern
+/// fonts for game text reads On; any other text, 0 among them, reads Auto;
+/// writing it leaves every other key as it is, and Restore defaults then OK
+/// erases its key.
+void the_interface_size_default_read_and_round_trip() {
+    using settings::InterfaceSize;
+    CHECK(settings::key::interface_size == "open-annihilation.interface-size");
+    settings::Inputs own_mac = players_own_on_linux;
+    own_mac.macos = true;
+    settings::Inputs light = players_own_on_linux;
+    light.light_machine = true;
+    settings::Inputs deck = players_own_on_linux;
+    deck.steam_deck_panel_hz = 90;
+    for (const auto& inputs : {settings::Inputs{}, players_own_on_linux, own_mac, light, deck}) {
+        const auto defaults = settings::default_settings(inputs);
+        CHECK(defaults.interface_size == InterfaceSize::automatic);
+        CHECK(settings::read_settings({}, inputs, false) == defaults);
+    }
+    CHECK(settings::EngineSettings{}.interface_size == InterfaceSize::automatic);
+
+    // The dialog's order, each size's word and percent, and back; 150 with
+    // the modern fonts On.
+    CHECK(
+        settings::interface_size_choices == (std::array<InterfaceSize, 6>{
+                                                InterfaceSize::automatic,
+                                                InterfaceSize::size_100,
+                                                InterfaceSize::size_150,
+                                                InterfaceSize::size_200,
+                                                InterfaceSize::size_300,
+                                                InterfaceSize::size_400,
+                                            })
+    );
+    constexpr std::array<std::string_view, 6> words{"automatic", "100", "150", "200", "300", "400"};
+    constexpr std::array<int32_t, 6> percents{0, 100, 150, 200, 300, 400};
+    for (std::size_t index = 0; index < words.size(); ++index) {
+        const InterfaceSize size = settings::interface_size_choices[index];
+        CHECK(settings::interface_size_text(size) == words[index]);
+        CHECK(settings::interface_size_from_text(words[index]) == size);
+        CHECK(settings::interface_size_percent(size) == percents[index]);
+        Values stored = one_key(settings::key::interface_size, std::string{words[index]});
+        stored[std::string{settings::key::modern_fonts}] = "1";
+        CHECK(settings::read_settings(stored, {}, false).interface_size == size);
+    }
+
+    // 150% is drawn in the modern fonts: a stored 150 read while they read
+    // Off, from the key or from a named file's default, is 100%; every
+    // other size reads as itself with them Off.
+    CHECK(
+        settings::interface_size_with_fonts(InterfaceSize::size_150, false) ==
+        InterfaceSize::size_100
+    );
+    CHECK(
+        settings::interface_size_with_fonts(InterfaceSize::size_150, true) ==
+        InterfaceSize::size_150
+    );
+    for (const InterfaceSize size : settings::interface_size_choices)
+        if (size != InterfaceSize::size_150)
+            CHECK(settings::interface_size_with_fonts(size, false) == size);
+    CHECK(read_one(settings::key::interface_size, "150").interface_size == InterfaceSize::size_100);
+    {
+        Values off = one_key(settings::key::interface_size, "150");
+        off[std::string{settings::key::modern_fonts}] = "0";
+        CHECK(
+            settings::read_settings(off, players_own_on_linux, false).interface_size ==
+            InterfaceSize::size_100
+        );
+        // The player's own file has the modern fonts On by default.
+        CHECK(
+            settings::read_settings(
+                one_key(settings::key::interface_size, "150"), players_own_on_linux, false
+            )
+                .interface_size == InterfaceSize::size_150
+        );
+        Values on = off;
+        on[std::string{settings::key::modern_fonts}] = "1";
+        CHECK(settings::read_settings(on, {}, false).interface_size == InterfaceSize::size_150);
+    }
+
+    // Any other text reads Auto: 0 is no size.
+    const auto size_of = [](const char* text) {
+        return read_one(settings::key::interface_size, text).interface_size;
+    };
+    for (const char* text :
+         {"0",
+          "",
+          "Auto",
+          "auto",
+          "Automatic",
+          "100%",
+          " 100",
+          "100 ",
+          "1",
+          "2",
+          "500",
+          "-100",
+          "1000",
+          "0100",
+          "1/2"}) {
+        CHECK(!settings::interface_size_from_text(text));
+        CHECK(size_of(text) == InterfaceSize::automatic);
+    }
+    auto expected = settings::read_settings({}, {}, false);
+    expected.interface_size = InterfaceSize::size_300;
+    CHECK(read_one(settings::key::interface_size, "300") == expected);
+
+    // Each size chosen alone writes its word alone and reads back; Auto
+    // chosen again by hand is written as its word; Restore defaults then OK
+    // erases the key.
+    const auto defaults = settings::default_settings(players_own_on_linux);
+    for (const InterfaceSize size : settings::interface_size_choices) {
+        if (size == InterfaceSize::automatic)
+            continue;
+        auto chosen = defaults;
+        chosen.interface_size = size;
+        Values values;
+        settings::write_settings(values, defaults, chosen, defaults, false);
+        CHECK(values.size() == 1);
+        CHECK(
+            values.at(std::string{settings::key::interface_size}) ==
+            settings::interface_size_text(size)
+        );
+        CHECK(settings::read_settings(values, players_own_on_linux, false) == chosen);
+        settings::write_settings(values, chosen, defaults, defaults, false);
+        CHECK(values.at(std::string{settings::key::interface_size}) == "automatic");
+        CHECK(settings::read_settings(values, players_own_on_linux, false) == defaults);
+        settings::write_settings(values, defaults, chosen, defaults, false);
+        settings::write_settings(values, chosen, defaults, defaults, true);
+        CHECK(values.empty());
+    }
+
+    // Writing it leaves every other key as it was: another setting's, a
+    // key of the game's own and one the settings do not know.
+    Values values;
+    values[std::string{settings::key::hud_scaling}] = "0";
+    values[std::string{settings::key::menu_scaling}] = "unfiltered";
+    values[std::string{settings::key::text_size}] = "120";
+    values["Total Annihilation|SwitchAlt"] = "1";
+    values["open-annihilation.not-a-setting"] = "kept";
+    const Values others = values;
+    const auto opened = settings::read_settings(values, players_own_on_linux, false);
+    auto chosen = opened;
+    chosen.interface_size = InterfaceSize::size_200;
+    settings::write_settings(values, opened, chosen, defaults, false);
+    CHECK(values.size() == others.size() + 1);
+    for (const auto& [key, value] : others)
+        CHECK(values.contains(key) && values.at(key) == value);
+    CHECK(values.at(std::string{settings::key::interface_size}) == "200");
+    const auto read_back = settings::read_settings(values, players_own_on_linux, false);
+    CHECK(read_back.interface_size == InterfaceSize::size_200);
+    CHECK(!read_back.hud_scaling);
+    CHECK(read_back.menu_scaling == settings::MenuScaling::unfiltered);
+    CHECK(read_back.text_size == 120);
 }
 
 void menu_scaling_and_native_density_default_read_and_round_trip() {
@@ -2233,6 +2638,8 @@ int main() {
     stored_values_are_read_and_clamped_into_their_ranges();
     switch_alt_comes_from_the_games_own_key();
     only_changed_settings_are_written();
+    file_type_switches_store_on_and_off();
+    the_launch_file_switch_round_trips();
     restore_defaults_erases_the_keys_of_settings_at_their_defaults();
     the_round_trip_keeps_every_value();
     the_frame_rate_goes_down_to_a_frame_a_tick();
@@ -2240,6 +2647,7 @@ int main() {
     shared_games_and_replays_search_at_one_cycle();
     a_mods_unit_limits_set_the_range_and_the_default();
     a_mods_path_budget_scales_the_credit();
+    the_skirmish_player_count_is_not_an_engine_key();
     a_game_locks_the_next_game_settings();
     the_mod_is_stored_as_its_folder();
     a_picked_folder_is_kept_while_it_is_played();
@@ -2253,6 +2661,7 @@ int main() {
     the_text_switches_round_trip_and_restore();
     the_text_size_reads_writes_and_restores_in_its_range();
     the_language_reads_writes_and_restores();
+    an_available_language_is_kept_until_its_pack_is_installed();
     a_preferences_file_with_crlf_line_ends_reads_its_settings();
     developer_mode_and_its_overrides_are_kept_under_the_profiles_id();
     the_touch_settings_default_alike_everywhere();
@@ -2268,8 +2677,11 @@ int main() {
     menu_scaling_and_native_density_default_read_and_round_trip();
     explosion_flash_default_read_and_round_trip();
     the_zoomed_out_units_default_read_and_round_trip();
+    the_window_edge_default_read_and_round_trip();
+    the_edge_stickiness_default_read_and_round_trip();
     the_window_frame_default_read_and_round_trip();
     the_hud_scaling_default_read_and_round_trip();
+    the_interface_size_default_read_and_round_trip();
     the_zoom_limits_default_read_and_round_trip();
     the_view_past_the_map_edge_defaults_reads_and_round_trips();
     if (failures != 0)

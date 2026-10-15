@@ -6,12 +6,22 @@
 #include "options.hpp"
 
 #include "oa/app/app.hpp"
+#include "oa/app/netgame/launch_file.hpp"
 
 #include <charconv>
+#include <cstdint>
+#include <filesystem>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 
 namespace oa::app::automation {
+
+/// The options check_options accepted, for the status stream.
+///
+/// @return the pointer; null until a command line is accepted
+EndpointOptions*& bound_options() noexcept;
+
 namespace {
 
 // The hosts a listen address may name, as written.
@@ -54,25 +64,77 @@ bool take_option(void* context, const char* name, const OptionValues& values, ui
     } else if (option == "--fark-file") {
         const std::string_view file = values.next(values.arguments);
         options.file = std::filesystem::path(std::u8string(file.begin(), file.end()));
+    } else if (option == "--status-stdout") {
+        options.status_stdout = true;
+        options.status_stdout_on_command = true;
+    } else if (option == "--status-file") {
+        const std::string_view file = values.next(values.arguments);
+        options.status_file = std::filesystem::path(std::u8string(file.begin(), file.end()));
+        options.status_file_on_command = true;
+    } else if (option == "--quit-after-game") {
+        options.quit_after = QuitAfter::game;
+        options.quit_after_on_command = true;
+    } else if (option == "--quit-after-game=after-score") {
+        options.quit_after = QuitAfter::score;
+        options.quit_after_on_command = true;
+    } else if (option.starts_with("--quit-after-game=")) {
+        throw std::runtime_error("--quit-after-game takes after-score");
     } else {
         return false;
     }
     return true;
 }
 
+/// A path as a filesystem path, from its UTF-8 bytes.
+///
+/// @param text the path as the launch gave it
+/// @return the path
+std::filesystem::path path_from_utf8(std::string_view text) {
+    return std::filesystem::path(std::u8string(text.begin(), text.end()));
+}
+
+/// Turns on what the launch's status block asked, where the command line
+/// did not name that field itself.
+///
+/// Network play reads the launch, from a file, -c, --launch or standard
+/// input, and keeps its status block before this check runs.
+///
+/// @param[in,out] options the options the command line set
+void apply_launch_status(EndpointOptions& options) {
+    namespace netgame = oa::app::netgame;
+    const netgame::LaunchStatusChoice& status = netgame::kept_launch_status();
+    if (!options.status_stdout_on_command && status.standard_output_named)
+        options.status_stdout = status.standard_output;
+    if (!options.status_file_on_command && !status.file.empty())
+        options.status_file = path_from_utf8(status.file);
+    if (!options.quit_after_on_command) {
+        if (status.quit_after == netgame::QuitAfter::game)
+            options.quit_after = QuitAfter::game;
+        else if (status.quit_after == netgame::QuitAfter::after_score)
+            options.quit_after = QuitAfter::score;
+        else if (status.quit_after == netgame::QuitAfter::off)
+            options.quit_after = QuitAfter::none;
+    }
+}
+
 /// Checks the endpoint's options as a whole (Extension::check_options).
 ///
 /// --fark-address and --fark-file need --fark, and the address must be
 /// this machine's loopback address; a refusal throws std::runtime_error.
+/// The launch's status block, which network play kept, is applied first.
 ///
 /// @param context the EndpointOptions checked; their listen address is read
 void check_options(void* context) {
     auto& options = options_of(context);
+    apply_launch_status(options);
+    if (options.status_file && options.status_file->empty())
+        throw std::runtime_error("--status-file needs a file");
     if (!options.enabled) {
         if (options.address)
             throw std::runtime_error("--fark-address needs --fark");
         if (options.file)
             throw std::runtime_error("--fark-file needs --fark");
+        bound_options() = &options;
         return;
     }
     const std::string problem = read_listen_address(
@@ -83,6 +145,7 @@ void check_options(void* context) {
         throw std::runtime_error(problem);
     if (options.file && options.file->empty())
         throw std::runtime_error("--fark-file needs a file");
+    bound_options() = &options;
 }
 
 /// Returns the endpoint's usage text (Extension::text).
@@ -93,14 +156,54 @@ void check_options(void* context) {
 ///         another extension's
 const char* text(void* /*context*/, ExtensionText which) {
     if (which == ExtensionText::usage_runs)
-        return "[--fark [--fark-address 127.0.0.1:PORT|[::1]:PORT] [--fark-file PATH]] ";
+        return "[--fark [--fark-address 127.0.0.1:PORT|[::1]:PORT] [--fark-file PATH]] "
+               "[--status-stdout] [--status-file PATH] [--quit-after-game[=after-score]] ";
     if (which == ExtensionText::usage_note)
         return "--fark serves the automation endpoint, through which a program on this "
-               "machine drives the game (docs/automation.md).\n";
+               "machine drives the game. --status-stdout and --status-file report the "
+               "game as lines of JSON, and --quit-after-game leaves once it has ended "
+               "(docs/automation.md).\n";
     return nullptr;
 }
 
 } // namespace
+
+EndpointOptions*& bound_options() noexcept {
+    static EndpointOptions* bound = nullptr;
+    return bound;
+}
+
+namespace {
+
+const std::optional<std::filesystem::path> kNoStatusFile;
+
+} // namespace
+
+bool command_status_stdout() noexcept {
+    const EndpointOptions* bound = bound_options();
+    return bound != nullptr && bound->status_stdout;
+}
+
+bool command_status_lines() noexcept {
+    const EndpointOptions* bound = bound_options();
+    return bound != nullptr && (bound->status_stdout || bound->status_file.has_value());
+}
+
+bool command_status_following() noexcept {
+    const EndpointOptions* bound = bound_options();
+    return bound != nullptr && (bound->status_stdout || bound->status_file.has_value() ||
+                                bound->quit_after != QuitAfter::none);
+}
+
+const std::optional<std::filesystem::path>& command_status_file() noexcept {
+    const EndpointOptions* bound = bound_options();
+    return bound != nullptr ? bound->status_file : kNoStatusFile;
+}
+
+QuitAfter command_quit_after() noexcept {
+    const EndpointOptions* bound = bound_options();
+    return bound != nullptr ? bound->quit_after : QuitAfter::none;
+}
 
 std::string read_listen_address(std::string_view text, ListenAddress& address) {
     const size_t colon = text.rfind(':');

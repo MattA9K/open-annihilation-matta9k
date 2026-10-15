@@ -124,7 +124,7 @@ struct Preferences {
     int32_t interface_type{};
     uint32_t display_width{}, display_height{}, side{}, difficulty{};
     uint8_t scroll_speed{};
-    Rules single, multi, skirmish;
+    Rules single{}, multi{}, skirmish{};
     uint32_t screen_chat{};
     uint16_t graphics_flags{}, sound_flags{}, music_flags{}, display_flags{},
         campaign_unlock_flags{};
@@ -307,6 +307,47 @@ void write_all_missions(const Preferences& p, PreferencesHost& h);
 /// @param[in,out] h Settings services.
 void write_skirmish_player_count(const game_entry::SkirmishSettings& s, PreferencesHost& h);
 
+/// Player rows a new install shows when NumSkirmishPlayers is not stored.
+inline constexpr int32_t default_skirmish_player_count = 10;
+
+/// Sets how many player rows the skirmish setup shows, and stores that one count.
+///
+/// A row that already holds metal the setup's buttons can give is left as it
+/// is. A row below that is filled the way a load fills a missing Player row:
+/// Open, a side and a colour from its place, no alliance, 1000 metal and
+/// 1000 energy. A count of zero stays in memory and is not stored, so a save
+/// before the setup is loaded writes no count.
+///
+/// @param settings Skirmish settings whose slot_count changes.
+/// @param count The rows the setup shows, from zero to the slot storage.
+/// @param[in,out] host Settings services.
+/// @throws std::invalid_argument when count is outside that range.
+void set_skirmish_player_count(
+    game_entry::SkirmishSettings& settings, int32_t count, PreferencesHost& host
+);
+
+/// Remembers the player's skirmish setup the first time a match is about to
+/// replace the slots. A setup already remembered stays remembered, so a
+/// restart keeps the setup from before the first match.
+///
+/// @param live The slots the player set up.
+/// @param[in,out] kept Empty until the first match; then the player's setup.
+void remember_player_skirmish_settings(
+    const game_entry::SkirmishSettings& live, std::optional<game_entry::SkirmishSettings>& kept
+);
+
+/// Puts a remembered skirmish setup back into the live slots and forgets it.
+///
+/// A campaign start that never builds a match calls it, and so does the
+/// return to the skirmish setup after a saved, recorded, network or campaign
+/// game. Nothing happens when no setup is remembered.
+///
+/// @param[in,out] live The slots a match may have replaced.
+/// @param[in,out] kept The player's setup, cleared by the call.
+void restore_player_skirmish_settings(
+    game_entry::SkirmishSettings& live, std::optional<game_entry::SkirmishSettings>& kept
+);
+
 /// The display mode the DisplaymodeWidth and DisplaymodeHeight settings
 /// start at when they are not stored, and whether a smaller stored one is
 /// raised to it.
@@ -331,7 +372,9 @@ inline constexpr DisplayModeSetting tall_display_mode_setting{1024, 768, true};
 /// bit-preserving writes; restores the device volumes when RestoreVolume is
 /// set; picks the first skirmish map when none is stored. The Image Output
 /// Directory setting, and its default of the application directory and the
-/// user name, are kept at any length.
+/// user name, are kept at any length. A setup that names Player on more than
+/// one row keeps Player on the last of those rows, the one a skirmish starts
+/// as, and the earlier rows read Computer. A setup with one Player is unchanged.
 ///
 /// @param[in,out] state Dispatcher state; play_intro_movie is loaded.
 /// @param[out] settings Skirmish slot count, map and slots.
@@ -353,14 +396,21 @@ void load_preferences(
 /// Device volumes are saved only with RestoreVolume set; the image directory
 /// and movie rate only after a change, whose flags it then clears. The
 /// password is skipped while the host keeps the stored one
-/// (PreferencesHost::keep_stored_password).
+/// (PreferencesHost::keep_stored_password). One row is written as Player:
+/// the last row that reads Player, the one a skirmish starts as. Each
+/// earlier Player row is written as Computer. The rows passed in are left
+/// as they are. The row count is written with those rows when the setup
+/// has rows, so the next start reads the same rows.
 ///
 /// @param state Dispatcher state; play_intro_movie is saved.
 /// @param settings Skirmish map and slots.
 /// @param[in,out] p Preferences; the change flags are cleared.
 /// @param[in,out] h Settings and device services.
 /// @throws std::invalid_argument for a slot count outside 0..11.
-/// @quirk NumSkirmishPlayers is not written, as in 3.1c.
+/// @quirk A row count of zero is not written. 3.1c's general save never
+///        writes the row count; this one writes it whenever the setup has
+///        rows, so a count left from another setup cannot uncover a row
+///        this save did not write.
 void save_preferences(
     const State& state,
     const game_entry::SkirmishSettings& settings,

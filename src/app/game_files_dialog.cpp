@@ -8,7 +8,10 @@
 // the screen, from the preferences file, before the Runtime starts.
 #include "game_files_screen.hpp"
 #include "language_packs.hpp"
+#include "window_pixels.hpp"
 
+#include "oa/app/game_directory.hpp"
+#include "oa/app/user_folder.hpp"
 #include "oa/data/languages.hpp"
 #include "oa/data/languages/interface_text.hpp"
 #include "oa/platform/locale.hpp"
@@ -17,6 +20,8 @@
 #include "oa/present/game_text.hpp"
 #include "oa/ui/engine_settings.hpp"
 #include "oa/ui/engine_settings/dialog.hpp"
+#include "oa/ui/kit/layout.hpp"
+#include "oa/ui/kit/theme.hpp"
 
 #include <algorithm>
 #include <array>
@@ -38,6 +43,7 @@ namespace oa::app {
 
 namespace {
 
+namespace paint = oa::ui::paint;
 namespace languages = oa::data::languages;
 namespace settings = oa::ui::engine_settings;
 namespace renderer = oa::ui::frontend_renderer;
@@ -49,8 +55,6 @@ constexpr std::string_view catalogue_folder = engine_languages_folder;
 constexpr std::string_view catalogue_extension = ".tdf";
 /// The most drawn lines the dialog's text hooks keep before they start again.
 constexpr std::size_t kept_lines = 512;
-/// The margin kept round the dialog, in points.
-constexpr float dialog_margin_points = 16.0F;
 /// How long the dialog's loop waits for an event, in milliseconds: briefly while the check
 /// drives it, else long enough to idle.
 constexpr int32_t check_wait_ms = 16;
@@ -93,44 +97,6 @@ languages::InterfaceText& screen_catalogue() {
     });
 }
 
-/// Reads the catalogue files beside the game once, and the engine's
-/// language packs' interface.tdf after them.
-void read_screen_catalogue() {
-    static bool read = false;
-    if (read)
-        return;
-    read = true;
-    const std::string base = oa::platform::program_directory();
-    if (base.empty())
-        return;
-    const fs::path folder = path_from_utf8(base.c_str()) / path_from_utf8(catalogue_folder);
-    std::error_code error;
-    if (!fs::is_directory(folder, error))
-        return;
-    std::vector<fs::path> files;
-    for (fs::directory_iterator entry(folder, error), end; !error && entry != end;
-         entry.increment(error))
-        if (entry->is_regular_file(error) && catalogue_file(path_to_utf8(entry->path().filename())))
-            files.push_back(entry->path());
-    // A later file's translation of a text replaces an earlier one's.
-    std::sort(files.begin(), files.end());
-    for (const fs::path& file : files) {
-        std::ifstream input(file, std::ios::binary);
-        std::string text;
-        if (input)
-            text.assign(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
-        std::string failure;
-        if (!input || !screen_catalogue().add(text, &failure))
-            std::cerr << "open-annihilation: the interface catalogue " << path_to_utf8(file)
-                      << " was not read" << (failure.empty() ? "" : ": ") << failure << '\n';
-    }
-    // The engine's language packs' own words, read after the files beside
-    // them; the screen shows before any game data is found, so its words
-    // come from the packs alone, and their other tables are let go.
-    std::vector<std::unique_ptr<LoadedLanguagePack>> packs;
-    read_language_packs(folder, packs, &screen_catalogue());
-}
-
 /// Loads the preferences file, empty when it is missing or cannot be read.
 ///
 /// @param file the file
@@ -145,11 +111,132 @@ void read_screen_catalogue() {
     }
 }
 
+/// Tells whether two words are the same, ignoring the case of ASCII letters.
+///
+/// @param left a word
+/// @param right a word
+/// @return true when they match
+[[nodiscard]] bool same_word(std::string_view left, std::string_view right) {
+    const languages::UnitTexts::NoCaseLess less{};
+    return !less(left, right) && !less(right, left);
+}
+
+/// The engine's and the player's packs the Game files screen and the folder
+/// chooser draw with. They are read once. published is set when they are
+/// registered as installed languages; the management screen does not
+/// register them, because the runtime already has.
+struct HeldLanguagePacks {
+    bool read{};
+    bool published{};
+    std::vector<std::unique_ptr<LoadedLanguagePack>> engine;
+    std::vector<std::unique_ptr<LoadedLanguagePack>> player;
+};
+
+/// The packs, kept for as long as the game runs.
+///
+/// @return the packs
+HeldLanguagePacks& held_language_packs() {
+    static HeldLanguagePacks held;
+    return held;
+}
+
+/// Reads the catalogue files beside the game once, then the engine's
+/// language packs and the player's, without registering them.
+///
+/// The player's folder is read even when the program's own folder is not
+/// there. The first call is the one that decides the folder.
+///
+/// @param user_folder_option --user-folder; empty leaves the folder to the preferences
+/// @param preferences_file --preferences-file; empty: the player's own file
+void read_held_language_packs(
+    const std::optional<fs::path>& user_folder_option,
+    const std::optional<fs::path>& preferences_file
+) {
+    HeldLanguagePacks& held = held_language_packs();
+    if (held.read)
+        return;
+    std::vector<std::unique_ptr<LoadedLanguagePack>>& engine_packs = held.engine;
+    const std::string base = oa::platform::program_directory();
+    if (!base.empty()) {
+        const fs::path folder = path_from_utf8(base.c_str()) / path_from_utf8(catalogue_folder);
+        std::error_code error;
+        if (fs::is_directory(folder, error)) {
+            std::vector<fs::path> files;
+            for (fs::directory_iterator entry(folder, error), end; !error && entry != end;
+                 entry.increment(error))
+                if (entry->is_regular_file(error) &&
+                    catalogue_file(path_to_utf8(entry->path().filename())))
+                    files.push_back(entry->path());
+            // A later file's translation of a text replaces an earlier one's.
+            std::sort(files.begin(), files.end());
+            for (const fs::path& file : files) {
+                std::ifstream input(file, std::ios::binary);
+                std::string text;
+                if (input)
+                    text.assign(
+                        std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()
+                    );
+                std::string failure;
+                if (!input || !screen_catalogue().add(text, &failure))
+                    std::cerr << "open-annihilation: the interface catalogue " << path_to_utf8(file)
+                              << " was not read" << (failure.empty() ? "" : ": ") << failure
+                              << '\n';
+            }
+            // The engine's language packs' own words, read after the files
+            // beside them. The screen shows before any game data is found,
+            // so its words come from the packs, and their other tables are
+            // let go.
+            read_language_packs(folder, engine_packs, &screen_catalogue());
+        }
+    }
+    const fs::path preferences = preference_file(preferences_file);
+    const auto values = load_preferences(preferences);
+    std::string note;
+    const fs::path player_root =
+        own_user_folder(user_folder_option, preferences_file, preferences, values, note);
+    if (!note.empty())
+        std::cerr << "open-annihilation: no Documents folder (" << note
+                  << "); the player's language packs are read from " << path_to_utf8(player_root)
+                  << '\n';
+    if (!player_root.empty())
+        read_language_packs(
+            player_root / path_from_utf8(player_languages_folder), held.player, &screen_catalogue()
+        );
+    held.read = true;
+}
+
+/// Reads the catalogue and the packs once, then registers the installed
+/// languages. The player's pack wins over the engine's when both hold one
+/// tag. No mod's packs: this screen adds none of a mod's languages.
+///
+/// @param user_folder_option --user-folder; empty leaves the folder to the preferences
+/// @param preferences_file --preferences-file; empty: the player's own file
+void read_screen_catalogue(
+    const std::optional<fs::path>& user_folder_option,
+    const std::optional<fs::path>& preferences_file
+) {
+    read_held_language_packs(user_folder_option, preferences_file);
+    HeldLanguagePacks& held = held_language_packs();
+    if (held.published)
+        return;
+    languages::set_pack_languages(installed_entries({&held.player, &held.engine}), {});
+    held.published = true;
+}
+
 /// Puts a language choice in effect for the interface's words.
 ///
+/// The installed packs are registered before the choice is read, so a pack
+/// can be the language the operating system chooses.
+///
 /// @param choice the setting's value: system_choice or a language's tag
-void use_language(std::string_view choice) {
-    read_screen_catalogue();
+/// @param preferences_file --preferences-file; empty: the player's own file
+/// @param user_folder_option --user-folder; empty leaves the player's folder
+void use_language(
+    std::string_view choice,
+    const std::optional<fs::path>& preferences_file,
+    const std::optional<fs::path>& user_folder_option
+) {
+    read_screen_catalogue(user_folder_option, preferences_file);
     const languages::Language& system =
         languages::preferred_language(oa::platform::locale::preferred_locales());
     languages::set_interface_language(
@@ -272,29 +359,67 @@ class TextHooksInstall {
     oa::present::GameTextHooks previous_{}; ///< the hooks in place before
 };
 
-/// Where the dialog lies on the canvas, and how large.
+/// Where the dialog lies on the canvas, how large, and at which size class.
 struct DialogPlace {
     int32_t x{};      ///< the canvas column of the dialog's left edge
     int32_t y{};      ///< the canvas row of its top edge
-    int32_t scale{1}; ///< canvas pixels across each of the dialog's pixels
+    int32_t scale{1}; ///< canvas pixels across each of the dialog's points
+    /// The size class the dialog is laid out at, from the points the scale leaves.
+    oa::ui::kit::SizeClass size_class{oa::ui::kit::SizeClass::compact};
+    int32_t width{settings::dialog_width};   ///< the dialog's width, in points
+    int32_t height{settings::dialog_height}; ///< the dialog's height, in points
 };
 
-/// Places the dialog centred on a viewport at the largest whole scale that fits with a margin.
+/// Returns a quotient rounded down, for a numerator below 0 too.
+///
+/// @param numerator the numerator
+/// @param denominator the denominator, above 0
+/// @return floor(numerator / denominator)
+[[nodiscard]] int32_t floor_quotient(int32_t numerator, int32_t denominator) noexcept {
+    const int32_t quotient = numerator / denominator;
+    return numerator % denominator < 0 ? quotient - 1 : quotient;
+}
+
+/// Places the dialog on a viewport as the OA layer places its screens: at
+/// the scale the Interface size chooses (oa::ui::kit::layer_viewport: the
+/// chosen step, or the Auto scale, with 150% among Auto's steps while
+/// offer_fractional, no larger than lets Compact's dialog fit the canvas
+/// less its safe insets and at least 1), laid out at the size class of the
+/// points left over, and centred in the canvas less its insets, rounded
+/// down. The bitmap scale is the whole part of that percent, as a chosen
+/// 150% already is.
 ///
 /// @param viewport the viewport
+/// @param size the Interface size the settings in effect choose
+/// @param offer_fractional 150% is among Auto's steps: the modern fonts are
+///     on and opened
 /// @return the place
-[[nodiscard]] DialogPlace place_dialog(const oa::ui::game_files::Viewport& viewport) noexcept {
-    const float margin = dialog_margin_points * viewport.px_per_point * 2.0F;
-    const int32_t across = static_cast<int32_t>(std::floor(
-        (static_cast<float>(viewport.width) - margin) / static_cast<float>(settings::dialog_width)
-    ));
-    const int32_t down = static_cast<int32_t>(std::floor(
-        (static_cast<float>(viewport.height) - margin) / static_cast<float>(settings::dialog_height)
-    ));
+[[nodiscard]] DialogPlace place_dialog(
+    const oa::ui::game_files::Viewport& viewport,
+    settings::InterfaceSize size,
+    bool offer_fractional
+) noexcept {
+    namespace kit = oa::ui::kit;
+    kit::Viewport canvas;
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    canvas.density = viewport.px_per_point;
+    canvas.safe = {
+        viewport.safe.left, viewport.safe.top, viewport.safe.right, viewport.safe.bottom
+    };
+    const int32_t room_width = canvas.width - canvas.safe.left - canvas.safe.right;
+    const int32_t room_height = canvas.height - canvas.safe.top - canvas.safe.bottom;
+    int32_t chosen_percent = settings::interface_size_percent(size);
+    if (chosen_percent <= 0 && offer_fractional)
+        chosen_percent = kit::auto_with_fraction_percent;
+    canvas = kit::layer_viewport(canvas, chosen_percent);
     DialogPlace place;
-    place.scale = std::max(1, std::min(across, down));
-    place.x = (viewport.width - settings::dialog_width * place.scale) / 2;
-    place.y = (viewport.height - settings::dialog_height * place.scale) / 2;
+    place.scale = canvas.scale_percent / 100;
+    place.size_class = kit::frame_of(canvas).size_class;
+    place.width = kit::metrics_of(place.size_class).dialog_width;
+    place.height = kit::metrics_of(place.size_class).dialog_height;
+    place.x = canvas.safe.left + floor_quotient(room_width - place.width * place.scale, 2);
+    place.y = canvas.safe.top + floor_quotient(room_height - place.height * place.scale, 2);
     return place;
 }
 
@@ -305,13 +430,13 @@ struct DialogPlace {
 /// @param place where the dialog lies
 /// @param dialog the dialog
 /// @return the frame
-[[nodiscard]] touch_paint::Canvas compose_frame(
-    const touch_paint::Canvas* under,
+[[nodiscard]] paint::Canvas compose_frame(
+    const paint::Canvas* under,
     const oa::ui::game_files::Viewport& viewport,
     const DialogPlace& place,
     const settings::Dialog& dialog
 ) {
-    touch_paint::Canvas canvas = touch_paint::make_canvas(viewport.width, viewport.height);
+    paint::Canvas canvas = paint::make_canvas(viewport.width, viewport.height);
     const auto back = oa::ui::game_files::background_colour;
     const bool same = under != nullptr && under->width == canvas.width &&
                       under->height == canvas.height && under->rgba.size() == canvas.rgba.size();
@@ -333,8 +458,8 @@ struct DialogPlace {
         out[3] = 255;
     }
     renderer::Surface surface;
-    surface.width = static_cast<uint32_t>(settings::dialog_width * place.scale);
-    surface.height = static_cast<uint32_t>(settings::dialog_height * place.scale);
+    surface.width = static_cast<uint32_t>(place.width * place.scale);
+    surface.height = static_cast<uint32_t>(place.height * place.scale);
     surface.rgb.assign(static_cast<std::size_t>(surface.width) * surface.height * 3U, 0);
     for (std::size_t pixel = 0, count = surface.rgb.size() / 3U; pixel < count; ++pixel) {
         surface.rgb[pixel * 3U] = back.r;
@@ -411,24 +536,71 @@ dialog_key_of(const SDL_KeyboardEvent& key) noexcept {
     }
 }
 
-/// Tells whether the dialog takes a touch device's fingers: a touch screen's, or the check's.
+/// Tells whether the dialog takes a touch device's fingers: a touch screen's (touch_screen), or
+/// the check's.
 ///
 /// @param device the device
 /// @return true for a direct touch device or the check's
 [[nodiscard]] bool accepted_touch(SDL_TouchID device) noexcept {
-    if (device == SDL_MOUSE_TOUCHID || device == SDL_PEN_TOUCHID)
-        return false;
-    if (device == game_files_check_touch_id)
-        return true;
-    return SDL_GetTouchDeviceType(device) == SDL_TOUCH_DEVICE_DIRECT;
+    return device == game_files_check_touch_id || touch_screen(device);
 }
 
 } // namespace
 
-void install_game_files_language(const std::optional<fs::path>& preferences_file) {
-    const auto values =
-        load_preferences(preferences_file.value_or(oa::platform::preferences::default_file()));
-    use_language(settings::stored_language(values, !preferences_file.has_value()));
+void install_game_files_language(
+    const std::optional<fs::path>& preferences_file,
+    const std::optional<fs::path>& user_folder_option
+) {
+    const auto values = load_preferences(preference_file(preferences_file));
+    use_language(
+        settings::stored_language(values, !preferences_file.has_value()),
+        preferences_file,
+        user_folder_option
+    );
+}
+
+void read_game_files_language_packs(
+    const std::optional<fs::path>& user_folder_option,
+    const std::optional<fs::path>& preferences_file
+) {
+    read_held_language_packs(user_folder_option, preferences_file);
+}
+
+void use_game_files_language_fonts(text_font::FontStack& stack) {
+    stack.remove_pack_faces();
+    const languages::Language& chosen = languages::interface_language();
+    const HeldLanguagePacks& held = held_language_packs();
+    std::vector<PackFontFile> fonts;
+    const auto add_group = [&](const std::vector<std::unique_ptr<LoadedLanguagePack>>& packs) {
+        for (const auto& loaded : packs) {
+            if (loaded == nullptr)
+                continue;
+            const languages::PackManifest& manifest = loaded->pack.manifest();
+            if (manifest.tag != chosen.tag && !same_word(manifest.word, chosen.game_name))
+                continue;
+            for (const PackFontFile& font : pack_fonts(*loaded)) {
+                const bool held_already =
+                    std::any_of(fonts.begin(), fonts.end(), [&font](const PackFontFile& have) {
+                        return have.file == font.file;
+                    });
+                if (held_already)
+                    continue;
+                // Ones past the stack's room are not tried, so they are not
+                // reported as faces that did not open.
+                if (fonts.size() >= text_font::most_pack_faces)
+                    continue;
+                fonts.push_back(font);
+            }
+        }
+    };
+    // The player's pack wins over the engine's when both name one file.
+    add_group(held.player);
+    add_group(held.engine);
+    for (const PackFontFile& font : fonts) {
+        if (!stack.add_face(font.file, font.role))
+            std::cerr << "open-annihilation: the language font " << path_to_utf8(font.file)
+                      << " did not open\n";
+    }
 }
 
 bool run_game_files_language_dialog(const GameFilesLanguageRequest& request) {
@@ -459,7 +631,11 @@ bool run_game_files_language_dialog(const GameFilesLanguageRequest& request) {
     float pointer_y = 0.0F;
     oa::ui::game_files::Viewport viewport =
         hooks.viewport != nullptr ? hooks.viewport(hooks.context) : oa::ui::game_files::Viewport{};
-    DialogPlace place = place_dialog(viewport);
+    // 150% is among Auto's steps while the modern fonts are on and this
+    // screen's stack of them opened.
+    const bool offer_fractional = current.modern_fonts && request.fonts != nullptr;
+    DialogPlace place = place_dialog(viewport, current.interface_size, offer_fractional);
+    dialog.size_class = place.size_class;
     // Canvas pixels to the dialog's own.
     const auto source_x = [&](float x) {
         return static_cast<int32_t>(
@@ -482,9 +658,13 @@ bool run_game_files_language_dialog(const GameFilesLanguageRequest& request) {
                 std::cerr << "open-annihilation: the preferences " << path_to_utf8(file)
                           << " were not written: " << error.what() << '\n';
             }
-            use_language(dialog.chosen.language);
+            use_language(dialog.chosen.language, request.preferences_file, request.user_folder);
         } else {
-            use_language(dialog.opened.language);
+            use_language(dialog.opened.language, request.preferences_file, request.user_folder);
+        }
+        if (request.fonts != nullptr) {
+            use_game_files_language_fonts(*request.fonts);
+            text.lines.clear();
         }
         return accepted;
     };
@@ -494,7 +674,8 @@ bool run_game_files_language_dialog(const GameFilesLanguageRequest& request) {
             if (next.width != viewport.width || next.height != viewport.height ||
                 next.px_per_point != viewport.px_per_point) {
                 viewport = next;
-                place = place_dialog(viewport);
+                place = place_dialog(viewport, current.interface_size, offer_fractional);
+                dialog.size_class = place.size_class;
                 dirty = true;
             }
         }
@@ -588,8 +769,8 @@ bool run_game_files_language_dialog(const GameFilesLanguageRequest& request) {
                         const bool cancelled = event.type == SDL_EVENT_FINGER_CANCELED;
                         action = settings::dialog_pointer_up(
                             dialog,
-                            cancelled ? -settings::dialog_width : source_x(x),
-                            cancelled ? -settings::dialog_height : source_y(y)
+                            cancelled ? -place.width : source_x(x),
+                            cancelled ? -place.height : source_y(y)
                         );
                         finger.reset();
                     }
@@ -610,7 +791,11 @@ bool run_game_files_language_dialog(const GameFilesLanguageRequest& request) {
                 break;
             case settings::DialogAction::changed:
                 // The language chosen shows at once, in the dialog's own words too.
-                use_language(dialog.chosen.language);
+                use_language(dialog.chosen.language, request.preferences_file, request.user_folder);
+                if (request.fonts != nullptr) {
+                    use_game_files_language_fonts(*request.fonts);
+                    text.lines.clear();
+                }
                 dirty = true;
                 break;
             case settings::DialogAction::accepted:
@@ -618,11 +803,20 @@ bool run_game_files_language_dialog(const GameFilesLanguageRequest& request) {
             case settings::DialogAction::cancelled:
                 return finish(false);
             case settings::DialogAction::manage_game_files:
-            case settings::DialogAction::switch_mod:
             case settings::DialogAction::open_folder:
-            case settings::DialogAction::roll_back_mod:
+            case settings::DialogAction::reset_install_id:
+            case settings::DialogAction::empty_downloads:
+            case settings::DialogAction::download_language:
+            case settings::DialogAction::add_registry:
+            case settings::DialogAction::add_mirror:
+            case settings::DialogAction::open_library:
+            case settings::DialogAction::show_gallery:
+            case settings::DialogAction::check_content:
+            case settings::DialogAction::copy_content_again:
+            case settings::DialogAction::open_content_folder:
+            case settings::DialogAction::cancel_content_copy:
                 // The Language dialog lists none of the controls that ask
-                // for these.
+                // for these, and no language that is only available to download.
                 dirty = true;
                 break;
             }

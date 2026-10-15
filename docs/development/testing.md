@@ -67,6 +67,32 @@ added only when `OA_GAME_DIR` names one at configure time. The game is
 executable inside the application bundle `open-annihilation.app`), the file
 the `oa-game` target builds; tests start it through `$<TARGET_FILE:oa-game>`.
 
+`native-library-map-previews` (`--check-library-map-previews`) opens the
+Library on Maps with three packs and waits until each preview is drawn: one
+installed pack's own picture, one installed pack's terrain minimap, and one
+picture from the check's registry for a pack that is not installed. It then
+requires the same two installed pictures on the Active tab's map tiles, each
+at the size that source produces rather than the empty well shown while a
+picture is still missing. Its catalogue is served by the test fixture, and
+its Maps folder, data folder and preferences stay in the build tree.
+
+`native-library-content` (`--check-library-content`) turns Core Contingency
+off, closes the Library, and requires its maps out of the skirmish list.
+It then chooses the Total Annihilation demo and, on the next close,
+requires that demo mounted. `OA_DEMO_INSTALLER` names the demo's installer
+for that half. Without it the check prints that the demo was not checked
+and still passes the Core Contingency half; it does not skip with code 77.
+`--game-dir` is only the source the copy is made from. The check plays the
+player's copy, and its preferences and player folder stay in the build tree.
+
+`native-map-pack-lists` (`--check-map-pack-lists`) installs one map pack
+from the Library during the run and requires its fitting map in the
+skirmish list and the battle room's map list the next time each is shown,
+including when the skirmish list was already open. The pack's other map
+stays out of the base game's lists, then appears under a local mod when
+its files fit that mod and drops out again when they do not. Uninstalling
+the pack removes both maps. The check serves the pack itself.
+
 Every native check names its preferences file with `--preferences-file`, so
 that it never reads or writes the player's own, nor the renderer records
 the game keeps beside it, which with a named file live in memory for the
@@ -87,12 +113,13 @@ without a mod and in a made-up mod's own with one, the main menu's notice
 of the moves shown once in the settings dialog's look and closed, its Open
 folder button and the
 settings' Your files buttons through a recorded opener, and the `Mods`
-folder's mods listed on the Mods page. With `--snapshot` it writes the
+folder's mods offered to the Library. With `--snapshot` it writes the
 notice and the Your files row beside the snapshot. `native-mod-switch`
 (`--check-mod-switch`) writes two test profiles into that folder's `Mods`
-and switches the mod ten times through the Mods page's Switch Mod question,
-each a soft restart on the same window: each run plays the mod chosen,
-listed first, and what the heap holds in live allocations as the last
+and switches the mod ten times through the Library, with PLAY NOW, and
+SWITCH OFF and its Switch Mod question for no mod, each a soft restart on
+the same window: each run plays the mod chosen, shown as played, and what
+the heap holds in live allocations as the last
 round's runs reach the main menu stays level with the first round's after
 the first start.
 `native-mod-install` (`--check-mod-install`) installs made-up mod packages
@@ -102,25 +129,29 @@ Finder made from a dropped file with no question, cancels and then accepts
 an update, replaces a third revision keeping one `.backup`, reinstalls,
 declines an older revision, installs another version alongside, leaves a
 folder that holds another mod as it is, refuses a profile that does not
-resolve, rolls a mod back twice on the Mods page, offers no roll back to a
-kept version this build cannot play and refuses, in a prompt over the
-dialog, one that became so while it asked, and plays the mod with PLAY
+resolve, rolls a mod back twice in the Library, offers no roll back to a
+kept version this build cannot play and refuses, in a prompt, one that
+became so while it asked, and plays the mod with PLAY
 NOW; the second replaces the mod played, the change staged until the run
 ends; the third finds it put in place, told, and rolls it back; the fourth
 finds that put in place and leaves the folder as a stop after a replace's
 first rename would; the fifth finds the mod played all the same, put back
 before its folder was resolved. With `--snapshot` it writes the installed notice and
-the Another Version question beside the snapshot. The unit tests of the
-installer are `app-mod-install-package`, `app-mod-install-plan`,
-`app-mod-install-change` and `app-mod-install-handoff`, of the streamed zip
-reader `formats-zip-stream`, and of the prompt `ui-engine-settings-prompt`.
+the Another Version question beside the snapshot. The installer is
+`src/app/package-install`. Its four unit tests keep the names
+`app-mod-install-package`, `app-mod-install-plan`, `app-mod-install-change`
+and `app-mod-install-handoff` (the executables are
+`oa-app-package-install-*-test`); `app-package-install-kinds` tests the
+kind table. The streamed zip reader is `formats-zip-stream`, and the prompt
+is `ui-engine-settings-prompt`.
 `native-mod-warning` (`--check-mod-warning`) writes made-up profiles into
 that folder's `Mods`: one whose second side's interface art and font are
 missing, one whose unit files are missing, one whose commander's file the
 catalog refuses and one that plays whole; and two folders without a
 profile: one whose SIDEDATA names the same missing art and font, and one
-that lacks a side's LOGO, which the Mods page refuses. It switches to each
-of the others through the Mods page, in one run: the folder and the
+that lacks a side's LOGO, which the Library's PLAY NOW refuses in a note.
+It switches to each of the others with PLAY NOW, in one run: the folder
+and the
 profile whose side files are missing each warn of both files once over the
 main menu and say that their games still start, and a skirmish on that
 side starts from Skirmish's Start and plays 300 ticks; the profile whose
@@ -186,9 +217,11 @@ No window of a check opens at the display's own pixel density but
 `native-render-tiers-density`'s, which `--native-density` opens so, and
 `native-render-tiers-density-setting`'s, which the Native pixel density
 setting in its preferences file opens so: on the dummy video driver its
-density is 1, and the check holds the match laid out
-in window points, read back at the display's size, at zoom 1 equal to the
-processor's composition, and picking the unit drawn under the pointer. On a
+density is 1, unless `OA_PIXEL_DENSITY` names a whole density from 2 to 8,
+which grows that window to that many pixels per point. The check holds the
+match laid out in window points, read back at the display's size, at zoom 1
+equal to the processor's composition, and picking the unit drawn under the
+pointer. On a
 display above density 1, such as a laptop's built-in display, run the same
 check by hand, without `SDL_VIDEO_DRIVER`, to hold the read-back at zoom 1
 to the composition enlarged by nearest replication:
@@ -267,15 +300,19 @@ it was configured with, and tests receive it at run time. It is the only
 setting the demo's tests need: each unpacks the demo's data from the
 installer itself. These tests read it:
 
-- `demo-installer-data` unpacks the installer's archive into a temporary data
-  folder, checks its size and SHA-256, and checks that a second start reuses
-  it and that the unpacked folder is a usable installation;
+- `demo-installer-data` unpacks the installer's archive into
+  `Games/totala-demo` of a temporary player's folder, checks its size and
+  SHA-256, and checks that a second start reuses it and that the unpacked
+  folder is a usable installation;
 - `native-demo-installer` starts the game headless, with `--game-dir` on the
   installer's folder and `--data-dir` on a scratch folder, and checks that the
-  archive is unpacked, checked and mounted, that every start opens the main
-  menu with no dialog over it, that a second start mounts it without
-  unpacking it again, that a damaged archive is unpacked again, and that the
-  installer's folder is left as it was;
+  archive is unpacked into that scratch folder's player folder at
+  `Games/totala-demo` with its `.oa-content` record, checked and mounted, that
+  every start opens the main menu with no dialog over it, that a second start
+  mounts it without unpacking it again, that a damaged archive is unpacked
+  again, that an earlier `demo-1997` archive in the data folder is copied
+  from once and left there, and that the installer's folder is left as it
+  was;
 - `native-demo-navigation`, `native-demo-saved-games` and
   `native-demo-multiplayer-menu` start the game the same way and run its
   `--check-navigation`, `--check-load-save` and `--check-multiplayer-menu`
@@ -591,7 +628,7 @@ tested without a touch screen. Three tests need no game data:
   left-handed mirror, hit testing with the fat finger's reach, the radial,
   the help and label texts, and the texts the labels that stand for two
   things are looked up by;
-- `app-touch-paint` checks the touch layer's drawing primitives: rounded
+- `ui-paint` checks the touch layer's drawing primitives: rounded
   rectangles blended over a known background, the icon marks inside their
   boxes, text coverage and clipping at the layer's edges.
 
@@ -666,7 +703,7 @@ a gamepad. These tests need no game data:
   every row of the maps from buttons to actions with the fallback map and
   the left-handed mirror, the effective scheme, the glyph styles and the
   haptics;
-- `ui-touch-hud` and `app-touch-paint` also check the slim pad HUD, the
+- `ui-touch-hud` and `ui-paint` also check the slim pad HUD, the
   build and group rings, the badges and the glyphs;
 - `ui-engine-settings` and `ui-engine-settings-dialog` check the Controller
   section's settings, the Control size and the Steam Deck's defaults;
@@ -674,9 +711,13 @@ a gamepad. These tests need no game data:
   recognised;
 - `platform-game-installs` builds home folders in a temporary folder with
   Steam, Heroic, Lutris and Bottles installs, and checks the folders found
-  and the readers of each library file; `ui-folder-chooser` lays out the
-  in-engine folder chooser and checks its focus, keys, presses and
-  scrolling; `game-directory` checks resolution with found folders.
+  and the readers of each library file; `ui-folder-chooser` checks what the
+  locator recognises, the order of its rows, its name filter, its places and
+  rows, and choosing one with keys and presses; `game-directory` checks
+  resolution with found folders, which asks with the system's dialog when it
+  can open and with the locator in Game Mode, with no dialog, or when the
+  dialog cannot open; `native-folder-chooser` drives that screen with Tab
+  and the choose key onto the fixture install.
 
 Over the installation, `native-pad-controls` runs `--check-pad-controls` in
 a window of the dummy video driver at 1280x800, the Steam Deck's screen. The
@@ -842,6 +883,36 @@ message log's face at a text size, that a face's rows at that size are the
 ones the fonts report, that settings written and read come back, and that
 the field's place is handed to a stub in the window's coordinates.
 
+### The kit for an extension
+
+An extension builds Settings pages, kit screens, notices, prompts and
+match-overlay components from the OA UI kit through its table
+(`register_settings_pages`, kit screens in the `ScreenRegistry`,
+`open_kit_screen`, `show_notice` and `ask_prompt` in the screen services,
+and the overlay's kit calls, version 15 of the extension table).
+`screen-registry` checks the registrations: a page and a kit screen taken,
+and the refusals, the first of which is kept. `app-extension-list` checks
+that `register_settings_pages` is called for every extension in list order,
+and `extension-hooks-game` that the game calls it. In a build configured
+with `-DOA_RECORD_EXTENSION_HOOKS=ON`, `extension-kit`
+(`tests/extension/check_kit_fixture.py`) runs the Kit fixture, a test
+extension (`tests/extension/kit_fixture.cpp`) that uses the kit through the
+table alone, over the installation `OA_GAME_DIR` names. In a 640x480, a
+1280x720 and a 1920x1080 window, on the dummy drivers with `--fark`, it
+opens Settings by the OA button and requires the fixture's page listed below
+Developer, its controls inside the window with no two overlapping, Tab
+through them in the order the page declares, and OK storing a change and
+calling the page's `applied`. It opens the fixture's kit screen with
+`--kit-fixture-screen` and requires its dialog, its controls inside the
+window, its tab order and CLOSE; and it asks the fixture's prompt with
+`--kit-fixture-prompt` and requires Yes to reach the answer. Then a
+headless match with `--snapshot` must show the fixture's chip edged in the
+outline colour it prints, where it prints it, from the battlefield's
+corner; with the chip's setting stored Off the fixture draws none. Its
+output names each window size. `native-registered-kit` checks the same
+hosts with a page, a screen, a notice and a prompt registered from inside
+the engine, with their size class and scale.
+
 ### Other builds
 
 - **Core only**, without SDL or game data: configure with
@@ -927,6 +998,22 @@ the field's place is handed to a stub in the window's coordinates.
   it there, as for XP: 95 refuses to start a program that imports what it has
   not got, with a loader dialogue rather than a message.
 
+  The release package is the flake's `win95` output. `nix build .#win95`
+  configures a Release build with the game's self-checks left out, the same
+  way the other Windows release packages are built, and within what this
+  toolchain can do: the i686 instruction set, no SSE, floats on the
+  processor's floating-point unit.
+  It installs the game, `oa-intro.exe` and `oa-tool.exe` stripped of their
+  symbol tables, the notices, `licenses/`, `fonts/`,
+  `languages/interface.tdf` and `registries/` into `$out/bin`, the package
+  root. The programs as the build made them, symbol table included, are
+  installed in `$out/symbols` for the symbols zip. `licenses/` is every
+  notice the other Windows packages carry; the Linux-only SDL notice,
+  `licenses/SDL-linux.txt`, is not among them. `oa-intro.exe` is the intro
+  player the game links, built with that toolchain. The four Windows
+  installers are built from packages in that shape; see
+  [The Windows installers](releasing.md#the-windows-installers).
+
   Windows 95 cannot execute SSE at all, so a build for it wants
   `-DOA_X86_FLOAT=fpu`, and `SDL_CPU_FEATURE_MASK` in the environment hides
   the features its CPUID advertises from SDL, which would otherwise choose a
@@ -979,6 +1066,46 @@ C libraries lack: engine code copies text into fixed-size fields with
 The installation of Total Annihilation 3.1c is not CI's to download: the
 game-data tests and the native checks over it run only on contributors'
 machines, so run them before asking for review.
+
+## Start-up and screen timing
+
+A run writes `open-annihilation: timing:` lines. Each line ends with a
+millisecond mark from process start (`oa::platform::tick_ms`). A phase that
+has a measured length also names it, as `preferences (span 40 ms) 120`.
+
+The phases are process start, preferences, user folder, the content check,
+mounting, fonts, language, catalogue and registries, the display and
+renderer probe, the window's first frame, the intro, and the main menu's
+first frame. The window's first frame is the first present, including the
+quiet frame drawn when the renderer is ready. A screen change writes
+`screen <name> begin` and, when that screen is first presented,
+`screen <name> first frame`. The setup's steps use `screen setup` and the
+step's word: language, game, copying, online or buttons. A scan of
+installers that runs off the main thread writes `sources` when it finishes.
+
+A mark taken before the log file is open is kept and written when the log
+opens. It is also written to the standard output when lines are not held
+for the log, so a check that never opens a log still prints the marks.
+
+A phase that runs longer than the progress dialog's threshold is drawn
+under that dialog. See The progress dialog below.
+
+## The progress dialog
+
+Work that lasts past 300 ms (`long_work_show_after_ms`) shows a dialog with
+the title Open Annihilation, one line and a bar or a spinner, and no
+buttons. It stays at least 800 ms (`long_work_stay_ms`) once it has
+appeared, then closes on its own. Quicker work shows nothing and logs
+`progress dialog: not shown`. The log lines are `progress dialog: shown`,
+`progress dialog: spinner` (once each time the spinner's eighth changes),
+`progress dialog: closed` and `progress dialog: not shown`. The timing
+marks are `progress dialog shown` and `progress dialog closed`.
+
+The dialog covers loading the game's archives, checking the copy of Total
+Annihilation, applying a language, a library copy, and a remount after a
+change (`Applying your changes`). The setup shows the same dialog while an
+installer scan is still reading on the game step. Pictures of the spinner
+and the bar at three window sizes are in `docs/images/progress/`.
 
 ## Kinds of test
 

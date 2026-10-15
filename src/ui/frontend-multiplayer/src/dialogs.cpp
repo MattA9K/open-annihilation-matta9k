@@ -3,8 +3,11 @@
 
 // Panels stacked over the battleroom or the match.
 #include "oa/ui/frontend_multiplayer/dialogs.hpp"
+#include "oa/ui/frontend_multiplayer/map_list.hpp"
+#include "oa/ui/frontend_multiplayer/screens.hpp"
 
 #include "oa/base/game_loop.hpp"
+#include "oa/data/map_pack/map_name.hpp"
 #include "oa/formats/tnt.hpp"
 #include "oa/present/model/mesh_raster.hpp"
 #include "oa/present/surface.hpp"
@@ -16,6 +19,7 @@
 #include <cstring>
 #include <limits>
 #include <string>
+#include <string_view>
 #include <utility>
 
 namespace oa::ui::frontend_multiplayer {
@@ -125,6 +129,75 @@ const char* lobby_translated(const Lobby& lobby, const char* text) noexcept {
                                   : nullptr;
     return translation != nullptr ? translation : text;
 }
+
+namespace {
+
+/// The sentence a refused pack map shows under its name.
+///
+/// The interface text is "Doesn't fit this game: {reason}", translated, with
+/// the reason in place of `{reason}`.
+///
+/// @param lobby the battle room
+/// @param reason why the map was refused
+/// @return the sentence
+std::string unfit_sentence(const Lobby& lobby, const char* reason) {
+    const std::string_view stored =
+        reason != nullptr ? std::string_view{reason} : std::string_view{};
+    const MapRefusalParts parts = map_refusal_parts(stored);
+    if (parts.kind == MapRefusalKind::ready_demo)
+        return std::string(lobby_translated(lobby, "This map is for the TA demo."));
+    if (parts.kind == MapRefusalKind::ready_for) {
+        std::string sentence(lobby_translated(lobby, "This map is for {name}."));
+        const auto at = sentence.find("{name}");
+        if (at != std::string::npos)
+            sentence.replace(at, std::strlen("{name}"), parts.name);
+        return sentence;
+    }
+    if (parts.kind == MapRefusalKind::ready_needs) {
+        std::string sentence(lobby_translated(lobby, "Needs {name}, which is off."));
+        const auto at = sentence.find("{name}");
+        if (at != std::string::npos)
+            sentence.replace(at, std::strlen("{name}"), parts.name);
+        sentence.push_back(' ');
+        sentence.append(lobby_translated(lobby, "Turn it on in the Library."));
+        return sentence;
+    }
+    const char* translated = lobby_translated(lobby, "Doesn't fit this game: {reason}");
+    std::string sentence = translated != nullptr ? translated : "";
+    const auto at = sentence.find("{reason}");
+    if (at != std::string::npos)
+        sentence.replace(at, std::strlen("{reason}"), reason != nullptr ? reason : "");
+    return sentence;
+}
+
+/// The name of the map row the selection dialog highlights.
+///
+/// @param select the dialog's list
+/// @param panel the dialog
+/// @return the name; null when no row is highlighted
+const char* highlighted_map(const MapSelect& select, const Panel& panel) noexcept {
+    const auto* list = panel_control(panel, "MAPNAMES");
+    const auto row = list != nullptr ? list->list_selection : -1;
+    if (row < 0 || static_cast<std::size_t>(row) >= select.names.size())
+        return nullptr;
+    return select.names[static_cast<std::size_t>(row)].c_str();
+}
+
+/// Why the highlighted map was refused, or null when it was not.
+///
+/// @param lobby the battle room
+/// @param name the highlighted map; null when none is
+/// @return the reason; null or empty when the map was not refused
+const char* highlighted_refusal(const Lobby& lobby, const char* name) noexcept {
+    if (name == nullptr || lobby.maps.refusal == nullptr)
+        return nullptr;
+    const char* reason = lobby.maps.refusal(lobby.maps.context, name);
+    if (reason == nullptr || reason[0] == '\0')
+        return nullptr;
+    return reason;
+}
+
+} // namespace
 
 // ---------------------------------------------------------------------------
 // YESORNO
@@ -339,11 +412,22 @@ std::vector<uint8_t> fit_map_picture(
 void map_summary_update(Lobby& lobby, Panel& panel) noexcept {
     const data::campaign::CampaignFile* map =
         lobby.maps.map_context != nullptr ? lobby.maps.map_context(lobby.maps.context) : nullptr;
-    const char* name = map != nullptr               ? data::campaign::campaign_localized_name(map)
-                       : lobby.maps.name != nullptr ? lobby.maps.name(lobby.maps.context)
-                                                    : "";
+    const char* stored = lobby.maps.name != nullptr ? lobby.maps.name(lobby.maps.context) : "";
+    const char* localized = map != nullptr ? data::campaign::campaign_localized_name(map) : stored;
+    // A title or a translation is shown as it is. A name@package key is not:
+    // the label uses the same words as the map list.
+    const bool packaged =
+        oa::data::map_pack::split_pack_map_name(localized != nullptr ? localized : "") ||
+        oa::data::map_pack::split_pack_map_name(stored != nullptr ? stored : "");
+    const bool titled = localized != nullptr && localized[0] != '\0' &&
+                        !oa::data::map_pack::split_pack_map_name(localized);
+    const std::string shown = packaged && !titled
+                                  ? multiplayer_shown_map_name(
+                                        stored != nullptr && stored[0] != '\0' ? stored : localized
+                                    )
+                                  : std::string(localized != nullptr ? localized : "");
     if (panel_find(panel, "MAPNAME") != kNoControl)
-        panel_set_text(panel, "MAPNAME", name != nullptr ? name : "");
+        panel_set_text(panel, "MAPNAME", shown.c_str());
     if (map != nullptr) {
         char size[100];
         std::snprintf(
@@ -422,8 +506,12 @@ bool viewmap_follow_host(Lobby& lobby, Panel& panel, std::string_view host_map) 
         map_summary_update(lobby, panel);
         return true;
     }
-    if (panel_find(panel, "MAPNAME") != kNoControl)
-        panel_set_text(panel, "MAPNAME", wanted);
+    if (panel_find(panel, "MAPNAME") != kNoControl) {
+        const std::string shown = oa::data::map_pack::split_pack_map_name(wanted)
+                                      ? multiplayer_shown_map_name(wanted.c_str())
+                                      : wanted;
+        panel_set_text(panel, "MAPNAME", shown.c_str());
+    }
     if (auto* picture = panel_control(panel, "MAPPIC")) {
         picture->picture.clear();
         picture->picture_width = picture->picture_height = 0;
@@ -455,8 +543,8 @@ bool mapselect_open(Lobby& lobby, MapSelect& select, Panel& panel) noexcept {
     for (int32_t index = 0; index < count; ++index)
         if (const char* name = lobby.maps.at(lobby.maps.context, index))
             select.names.emplace_back(name);
-    std::sort(select.names.begin(), select.names.end());
-    panel_fill_list(panel, "MAPNAMES", select.names);
+    multiplayer_order_map_names(select.names);
+    multiplayer_fill_map_names(panel, select.names);
     for (std::size_t row = 0; row < select.names.size(); ++row)
         if (select.names[row] == select.previous) {
             panel_select_list_row(panel, "MAPNAMES", static_cast<int32_t>(row));
@@ -467,15 +555,61 @@ bool mapselect_open(Lobby& lobby, MapSelect& select, Panel& panel) noexcept {
 }
 
 void mapselect_preview(Lobby& lobby, MapSelect& select, Panel& panel) noexcept {
-    const auto* list = panel_control(panel, "MAPNAMES");
-    const auto row = list != nullptr ? list->list_selection : -1;
-    const bool chosen =
-        row >= 0 && static_cast<std::size_t>(row) < select.names.size() &&
-        lobby.maps.select != nullptr &&
-        lobby.maps.select(lobby.maps.context, select.names[static_cast<std::size_t>(row)].c_str());
+    const char* name = highlighted_map(select, panel);
+    const bool chosen = name != nullptr && lobby.maps.select != nullptr &&
+                        lobby.maps.select(lobby.maps.context, name);
+    if (!chosen) {
+        if (const char* reason = highlighted_refusal(lobby, name)) {
+            const std::string shown =
+                name != nullptr && oa::data::map_pack::split_pack_map_name(name)
+                    ? multiplayer_shown_map_name(name)
+                    : std::string(name != nullptr ? name : "");
+            panel_set_text(panel, "MAPNAME", shown.c_str());
+            panel_set_text(panel, "DESCRIPTION", unfit_sentence(lobby, reason));
+            panel_set_text(panel, "SIZE", "");
+            panel_set_active(panel, "MAPPIC", false);
+            if (auto* picture = panel_control(panel, "MAPPIC")) {
+                picture->picture.clear();
+                picture->picture_width = picture->picture_height = 0;
+            }
+            panel.dirty = true;
+            return;
+        }
+    }
     panel_set_active(panel, "MAPPIC", chosen);
     if (chosen)
         map_summary_update(lobby, panel);
+}
+
+bool mapselect_offer(
+    Lobby& lobby, MapSelect& select, Panel& panel, std::string_view name
+) noexcept {
+    const char* before = highlighted_map(select, panel);
+    const std::string highlighted = before != nullptr ? before : "";
+    const int32_t count = lobby.maps.count != nullptr ? lobby.maps.count(lobby.maps.context) : 0;
+    select.names.clear();
+    for (int32_t index = 0; index < count; ++index)
+        if (const char* listed = lobby.maps.at(lobby.maps.context, index))
+            select.names.emplace_back(listed);
+    multiplayer_order_map_names(select.names);
+    multiplayer_fill_map_names(panel, select.names);
+    int32_t offered = -1;
+    int32_t earlier = -1;
+    for (std::size_t row = 0; row < select.names.size(); ++row) {
+        if (select.names[row] == name)
+            offered = static_cast<int32_t>(row);
+        if (select.names[row] == highlighted)
+            earlier = static_cast<int32_t>(row);
+    }
+    // A name the list lacks leaves the row highlighted before.
+    if (offered < 0) {
+        if (earlier >= 0)
+            panel_select_list_row(panel, "MAPNAMES", earlier);
+        return false;
+    }
+    panel_select_list_row(panel, "MAPNAMES", offered);
+    mapselect_preview(lobby, select, panel);
+    return true;
 }
 
 bool mapselect_handle_event(Lobby& lobby, MapSelect& select, Panel& panel) noexcept {
@@ -485,7 +619,12 @@ bool mapselect_handle_event(Lobby& lobby, MapSelect& select, Panel& panel) noexc
         const bool commit = panel_selected_is(panel, "LOAD");
         panel.selected = kNoControl;
         play(lobby, "Multi");
+        const char* name = highlighted_map(select, panel);
         mapselect_preview(lobby, select, panel);
+        if (const char* reason = highlighted_refusal(lobby, name)) {
+            message(lobby, reason);
+            return false;
+        }
         auto& mine = local_info(lobby);
         std::snprintf(
             mine.map_name, sizeof(mine.map_name), "%s", lobby.maps.name(lobby.maps.context)

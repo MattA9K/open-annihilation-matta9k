@@ -18,6 +18,7 @@ add_library(oa-netgame
   wire/private_channel.cpp
   wire/recorder_session.cpp
   wire/unicode_chat.cpp
+  wire/presence.cpp
   wire/dplay.cpp
   dplay/protocol.cpp
   dplay/engine.cpp
@@ -75,6 +76,17 @@ if(BUILD_TESTING)
   add_test(NAME net-socket-search COMMAND oa-netgame-socket-search-test)
   set_tests_properties(net-socket-search PROPERTIES TIMEOUT 30)
 
+  # A refused enumeration port names itself, and the system's reason, on standard error.
+  add_executable(oa-netgame-host-bind-test tests/host_bind_test.cpp)
+  target_link_libraries(oa-netgame-host-bind-test PRIVATE oa-netgame)
+  add_test(NAME net-host-bind COMMAND oa-netgame-host-bind-test)
+  set_tests_properties(net-host-bind PROPERTIES TIMEOUT 30)
+
+  add_executable(oa-netgame-stream-socket-test tests/stream_socket_test.cpp)
+  target_link_libraries(oa-netgame-stream-socket-test PRIVATE oa-netgame oa-test-support)
+  add_test(NAME net-stream-socket COMMAND oa-netgame-stream-socket-test)
+  set_tests_properties(net-stream-socket PROPERTIES TIMEOUT 60)
+
   # Malformed and mutated messages, frames, records and recordings; .tad
   # recordings given as arguments, or directories of them, join the seeds.
   add_executable(oa-netgame-wire-malformed-test tests/wire_malformed_test.cpp)
@@ -94,17 +106,24 @@ if(BUILD_TESTING)
   add_test(NAME net-unicode-chat COMMAND oa-netgame-unicode-chat-test)
   set_tests_properties(net-unicode-chat PROPERTIES TIMEOUT 30)
 
+  # The presence record OA machines exchange.
+  add_executable(oa-netgame-presence-test tests/presence_test.cpp)
+  target_link_libraries(oa-netgame-presence-test PRIVATE oa-netgame)
+  add_test(NAME net-presence COMMAND oa-netgame-presence-test)
+  set_tests_properties(net-presence PROPERTIES TIMEOUT 30)
+
   # The condenser's datagram envelope, pinned for every platform.
   add_executable(oa-netgame-condenser-golden-test tests/condenser_golden_test.cpp)
   target_link_libraries(oa-netgame-condenser-golden-test PRIVATE oa-netgame)
   add_test(NAME net-condenser-golden COMMAND oa-netgame-condenser-golden-test)
   set_tests_properties(net-condenser-golden PROPERTIES TIMEOUT 30)
+
 endif()
 
 if(WIN32)
   set(oa_netgame_executables oa-netgame-tool oa-netgame-dplay-peer)
   if(BUILD_TESTING)
-    list(APPEND oa_netgame_executables oa-netgame-test)
+    list(APPEND oa_netgame_executables oa-netgame-test oa-netgame-stream-socket-test oa-netgame-host-bind-test)
   endif()
   foreach(target IN LISTS oa_netgame_executables)
     add_custom_command(TARGET ${target} POST_BUILD
@@ -112,6 +131,15 @@ if(WIN32)
         "-DDEST=$<TARGET_FILE_DIR:${target}>" -P "${PROJECT_SOURCE_DIR}/tools/copy_runtime.cmake")
   endforeach()
 endif()
+
+# The fixture's library serves --check-map-pack-lists. Its tool and test are
+# built only with the tests (http-fixture/CMakeLists.txt).
+if(BUILD_TESTING OR OA_SELF_CHECKS)
+  add_subdirectory(http-fixture)
+endif()
+
+# Fetches catalogues and packages over plain HTTP.
+add_subdirectory(http)
 
 add_subdirectory(replication)
 add_subdirectory(match)

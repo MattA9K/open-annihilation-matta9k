@@ -327,11 +327,25 @@ settings dialog, the Game files screen and the folder chooser.
 | Right trackpad (or the stick cursor), R2, L2 | The pointer, a left click and a right click |
 | D-pad, left stick | Move the focus between buttons and list rows; held, they repeat after 400 ms, then every 120 ms |
 | L1 and R1 | The previous and next group of buttons (Shift+Tab and Tab) |
-| A | Presses the focused button. With none focused, as when the main menu opens, the 640×480 menus focus their first button and the other screens press their default |
+| A | Presses the focused button. With none focused, as when the main menu opens, the 640×480 menus focus their first button and the other screens press their default. In the battle room, on another player's row, it opens that player's card as View does, and does nothing when that row has no card |
 | B | Back (Escape), as each screen has it |
 | Menu | Enter: the screen's default button; on the 640×480 menus, as A |
+| View | Information about the focused item, as F1. In the battle room it opens the focused player's card |
 | Right stick ↑ and ↓ | The wheel: steps the map and mission lists |
 | A twice quickly on a list row | Starts the campaign, mission or map, as a double click does |
+| Y, in the Library and the map browser | Focuses the search. On the skirmish map list and the battle room host's map list it opens the map browser, as MORE MAPS… does. On every other screen Y does nothing |
+| X, in the Library | The selected entry's first action, when it is GET, UPDATE, CANCEL or RETRY and can be pressed. On every other screen X does nothing |
+| L1 and R1, in the Library | The previous and next tab |
+| B, in the Library | From the details page back to the list; otherwise closes the Library |
+| Right stick ↑ and ↓, in the Library | Scrolls the pane that has the focus, one notch at a time, as the wheel does |
+
+Left-handed play swaps L1 and R1 in the Library as it does in every menu. Y, X and B stay where they are.
+
+The two buttons at the main menu's bottom right, the **OA** button, which
+opens the Library, and the **Settings** button with the gears, take the
+pointer: move it onto one with the right trackpad or the stick cursor and
+press R2. The D-pad and the left stick move the focus among the menu's own
+buttons only.
 
 **Text.** A chat line, a save's name, the player's name or a marker's text
 opens Steam's on-screen keyboard in Game Mode, placed clear of the field

@@ -10,6 +10,8 @@
 #include "oa/sim/feature_runtime.hpp"
 #include "oa/sim/selection.hpp"
 #include "oa/platform/memory_status.hpp"
+#include "oa/platform/system.hpp"
+#include "oa/present/model/rgb_bridge.hpp"
 #include "oa/present/scene_grid.hpp"
 #include "oa/present/world_renderer/world_camera.hpp"
 #include <SDL3/SDL.h>
@@ -18,6 +20,7 @@
 #include <cstdint>
 #include <cstring>
 #include <iostream>
+#include <limits>
 #include <optional>
 #include <string>
 #include <tuple>
@@ -50,6 +53,38 @@ static_assert(
         kMaxBattlefieldZoom,
     "Maximum zoom in's closest choice is the closest any view zooms in"
 );
+static_assert(
+    kRenderedUnitsMemoryShare == oa::present::model::bridge_memory_share &&
+        kRenderedUnitsUnknownBudget == oa::present::model::bridge_unknown_budget &&
+        kRenderedUnitsAddressCap == oa::present::model::bridge_address_cap,
+    "the model budget's share, unknown budget and address cap are the bridge's"
+);
+
+// OA_RENDERED_UNITS_BUDGET, a number of bytes, or nothing when it is unset
+// or not a number. Read once; a failure to read it leaves the machine's budget.
+std::optional<uint64_t> rendered_units_budget_override() noexcept {
+    static const std::optional<uint64_t> parsed = []() noexcept -> std::optional<uint64_t> {
+        try {
+            const std::optional<std::string> text =
+                oa::platform::environment_value("OA_RENDERED_UNITS_BUDGET");
+            if (!text || text->empty())
+                return std::nullopt;
+            uint64_t value = 0;
+            for (const unsigned char digit : *text) {
+                if (digit < '0' || digit > '9')
+                    return std::nullopt;
+                const auto next = static_cast<uint64_t>(digit - '0');
+                if (value > (std::numeric_limits<uint64_t>::max() - next) / 10)
+                    return std::nullopt;
+                value = value * 10 + next;
+            }
+            return value;
+        } catch (...) {
+            return std::nullopt;
+        }
+    }();
+    return parsed;
+}
 
 } // namespace
 
@@ -366,6 +401,64 @@ std::optional<oa::present::world_renderer::MapPixel> Runtime::map_pixel_drawn_at
     );
 }
 
+std::optional<std::array<double, 2>> Runtime::view_within_limits(double x, double z) const {
+    if (!selected_tnt_)
+        return std::nullopt;
+    const auto [map_width, map_height] = shown_map_size();
+    if (map_width <= 0 || map_height <= 0)
+        return std::nullopt;
+    const double zoom = static_cast<double>(match_zoom() <= 0.0F ? 1.0F : match_zoom());
+    const double visible_x = static_cast<double>(match_layout_.battlefield_width()) / zoom;
+    const double visible_z = static_cast<double>(match_layout_.battlefield_height()) / zoom;
+    if (!(visible_x > 0.0) || !(visible_z > 0.0))
+        return std::nullopt;
+    const double share = past_map_edge_share();
+    return std::array<double, 2>{
+        held_view(x, visible_x, static_cast<double>(map_width), share, std::nullopt),
+        held_view(z, visible_z, static_cast<double>(map_height), share, std::nullopt)
+    };
+}
+
+void Runtime::remember_placed_view(double x, double z) {
+    const double zoom = static_cast<double>(match_zoom() <= 0.0F ? 1.0F : match_zoom());
+    view_hold_ = {
+        true,
+        x + static_cast<double>(match_layout_.battlefield_width()) / zoom / 2.0,
+        z + static_cast<double>(match_layout_.battlefield_height()) / zoom / 2.0
+    };
+}
+
+void Runtime::set_camera_position(int32_t x, int32_t z, uint32_t flags) {
+    // A jump is held by the limits alone. The camera the frames take is the
+    // whole map pixel held_camera keeps inside them, the same one a frame
+    // draws (view_camera) when no earlier view widens the span.
+    if (!selected_tnt_) {
+        match_camera_x_ = x;
+        match_camera_z_ = z;
+    } else {
+        const auto [map_width, map_height] = shown_map_size();
+        const double zoom = static_cast<double>(match_zoom() <= 0.0F ? 1.0F : match_zoom());
+        const double visible_x = static_cast<double>(match_layout_.battlefield_width()) / zoom;
+        const double visible_z = static_cast<double>(match_layout_.battlefield_height()) / zoom;
+        if (map_width <= 0 || map_height <= 0 || !(visible_x > 0.0) || !(visible_z > 0.0)) {
+            match_camera_x_ = x;
+            match_camera_z_ = z;
+        } else {
+            const double share = past_map_edge_share();
+            match_camera_x_ =
+                held_camera(x, visible_x, static_cast<double>(map_width), share, std::nullopt);
+            match_camera_z_ =
+                held_camera(z, visible_z, static_cast<double>(map_height), share, std::nullopt);
+            remember_placed_view(
+                static_cast<double>(match_camera_x_), static_cast<double>(match_camera_z_)
+            );
+        }
+    }
+    match_camera_flags_ = flags;
+    // A camera put in place shows its own map pixel.
+    exact_view_.held = false;
+}
+
 void Runtime::centre_view_on(int32_t x, int32_t z) {
     if (!view_between_pixels_) {
         // The whole map pixel of the point, its 16.16 high word.
@@ -377,10 +470,18 @@ void Runtime::centre_view_on(int32_t x, int32_t z) {
         );
         return;
     }
+    const auto place_held = [this](double place_x, double place_z) {
+        if (const auto held = view_within_limits(place_x, place_z)) {
+            place_match_view((*held)[0], (*held)[1]);
+            remember_placed_view((*held)[0], (*held)[1]);
+            return;
+        }
+        place_match_view(place_x, place_z);
+    };
     const uint32_t step = oa::present::scene_step(match_zoom());
     if (!view_on_scene_grid_ || view_moved_by_card_) {
         const auto zoom = static_cast<double>(match_zoom() > 0.0F ? match_zoom() : 1.0F);
-        place_match_view(
+        place_held(
             static_cast<double>(x) / oa::present::scene_step_one -
                 static_cast<double>(match_layout_.battlefield_width()) / zoom / 2.0,
             static_cast<double>(z) / oa::present::scene_step_one -
@@ -396,7 +497,7 @@ void Runtime::centre_view_on(int32_t x, int32_t z) {
         return static_cast<double>(pixel - battlefield / 2) *
                static_cast<double>(oa::present::scene_step_one) / static_cast<double>(step);
     };
-    place_match_view(
+    place_held(
         place(x, match_layout_.battlefield_width()), place(z, match_layout_.battlefield_height())
     );
 }
@@ -482,27 +583,43 @@ bool Runtime::dots_frame() const noexcept {
     if (chosen.zoomed_out_units == settings::ZoomedOutUnits::dots &&
         match_zoom_ < settings::zoomed_out_zoom(chosen.zoomed_out_after))
         return true;
-    // Past the drawing's floor, models whose drawing would take more of the
-    // machine's memory than it can spare, or a view whose units drawn reach
-    // farther from the camera than the models' places do, are drawn as
-    // dots.
-    if (!far_view_frame())
-        return false;
+    // At every zoom, models whose drawing would take more of the machine's
+    // memory than it can spare are drawn as dots. Past the drawing's floor,
+    // so is a view whose units drawn reach farther from the camera than the
+    // models' places do.
     const auto zoom = static_cast<double>(match_zoom_);
     const double wide = static_cast<double>(match_layout_.battlefield_width()) / zoom;
     const double high = static_cast<double>(match_layout_.battlefield_height()) / zoom;
-    return wide * high * static_cast<double>(kModelBridgeBytesPerMapPixel) >
-               static_cast<double>(rendered_units_budget()) ||
-           std::max(wide, high) + kFarCullMarginMapPixels > kMostModelOffset;
+    if (wide * high * static_cast<double>(kModelBridgeBytesPerMapPixel) >
+        static_cast<double>(rendered_units_budget()))
+        return true;
+    if (!far_view_frame())
+        return false;
+    return std::max(wide, high) + kFarCullMarginMapPixels > kMostModelOffset;
 }
 
 uint64_t Runtime::rendered_units_budget() const noexcept {
-    // The machine's physical memory, read once.
+    // The machine's physical memory and, on Windows, its free address space,
+    // read once.
     static const uint64_t physical = [] {
         oa::platform::SystemMemorySample sample{};
         return oa::platform::sample_system_memory(&sample) ? sample.physical : uint64_t{0};
     }();
-    return physical != 0 ? physical / kRenderedUnitsMemoryShare : kRenderedUnitsUnknownBudget;
+    static const std::optional<uint64_t> address = oa::platform::available_virtual_bytes();
+    constexpr bool narrow = sizeof(void*) <= 4;
+    uint64_t budget = oa::present::model::bridge_byte_budget(physical, address, narrow);
+    if (const std::optional<uint64_t> forced = rendered_units_budget_override()) {
+        budget = *forced;
+        if (narrow) {
+            uint64_t cap = address ? *address : kRenderedUnitsAddressCap;
+            constexpr uint64_t addressable = uint64_t{2} << 30;
+            if (cap > addressable)
+                cap = addressable;
+            if (budget > cap)
+                budget = cap;
+        }
+    }
+    return budget;
 }
 
 float Runtime::most_match_zoom() const noexcept {
@@ -514,7 +631,7 @@ float Runtime::most_match_zoom() const noexcept {
 
 void Runtime::step_match_zoom() {
     // Each frame of a match: a match that turns out to be shared or a replay
-    // goes back to the base path credit (Common Tweaks' pathfinding setting).
+    // goes back to the base path credit (Engine Limits' pathfinding setting).
     EngineSettingsState::hold_path_credit(*this, current_extension_state());
     // The director sets the zoom of every frame itself, off the wall clock.
     if (director_mode())
@@ -686,6 +803,25 @@ void Runtime::pan_match_camera() {
     const auto speed =
         match_ != nullptr ? match_->state().game.scroll_speed : preferences_.scroll_speed;
     const double step = frame_pacing::scroll_distance(speed, elapsed_ns);
+    // A middle-click pan scrolls on its own curve, and neither the screen's
+    // edges nor a held arrow key add to it. The pan ends when the match does.
+    if (middle_pan_.phase != middle_pan::Phase::idle) {
+        const bool live =
+            screen_ == Screen::match && match_ != nullptr && !match_paused_ && !match_finished_;
+        if (!live) {
+            middle_pan_ = {};
+            middle_pan_swallow_button_ = 0;
+        } else {
+            const auto share = middle_pan::scroll_share(
+                middle_pan_.anchor_x, middle_pan_.anchor_y, match_pointer_x_, match_pointer_y_
+            );
+            if (share.x != 0.0F || share.y != 0.0F)
+                scroll_match_view_by(
+                    static_cast<double>(share.x) * step, static_cast<double>(share.y) * step
+                );
+            return;
+        }
+    }
     int dx = 0, dz = 0;
     // A --frame-rate run's held scroll is an arrow key.
     if (frame_run_clock_ns_)
@@ -732,6 +868,37 @@ void Runtime::pan_match_camera() {
     if (dx == 0 && dz == 0)
         return;
     scroll_match_view(dx, dz, step);
+}
+
+void Runtime::scroll_match_view_by(double screen_dx, double screen_dy) {
+    if (!selected_tnt_ || (screen_dx == 0.0 && screen_dy == 0.0))
+        return;
+    const auto zoom = static_cast<double>(match_zoom() <= 0.0F ? 1.0F : match_zoom());
+    const auto place = match_view_place();
+    const auto [map_width, map_height] = shown_map_size();
+    const auto along =
+        [&](double at, double delta, int32_t battlefield, int32_t map, double centre) {
+            if (delta == 0.0)
+                return at;
+            return held_view(
+                at + delta / zoom,
+                static_cast<double>(battlefield) / zoom,
+                static_cast<double>(map),
+                past_map_edge_share(),
+                view_hold_.held ? std::optional<double>(centre) : std::nullopt
+            );
+        };
+    const double x = along(
+        place[0], screen_dx, match_layout_.battlefield_width(), map_width, view_hold_.centre_x
+    );
+    const double z = along(
+        place[1], screen_dy, match_layout_.battlefield_height(), map_height, view_hold_.centre_z
+    );
+    // A scroll ends a follow even when the view is already at its limit.
+    stop_match_tracking();
+    if (x == place[0] && z == place[1])
+        return;
+    place_match_view(x, z);
 }
 
 void Runtime::scroll_match_view(int32_t way_x, int32_t way_z, double step) {

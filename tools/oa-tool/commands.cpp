@@ -1,0 +1,463 @@
+// SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
+// SPDX-License-Identifier: GPL-3.0-only
+
+#include "command.hpp"
+
+#include <exception>
+#include <ostream>
+#include <string>
+
+namespace oa::tool {
+namespace {
+
+const Command catalogue_commands[] = {
+    {
+        "keygen",
+        "--id ID --out FILE [--passphrase-file FILE]",
+        "Make a sealed publisher key.",
+        "Makes a new Ed25519 key, seals its seed with a passphrase and writes the key file. "
+        "--id is the key id a catalogue signature names. The file is created only when that "
+        "name is new, and on macOS and Linux its mode is 0600. The passphrase is read from "
+        "the terminal with echo off, twice, and has to be at least 12 bytes. --passphrase-file "
+        "reads the file's first line instead, and does not ask twice. Prints the key id, the "
+        "public key as ed25519: and its base64, and the key's fingerprint.",
+        0,
+        any_count,
+        run_catalogue_keygen,
+        {},
+    },
+    {
+        "public",
+        "KEY_FILE",
+        "Print a sealed key's public half.",
+        "Reads KEY_FILE and prints the key id, the public key and its fingerprint. The "
+        "passphrase is not used, and the seed is not opened.",
+        1,
+        1,
+        run_catalogue_public,
+        {},
+    },
+    {
+        "sign",
+        "--key KEY_FILE CATALOGUE [--out SIG] [--passphrase-file FILE]",
+        "Sign a catalogue with a sealed key.",
+        "Reads CATALOGUE, opens KEY_FILE with the passphrase and writes a detached signature. "
+        "Without --out the signature is CATALOGUE with .sig added to the name. The signature "
+        "is one line: ed25519, the key's id and the signature of the catalogue's exact bytes. "
+        "A catalogue this build would refuse is refused before the key is opened. The written "
+        "pair is checked, with the catalogue's own registry and this key, before the command "
+        "reports success. Prints the signature file and the key id.",
+        0,
+        any_count,
+        run_catalogue_sign,
+        {},
+    },
+    {
+        "verify",
+        "CATALOGUE [--sig SIG] (--descriptor FILE | --registry ID --key ed25519:<base64> [--key "
+        "...])",
+        "Check a catalogue's signature.",
+        "Checks CATALOGUE against its signature. Without --sig the signature is CATALOGUE with "
+        ".sig added to the name. Pass --descriptor FILE to use that registry's id and keys, or "
+        "--registry ID and at least one --key. Each --key is ed25519: and the key in base64, "
+        "and is read as the key the signature names; the first one is the key that is trusted. "
+        "Prints the signing key and the verdict, and exits 0 when the catalogue can be used. "
+        "A refused catalogue prints the verdict and exits 1.",
+        0,
+        any_count,
+        run_catalogue_verify,
+        {},
+    },
+};
+
+const Command registry_commands[] = {
+    {
+        "init",
+        "FOLDER --id ID --name NAME --base-url URL --key KEY_FILE [--passphrase-file FILE] "
+        "[--homepage URL]",
+        "Make an empty signed registry.",
+        "Makes a direct registry in FOLDER: registry.yaml, an empty catalogue signed for 30 days, "
+        "its signature, and the v1/p and v1/i folders. FOLDER must be missing or empty. "
+        "--base-url is the http address the registry is served at, with no trailing slash. --id "
+        "and --name are the registry's. --key is a sealed publisher key; --passphrase-file reads "
+        "the passphrase from a file, and otherwise the terminal asks. --homepage is an optional "
+        "page. The descriptor and the signed catalogue are read back before the command reports "
+        "success. Prints the descriptor's path and the key's fingerprint.",
+        0,
+        any_count,
+        run_registry_init,
+        {},
+    },
+    {
+        "mirror",
+        "URL FOLDER [--key ed25519:<base64>]",
+        "Copy a registry into a folder.",
+        "Copies a registry into FOLDER, laid out as on the host that served it. URL is the "
+        "registry descriptor. The catalogue's signature is checked, and a sequence lower than "
+        "the one FOLDER already holds stops the copy. Each package and picture is checked by "
+        "SHA-256. A file already there with the right SHA-256 is skipped, and a .part is resumed "
+        "with a Range request. A file that fails its check is deleted. The catalogue and its "
+        "signature are written last, byte for byte. A tokens registry is copied through its "
+        "download API: the tool asks for a key, prints a check's code and address, and carries "
+        "on once the check is passed. A direct registry is fetched from the catalogue's own "
+        "addresses. The folder is served as a direct registry.",
+        0,
+        any_count,
+        run_registry_mirror,
+        {},
+    },
+};
+
+const Command command_table[] = {
+    {
+        "list",
+        "ARCHIVE",
+        "List the files in an archive.",
+        "Reads an HPI archive and writes nothing. Prints one line per file, in the archive's "
+        "order: the path inside the archive, a tab and the file's size in bytes.",
+        1,
+        1,
+        run_list,
+        {},
+    },
+    {
+        "extract",
+        "ARCHIVE ENTRY OUTPUT",
+        "Copy one file out of an archive.",
+        "Reads one entry from an HPI archive and writes its bytes to OUTPUT. Prints nothing.",
+        3,
+        3,
+        run_extract,
+        {},
+    },
+    {
+        "asset-extract",
+        "ROOT ENTRY OUTPUT [ARCHIVE...]",
+        "Copy one file from a game directory.",
+        "Reads ENTRY from the loose files under ROOT, and from the archives named after OUTPUT "
+        "when no loose file has that path. A loose file wins over an archive. Writes the bytes "
+        "to OUTPUT. Prints whether the file was loose or in an archive, the path it was read "
+        "from, and its size in bytes.",
+        3,
+        any_count,
+        run_asset_extract,
+        {},
+    },
+    {
+        "preview",
+        "ARCHIVE PCX_ENTRY OUTPUT.ppm|OUTPUT.png",
+        "Decode one image from an archive.",
+        "Reads a PCX image from an HPI archive and writes it as a PPM file, or as a PNG file when "
+        "the output path ends in .png. Prints the image's width and height and the output path.",
+        3,
+        3,
+        run_preview,
+        {},
+    },
+    {
+        "decode-pcx",
+        "INPUT.pcx OUTPUT.ppm|OUTPUT.png",
+        "Decode a PCX image file.",
+        "Reads a PCX file and writes it as a PPM file, or as a PNG file when the output path ends "
+        "in .png. Prints the image's width and height and the output path.",
+        2,
+        2,
+        run_decode_pcx,
+        {},
+    },
+    {
+        "pack",
+        "FOLDER [--out FILE] [--force] [--game-dir DIR]",
+        "Pack a folder as a mod, a language package, a map pack or an expansion.",
+        "Reads FOLDER and writes a .oamod, a .oalang, a .oamap or a .oaexp. The folder's top holds "
+        "one manifest, oamod.yaml, language.yaml, oamap.yaml or oaexp.yaml. The manifest is "
+        "written first, then every other file in byte order of its path, with fixed times. A file "
+        "whose extension, without case, is png, jpg, jpeg, gif, ogg, mp3, zip, gz, bz2, xz, 7z, "
+        "oamod, oalang or oamap, and an empty file, is stored; every other file is deflated. An "
+        "expansion's files are all stored. The same files give the same bytes on any machine with "
+        "the same zlib. --out names the package file; without it the name comes from the manifest "
+        "and is written in the current folder. --force replaces an existing file. A folder the "
+        "installer would refuse is not packed. A map pack reads the game's palette from "
+        "--game-dir: map packs need the game's palette for previews. --game-dir on a mod, a "
+        "language pack or an expansion is a usage error.",
+        1,
+        any_count,
+        run_pack,
+        {},
+    },
+    {
+        "check",
+        "FILE [--game-dir DIR] [--mod FOLDER[=KEY]]... [--accept-unimplemented-hacks] [--json]",
+        "Check a package and report the facts a catalogue lists.",
+        "Opens FILE through the same checks an install runs before it writes, and reports "
+        "whether that install would accept it. The report's keys, in order, are check, ok, "
+        "problems, warnings, file, kind, id, name, version, revision, size, sha256, "
+        "unpacked_size, files, and then the kind's own facts: for a mod, summary, homepage, "
+        "tags, supportedGames, requiredExpansions, author, requires, sim_hash, full_hash, hacks "
+        "and packaging; for a language pack, supportedGames, requiredExpansions and language in "
+        "place of those; for a map pack, summary, author, homepage, tags, supportedGames, "
+        "requiredExpansions, requires and packaging, then maps; for an expansion, extends, needs "
+        "and author. Warnings may suggest writing "
+        "supportedGames instead of requires.base, or requiredExpansions instead of an expansion "
+        "archive named in layout.installation-archives. A key the package does not have is left "
+        "out, and revision "
+        "is null when a language pack has no packaging revision. An expansion does not take "
+        "--game-dir. A map pack needs --game-dir, "
+        "the game folder. The check builds each target the way the game would. Each --mod "
+        "FOLDER[=KEY] is one more target, after the base game ta-3.1c. The key is the text "
+        "after the last =, or the folder's catalogue origin as id@release, or the profile's id "
+        "when that folder has no release. maps lists each map. compatible holds ta-3.1c and "
+        "then each mod, and failures holds the targets that do not fit. --json prints one JSON "
+        "object; otherwise each fact is a key: value line, then one line per map and target, "
+        "and the last line is result: ok or result: refused. --accept-unimplemented-hacks "
+        "accepts a hack this build does not carry out yet. Exit 0 when the package would be "
+        "installed, 1 when it would be refused or a map does not fit ta-3.1c. A mod that does "
+        "not fit leaves that exit code unchanged.",
+        1,
+        any_count,
+        run_check,
+        {},
+    },
+    {
+        "catalogue",
+        "COMMAND",
+        "Make a publisher key and sign or check a catalogue.",
+        "Makes a sealed publisher key, prints its public half, and signs or checks a catalogue. "
+        "The key's seed is encrypted with a passphrase. A signature is the one line a catalogue "
+        "check reads, and the check is the one the game uses.",
+        0,
+        0,
+        nullptr,
+        catalogue_commands,
+    },
+    {
+        "registry",
+        "COMMAND",
+        "Make an empty signed registry or copy one into a folder.",
+        "Makes a direct registry, with an empty catalogue signed for 30 days, or copies a "
+        "registry's descriptor, catalogue, signature, pictures and packages into a folder. A "
+        "copied folder is a registry of its own. It is served as a direct registry: the files "
+        "and signatures stand on their own, and the origin's download API stays the origin's "
+        "policy.",
+        0,
+        0,
+        nullptr,
+        registry_commands,
+    },
+    {
+        "interface-words",
+        "--json",
+        "List the English texts the interface catalogue is given.",
+        "Prints a JSON array of every English text this build passes to the interface "
+        "catalogue, sorted, with each text once. The texts are the lists the modules that "
+        "look them up export. A translator compares the array with a language pack.",
+        1,
+        1,
+        run_interface_words,
+        {},
+    },
+};
+
+/// Returns the command named `name`, or null when the table has none.
+const Command* find_command(std::span<const Command> table, std::string_view name) {
+    for (const Command& command : table)
+        if (command.name == name)
+            return &command;
+    return nullptr;
+}
+
+/// Joins a command path and the next word with a space.
+std::string join_path(std::string_view path, std::string_view name) {
+    if (path.empty())
+        return std::string(name);
+    std::string joined;
+    joined.reserve(path.size() + 1 + name.size());
+    joined.append(path);
+    joined.push_back(' ');
+    joined.append(name);
+    return joined;
+}
+
+/// Prints one command's usage line and its one-line summary.
+void print_entry(std::ostream& out, std::string_view path, const Command& command) {
+    out << "oa-tool " << path;
+    if (!command.arguments.empty())
+        out << ' ' << command.arguments;
+    out << '\n';
+    if (!command.summary.empty())
+        out << "    " << command.summary << '\n';
+}
+
+/// Prints a table, and each group's subcommands under it.
+void print_list(std::ostream& out, std::span<const Command> table, std::string_view prefix) {
+    for (const Command& command : table) {
+        const std::string path = join_path(prefix, command.name);
+        print_entry(out, path, command);
+        for (const Command& sub : command.subcommands)
+            print_entry(out, join_path(path, sub.name), sub);
+    }
+}
+
+/// Prints one command's usage line, its paragraph and, for a group, its subcommands.
+void print_command_help(std::ostream& out, std::string_view path, const Command& command) {
+    out << "oa-tool " << path;
+    if (!command.arguments.empty())
+        out << ' ' << command.arguments;
+    out << "\n\n" << command.help << '\n';
+    if (!command.subcommands.empty()) {
+        out << '\n';
+        for (const Command& sub : command.subcommands)
+            print_entry(out, join_path(path, sub.name), sub);
+    }
+}
+
+/// Prints a usage failure and the help command that explains it.
+void report_usage(Output& output, std::string_view path, std::string_view problem) {
+    output.err << "oa-tool " << path << ": " << problem << '\n';
+    output.err << "run 'oa-tool help " << path << "'\n";
+}
+
+/// Describes an argument count outside the command's least and most.
+std::string count_problem(const Command& command, std::size_t count) {
+    std::string problem = "expected ";
+    if (command.least == command.most) {
+        problem += std::to_string(command.least);
+        problem += command.least == 1 ? " argument" : " arguments";
+    } else if (command.most == any_count) {
+        problem += "at least ";
+        problem += std::to_string(command.least);
+        problem += command.least == 1 ? " argument" : " arguments";
+    } else {
+        problem += std::to_string(command.least);
+        problem += " to ";
+        problem += std::to_string(command.most);
+        problem += " arguments";
+    }
+    problem += ", got ";
+    problem += std::to_string(count);
+    return problem;
+}
+
+/// Reports whether --help or -h appears before a --.
+bool asks_for_help(std::span<const std::string> arguments) {
+    for (const std::string& argument : arguments) {
+        if (argument == "--")
+            return false;
+        if (argument == "--help" || argument == "-h")
+            return true;
+    }
+    return false;
+}
+
+/// Reports whether a row is a group of subcommands rather than a command that runs.
+bool is_group(const Command& command) {
+    return command.run == nullptr || !command.subcommands.empty();
+}
+
+/// Runs one command, or one of a group's subcommands, after help and the argument count.
+int invoke(
+    const Command& command,
+    const std::string& path,
+    std::span<const std::string> arguments,
+    Output& output
+) {
+    if (is_group(command)) {
+        if (!arguments.empty() && (arguments[0] == "--help" || arguments[0] == "-h")) {
+            print_command_help(output.out, path, command);
+            return exit_done;
+        }
+        if (arguments.empty()) {
+            print_entry(output.err, path, command);
+            for (const Command& sub : command.subcommands)
+                print_entry(output.err, join_path(path, sub.name), sub);
+            return exit_usage;
+        }
+        const Command* sub = find_command(command.subcommands, arguments[0]);
+        if (sub == nullptr) {
+            report_usage(output, join_path(path, arguments[0]), "unknown command");
+            return exit_usage;
+        }
+        return invoke(*sub, join_path(path, sub->name), arguments.subspan(1), output);
+    }
+    if (asks_for_help(arguments)) {
+        print_command_help(output.out, path, command);
+        return exit_done;
+    }
+    if (arguments.size() < command.least || arguments.size() > command.most) {
+        report_usage(output, path, count_problem(command, arguments.size()));
+        return exit_usage;
+    }
+    try {
+        return command.run(arguments, output);
+    } catch (const std::exception& error) {
+        output.err << "oa-tool " << path << ": " << error.what() << '\n';
+        return exit_failed;
+    }
+}
+
+/// Selects a command from a table, or prints help or a usage failure.
+int dispatch(
+    std::span<const Command> table, std::span<const std::string> arguments, Output& output
+) {
+    if (arguments.empty()) {
+        print_list(output.err, table, {});
+        return exit_usage;
+    }
+    const std::string& first = arguments[0];
+    if (first == "--help" || first == "-h") {
+        print_list(output.out, table, {});
+        return exit_done;
+    }
+    if (first == "help") {
+        if (arguments.size() == 1) {
+            print_list(output.out, table, {});
+            return exit_done;
+        }
+        const Command* command = find_command(table, arguments[1]);
+        if (command == nullptr) {
+            report_usage(output, "help", "unknown command '" + arguments[1] + "'");
+            return exit_usage;
+        }
+        if (arguments.size() == 2) {
+            print_command_help(output.out, command->name, *command);
+            return exit_done;
+        }
+        if (arguments.size() == 3) {
+            const Command* sub = find_command(command->subcommands, arguments[2]);
+            if (sub == nullptr) {
+                report_usage(
+                    output, std::string(command->name), "unknown command '" + arguments[2] + "'"
+                );
+                return exit_usage;
+            }
+            print_command_help(output.out, join_path(command->name, sub->name), *sub);
+            return exit_done;
+        }
+        report_usage(output, "help", "expected a command name");
+        return exit_usage;
+    }
+    const Command* command = find_command(table, first);
+    if (command == nullptr) {
+        report_usage(output, first, "unknown command");
+        return exit_usage;
+    }
+    return invoke(*command, first, arguments.subspan(1), output);
+}
+
+} // namespace
+
+std::span<const Command> commands() {
+    return command_table;
+}
+
+int run_tool(std::span<const std::string> arguments, Output& output) {
+    return dispatch(command_table, arguments, output);
+}
+
+int run_tool(
+    std::span<const Command> table, std::span<const std::string> arguments, Output& output
+) {
+    return dispatch(table, arguments, output);
+}
+
+} // namespace oa::tool

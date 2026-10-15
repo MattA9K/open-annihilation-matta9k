@@ -8,10 +8,12 @@
 // engine options a run with the endpoint refuses, the usage text; and the
 // endpoint's token.
 #include "oa/app/app.hpp"
+#include "oa/app/netgame/launch_file.hpp"
 #include "oa/test/check.hpp"
 #include "options.hpp"
 #include "token.hpp"
 
+#include <filesystem>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -141,6 +143,83 @@ void check_conflicts() {
     OA_CHECK(conflict({"--fark", "--check-user-folder"}) == "a --check-* option");
 }
 
+/// Status lines and --quit-after-game need no endpoint, and do not make the
+/// run one a program controls. A following word is not the option's value.
+/// An empty status file is refused.
+void check_status_options() {
+    const Parsed lines = parse({"--status-stdout"});
+    OA_CHECK(lines.endpoint.status_stdout);
+    OA_CHECK(!lines.endpoint.enabled);
+    OA_CHECK(!lines.app.remote_controlled);
+    OA_CHECK(lines.endpoint.quit_after == automation::QuitAfter::none);
+
+    const Parsed file = parse({"--status-file", "work/status.jsonl", "--quit-after-game"});
+    OA_CHECK(file.endpoint.status_file && *file.endpoint.status_file == "work/status.jsonl");
+    OA_CHECK(!file.endpoint.status_stdout);
+    OA_CHECK(file.endpoint.quit_after == automation::QuitAfter::game);
+    OA_CHECK(!file.app.remote_controlled);
+
+    const Parsed score = parse({"--quit-after-game=after-score"});
+    OA_CHECK(score.endpoint.quit_after == automation::QuitAfter::score);
+    OA_CHECK(!score.app.remote_controlled);
+
+    const Parsed bare = parse({"--quit-after-game", "--mute"});
+    OA_CHECK(bare.endpoint.quit_after == automation::QuitAfter::game);
+    OA_CHECK(bare.app.mute);
+
+    OA_CHECK(rejection({"--quit-after-game=later"}) == "--quit-after-game takes after-score");
+    OA_CHECK(rejection({"--status-file"}) == "--status-file requires a value");
+    OA_CHECK(rejection({"--status-stdout"}, false) == "unknown option: --status-stdout");
+
+    automation::EndpointOptions empty;
+    empty.status_file = std::filesystem::path{};
+    oa::app::Extension table{};
+    automation::fill_option_hooks(table, empty);
+    std::string message;
+    try {
+        table.check_options(table.context);
+    } catch (const std::runtime_error& error) {
+        message = error.what();
+    }
+    OA_CHECK(message == "--status-file needs a file");
+}
+
+/// The launch's status block, which network play keeps as it checks the
+/// command line, turns the stream on. The command line replaces one field.
+/// A run with no status block changes nothing.
+void check_launch_status() {
+    namespace netgame = oa::app::netgame;
+    netgame::LaunchStatusChoice both;
+    both.standard_output_named = true;
+    both.standard_output = true;
+    both.quit_after = netgame::QuitAfter::after_score;
+    netgame::keep_launch_status(both);
+    const Parsed turned = parse({});
+    OA_CHECK(turned.endpoint.status_stdout);
+    OA_CHECK(turned.endpoint.quit_after == automation::QuitAfter::score);
+    OA_CHECK(!turned.endpoint.status_file);
+    OA_CHECK(!turned.endpoint.status_stdout_on_command);
+    OA_CHECK(!turned.endpoint.quit_after_on_command);
+
+    netgame::LaunchStatusChoice named;
+    named.standard_output_named = true;
+    named.standard_output = true;
+    named.file = "other.jsonl";
+    named.quit_after = netgame::QuitAfter::game;
+    netgame::keep_launch_status(named);
+    const Parsed replaced = parse({"--status-file", "chosen.jsonl"});
+    OA_CHECK(replaced.endpoint.status_stdout);
+    OA_CHECK(replaced.endpoint.status_file && *replaced.endpoint.status_file == "chosen.jsonl");
+    OA_CHECK(replaced.endpoint.quit_after == automation::QuitAfter::game);
+    OA_CHECK(replaced.endpoint.status_file_on_command);
+
+    netgame::keep_launch_status({});
+    const Parsed unchanged = parse({});
+    OA_CHECK(!unchanged.endpoint.status_stdout);
+    OA_CHECK(!unchanged.endpoint.status_file);
+    OA_CHECK(unchanged.endpoint.quit_after == automation::QuitAfter::none);
+}
+
 /// The usage names the options on the run options' line, says what --fark
 /// serves on the line after it, and words nothing else.
 void check_usage() {
@@ -179,6 +258,8 @@ void check_token() {
 int main() {
     check_taken();
     check_refused();
+    check_status_options();
+    check_launch_status();
     check_conflicts();
     check_usage();
     check_token();

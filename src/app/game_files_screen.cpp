@@ -11,15 +11,18 @@
 
 #include "game_files_paint.hpp"
 #include "render_host.hpp"
+#include "render_state.hpp"
+#include "window_pixels.hpp"
 
+#include "oa/app/content_copy.hpp"
 #include "oa/app/game_directory.hpp"
 #include "oa/app/game_files_hooks.hpp"
+#include "oa/app/user_folder.hpp"
 #include "oa/platform/preferences.hpp"
 #include "oa/ui/engine_settings.hpp"
 
 #include <algorithm>
 #include <array>
-#include <cmath>
 #include <deque>
 #include <exception>
 #include <iostream>
@@ -33,6 +36,12 @@
 #endif
 
 namespace oa::app {
+
+// Named once, whichever app header that draws with the painter is included first.
+#ifndef OA_APP_UI_PAINT
+#define OA_APP_UI_PAINT
+namespace paint = oa::ui::paint;
+#endif
 
 namespace view = oa::ui::game_files;
 namespace text_font = oa::platform::text_font;
@@ -53,10 +62,6 @@ constexpr int32_t picker_wait_ms = 100;
 constexpr int32_t check_wait_ms = 16;
 /// The shortest time between two repaints for progress alone, in nanoseconds.
 constexpr uint64_t progress_repaint_ns = 250'000'000;
-/// How far a press may move over the rows before it scrolls them, in points.
-constexpr float drag_threshold_points = 10.0F;
-/// How far one notch of the wheel scrolls the rows, in points.
-constexpr float wheel_notch_points = 40.0F;
 /// The copy's time left is shown once it has run this long, in nanoseconds.
 constexpr uint64_t time_left_after_ns = 5'000'000'000;
 /// The time left comes from the rate over this window, in nanoseconds.
@@ -224,67 +229,6 @@ struct RowSource {
     std::string mod_id{};                           ///< the mod's id, in the management state
 };
 
-/// The renderer's state the screen changes, kept to put back at the end.
-class RenderState {
-  public:
-
-    /// Keeps the renderer's target, logical presentation, scale, viewport and clip.
-    ///
-    /// @param renderer the renderer
-    explicit RenderState(SDL_Renderer* renderer) noexcept : renderer_(renderer) {
-        target_ = SDL_GetRenderTarget(renderer_);
-        SDL_GetRenderLogicalPresentation(
-            renderer_, &logical_width_, &logical_height_, &logical_mode_
-        );
-        SDL_GetRenderScale(renderer_, &scale_x_, &scale_y_);
-        viewport_set_ = SDL_RenderViewportSet(renderer_);
-        SDL_GetRenderViewport(renderer_, &viewport_);
-        clip_set_ = SDL_RenderClipEnabled(renderer_);
-        SDL_GetRenderClipRect(renderer_, &clip_);
-        SDL_GetRenderDrawColor(renderer_, &colour_[0], &colour_[1], &colour_[2], &colour_[3]);
-        SDL_GetRenderDrawBlendMode(renderer_, &blend_);
-    }
-
-    /// Puts everything back as it was.
-    ~RenderState() {
-        SDL_SetRenderTarget(renderer_, target_);
-        SDL_SetRenderLogicalPresentation(renderer_, logical_width_, logical_height_, logical_mode_);
-        SDL_SetRenderScale(renderer_, scale_x_, scale_y_);
-        SDL_SetRenderViewport(renderer_, viewport_set_ ? &viewport_ : nullptr);
-        SDL_SetRenderClipRect(renderer_, clip_set_ ? &clip_ : nullptr);
-        SDL_SetRenderDrawColor(renderer_, colour_[0], colour_[1], colour_[2], colour_[3]);
-        SDL_SetRenderDrawBlendMode(renderer_, blend_);
-    }
-
-    RenderState(const RenderState&) = delete;
-    RenderState& operator=(const RenderState&) = delete;
-
-    /// Draws to the window directly, in its own pixels, as the screen does.
-    void use_window_pixels() const noexcept {
-        SDL_SetRenderTarget(renderer_, nullptr);
-        SDL_SetRenderLogicalPresentation(renderer_, 0, 0, SDL_LOGICAL_PRESENTATION_DISABLED);
-        SDL_SetRenderScale(renderer_, 1.0F, 1.0F);
-        SDL_SetRenderViewport(renderer_, nullptr);
-        SDL_SetRenderClipRect(renderer_, nullptr);
-    }
-
-  private:
-
-    SDL_Renderer* renderer_{}; ///< the renderer
-    SDL_Texture* target_{};    ///< its target
-    int logical_width_{};      ///< logical width
-    int logical_height_{};     ///< logical height
-    SDL_RendererLogicalPresentation logical_mode_{SDL_LOGICAL_PRESENTATION_DISABLED}; ///< its mode
-    float scale_x_{1.0F};                      ///< scale across
-    float scale_y_{1.0F};                      ///< scale down
-    bool viewport_set_{};                      ///< a viewport was set
-    SDL_Rect viewport_{};                      ///< the viewport
-    bool clip_set_{};                          ///< a clip was set
-    SDL_Rect clip_{};                          ///< the clip
-    std::array<uint8_t, 4> colour_{};          ///< the draw colour
-    SDL_BlendMode blend_{SDL_BLENDMODE_BLEND}; ///< the blend mode
-};
-
 } // namespace
 
 /// What the loop keeps between passes, and the controller between the screen's model and the
@@ -293,7 +237,7 @@ struct GameFilesScreen::State {
     view::Model model{};                         ///< the screen's model
     view::Layout layout{};                       ///< the layout last painted
     view::Viewport viewport{};                   ///< the viewport last laid out
-    touch_paint::Canvas canvas{};                ///< the canvas last painted
+    paint::Canvas canvas{};                      ///< the canvas last painted
     oa::platform::text_font::FontStack* fonts{}; ///< the bundled fonts, when open
     game_files::RunSnapshot run{};               ///< the copy's latest snapshot
     game_files::ScanSnapshot scan{};             ///< the scan's latest snapshot
@@ -303,7 +247,8 @@ struct GameFilesScreen::State {
     ///
     /// @param request what the screen was opened with
     explicit State(const GameFilesScreenRequest& request)
-        : request_(request), hooks_(game_files_hooks()) {}
+        : request_(request), hooks_(game_files_hooks()),
+          frame_(request.renderer, "the Game files screen") {}
 
     /// Ends the workers and lets go of what the screen holds.
     ~State() {
@@ -316,8 +261,6 @@ struct GameFilesScreen::State {
             runner_->join();
         }
         release_sources();
-        if (texture_ != nullptr)
-            SDL_DestroyTexture(texture_);
     }
 
     State(const State&) = delete;
@@ -381,6 +324,7 @@ struct GameFilesScreen::State {
 
     // Input.
     [[nodiscard]] bool accepted_touch(SDL_TouchID device) const noexcept;
+    void take_pointer(const PointerEvent& pointer);
     void press_at(float x, float y, bool finger, SDL_TouchID touch, SDL_FingerID id);
     void move_to(float x, float y);
     void release_at(float x, float y);
@@ -406,6 +350,7 @@ struct GameFilesScreen::State {
     void fill_first_run();
     void fill_manage();
     void fill_ready(const game_files::RunSnapshot& snapshot);
+    void mirror_committed_game();
     void set_step(view::Step step);
     void show_problem(view::Problem problem, std::string detail = {}, std::string file = {});
     void release_sources();
@@ -419,9 +364,7 @@ struct GameFilesScreen::State {
     view::Interaction interaction_{};
     std::optional<GameFilesEnd> end_{};
     std::optional<RenderState> render_state_{};
-    SDL_Texture* texture_{};
-    int texture_width_{};
-    int texture_height_{};
+    WindowFrame frame_; ///< the frame shown on the window
     bool dirty_{true};
     bool progress_dirty_{};
     bool painted_{};
@@ -430,18 +373,9 @@ struct GameFilesScreen::State {
     uint32_t window_id_{};
     bool watching_{};
 
-    // The press under way.
-    struct Press {
-        bool active{};
-        bool finger{};
-        SDL_TouchID touch{};
-        SDL_FingerID id{};
-        float start_x{};
-        float start_y{};
-        float last_y{};
-        bool scrolling{};
-        view::Control control{};
-    } press_{};
+    // The press under way, and the control it went down on.
+    WindowPress press_{};
+    view::Control press_control_{};
 
     // The import.
     std::unique_ptr<game_files::SourceScan> scanner_{};
@@ -509,7 +443,11 @@ void GameFilesScreen::State::start() {
         request_.preferences_file.value_or(oa::platform::preferences::default_file())
     );
     if (request_.entry == GameFilesEntry::first_run)
-        install_game_files_language(request_.preferences_file);
+        install_game_files_language(request_.preferences_file, request_.user_folder);
+    else
+        read_game_files_language_packs(request_.user_folder, request_.preferences_file);
+    if (fonts != nullptr)
+        use_game_files_language_fonts(*fonts);
     model.version = request_.version;
     model.management = request_.entry == GameFilesEntry::manage;
     const uint32_t capabilities =
@@ -637,77 +575,21 @@ void GameFilesScreen::State::handle_event(const SDL_Event& event) {
         return;
     case SDL_EVENT_RENDER_DEVICE_RESET:
     case SDL_EVENT_RENDER_TARGETS_RESET:
-        if (event.type == SDL_EVENT_RENDER_DEVICE_RESET && texture_ != nullptr)
-            SDL_DestroyTexture(texture_);
         if (event.type == SDL_EVENT_RENDER_DEVICE_RESET)
-            texture_ = nullptr;
+            frame_.drop_texture();
         render_state_->use_window_pixels();
         dirty_ = true;
         return;
     case SDL_EVENT_FINGER_DOWN:
-        if (accepted_touch(event.tfinger.touchID))
-            press_at(
-                event.tfinger.x * static_cast<float>(viewport.width),
-                event.tfinger.y * static_cast<float>(viewport.height),
-                true,
-                event.tfinger.touchID,
-                event.tfinger.fingerID
-            );
-        return;
     case SDL_EVENT_FINGER_MOTION:
-        if (press_.active && press_.finger && event.tfinger.touchID == press_.touch &&
-            event.tfinger.fingerID == press_.id)
-            move_to(
-                event.tfinger.x * static_cast<float>(viewport.width),
-                event.tfinger.y * static_cast<float>(viewport.height)
-            );
-        return;
     case SDL_EVENT_FINGER_UP:
     case SDL_EVENT_FINGER_CANCELED:
-        if (press_.active && press_.finger && event.tfinger.touchID == press_.touch &&
-            event.tfinger.fingerID == press_.id) {
-            if (event.type == SDL_EVENT_FINGER_CANCELED) {
-                take_outcome(view::press_up(model, interaction_, layout, view::Control{}));
-                press_ = {};
-            } else {
-                release_at(
-                    event.tfinger.x * static_cast<float>(viewport.width),
-                    event.tfinger.y * static_cast<float>(viewport.height)
-                );
-            }
-        }
-        return;
     case SDL_EVENT_MOUSE_BUTTON_DOWN:
-        // SDL's mouse events made from a finger are left out: the finger itself is taken.
-        if (event.button.which != SDL_TOUCH_MOUSEID && event.button.button == SDL_BUTTON_LEFT)
-            press_at(
-                event.button.x * viewport.px_per_point,
-                event.button.y * viewport.px_per_point,
-                false,
-                0,
-                0
-            );
-        return;
     case SDL_EVENT_MOUSE_MOTION:
-        if (event.motion.which != SDL_TOUCH_MOUSEID && press_.active && !press_.finger)
-            move_to(event.motion.x * viewport.px_per_point, event.motion.y * viewport.px_per_point);
-        return;
     case SDL_EVENT_MOUSE_BUTTON_UP:
-        if (event.button.which != SDL_TOUCH_MOUSEID && event.button.button == SDL_BUTTON_LEFT &&
-            press_.active && !press_.finger)
-            release_at(
-                event.button.x * viewport.px_per_point, event.button.y * viewport.px_per_point
-            );
+    case SDL_EVENT_MOUSE_WHEEL:
+        take_pointer(read_pointer(event, viewport, press_));
         return;
-    case SDL_EVENT_MOUSE_WHEEL: {
-        if (event.wheel.which == SDL_TOUCH_MOUSEID)
-            return;
-        float notches = event.wheel.y;
-        if (event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED)
-            notches = -notches;
-        take_outcome(view::scroll(model, layout, -notches * wheel_notch_points));
-        return;
-    }
     case SDL_EVENT_KEY_DOWN:
         take_key(event.key);
         return;
@@ -765,11 +647,32 @@ void GameFilesScreen::State::leave_screen() noexcept {
 }
 
 bool GameFilesScreen::State::accepted_touch(SDL_TouchID device) const noexcept {
-    if (device == SDL_MOUSE_TOUCHID || device == SDL_PEN_TOUCHID)
-        return false;
-    if (device == game_files_check_touch_id)
-        return true;
-    return SDL_GetTouchDeviceType(device) == SDL_TOUCH_DEVICE_DIRECT;
+    return device == game_files_check_touch_id || touch_screen(device);
+}
+
+void GameFilesScreen::State::take_pointer(const PointerEvent& pointer) {
+    switch (pointer.step) {
+    case PointerStep::none:
+        return;
+    case PointerStep::down:
+        if (!pointer.finger || accepted_touch(pointer.touch))
+            press_at(pointer.x, pointer.y, pointer.finger, pointer.touch, pointer.id);
+        return;
+    case PointerStep::move:
+        move_to(pointer.x, pointer.y);
+        return;
+    case PointerStep::up:
+        release_at(pointer.x, pointer.y);
+        return;
+    case PointerStep::cancel:
+        take_outcome(view::press_up(model, interaction_, layout, view::Control{}));
+        press_ = {};
+        press_control_ = {};
+        return;
+    case PointerStep::wheel:
+        take_outcome(view::scroll(model, layout, pointer.wheel_points));
+        return;
+    }
 }
 
 void GameFilesScreen::State::press_at(
@@ -778,12 +681,9 @@ void GameFilesScreen::State::press_at(
     if (press_.active)
         return;
     const float reach = view::pick_reach_points * viewport.px_per_point;
-    const view::Control control = view::hit_test(
-        layout,
-        view::Point{static_cast<int>(std::lround(x)), static_cast<int>(std::lround(y))},
-        reach
-    );
-    press_ = Press{true, finger, touch, id, x, y, y, false, control};
+    const view::Control control = view::hit_test(layout, canvas_point(x, y), reach);
+    press_ = WindowPress{true, finger, touch, id, x, y, y, false};
+    press_control_ = control;
     take_outcome(view::press_down(model, interaction_, layout, control));
     dirty_ = true;
 }
@@ -793,14 +693,7 @@ void GameFilesScreen::State::move_to(float x, float y) {
     if (!press_.active)
         return;
     if (!press_.scrolling) {
-        const float threshold = drag_threshold_points * viewport.px_per_point;
-        const auto& rows = layout.rows;
-        const bool over_rows = rows.width > 0 && rows.height > 0 &&
-                               press_.start_x >= static_cast<float>(rows.x) &&
-                               press_.start_x < static_cast<float>(rows.x + rows.width) &&
-                               press_.start_y >= static_cast<float>(rows.y) &&
-                               press_.start_y < static_cast<float>(rows.y + rows.height);
-        if (!over_rows || std::fabs(y - press_.start_y) <= threshold)
+        if (!press_scrolls(press_, layout.rows, y, viewport.px_per_point))
             return;
         // The press becomes a scroll: what it held is released as slid off.
         press_.scrolling = true;
@@ -815,20 +708,16 @@ void GameFilesScreen::State::move_to(float x, float y) {
 void GameFilesScreen::State::release_at(float x, float y) {
     if (!press_.active)
         return;
-    const Press finished = press_;
+    const WindowPress finished = press_;
+    const view::Control held = press_control_;
     press_ = {};
+    press_control_ = {};
     if (finished.scrolling)
         return;
     const float reach = view::pick_reach_points * viewport.px_per_point;
-    const view::Control under = view::hit_test(
-        layout,
-        view::Point{static_cast<int>(std::lround(x)), static_cast<int>(std::lround(y))},
-        reach
-    );
+    const view::Control under = view::hit_test(layout, canvas_point(x, y), reach);
     take_outcome(
-        view::press_up(
-            model, interaction_, layout, under == finished.control ? under : view::Control{}
-        )
+        view::press_up(model, interaction_, layout, under == held ? under : view::Control{})
     );
     dirty_ = true;
 }
@@ -888,39 +777,8 @@ void GameFilesScreen::State::take_outcome(view::Outcome outcome) {
 }
 
 void GameFilesScreen::State::refresh_viewport() {
-    int window_width = 0;
-    int window_height = 0;
-    int output_width = 0;
-    int output_height = 0;
-    if (!SDL_GetWindowSize(request_.window, &window_width, &window_height) ||
-        !SDL_GetRenderOutputSize(request_.renderer, &output_width, &output_height) ||
-        window_width <= 0 || window_height <= 0 || output_width <= 0 || output_height <= 0)
-        return;
-    view::Viewport next;
-    next.width = output_width;
-    next.height = output_height;
-    next.px_per_point = static_cast<float>(output_width) / static_cast<float>(window_width);
-    SDL_Rect safe{};
-    if (SDL_GetWindowSafeArea(request_.window, &safe) && safe.w > 0 && safe.h > 0) {
-        const float scale = next.px_per_point;
-        next.safe.left = static_cast<int>(std::lround(static_cast<float>(safe.x) * scale));
-        next.safe.top = static_cast<int>(std::lround(static_cast<float>(safe.y) * scale));
-        next.safe.right = static_cast<int>(
-            std::lround(static_cast<float>(window_width - safe.x - safe.w) * scale)
-        );
-        next.safe.bottom = static_cast<int>(
-            std::lround(static_cast<float>(window_height - safe.y - safe.h) * scale)
-        );
-    }
-    const bool same = next.width == viewport.width && next.height == viewport.height &&
-                      next.px_per_point == viewport.px_per_point &&
-                      next.safe.left == viewport.safe.left && next.safe.top == viewport.safe.top &&
-                      next.safe.right == viewport.safe.right &&
-                      next.safe.bottom == viewport.safe.bottom;
-    if (!same) {
-        viewport = next;
+    if (read_window_viewport(request_.window, request_.renderer, viewport))
         dirty_ = true;
-    }
 }
 
 void GameFilesScreen::State::repaint() {
@@ -932,13 +790,13 @@ void GameFilesScreen::State::repaint() {
         return;
     layout = view::lay_out(model, viewport, game_files_measure(fonts));
     // A shown focus that left the layout moves to its first control.
-    if (interaction_.focus_shown && !layout.focus_order.empty() &&
-        std::find(layout.focus_order.begin(), layout.focus_order.end(), interaction_.focused) ==
-            layout.focus_order.end())
-        interaction_.focused = layout.focus_order.front();
-    view::mark_interaction(layout, interaction_);
+    const std::vector<oa::ui::kit::ControlId>& order = layout.list.tab_order;
+    if (interaction_.focus_shown && !order.empty() &&
+        std::find(order.begin(), order.end(), interaction_.focused) == order.end())
+        interaction_.focused = order.front();
+    oa::ui::kit::mark_states(layout.list, interaction_);
     if (canvas.width != viewport.width || canvas.height != viewport.height)
-        canvas = touch_paint::make_canvas(viewport.width, viewport.height);
+        canvas = paint::make_canvas(viewport.width, viewport.height);
     paint_game_files(canvas, layout, fonts, viewport.px_per_point);
     dirty_ = false;
     progress_dirty_ = false;
@@ -949,36 +807,9 @@ void GameFilesScreen::State::repaint() {
 void GameFilesScreen::State::present() {
     // While the renderer's start-up stage stands, the last frame is shown again each pass.
     const bool counting = request_.host != nullptr && request_.host->start_stage_open();
-    if (!presenting_ || (!painted_ && !counting) || canvas.width <= 0 || canvas.height <= 0)
+    if (!presenting_ || (!painted_ && !counting))
         return;
-    if (texture_ == nullptr || texture_width_ != canvas.width || texture_height_ != canvas.height) {
-        if (texture_ != nullptr)
-            SDL_DestroyTexture(texture_);
-        texture_ = SDL_CreateTexture(
-            request_.renderer,
-            SDL_PIXELFORMAT_RGBA32,
-            SDL_TEXTUREACCESS_STREAMING,
-            canvas.width,
-            canvas.height
-        );
-        if (texture_ == nullptr) {
-            std::cerr << "open-annihilation: the Game files screen cannot make its texture: "
-                      << SDL_GetError() << '\n';
-            return;
-        }
-        SDL_SetTextureBlendMode(texture_, SDL_BLENDMODE_NONE);
-        SDL_SetTextureScaleMode(texture_, SDL_SCALEMODE_NEAREST);
-        texture_width_ = canvas.width;
-        texture_height_ = canvas.height;
-    }
-    SDL_UpdateTexture(texture_, nullptr, canvas.rgba.data(), canvas.width * 4);
-    render_state_->use_window_pixels();
-    const view::Colour back = view::background_colour;
-    SDL_SetRenderDrawColor(request_.renderer, back.r, back.g, back.b, 255);
-    SDL_RenderClear(request_.renderer);
-    SDL_RenderTexture(request_.renderer, texture_, nullptr, nullptr);
-    if (SDL_RenderPresent(request_.renderer) && request_.host != nullptr)
-        request_.host->note_presented_frame(0);
+    static_cast<void>(frame_.show(canvas, *render_state_, request_.host));
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1579,8 +1410,55 @@ void GameFilesScreen::State::take_checked(const game_files::RunSnapshot& snapsho
     }
     old_folder_ = commit.old_folder;
     fill_ready(snapshot);
+    mirror_committed_game();
     model.banner = view::Banner::none;
     set_step(view::Step::ready_to_play);
+}
+
+void GameFilesScreen::State::mirror_committed_game() {
+    // The check's own copy stays in the staged folder. A player's import is
+    // written into the managed folders, and the staged folder is removed
+    // only after that copy finishes, so the game is not kept twice.
+    if (request_.check.pass != nullptr)
+        return;
+    fs::path user;
+    try {
+        const fs::path preferences = preference_file(request_.preferences_file);
+        std::error_code error;
+        const oa::platform::preferences::Values values =
+            fs::exists(preferences, error) ? oa::platform::preferences::load(preferences)
+                                           : oa::platform::preferences::Values{};
+        std::string note;
+        user = own_user_folder(
+            request_.user_folder, request_.preferences_file, preferences, values, note
+        );
+    } catch (const std::exception& error) {
+        log_import(std::string("the managed copy was not written: ") + error.what());
+        return;
+    }
+    if (user.empty())
+        return;
+    try {
+        const auto table = oa::data::content_bundles::bundles();
+        FolderContentSource source(request_.paths.game_folder, table);
+        CopyRequest copy;
+        copy.user_folder = std::move(user);
+        copy.bundles = table;
+        copy.news = &std::cerr;
+        const CopyResult result = copy_content(source, copy);
+        if (result.status != CopyStatus::finished) {
+            log_import("the managed copy was not written: " + result.error);
+            return;
+        }
+        std::error_code failure;
+        fs::remove_all(request_.paths.game_folder, failure);
+        if (failure)
+            log_import("the staged game folder could not be removed: " + failure.message());
+        else
+            log_import("the staged game folder was removed after the managed copy");
+    } catch (const std::exception& error) {
+        log_import(std::string("the managed copy was not written: ") + error.what());
+    }
 }
 
 void GameFilesScreen::State::fill_ready(const game_files::RunSnapshot& snapshot) {
@@ -1677,7 +1555,7 @@ void GameFilesScreen::State::take_stop() {
 void GameFilesScreen::State::set_step(view::Step step) {
     if (model.step != step) {
         model.scroll_points = 0;
-        interaction_.pressed = {};
+        interaction_.pressed = oa::ui::kit::no_control;
     }
     model.step = step;
     model.sheet = view::Sheet::none;
@@ -2038,8 +1916,7 @@ void GameFilesScreen::State::act(view::Outcome outcome) {
     }
     case view::Command::remove_demo_data: {
         std::string error;
-        const fs::path demo_data =
-            request_.paths.data_folder / path_from_utf8(demo_1997.folder_name);
+        const fs::path demo_data = demo_bundle_directory(request_.paths.data_folder);
         if (!game_files::remove_folder_now(demo_data, &error))
             std::cerr << "open-annihilation: the demo's data was not removed: " << error << '\n';
         fill_manage();
@@ -2124,8 +2001,9 @@ void GameFilesScreen::State::open_language() {
     dialog.fonts = fonts;
     dialog.version = request_.version;
     dialog.preferences_file = request_.preferences_file;
+    dialog.user_folder = request_.user_folder;
     dialog.hooks.context = this;
-    dialog.hooks.present = [](void* context, const touch_paint::Canvas& frame) {
+    dialog.hooks.present = [](void* context, const paint::Canvas& frame) {
         auto& state = *static_cast<State*>(context);
         state.canvas = frame;
         state.painted_ = true;
@@ -2157,20 +2035,20 @@ void GameFilesScreen::State::open_language() {
 }
 
 bool GameFilesScreen::State::tap(view::Control control) {
-    // The topmost item of the control: a sheet's lies above what it covers.
-    const view::Item* found = nullptr;
-    for (auto item = layout.items.rbegin(); item != layout.items.rend(); ++item)
-        if (item->control == control) {
-            found = &*item;
+    // The topmost part of the control: a sheet's lies above what it covers.
+    const oa::ui::kit::Item* found = nullptr;
+    for (auto part = layout.list.items.rbegin(); part != layout.list.items.rend(); ++part)
+        if (view::screen_control(part->control) == control) {
+            found = &*part;
             break;
         }
     if (found == nullptr || viewport.width <= 0 || viewport.height <= 0)
         return false;
     const float x =
-        (static_cast<float>(found->box.x) + static_cast<float>(found->box.width) * 0.5F) /
+        (static_cast<float>(found->rect.x) + static_cast<float>(found->rect.width) * 0.5F) /
         static_cast<float>(viewport.width);
     const float y =
-        (static_cast<float>(found->box.y) + static_cast<float>(found->box.height) * 0.5F) /
+        (static_cast<float>(found->rect.y) + static_cast<float>(found->rect.height) * 0.5F) /
         static_cast<float>(viewport.height);
     for (const SDL_EventType type : {SDL_EVENT_FINGER_DOWN, SDL_EVENT_FINGER_UP}) {
         SDL_Event event{};
@@ -2214,7 +2092,7 @@ const oa::ui::game_files::Viewport& GameFilesScreen::viewport() const noexcept {
     return state_->viewport;
 }
 
-const touch_paint::Canvas& GameFilesScreen::canvas() const noexcept {
+const paint::Canvas& GameFilesScreen::canvas() const noexcept {
     return state_->canvas;
 }
 

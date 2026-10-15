@@ -204,7 +204,8 @@ tap **Check again**.
 
 ## 8. Play
 
-Open **Open Annihilation**. The game is landscape only: turn the device on
+Open **Open Annihilation**. The game fills the screen; a phone or tablet
+has no desktop window to place. It is landscape only: turn the device on
 its side. [touch-controls.md](../touch-controls.md) describes the
 gestures and the layouts for phones and tablets. A keyboard, mouse or
 trackpad connected to the device works as on a computer.
@@ -221,12 +222,11 @@ Open Annihilation folder in the game's own Documents folder: in Files, On
 My iPhone (or On My iPad) › Open Annihilation › Open Annihilation, beside
 the Total Annihilation folder. Each of its Saves, Screenshots, Films and
 Recordings folders holds a folder for each mod, and `default` for games
-without one. The buttons of **Common Tweaks › Your files**
-in the OA settings, and **Open Mods Folder** on the **Mods** page, open the
-Files app at its Saves, Screenshots or Mods folder; the Files app's status
-bar leads back to the game. A mod copied into that Mods folder is offered
-on the Mods page, and choosing it reloads the game for it without leaving
-the app. A `.oamod` file installs itself there: tap it in the Files app, or
+without one. The buttons of **System › Your files**
+in the OA settings open the Files app at its Saves, Screenshots or Mods
+folder; the Files app's status bar leads back to the game. A mod copied
+into that Mods folder is offered in the Library, and its PLAY NOW reloads
+the game for it without leaving the app. A `.oamod` file installs itself there: tap it in the Files app, or
 share it to Open Annihilation
 ([mods](../mods/README.md#installing-a-oamod-file)).
 
@@ -244,8 +244,8 @@ Open the **OA** settings from the main menu and choose **Game files**:
   - **ADD FILES…** adds an expansion, extra maps or a mod from a folder,
     archives (`.hpi`, `.ufo`, `.ccx` and `.gp3` files) or the demo's
     installer. Nothing already there is replaced. A folder holding a mod
-    profile (`oamod.yaml`) becomes a mod you choose on the settings' Mods
-    page.
+    profile (`oamod.yaml`) becomes a mod you choose with PLAY NOW in the
+    Library.
   - **CHECK AGAIN** runs the game's own check on the files, which also
     notices changes made in the Files app.
   - **REMOVE** next to a part removes it; **REMOVE ALL GAME FILES…** removes

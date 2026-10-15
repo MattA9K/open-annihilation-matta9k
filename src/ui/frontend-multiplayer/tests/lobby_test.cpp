@@ -4,7 +4,10 @@
 // Battleroom rules and map previews with the loopback net, and (with --data)
 // against the installed game's LOUNGE2.GUI and SELGAME.GUI layouts.
 #include "oa/data/languages/unit_texts.hpp"
+#include "oa/data/mod_profile.hpp"
+#include "oa/data/mod_profile/overrides.hpp"
 #include "oa/formats/gaf.hpp"
+#include "oa/netgame/presence.hpp"
 #include "oa/netgame/private_channel.hpp"
 #include "oa/netgame/records.hpp"
 #include "oa/netgame/unicode_chat.hpp"
@@ -17,12 +20,14 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <iterator>
 #include <memory>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -71,6 +76,13 @@ void sound(void*, const char* name) {
 // texts of the joins it asked for that failed.
 oa::ui::frontend_multiplayer::launch::LaunchBlock launch_block{};
 bool active_launch = false;
+bool refuse_map = false;
+// The id the loopback session gives the next player a Fixture's room adds as
+// it opens; 0 keeps the session's own first id.
+uint32_t fixture_next_player_id = 0;
+// The unit types a Fixture's room knows as it opens; none when null.
+mp::LobbyUnit* fixture_units = nullptr;
+int32_t fixture_unit_count = 0;
 std::vector<std::string> failed_joins;
 std::string saved_address;
 int32_t address_saves = 0;
@@ -108,6 +120,7 @@ mp::LaunchLink launch_link() {
 void reset_launch() {
     launch_block = oa::ui::frontend_multiplayer::launch::LaunchBlock{};
     active_launch = false;
+    refuse_map = false;
     failed_joins.clear();
     saved_address.clear();
     address_saves = 0;
@@ -122,6 +135,8 @@ const char* name(void*) {
 }
 
 bool select_map(void*, const char* value) {
+    if (refuse_map || value == nullptr)
+        return false;
     map_name = value;
     return true;
 }
@@ -187,7 +202,7 @@ struct Fixture {
         mp::lobby_reset(lobby, *game);
         if (online != nullptr) {
             lobby.launch_link = *online;
-            lobby.option_4 = online->block != nullptr && online->block->tournament != 0;
+            lobby.option_4 = host && online->block != nullptr && online->block->tournament != 0;
         }
         lobby.net = mp::loopback_lobby_net(loopback);
         lobby.services = test_services();
@@ -198,6 +213,12 @@ struct Fixture {
         mp::lobby_max_units_default(*game) = 250;
         game->side_count = 2;
         loopback.opened = true;
+        if (fixture_next_player_id != 0)
+            loopback.next_player_id = fixture_next_player_id;
+        if (fixture_units != nullptr) {
+            lobby.units = fixture_units;
+            lobby.unit_count = fixture_unit_count;
+        }
         game->players[0].player_id = 0x100;
         mp::lobby_seat_local(lobby, 0, host, "Host");
         mp::panel_load(panel, "guis/lounge2.gui", layout);
@@ -1401,10 +1422,22 @@ void test_row_indicators(const oa::ui::gui_layout::Layout& lounge) {
     );
     expect(logo1 != nullptr && logo1->active != 0 && logo1->stage == 1, "a remote colour square");
     expect(mp::panel_control(f.panel, "CD0")->active == 0, "the host shows no CD icon");
+    const auto host_badge = mp::lobby_row_badge(f.lobby, 0);
+    expect(
+        host_badge.badge == mp::RowBadge::open_annihilation && !host_badge.rules_differ,
+        "the host's own row has the OA badge and no dot"
+    );
     expect(
         mp::panel_control(f.panel, "CD1")->active != 0, "a remote 3.1c player with a CD shows it"
     );
+    expect(
+        mp::lobby_row_badge(f.lobby, 1).badge == mp::RowBadge::disc,
+        "a remote 3.1c player with a CD has the CD icon for its badge"
+    );
     expect(mp::panel_control(f.panel, "CD2")->active == 0, "an open slot shows no CD");
+    expect(
+        mp::lobby_row_badge(f.lobby, 2).badge == mp::RowBadge::none, "an open slot has no badge"
+    );
     auto* remote_block = reinterpret_cast<uint8_t*>(mp::slot_info(f.lobby, 1));
     remote_block[oa::netgame::player_info_engine_signature_offset] =
         oa::netgame::engine_signature_first;
@@ -1412,6 +1445,10 @@ void test_row_indicators(const oa::ui::gui_layout::Layout& lounge) {
         oa::netgame::engine_signature_second;
     mp::lobby_update_status(f.lobby, f.panel);
     expect(mp::panel_control(f.panel, "CD1")->active == 0, "a remote OA player shows no CD icon");
+    expect(
+        mp::lobby_row_badge(f.lobby, 1).badge == mp::RowBadge::open_annihilation,
+        "a remote OA player has the OA badge"
+    );
     remote_block[oa::netgame::player_info_engine_signature_offset] = 0;
     remote_block[oa::netgame::player_info_engine_signature_offset + 1] = 0;
     expect(
@@ -1489,7 +1526,9 @@ void test_slot_cycle(const oa::ui::gui_layout::Layout& lounge) {
     expect(f.press("PLAYER3"), "PLAYER3 clickable");
     expect(f.press("PLAYER3"), "PLAYER3 clickable again");
     expect(
-        mp::slot_player(f.lobby, 3).status == mp::kSlotOpen, "only one computer player is added"
+        mp::slot_player(f.lobby, 3).status == mp::kSlotComputer &&
+            mp::slot_player(f.lobby, 3).in_use == 0,
+        "a second computer player waits for its session arrival"
     );
     clock_ticks += 0x1f;
     expect(f.press("PLAYER2"), "PLAYER2 clickable as computer");
@@ -4152,6 +4191,907 @@ void test_recorder_in_the_battle_room() {
     );
 }
 
+// Every block the battle room sends, a computer player's too, keeps the five
+// bytes after the engine signature zero, as 0.7 sent them, and so does the
+// block the local player keeps. The signature, the 3.1c version and the disc
+// travel as before.
+void test_no_presence_bytes_in_the_battle_room() {
+    namespace ng = oa::netgame;
+    Room host(true);
+    auto& local = mp::local_info(host.lobby);
+    const auto* computer = mp::slot_info(host.lobby, 2);
+    const auto spare_zero = [](const uint8_t* block) {
+        const auto* spare = block + offsetof(mp::PlayerSetupInfo, reserved_after_signature);
+        const auto* end = spare + sizeof(mp::PlayerSetupInfo::reserved_after_signature);
+        return std::all_of(spare, end, [](uint8_t at) { return at == 0; });
+    };
+    mp::lobby_send_player_info(host.lobby);
+    const auto infos = host.sent(ng::RecordType::player_info);
+    expect(infos.size() == 2, "a block for the host and the computer player");
+    const mp::PlayerSetupInfo* sources[] = {&local, computer};
+    bool as_before = infos.size() == 2;
+    for (std::size_t index = 0; as_before && index < infos.size(); ++index) {
+        const auto* block = host.loopback.sent[infos[index]] + 1;
+        as_before = spare_zero(block) && ng::sent_by_open_annihilation(block) &&
+                    block[ng::player_info_version_major_offset] == sources[index]->version_major &&
+                    block[ng::player_info_version_minor_offset] == sources[index]->version_minor;
+    }
+    expect(as_before, "every block sent leaves the five bytes zero and the rest as before");
+
+    mp::lobby_enter_battleroom(host.lobby, host.panel);
+    const auto* kept = reinterpret_cast<const uint8_t*>(&mp::local_info(host.lobby));
+    expect(
+        spare_zero(kept) && ng::sent_by_open_annihilation(kept) &&
+            (mp::local_info(host.lobby).status & mp::status::has_disc) != 0,
+        "the block the battle room keeps leaves the five bytes zero"
+    );
+}
+
+// ---- Presence records in the battle room ----
+
+/// Encodes a presence record.
+///
+/// @param record the record's fields
+/// @param capacity the bytes it may take
+/// @return the record
+std::vector<uint8_t> encoded_presence(
+    const oa::netgame::PresenceRecord& record,
+    std::size_t capacity = oa::netgame::presence_record_max_bytes
+) {
+    std::vector<uint8_t> bytes(oa::netgame::presence_record_max_bytes);
+    std::size_t written = 0;
+    expect(
+        oa::netgame::encode_presence(record, bytes.data(), capacity, &written) ==
+            oa::netgame::WireError::ok,
+        "a test presence record encodes"
+    );
+    bytes.resize(written);
+    return bytes;
+}
+
+/// Returns a small presence record: an engine line and a sim hash.
+///
+/// @param version the engine's version text
+/// @return the record
+std::vector<uint8_t> small_presence(const char* version) {
+    oa::netgame::PresenceRecord record;
+    record.engine = oa::netgame::PresenceEngine{version, "macOS", "arm64"};
+    record.sim_hash = oa::netgame::PresenceDigest{};
+    record.sim_hash->fill(0x5a);
+    return encoded_presence(record);
+}
+
+/// Binds a record as the lobby's source, as the screens' binding copies it.
+///
+/// @param[in,out] lobby the lobby
+/// @param record the record
+void bind_presence_source(mp::Lobby& lobby, const std::vector<uint8_t>& record) {
+    auto& records = lobby.presence_records;
+    std::copy(record.begin(), record.end(), records.source);
+    records.source_size = static_cast<uint16_t>(record.size());
+}
+
+/// Returns a presence record event from a player.
+///
+/// @param from the sender
+/// @param record the record's bytes
+/// @return the event
+mp::LobbyEvent presence_event(uint32_t from, const std::vector<uint8_t>& record) {
+    mp::LobbyEvent event{};
+    event.kind = mp::LobbyEventKind::record;
+    event.player_id = from;
+    std::copy(record.begin(), record.end(), event.data);
+    event.size = static_cast<uint16_t>(record.size());
+    return event;
+}
+
+/// Returns a player's setup block as record 0x20 from it.
+///
+/// @param id the player
+/// @param state the block's state: 1 for a human, 2 for a computer player
+/// @param signature the bytes of the 'OA' signature it carries: 0, 1 ('O' alone) or 2
+/// @return the record; the five bytes after the signature are zero, as every OA block's are
+oa::netgame::PlayerInfoRecord setup_block(uint32_t id, uint8_t state, int signature) {
+    namespace ng = oa::netgame;
+    ng::PlayerInfoRecord record{};
+    record.player_id = id;
+    record.info_tail[offsetof(mp::PlayerSetupInfo, state) - ng::player_info_tail_offset] = state;
+    auto* mark =
+        record.info_tail + (ng::player_info_engine_signature_offset - ng::player_info_tail_offset);
+    if (signature >= 1)
+        mark[0] = ng::engine_signature_first;
+    if (signature >= 2)
+        mark[1] = ng::engine_signature_second;
+    return record;
+}
+
+/// The map pack the test's binding names, and how often it was asked.
+oa::netgame::PresenceMapPack test_pack;
+int32_t pack_asks = 0;
+
+/// Answers LobbyMaps::pack with test_pack, counting the asks.
+///
+/// @param[out] out the pack
+/// @return true
+bool count_pack(void*, oa::netgame::PresenceMapPack* out) {
+    ++pack_asks;
+    *out = test_pack;
+    return true;
+}
+
+/// Returns the indexes of the sent presence records.
+///
+/// @param room the room
+/// @return the indexes, in order
+std::vector<int32_t> sent_presence(const Room& room) {
+    return room.sent(static_cast<oa::netgame::RecordType>(oa::netgame::presence_record_type));
+}
+
+/// Tells whether a sent record went out alone: no other sent record shares its flush.
+///
+/// @param room the room
+/// @param index the record's index
+/// @return true when it went out alone
+bool sent_alone(const Room& room, int32_t index) {
+    for (int32_t other = 0; other < room.loopback.sent_count; ++other)
+        if (other != index && room.loopback.sent_flush[other] == room.loopback.sent_flush[index])
+            return false;
+    return true;
+}
+
+/// Tells whether a sent record holds bytes.
+///
+/// @param room the room
+/// @param index the record's index
+/// @param bytes the bytes
+/// @param size their length
+/// @return true when the record is those bytes
+bool sent_is(const Room& room, int32_t index, const uint8_t* bytes, std::size_t size) {
+    return room.loopback.sent_size[index] == size &&
+           std::memcmp(room.loopback.sent[index], bytes, size) == 0;
+}
+
+/// Tells whether every setup block a room sent keeps the five bytes after the signature zero.
+///
+/// @param room the room
+/// @return true when they are all zero
+bool blocks_without_presence(const Room& room) {
+    for (const auto index : room.sent(oa::netgame::RecordType::player_info)) {
+        const auto* spare =
+            room.loopback.sent[index] + 1 + offsetof(mp::PlayerSetupInfo, reserved_after_signature);
+        if (!std::all_of(spare, spare + 5, [](uint8_t at) { return at == 0; }))
+            return false;
+    }
+    return true;
+}
+
+/// Seats the session player a click on a blocked slot asked for.
+///
+/// @param[in,out] room the battle room
+/// @return the arrival's player id, or 0 when none came
+uint32_t arrive_computer(Fixture& room) {
+    mp::LobbyEvent arrival{};
+    if (!room.lobby.net.receive(room.lobby.net.context, &arrival) ||
+        !mp::lobby_apply_event(room.lobby, arrival))
+        return 0;
+    mp::lobby_update_status(room.lobby, room.panel);
+    return arrival.player_id;
+}
+
+/// Battle-room rows for computer players: several per human, difficulty on
+/// the row, a host change of another OA machine's, and a 3.1c machine's
+/// left as a label the host can still remove.
+void test_computer_rows(const oa::ui::gui_layout::Layout& lounge) {
+    Fixture host(lounge);
+    host.loopback.next_player_id = 0x101;
+    expect(host.press("PLAYER1") && host.press("PLAYER1"), "a blocked slot seats a computer");
+    const auto first = arrive_computer(host);
+    auto& seated = mp::slot_player(host.lobby, 1);
+    expect(
+        first != 0 && seated.status == mp::kSlotComputer && seated.in_use != 0 &&
+            mp::panel_text(host.panel, "PLAYER1") == "AI:Host",
+        "the computer player's row names the human who runs it"
+    );
+    const auto* mem = mp::panel_control(host.panel, "MEM1");
+    expect(
+        mem != nullptr && mem->type == mp::ControlType::button && !mem->grayed &&
+            mp::panel_text(host.panel, "MEM1") == "Hard" && host.lobby.computer_difficulty[1] == 2,
+        "a computer player's row shows its difficulty"
+    );
+    expect(host.press("MEM1"), "the difficulty can be changed");
+    mp::lobby_update_status(host.lobby, host.panel);
+    expect(
+        mp::panel_text(host.panel, "MEM1") == "Easy" && host.lobby.computer_difficulty[1] == 0 &&
+            host.lobby.computer_difficulty_set[1],
+        "the difficulty cycles to easy"
+    );
+    const auto side_before = mp::slot_info(host.lobby, 1)->side;
+    const auto team_before = mp::lobby_player_team(seated);
+    expect(host.press("SIDE1") && host.press("TEAMICONS1"), "side and team can be changed");
+    expect(
+        mp::slot_info(host.lobby, 1)->side != side_before &&
+            mp::lobby_player_team(seated) != team_before,
+        "the computer player's side and team changed"
+    );
+    expect(host.press("PLAYER2") && host.press("PLAYER2"), "a second computer player is added");
+    expect(
+        mp::slot_player(host.lobby, 2).status == mp::kSlotComputer,
+        "the second computer player is seated"
+    );
+    clock_ticks += 0x1f;
+    expect(host.press("PLAYER1"), "the first computer player can be removed");
+    expect(
+        seated.status == mp::kSlotOpen && seated.in_use == 0 &&
+            mp::slot_player(host.lobby, 2).status == mp::kSlotComputer,
+        "removing one computer player leaves the other"
+    );
+
+    Fixture mixed(lounge);
+    mixed.loopback.next_player_id = 0x301;
+    mixed.join(0x301, "Rival");
+    mixed.remote_info(0x301, 0, 4);
+    expect(
+        !oa::netgame::sent_by_open_annihilation(
+            reinterpret_cast<const uint8_t*>(mp::slot_info(mixed.lobby, 1))
+        ),
+        "the other player is not on OA"
+    );
+    expect(mixed.press("PLAYER2") && mixed.press("PLAYER2"), "a 3.1c peer does not block adding");
+    expect(
+        mp::slot_player(mixed.lobby, 2).status == mp::kSlotComputer,
+        "a computer player is added while a 3.1c player is in the room"
+    );
+
+    Fixture remote(lounge);
+    remote.join(0x401, "Friend");
+    remote.remote_info(0x401, 0, 5);
+    oa::netgame::mark_engine_signature(reinterpret_cast<uint8_t*>(mp::slot_info(remote.lobby, 1)));
+    remote.join(0x402, "AI:Friend");
+    const auto computer = mp::slot_for_player_id(remote.lobby, 0x402);
+    expect(computer >= 0, "the remote computer player is seated");
+    mp::slot_info(remote.lobby, computer)->state = mp::kInfoStateDefeated;
+    mp::slot_player(remote.lobby, 1).machine_group = 4;
+    mp::slot_player(remote.lobby, computer).machine_group = 4;
+    mp::lobby_update_status(remote.lobby, remote.panel);
+    char mem_name[16];
+    std::snprintf(mem_name, sizeof mem_name, "MEM%d", static_cast<int>(computer));
+    const auto* remote_mem = mp::panel_control(remote.panel, mem_name);
+    expect(
+        remote_mem != nullptr && remote_mem->type == mp::ControlType::button && !remote_mem->grayed,
+        "the host can change another OA machine's computer player"
+    );
+    expect(remote.press(mem_name), "the host sets that computer player's difficulty");
+    expect(
+        remote.lobby.computer_command_kind == 4 && remote.lobby.computer_command_player == 0x402 &&
+            remote.lobby.computer_command_value == 0,
+        "the change waits for the machine that runs it"
+    );
+    const auto source = small_presence("0.8.0");
+    bind_presence_source(remote.lobby, source);
+    mp::presence_refresh(remote.lobby);
+    std::span<const uint8_t> command;
+    expect(
+        oa::netgame::find_presence_field(
+            remote.lobby.presence_records.local,
+            remote.lobby.presence_records.local_size,
+            oa::netgame::PresenceTag::computer_edit,
+            &command
+        ) && command.size() >= 6 &&
+            command[4] == 4 && command[5] == 0,
+        "the host's presence record carries the change"
+    );
+
+    Fixture owner(lounge, nullptr, false);
+    owner.loopback.next_player_id = 0x210;
+    owner.join(0x200, "Boss");
+    mp::slot_info(owner.lobby, mp::slot_for_player_id(owner.lobby, 0x200))->role = mp::kRoleHost;
+    expect(owner.press("PLAYER2"), "the joiner seats its own computer player");
+    const auto owned = arrive_computer(owner);
+    expect(owned != 0 && mp::slot_player(owner.lobby, 2).status == mp::kSlotComputer, "it arrived");
+    uint8_t body[6] = {
+        static_cast<uint8_t>(owned),
+        static_cast<uint8_t>(owned >> 8),
+        static_cast<uint8_t>(owned >> 16),
+        static_cast<uint8_t>(owned >> 24),
+        4,
+        0
+    };
+    auto asked = small_presence("0.8.0");
+    asked.resize(asked.size() + 16);
+    std::size_t written = 0;
+    expect(
+        oa::netgame::append_presence_field(
+            asked.data(),
+            asked.size() - 16,
+            asked.size(),
+            oa::netgame::PresenceTag::computer_edit,
+            std::span<const uint8_t>(body, sizeof body),
+            &written
+        ) == oa::netgame::WireError::ok,
+        "a host command encodes"
+    );
+    asked.resize(written);
+    const auto event = presence_event(0x200, asked);
+    expect(mp::lobby_apply_event(owner.lobby, event), "the host's presence record is kept");
+    expect(
+        owner.lobby.computer_difficulty_set[2] && owner.lobby.computer_difficulty[2] == 0,
+        "the machine that runs the computer player applies the difficulty"
+    );
+
+    Fixture plain(lounge);
+    plain.join(0x501, "Old");
+    plain.remote_info(0x501, 0, 6);
+    plain.join(0x502, "AI:Old");
+    const auto plain_computer = mp::slot_for_player_id(plain.lobby, 0x502);
+    expect(plain_computer >= 0, "a 3.1c machine's computer player is seated");
+    mp::slot_info(plain.lobby, plain_computer)->state = mp::kInfoStateDefeated;
+    mp::slot_player(plain.lobby, 1).machine_group = 5;
+    mp::slot_player(plain.lobby, plain_computer).machine_group = 5;
+    mp::lobby_update_status(plain.lobby, plain.panel);
+    char plain_mem[16];
+    std::snprintf(plain_mem, sizeof plain_mem, "MEM%d", static_cast<int>(plain_computer));
+    const auto* plain_control = mp::panel_control(plain.panel, plain_mem);
+    expect(
+        plain_control != nullptr && plain_control->type == mp::ControlType::label &&
+            plain_control->grayed && !plain.press(plain_mem),
+        "a 3.1c machine's computer player is not restyled"
+    );
+    char plain_row[16];
+    std::snprintf(plain_row, sizeof plain_row, "PLAYER%d", static_cast<int>(plain_computer));
+    expect(plain.press(plain_row), "the host can remove it");
+    expect(
+        plain.lobby.confirm_slot == static_cast<uint8_t>(plain_computer),
+        "removing it asks, as for any remote player"
+    );
+}
+
+// The battle room sends this machine's presence record alone in its frame,
+// to each human player whose block carries the 'OA' signature, once for each
+// change and once to a player who arrives later; never to a block without
+// the signature, a computer player or everyone at once. The host's record
+// names its map's pack, asked once for each map; a joiner's names none. A
+// record another OA player sent is kept as long as that player stays.
+void test_presence_records_in_the_battle_room() {
+    namespace ng = oa::netgame;
+    using ng::RecordType;
+    constexpr uint32_t kLater = 0x400;
+    const auto saved_map = map_name;
+    map_name = "Coast To Coast";
+    auto room = std::make_unique<Room>(true);
+    auto& lobby = room->lobby;
+    auto& records = lobby.presence_records;
+    const auto& sent = room->loopback;
+    lobby.next_stats_tick = clock_ticks + kNoStatusTicks; // no periodic block
+    const auto first = small_presence("0.8.0-dev");
+    bind_presence_source(lobby, first);
+    mp::presence_refresh(lobby);
+    expect(
+        records.local_size == first.size() &&
+            std::equal(first.begin(), first.end(), records.local) && records.local_generation == 1,
+        "the host's record is its source while no pack is bound"
+    );
+    const auto own = mp::lobby_presence_record(lobby, 0);
+    const auto computer = mp::lobby_presence_record(lobby, 2);
+    expect(
+        own.size() == first.size() && own.data() == records.local &&
+            computer.data() == records.local,
+        "the host's slot and its computer player's answer with the record it sends"
+    );
+
+    // No record before a block says OA: none without the signature, none
+    // with only its first byte, none to another machine's computer player.
+    (void)mp::lobby_tick(lobby, room->panel);
+    expect(
+        mp::lobby_apply_event(lobby, record_event(kRoomGuest, setup_block(kRoomGuest, 1, 0))),
+        "a block without the signature applies"
+    );
+    (void)mp::lobby_tick(lobby, room->panel);
+    expect(
+        mp::lobby_apply_event(lobby, record_event(kRoomGuest, setup_block(kRoomGuest, 1, 1))),
+        "a block with only 'O' applies"
+    );
+    (void)mp::lobby_tick(lobby, room->panel);
+    join_remote(lobby, kRoomThird);
+    const auto third_slot = mp::slot_for_player_id(lobby, kRoomThird);
+    // Each remote player plays on a machine of its own.
+    mp::slot_player(lobby, 1).machine_group = 2;
+    mp::slot_player(lobby, third_slot).machine_group = 3;
+    expect(
+        mp::lobby_apply_event(lobby, record_event(kRoomThird, setup_block(kRoomThird, 2, 2))),
+        "another machine's computer player's block applies"
+    );
+    (void)mp::lobby_tick(lobby, room->panel);
+    expect(sent_presence(*room).empty(), "no record to a block without 'OA' or a computer player");
+    expect(blocks_without_presence(*room), "the blocks sent carry no presence");
+
+    // The guest's block says OA: one record, alone, from the host's player.
+    room->loopback.sent_count = 0;
+    expect(
+        mp::lobby_apply_event(lobby, record_event(kRoomGuest, setup_block(kRoomGuest, 1, 2))),
+        "the OA guest's block applies"
+    );
+    auto presence = sent_presence(*room);
+    expect(presence.size() == 1, "exactly one record goes out");
+    if (presence.size() == 1) {
+        const auto index = presence[0];
+        expect(
+            sent.sent_to[index] == kRoomGuest && sent.sent_from[index] == kRoomHost,
+            "to the guest, from the host's player"
+        );
+        expect(sent_alone(*room, index), "alone in its frame");
+        expect(sent_is(*room, index, records.local, records.local_size), "holding the record");
+    }
+    (void)mp::lobby_apply_event(lobby, record_event(kRoomGuest, setup_block(kRoomGuest, 1, 2)));
+    for (int32_t frame = 0; frame < 3; ++frame)
+        (void)mp::lobby_tick(lobby, room->panel);
+    expect(sent_presence(*room).size() == 1, "the block again, and the frames after, send nothing");
+
+    // A changed source goes once more to the OA guest.
+    room->loopback.sent_count = 0;
+    bind_presence_source(lobby, small_presence("0.8.1-dev"));
+    (void)mp::lobby_tick(lobby, room->panel);
+    (void)mp::lobby_tick(lobby, room->panel);
+    presence = sent_presence(*room);
+    expect(
+        presence.size() == 1 && sent.sent_to[presence[0]] == kRoomGuest &&
+            sent_alone(*room, presence[0]) &&
+            sent_is(*room, presence[0], records.local, records.local_size) &&
+            records.local_generation == 2,
+        "a changed record goes once to the OA guest"
+    );
+
+    // The host's pack: asked once for a map, and once more for another.
+    room->loopback.sent_count = 0;
+    pack_asks = 0;
+    test_pack = ng::PresenceMapPack{};
+    test_pack.key = "archipelago";
+    test_pack.release = 3;
+    test_pack.sha256.fill(0xa5);
+    test_pack.registry = "example";
+    test_pack.descriptor_url = "http://registry.example/registry.yaml";
+    test_pack.name = "Archipelago";
+    test_pack.version = "1.2";
+    lobby.maps.pack_context = nullptr;
+    lobby.maps.pack = count_pack;
+    for (int32_t frame = 0; frame < 10; ++frame)
+        (void)mp::lobby_tick(lobby, room->panel);
+    expect(pack_asks == 1, "ten frames on one map ask the pack once");
+    const auto source_size = records.source_size;
+    std::span<const uint8_t> pack_value;
+    expect(
+        records.local_size > source_size && records.local[source_size] == 0x40 &&
+            ng::find_presence_field(
+                records.local, records.local_size, ng::PresenceTag::map_pack, &pack_value
+            ) &&
+            source_size + ng::presence_field_header_bytes + pack_value.size() == records.local_size,
+        "the host's record ends with the map-pack field"
+    );
+    presence = sent_presence(*room);
+    expect(
+        presence.size() == 1 && sent.sent_to[presence[0]] == kRoomGuest &&
+            sent_is(*room, presence[0], records.local, records.local_size),
+        "and goes again"
+    );
+    map_name = "Lava Run";
+    (void)mp::lobby_tick(lobby, room->panel);
+    (void)mp::lobby_tick(lobby, room->panel);
+    expect(pack_asks == 2, "another map asks once more");
+
+    // A URL of 300 bytes goes empty; the rest of the pack goes as it is.
+    test_pack.descriptor_url = std::string(300, 'u');
+    map_name = "Coast To Coast";
+    (void)mp::lobby_tick(lobby, room->panel);
+    ng::PresenceRecord decoded;
+    expect(
+        ng::decode_presence(records.local, records.local_size, &decoded) == ng::WireError::ok &&
+            decoded.map_pack && decoded.map_pack->descriptor_url.empty() &&
+            decoded.map_pack->key == "archipelago" && decoded.map_pack->release == 3,
+        "a pack's URL of 300 bytes goes empty"
+    );
+
+    // A source written within the reserve, its lists filling it, still
+    // takes a pack with every string at its longest.
+    ng::PresenceRecord full;
+    full.engine = ng::PresenceEngine{"0.8.0-dev", "macOS", "arm64"};
+    full.game_hacks = ng::PresenceHacks{40, {}};
+    full.game_hacks->ids.assign(40, std::string(40, 'g'));
+    const auto reserved = encoded_presence(
+        full, ng::presence_record_max_bytes - ng::presence_map_pack_field_max_bytes
+    );
+    expect(
+        reserved.size() + 45 >
+            ng::presence_record_max_bytes - ng::presence_map_pack_field_max_bytes,
+        "the lists fill the reserve"
+    );
+    bind_presence_source(lobby, reserved);
+    test_pack.key = std::string(64, 'k');
+    test_pack.registry = std::string(32, 'r');
+    test_pack.descriptor_url = std::string(255, 'u');
+    test_pack.name = std::string(64, 'n');
+    test_pack.version = std::string(32, 'v');
+    map_name = "Lava Run";
+    (void)mp::lobby_tick(lobby, room->panel);
+    decoded = {};
+    expect(
+        records.local_size == reserved.size() + ng::presence_map_pack_field_max_bytes &&
+            ng::decode_presence(records.local, records.local_size, &decoded) == ng::WireError::ok &&
+            decoded.map_pack && decoded.map_pack->key == test_pack.key &&
+            decoded.map_pack->descriptor_url == test_pack.descriptor_url &&
+            decoded.map_pack->name == test_pack.name &&
+            decoded.map_pack->version == test_pack.version,
+        "a full source still takes the longest pack"
+    );
+
+    // Records the guest sends: kept for its slot; one from an unseated
+    // sender, or whose length word is not its size, is not.
+    const auto guest_record = small_presence("0.7.9");
+    expect(
+        mp::lobby_apply_event(lobby, presence_event(kRoomGuest, guest_record)),
+        "the guest's record is kept"
+    );
+    const auto kept = mp::lobby_presence_record(lobby, 1);
+    expect(
+        std::equal(kept.begin(), kept.end(), guest_record.begin(), guest_record.end()),
+        "and answers for its slot"
+    );
+    expect(
+        !mp::lobby_apply_event(lobby, presence_event(0x999, guest_record)),
+        "a record from an unseated sender is ignored"
+    );
+    auto long_word = small_presence("0.7.8");
+    long_word.push_back(0);
+    expect(
+        !mp::lobby_apply_event(lobby, presence_event(kRoomGuest, long_word)),
+        "a record whose length word is not its size is ignored"
+    );
+    const auto still = mp::lobby_presence_record(lobby, 1);
+    expect(
+        std::equal(still.begin(), still.end(), guest_record.begin(), guest_record.end()),
+        "and leaves the kept record as it was"
+    );
+
+    // The guest leaves: its record goes, and a new OA player in its slot
+    // gets this machine's record once its own block says OA.
+    mp::LobbyEvent left{};
+    left.kind = mp::LobbyEventKind::player_left;
+    left.player_id = kRoomGuest;
+    (void)mp::lobby_apply_event(lobby, left);
+    expect(
+        mp::lobby_presence_record(lobby, 1).empty() && records.peer_size[1] == 0,
+        "a departed player's record is forgotten"
+    );
+    room->loopback.sent_count = 0;
+    join_remote(lobby, kLater);
+    const auto later_slot = mp::slot_for_player_id(lobby, kLater);
+    expect(later_slot == 1, "the new player takes the slot");
+    (void)mp::lobby_tick(lobby, room->panel);
+    expect(
+        sent_presence(*room).empty() && mp::lobby_presence_record(lobby, later_slot).empty(),
+        "nothing goes to it, and nothing shows for it, before its own block"
+    );
+    expect(
+        mp::lobby_apply_event(lobby, record_event(kLater, setup_block(kLater, 1, 2))),
+        "its block applies"
+    );
+    presence = sent_presence(*room);
+    expect(
+        presence.size() == 1 && sent.sent_to[presence[0]] == kLater &&
+            sent_alone(*room, presence[0]),
+        "the new OA player gets the record"
+    );
+    expect(blocks_without_presence(*room), "the blocks sent still carry no presence");
+
+    // With machines shared, each OA human still gets its own, by id.
+    expect(
+        mp::lobby_apply_event(lobby, record_event(kRoomThird, setup_block(kRoomThird, 1, 2))),
+        "the third player's block now says a human"
+    );
+    mp::slot_player(lobby, 0).machine_group = 1;
+    mp::slot_player(lobby, 2).machine_group = 1;
+    mp::slot_player(lobby, later_slot).machine_group = 2;
+    mp::slot_player(lobby, third_slot).machine_group = 3;
+    room->game->shared_machines = 1;
+    room->loopback.sent_count = 0;
+    bind_presence_source(lobby, small_presence("0.8.2-dev"));
+    (void)mp::lobby_tick(lobby, room->panel);
+    presence = sent_presence(*room);
+    bool by_id = presence.size() == 2 && room->game->shared_machines != 0;
+    for (const auto index : presence)
+        by_id = by_id && sent.sent_to[index] != 0 && sent_alone(*room, index);
+    expect(
+        by_id && presence.size() == 2 &&
+            ((sent.sent_to[presence[0]] == kLater && sent.sent_to[presence[1]] == kRoomThird) ||
+             (sent.sent_to[presence[0]] == kRoomThird && sent.sent_to[presence[1]] == kLater)),
+        "with machines shared each OA human gets the record by id, never everyone"
+    );
+    mp::lobby_send_player_info(lobby);
+    expect(blocks_without_presence(*room), "no block carries presence");
+
+    // A joiner's record names no pack, and the joiner asks none.
+    auto joiner = std::make_unique<Room>(false);
+    joiner->lobby.next_stats_tick = clock_ticks + kNoStatusTicks;
+    bind_presence_source(joiner->lobby, first);
+    joiner->lobby.maps.pack = count_pack;
+    pack_asks = 0;
+    (void)mp::lobby_tick(joiner->lobby, joiner->panel);
+    expect(
+        mp::lobby_apply_event(joiner->lobby, record_event(kRoomHost, setup_block(kRoomHost, 1, 2))),
+        "the host's block applies"
+    );
+    (void)mp::lobby_tick(joiner->lobby, joiner->panel);
+    presence = sent_presence(*joiner);
+    std::span<const uint8_t> no_pack;
+    expect(
+        presence.size() == 1 && joiner->loopback.sent_to[presence[0]] == kRoomHost &&
+            joiner->loopback.sent_from[presence[0]] == kRoomGuest &&
+            sent_is(*joiner, presence[0], first.data(), first.size()) &&
+            !ng::find_presence_field(
+                joiner->loopback.sent[presence[0]],
+                joiner->loopback.sent_size[presence[0]],
+                ng::PresenceTag::map_pack,
+                &no_pack
+            ) &&
+            pack_asks == 0,
+        "a joiner sends its record to the host with no map pack, and asks none"
+    );
+    expect(blocks_without_presence(*joiner), "the joiner's blocks carry no presence");
+    map_name = saved_map;
+}
+
+/// Returns a presence record with an engine line and a sim hash.
+///
+/// @param hash the sim hash
+/// @return the record
+std::vector<uint8_t> presence_with_hash(const oa::netgame::PresenceDigest& hash) {
+    oa::netgame::PresenceRecord record;
+    record.engine = oa::netgame::PresenceEngine{"0.8.0", "macOS", "arm64"};
+    record.sim_hash = hash;
+    return encoded_presence(record);
+}
+
+/// Returns a presence record with an engine line and no sim hash.
+///
+/// @return the record
+std::vector<uint8_t> presence_without_hash() {
+    oa::netgame::PresenceRecord record;
+    record.engine = oa::netgame::PresenceEngine{"0.8.0", "macOS", "arm64"};
+    return encoded_presence(record);
+}
+
+/// Returns a sim hash of 32 equal bytes.
+///
+/// @param value each byte
+/// @return the hash
+oa::netgame::PresenceDigest filled_hash(uint8_t value) {
+    oa::netgame::PresenceDigest hash{};
+    hash.fill(value);
+    return hash;
+}
+
+/// Tells whether a row's OA badge carries the dot, checking that the row's
+/// badge and the rule agree.
+///
+/// @param lobby the lobby
+/// @param slot the row's slot
+/// @return true when the dot shows
+bool shows_dot(mp::Lobby& lobby, int32_t slot) {
+    const bool differ = mp::lobby_rules_differ_from_host(lobby, slot);
+    expect(
+        mp::lobby_row_badge(lobby, slot).rules_differ == differ,
+        "the row's badge carries the dot the rule gives"
+    );
+    return differ;
+}
+
+// The dot on an OA badge says that the row's player plays by other rules
+// than the host's, from the presence records alone: the two sim hashes when
+// both sent one, the row's against the plain baseline's under a 3.1c host,
+// and nothing when no record tells. The host's own row never carries it.
+void test_rules_dot() {
+    namespace profiles = oa::data::mod_profile;
+    {
+        auto room = std::make_unique<Room>(true);
+        auto& lobby = room->lobby;
+        expect(
+            mp::lobby_apply_event(lobby, record_event(kRoomGuest, setup_block(kRoomGuest, 1, 2))),
+            "the OA guest's block applies"
+        );
+        expect(
+            mp::lobby_row_badge(lobby, 0).badge == mp::RowBadge::open_annihilation &&
+                mp::lobby_row_badge(lobby, 1).badge == mp::RowBadge::open_annihilation,
+            "the host and the OA guest have the OA badge"
+        );
+        expect(
+            mp::lobby_row_badge(lobby, 2).badge == mp::RowBadge::none && !shows_dot(lobby, 2),
+            "this machine's computer player has no badge and no dot"
+        );
+        expect(
+            !shows_dot(lobby, 0) && !shows_dot(lobby, 1),
+            "with no records on either side there is no dot"
+        );
+        bind_presence_source(lobby, presence_with_hash(filled_hash(0x5a)));
+        mp::presence_refresh(lobby);
+        expect(!shows_dot(lobby, 1), "the host's record alone tells nothing");
+        expect(
+            mp::lobby_apply_event(
+                lobby, presence_event(kRoomGuest, presence_with_hash(filled_hash(0x5a)))
+            ),
+            "the guest's record is kept"
+        );
+        expect(!shows_dot(lobby, 0) && !shows_dot(lobby, 1), "equal sim hashes give no dot");
+        expect(
+            mp::lobby_apply_event(
+                lobby, presence_event(kRoomGuest, presence_with_hash(filled_hash(0x77)))
+            ),
+            "the guest's other record is kept"
+        );
+        expect(shows_dot(lobby, 1), "different sim hashes put the dot on the guest's row");
+        expect(!shows_dot(lobby, 0), "and never on the host's own row");
+        expect(
+            mp::lobby_apply_event(lobby, presence_event(kRoomGuest, presence_without_hash())),
+            "the guest's record without a sim hash is kept"
+        );
+        expect(!shows_dot(lobby, 1), "a record without a sim hash tells nothing");
+    }
+
+    {
+        const std::string text = profiles::base_game_profile_text();
+        const auto resolved = profiles::resolve_profile(
+            std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(text.data()), text.size()),
+            profiles::base_game_id
+        );
+        expect(resolved.resolution.has_value(), "the plain baseline resolves");
+        if (!resolved.resolution)
+            return;
+        const auto plain = resolved.resolution->profile.sim_hash;
+        auto room = std::make_unique<Room>(false);
+        auto& lobby = room->lobby;
+        expect(
+            lobby.presence_records.plain_sim_hash == plain,
+            "the battle room holds the plain baseline's sim hash"
+        );
+        auto* host = mp::slot_info(lobby, 1);
+        host->state = mp::kInfoStatePlaying;
+        host->status = static_cast<uint16_t>(host->status | mp::status::has_disc);
+        host->engine_signature[0] = 0;
+        host->engine_signature[1] = 0;
+        expect(mp::lobby_host_slot(lobby) == 1, "the other machine's player hosts");
+        expect(
+            mp::lobby_row_badge(lobby, 0).badge == mp::RowBadge::open_annihilation,
+            "the local OA joiner has the OA badge"
+        );
+        expect(
+            mp::lobby_row_badge(lobby, 1).badge == mp::RowBadge::disc,
+            "the 3.1c host has the CD icon"
+        );
+        expect(!shows_dot(lobby, 0), "with no records on either side there is no dot");
+        bind_presence_source(lobby, presence_with_hash(plain));
+        mp::presence_refresh(lobby);
+        expect(!shows_dot(lobby, 0), "a joiner on the plain baseline's rules has no dot");
+        bind_presence_source(lobby, presence_with_hash(filled_hash(0x77)));
+        mp::presence_refresh(lobby);
+        expect(shows_dot(lobby, 0), "a joiner on other rules has the dot under a 3.1c host");
+        expect(!shows_dot(lobby, 1), "the host's row never has it");
+        bind_presence_source(lobby, presence_without_hash());
+        mp::presence_refresh(lobby);
+        expect(!shows_dot(lobby, 0), "a joiner's record without a sim hash tells nothing");
+        bind_presence_source(lobby, presence_with_hash(filled_hash(0x77)));
+        mp::presence_refresh(lobby);
+        host->engine_signature[0] = oa::netgame::engine_signature_first;
+        host->engine_signature[1] = oa::netgame::engine_signature_second;
+        expect(
+            mp::lobby_row_badge(lobby, 1).badge == mp::RowBadge::open_annihilation &&
+                !shows_dot(lobby, 0),
+            "an OA host that sent no record tells nothing"
+        );
+    }
+}
+
+/// A presence record that names a base game and expansions.
+///
+/// @param hash the sim hash
+/// @param expansions the expansion ids
+/// @param differs a chosen bundle differs from a known hash
+/// @param base the base game
+/// @return the record
+oa::netgame::PresenceRecord content_presence(
+    const oa::netgame::PresenceDigest& hash,
+    std::vector<std::string> expansions,
+    bool differs = false,
+    const char* base = "totala"
+) {
+    oa::netgame::PresenceRecord record;
+    record.engine = oa::netgame::PresenceEngine{"0.8.0", "macOS", "arm64"};
+    record.sim_hash = hash;
+    record.bundles = oa::netgame::PresenceBundles{base, std::move(expansions), differs};
+    return record;
+}
+
+// Equal sim hashes, and the bundles field: a missing expansion dots the
+// guest and refuses the start; music does not; a record that omits the
+// field does not; a 3.1c guest is still outside the comparison.
+void test_content_difference() {
+    const auto hash = filled_hash(0x5a);
+    auto room = std::make_unique<Room>(true);
+    auto& lobby = room->lobby;
+    expect(
+        mp::lobby_apply_event(lobby, record_event(kRoomGuest, setup_block(kRoomGuest, 1, 2))),
+        "the OA guest's block applies"
+    );
+    bind_presence_source(
+        lobby, encoded_presence(content_presence(hash, {"campaign", "battle-tactics"}))
+    );
+    mp::presence_refresh(lobby);
+    expect(
+        mp::lobby_apply_event(
+            lobby,
+            presence_event(kRoomGuest, encoded_presence(content_presence(hash, {"campaign"})))
+        ),
+        "the guest's record is kept"
+    );
+    expect(shows_dot(lobby, 1), "a missing expansion puts the dot on the guest");
+    expect(!shows_dot(lobby, 0), "the host's row has no dot");
+    expect(!mp::lobby_sim_hash_differs_from_host(lobby, 1), "the sim hashes still match");
+    expect(!mp::lobby_content_allows_start(lobby), "the host cannot start");
+
+    expect(
+        mp::lobby_apply_event(
+            lobby,
+            presence_event(
+                kRoomGuest,
+                encoded_presence(content_presence(hash, {"campaign", "battle-tactics", "music"}))
+            )
+        ),
+        "music on the wire is kept"
+    );
+    expect(!shows_dot(lobby, 1), "music alone does not differ");
+    expect(mp::lobby_content_allows_start(lobby), "music does not refuse the start");
+
+    expect(
+        mp::lobby_apply_event(
+            lobby,
+            presence_event(
+                kRoomGuest,
+                encoded_presence(content_presence(hash, {"campaign", "battle-tactics"}, true))
+            )
+        ),
+        "a hash flag is kept"
+    );
+    expect(
+        shows_dot(lobby, 1) && !mp::lobby_content_allows_start(lobby),
+        "a file that does not match refuses the start"
+    );
+
+    expect(
+        mp::lobby_apply_event(lobby, presence_event(kRoomGuest, presence_with_hash(hash))),
+        "a record without bundles is kept"
+    );
+    expect(
+        !shows_dot(lobby, 1) && mp::lobby_content_allows_start(lobby),
+        "a record that does not name content does not refuse the start"
+    );
+
+    auto* info = mp::slot_info(lobby, 1);
+    info->engine_signature[0] = 0;
+    info->engine_signature[1] = 0;
+    info->status = static_cast<uint16_t>(info->status | mp::status::has_disc);
+    bind_presence_source(
+        lobby, encoded_presence(content_presence(hash, {"campaign", "battle-tactics"}))
+    );
+    mp::presence_refresh(lobby);
+    expect(mp::lobby_row_badge(lobby, 1).badge == mp::RowBadge::disc, "the guest is on 3.1c");
+    expect(
+        !shows_dot(lobby, 1) && mp::lobby_content_allows_start(lobby),
+        "a 3.1c player is not compared by expansions"
+    );
+
+    Room joiner(false);
+    expect(
+        mp::lobby_content_allows_start(joiner.lobby),
+        "a player who is not the host is not refused by this gate"
+    );
+}
+
 // The battle room with Unicode chat on: the blocks it sends say so, and a
 // line goes to the machine whose block says UTF-8 in UTF-8 and to the one
 // whose block does not in the code page, '?' for each hanzi. A line from a
@@ -5010,12 +5950,20 @@ void test_launch_screens(const oa::AssetStore& assets) {
     if (!load_gui(assets, "newmulti.gui", newmulti))
         return;
     std::snprintf(launch_block.user_name, sizeof launch_block.user_name, "%s", "Ghost_Commander");
+    std::snprintf(
+        launch_block.session_name, sizeof launch_block.session_name, "%s", "Example game"
+    );
     game->frontend_pending_signal = 0;
     mp::new_game_open(lobby, state, newmulti);
     expect(
         std::strcmp(mp::lobby_nickname(*game), "Ghost_Commander") == 0 &&
             mp::panel_text(newmulti, "NICKNAME") == "Ghost_Commander",
         "the launch's user name is the nickname"
+    );
+    expect(
+        std::strcmp(mp::lobby_game_name(*game), "Example game") == 0 &&
+            mp::panel_text(newmulti, "GAMENAME") == "Example game",
+        "the launch's session name is the game name"
     );
     expect(
         state.host_at_once && game->frontend_pending_signal == 0x11,
@@ -5095,15 +6043,60 @@ void test_launch_battleroom(const oa::ui::gui_layout::Layout& lounge) {
         expect(map_name == "Acid Pools", "the host plays the launch's map");
     }
     map_name = "Coast To Coast";
+    refuse_map = true;
+    last_message.clear();
+    {
+        Fixture missed(lounge, &link);
+        expect(
+            mp::local_info(missed.lobby).map_name[0] == '\0',
+            "a launch map that is not installed is not another map"
+        );
+        expect(
+            last_message.find("Could not find") != std::string::npos, "the missing map is reported"
+        );
+    }
+    refuse_map = false;
+    map_name = "Coast To Coast";
     std::snprintf(
         launch_block.provider_label, sizeof launch_block.provider_label, "%s", "TwelveLetter"
     );
     {
         Fixture f(lounge, &link, false);
+        const auto& joined = mp::local_info(f.lobby);
         expect(map_name == "Coast To Coast", "a joiner leaves the map to the host");
+        expect(
+            joined.side == 1 && mp::lobby_player_team(mp::local_player(f.lobby)) == 1,
+            "a joiner takes the launch's side and team"
+        );
+        expect(joined.metal_hundreds == 10, "a joiner leaves the metal");
+        expect(
+            (joined.options & mp::option::commander_mask) != mp::option::commander_deathmatch,
+            "a joiner leaves the commander rule"
+        );
         expect(
             mp::panel_text(f.panel, "PREVMENU") == "Previous Menu",
             "a long label leaves the caption"
+        );
+    }
+    {
+        reset_launch();
+        active_launch = true;
+        launch_block.player_limit = 4;
+        auto game = std::make_unique<oa::Game>();
+        mp::Lobby lobby{};
+        mp::LoopbackNet loopback{};
+        mp::loopback_reset(loopback);
+        mp::lobby_reset(lobby, *game);
+        lobby.net = mp::loopback_lobby_net(loopback);
+        bind_services(lobby);
+        bind_maps(lobby);
+        lobby.local_version_major = 3;
+        lobby.launch_link = launch_link();
+        mp::ConnectState state{};
+        loopback.opened = true;
+        expect(
+            mp::connect_host(lobby, state) && mp::lobby_session_players(*game) == 4,
+            "the launch's player limit caps the session"
         );
     }
     // Without an active launch nothing applies.
@@ -5117,6 +6110,157 @@ void test_launch_battleroom(const oa::ui::gui_layout::Layout& lounge) {
         expect(!mp::panel_control(f.panel, "COMMANDER")->grayed, "COMMANDER stays open");
     }
     map_name = "Coast To Coast";
+    reset_launch();
+}
+
+/// A launch seats the player and this machine's computer players: the
+/// player's colour and watching, and each computer player's side, team,
+/// colour and difficulty, for a host and for a player who joins. A
+/// deathmatch seats no computer players, and a second entry seats none again.
+void test_launch_seats(const oa::ui::gui_layout::Layout& lounge) {
+    namespace nl = oa::ui::frontend_multiplayer::launch;
+    reset_launch();
+    active_launch = true;
+    launch_block.faction = nl::faction::core;
+    launch_block.team = 3;
+    launch_block.color = 5;
+    launch_block.watching = 2;
+    launch_block.computer_count = 2;
+    launch_block.computers[0] = nl::LaunchComputer{nl::faction::core, 2, 7, nl::difficulty::medium};
+    launch_block.computers[1] = nl::LaunchComputer{nl::faction::arm, 0, 0, nl::difficulty::none};
+    const auto link = launch_link();
+    // The host is 0x100; the computer players the launch seats come after.
+    fixture_next_player_id = 0x101;
+    {
+        Fixture host(lounge, &link);
+        const auto& info = mp::local_info(host.lobby);
+        expect(
+            info.side == 1 && mp::lobby_player_team(mp::local_player(host.lobby)) == 2 &&
+                info.color == 4,
+            "the host takes Core, team 3 and colour 5"
+        );
+        expect(
+            mp::slot_player(host.lobby, 1).status == mp::kSlotComputer &&
+                mp::slot_player(host.lobby, 2).status == mp::kSlotComputer &&
+                mp::slot_player(host.lobby, 3).status == mp::kSlotOpen,
+            "the launch's two computer players take the next open slots"
+        );
+        const auto first = arrive_computer(host);
+        const auto second = arrive_computer(host);
+        expect(first != 0 && second != 0, "both computer players arrive");
+        const auto* one = mp::slot_info(host.lobby, 1);
+        const auto* two = mp::slot_info(host.lobby, 2);
+        expect(
+            one != nullptr && one->side == 1 && one->color == 6 &&
+                mp::lobby_player_team(mp::slot_player(host.lobby, 1)) == 1 &&
+                host.lobby.computer_difficulty[1] == 1 && host.lobby.computer_difficulty_set[1],
+            "the first computer player is Core, team 2, colour 7, medium"
+        );
+        expect(
+            two != nullptr && two->side == 0 && two->color != 4 && two->color != 6 &&
+                mp::lobby_player_team(mp::slot_player(host.lobby, 2)) == mp::kNoTeam &&
+                host.lobby.computer_difficulty[2] == 2,
+            "the second computer player is Arm on no team, in a free colour, hard"
+        );
+        expect(
+            mp::panel_text(host.panel, "MEM1") == "Medium" &&
+                mp::panel_text(host.panel, "MEM2") == "Hard",
+            "the rows show the computer players' difficulty"
+        );
+        expect(
+            host.sent_of(oa::netgame::RecordType::player_team) >= 2,
+            "the computer players' teams are sent"
+        );
+        mp::lobby_enter_battleroom(host.lobby, host.panel);
+        expect(
+            mp::slot_player(host.lobby, 3).status == mp::kSlotOpen,
+            "entering the room again seats no more computer players"
+        );
+    }
+    launch_block.watcher = 1;
+    {
+        Fixture watching(lounge, &link);
+        expect(
+            (mp::local_info(watching.lobby).options & mp::option::watcher) != 0,
+            "a launch's watcher watches"
+        );
+    }
+    launch_block.watcher = 0;
+    // The launch's unit restrictions, by FBI UnitName in any case, and a game
+    // closed to more players.
+    mp::LobbyUnit units[] = {
+        {"", "", 0, 0, 0, 0, "", 0, 0},
+        {"Peewee", "ARM", 1000, 50, 0, 22, "ARMPW", 0, 0},
+        {"AK", "CORE", 900, 45, 0, 33, "CORAK", 0, 0},
+        {"Nuke", "ARM", 90000, 1500, mp::kUnitDisabledDefault, 44, "ARMSILO", 0, 0},
+    };
+    fixture_units = units;
+    fixture_unit_count = 4;
+    launch_block.computer_count = 0;
+    launch_block.closed = 1;
+    launch_block.restriction_count = 4;
+    launch_block.restrictions[0] = nl::LaunchRestriction{"CORAK", 0};
+    launch_block.restrictions[1] = nl::LaunchRestriction{"armpw", 7};
+    launch_block.restrictions[2] = nl::LaunchRestriction{"ARMSILO", nl::kLaunchNoLimit};
+    launch_block.restrictions[3] = nl::LaunchRestriction{"NOSUCH", 3};
+    {
+        Fixture restricted(lounge, &link);
+        mp::UnitSyncRecord ak{};
+        mp::UnitSyncRecord peewee{};
+        mp::UnitSyncRecord nuke{};
+        (void)mp::unit_sync_lookup(restricted.lobby, 33, &ak);
+        (void)mp::unit_sync_lookup(restricted.lobby, 22, &peewee);
+        (void)mp::unit_sync_lookup(restricted.lobby, 44, &nuke);
+        expect(ak.limit == 0 && ak.local == 0, "a restriction of 0 disables the unit");
+        expect(peewee.limit == 7 && peewee.local != 0, "a restriction names the unit in any case");
+        expect(nuke.limit == nl::kLaunchNoLimit && nuke.local != 0, "no-limit enables a unit");
+        expect(restricted.lobby.sync.record_count == 3, "a unit the content lacks is left out");
+        expect(
+            (mp::local_info(restricted.lobby).options & mp::option::game_closed) != 0,
+            "a launch closes the game"
+        );
+    }
+    {
+        Fixture joined(lounge, &link, false);
+        mp::UnitSyncRecord ak{};
+        (void)mp::unit_sync_lookup(joined.lobby, 33, &ak);
+        expect(
+            ak.limit != 0 && (mp::local_info(joined.lobby).options & mp::option::game_closed) == 0,
+            "a joiner leaves the restrictions and the game's openness to the host"
+        );
+    }
+    fixture_units = nullptr;
+    fixture_unit_count = 0;
+    launch_block.closed = 0;
+    launch_block.restriction_count = 0;
+    launch_block.computer_count = 2;
+    launch_block.death_option = 3;
+    {
+        Fixture deathmatch(lounge, &link);
+        expect(
+            mp::slot_player(deathmatch.lobby, 1).status == mp::kSlotOpen,
+            "a deathmatch seats no computer players"
+        );
+    }
+    launch_block.death_option = 0;
+    launch_block.computer_count = 1;
+    {
+        Fixture joined(lounge, &link, false);
+        const auto& info = mp::local_info(joined.lobby);
+        expect(
+            info.side == 1 && mp::lobby_player_team(mp::local_player(joined.lobby)) == 2,
+            "a joiner takes the launch's side and team"
+        );
+        expect(
+            joined.sent_of(oa::netgame::RecordType::player_value_request) >= 1,
+            "a joiner asks the host for the launch's colour"
+        );
+        expect(
+            mp::slot_player(joined.lobby, 1).status == mp::kSlotComputer,
+            "a joiner seats its own computer player"
+        );
+    }
+    fixture_next_player_id = 0;
     reset_launch();
 }
 
@@ -5540,6 +6684,10 @@ int main(int argc, char** argv) {
         test_session_description();
         test_versioned_rules();
         test_recorder_in_the_battle_room();
+        test_no_presence_bytes_in_the_battle_room();
+        test_presence_records_in_the_battle_room();
+        test_rules_dot();
+        test_content_difference();
         test_unicode_chat_in_the_battle_room();
         test_recorder_commands_in_the_battle_room();
         test_recorder_prebuilt_base_in_the_battle_room();
@@ -5573,6 +6721,7 @@ int main(int argc, char** argv) {
             test_start_doors(*lounge.layout);
             test_row_indicators(*lounge.layout);
             test_slot_cycle(*lounge.layout);
+            test_computer_rows(*lounge.layout);
             test_chat_and_leave(*lounge.layout);
             test_mod_lobby_buttons(*lounge.layout);
             test_client_rules(*lounge.layout);
@@ -5581,6 +6730,7 @@ int main(int argc, char** argv) {
             test_ping_column(*lounge.layout);
             test_closing_slots_republishes(*lounge.layout);
             test_launch_battleroom(*lounge.layout);
+            test_launch_seats(*lounge.layout);
         }
         test_game_list(assets);
         test_launch_screens(assets);

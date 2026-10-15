@@ -62,6 +62,20 @@ see [Playing the demo](../../README.md#playing-the-demo).
 2. The first time, it asks for your Total Annihilation folder. Choose the
    folder from step 3. It remembers your choice.
 
+On a Retina display the setup, Settings and the menus are laid out from
+the window's size in points and drawn at the display's pixel density. The
+same window is the same arrangement, with sharper edges. The setup also
+grows with the window: past 960 by 540 points it draws the same
+arrangement larger, so a 1920 point wide window shows its words and
+buttons twice their size. In a window, the setup's top bar leaves out the
+Open Annihilation icon and name, which the window's title bar already
+shows. Full screen keeps them.
+
+The next time you open it, it comes back as you left it: full screen, or
+the window at the same size and place, on the same display when that
+display is still connected. A window is kept on the screen. The first
+start opens a window.
+
 To choose a different folder later, start it once from Terminal with
 `--choose-game-dir`:
 
@@ -69,12 +83,32 @@ To choose a different folder later, start it once from Terminal with
 open -a "Open Annihilation" --args --choose-game-dir
 ```
 
-Open Annihilation's own settings open from the **OA** button at the bottom
-right of the main menu, or with **Cmd+,**. See
-[Settings](../settings.md).
+Every option the game takes, and every way to start a network game from
+Terminal or a launcher, is in
+[Command Line and Game Launching](../command-line.md).
 
+Open Annihilation's own settings open with **Cmd+,**, or from
+**SETTINGS…** at the foot of the Library, which the **OA** button at the
+bottom right of the main menu opens. See [Settings](../settings.md), and
+[the Library](../library.md) for mods, maps and languages to download.
+
+The app declares `.oamod`, `.oalang`, `.oamap`, `.oareg` and `.oalaunch`
+files.
 Double-click a `.oamod` file to install the mod it holds in Open
-Annihilation ([mods](../mods/README.md#installing-a-oamod-file)).
+Annihilation ([mods](../mods/README.md#installing-a-oamod-file)) while
+Open Annihilation is the program Finder uses for that type, and a
+`.oalaunch` file to start the network game it describes
+([opening a launch file](../command-line.md#opening-a-launch-file)).
+[Settings › System](../settings.md#system) lists a switch for each type
+under **File Type Registration**. On makes this copy the program Finder
+opens that type with. Off hands it back to the program that opens a zip
+archive (the three packages, usually Archive Utility) or plain text (a
+registry file or a launch file). The type and its icon stay declared by the app; only the
+program that opens the file changes. The switch shows the choice Finder
+has now. It changes when you move it and press **OK**, and not before. A
+choice you made in Finder's Get Info › Open with stays until then, and
+starting the game does not put a type back. If macOS refuses the change,
+the game logs it and the switch shows the choice macOS kept.
 
 With the macOS firewall on, the first time you host or join a multiplayer
 game macOS asks whether Open Annihilation may accept incoming network
@@ -94,10 +128,10 @@ Annihilation`):
 | `Screenshots` | screenshots (Ctrl+F9) and posters (`MakePoster`), in a folder for each mod as in `Saves` |
 | `Films` | films (Ctrl+F10), a `MOVIEnnn` folder each, in a folder for each mod as in `Saves` |
 | `Recordings` | recordings of network games, which `--play-demo` plays back, in a folder for each mod as in `Saves` |
-| `Mods` | mods you add, each in a folder of its own, which the settings' Mods page lists besides the game folder's `mods` folder ([mods](../mods/README.md#installing-a-mod)) |
+| `Mods` | mods you add, each in a folder of its own, which the Library lists besides the game folder's `mods` folder ([mods](../mods/README.md#installing-a-mod)) |
 
-The game makes each folder the first time it needs it. In the settings (the
-**OA** button on the main menu), **Common Tweaks** shows the folder under
+The game makes each folder the first time it needs it. In the settings
+(**Cmd+,**), **System** shows the folder under
 **Your files**, whose buttons open Saves, Screenshots and Mods in Finder.
 
 **macOS asks first.** On macOS 10.15 and later, the first time the game

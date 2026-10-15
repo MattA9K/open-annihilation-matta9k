@@ -21,6 +21,11 @@ mod is installed: a folder without a profile plays exactly as 3.1c.
 
 ## Installing a mod
 
+A mod published to a registry, Core Prime's or one you added, installs from
+the Library: the **OA** button on the main menu opens it, and **GET** on a
+mod installs it ([from the Library](#from-the-library)). A mod you have as
+a folder or a file installs as follows:
+
 1. Put the mod's folder in the **Mods** folder of your own Open Annihilation
    folder, `Documents/Open Annihilation/Mods` (where that is on each system:
    "Where it keeps its files" in the
@@ -28,13 +33,14 @@ mod is installed: a folder without a profile plays exactly as 3.1c.
    or in the game folder's `mods` folder. A mod that comes as a `.oamod` file
    installs itself there when you open the file
    ([Installing a .oamod file](#installing-a-oamod-file)).
-2. Open the settings (the **OA** button on the main menu), choose the mod on
-   **Mods**, and confirm with **Switch**. The game reloads its data for the
+2. Open the Library (the **OA** button on the main menu), choose the mod
+   on its **Mods** tab and press **PLAY NOW**
+   ([choosing a mod](#choosing-a-mod)). The game reloads its data for the
    mod and returns to the main menu playing it.
 
-The Mods page's **Open Mods Folder** and the **Your files** row under
-**Common Tweaks** open the Mods folder in the file manager, making it the
-first time.
+**MODS** in the **Your files** row under **System** in the settings
+opens the Mods folder in the file manager, making it the first time, and a
+mod's **OPEN FOLDER** in the Library opens the mod's own folder.
 
 **Mod folder.** A mod folder holds the mod's files, `oamod.yaml` among them:
 
@@ -70,8 +76,47 @@ says so on standard output. This suits a folder of extra units or maps
 made for 3.1c itself.
 
 A profile can give a one-line `description`, and a mod folder can hold an
-`oamod.png` badge beside its `oamod.yaml`; the Mods page shows both.
+`oamod.png` badge beside its `oamod.yaml`; the Library shows the badge, and
+the description in the mod's details when no registry lists it.
 [The OAMOD standard](oamod-standard.md) describes them.
+
+### From the Library
+
+The Library lists every mod of the registries that are on, with what each
+does to the game: how many standard hacks change the game and how many
+only the view, the base game and the Open Annihilation it needs, and its
+rules hash. A mod that needs hacks this build does not have is listed, and
+says which, but cannot be got. **GET** downloads the mod, checks it as a
+`.oamod` file is checked, and installs it in your Mods folder as
+`Mods/<id>`; **PLAY NOW** then switches to it
+([the Library](../library.md)). That install shows no notice: the Library's
+row says it is in place. A file you open still does.
+
+**Where it came from.** The installer writes `.oa-origin.yaml` in the
+mod's folder: the registry, the mod's key there, its release and the
+package's SHA-256. That record is how OA knows a mod's updates: an update
+is the same mod at a higher release in the same registry. A mod you
+installed from a `.oamod` file is matched to a registry's release by its
+SHA-256, and offered that registry's updates from then on; one no registry
+lists, and a folder installed by an earlier version or made by hand, is
+your own and is never offered an update.
+
+**Updates.** When the registry lists a newer release, the Library says so,
+on the mod's row, in its details ("Revision 4 available · 3.2 MB to
+download", and its Rules fact when the update changes the rules) with an
+**UPDATE** button, and on its Updates tab; the main menu's **OA** button
+wears a dot. Nothing updates until you press UPDATE or UPDATE ALL. An update from
+Core Prime's registry installs with no question; a mod from a registry you
+added asks before an update that changes the rules, or before it replaces
+a copy you did not get from that registry
+([which downloads ask first](../library.md#which-downloads-ask-first)). An
+update to the mod being played waits until you switch mod, switch it off or
+quit ("Finishes when you leave …").
+
+**Rolling back an update.** The update keeps the version it replaced, as a
+file's replace does ([one version back](#installing-a-oamod-file)), and
+**ROLL BACK** brings it back, with its record of where it came from: the
+update is then offered again, and installs only when you press UPDATE.
 
 ### Installing a .oamod file
 
@@ -93,7 +138,7 @@ folder holds already:
 
 | Your Mods folder holds | What happens |
 |---|---|
-| no folder of the mod's id | it installs, and says where; **PLAY NOW** plays it |
+| no folder of the mod's id | it installs, and says where (**MOD INSTALLED**, with **OPEN FOLDER** and **OK**); **PLAY NOW** plays it |
 | the same mod and version, another revision | **UPDATE MOD**: **REPLACE** or **CANCEL**; it says when the file is the older revision |
 | the same mod, version and revision | **ALREADY INSTALLED**: **REINSTALL** puts its files back as they came, or **CANCEL** |
 | the same mod at another version | **ANOTHER VERSION**: **REPLACE**, **INSTALL ALONGSIDE** in a folder of its own (`Mods/<id>-<version>`), or **CANCEL** |
@@ -104,12 +149,12 @@ file of that version and another revision is opened.
 
 **One version back.** Replacing a mod keeps the version it replaced in the
 mod's folder, in `.backup`, and drops the one kept before: after revisions
-1, 2 and 3, the folder holds 3 and keeps 2. **ROLL BACK** on the mod's row
-of the Mods page swaps the two, so a second **ROLL BACK** undoes the first;
-it is offered while the kept version is one the game can still play. A
-reinstall keeps the version kept as it is. The game never reads `.backup`:
-the kept version is not layered over the game folder and the Mods page does
-not list it. Replacing or rolling back the mod the game plays reloads the
+1, 2 and 3, the folder holds 3 and keeps 2. **ROLL BACK** in the mod's
+details in the Library swaps the two, so a second **ROLL BACK** undoes the
+first; it is offered while the kept version is one the game can still play.
+A reinstall keeps the version kept as it is. The game never reads
+`.backup`: the kept version is not layered over the game folder and the
+Library does not list it. Replacing or rolling back the mod the game plays reloads the
 game's data, back on the main menu, once the files are swapped.
 
 What a replace or a reinstall does not carry over: anything you changed or
@@ -129,6 +174,23 @@ since they share an id; a saved game loads only under the same sim hash.
 Raise `packaging.revision` in `oamod.yaml` for each new package of the same
 version, so that the game offers it as an update.
 
+A package may also name a homepage, a few tags and the oldest Open
+Annihilation it runs on. Quote the engine requirement, because a value that
+starts with `>` is refused unless it is quoted:
+
+```yaml
+homepage: "https://example.org/example-mod"
+tags: [balance, ai]
+requires:
+  base: ta-3.1c
+  catalogue: 1
+  engine: ">= 0.8.0"
+```
+
+The Library links to the homepage and files the mod under its tags. A
+player whose Open Annihilation does not meet the requirement is told the
+version the mod needs.
+
 **What is refused.** A file that is not a zip archive or is damaged; one
 without `oamod.yaml` at its top or in the one folder at its top; a profile
 that the game would refuse to play, with its first errors shown and all of
@@ -143,41 +205,31 @@ delay an install by a few seconds.
 
 ### Choosing a mod
 
-Open Annihilation's settings (the **OA** button on the main menu) choose
-the mod on **Mods**, the first page. Its list scrolls with the mouse wheel,
-its scroll bar and the keyboard. Each row shows the mod's badge (its
-`oamod.png`, or a blank placeholder), then, from its `oamod.yaml`, its
-title, its version at the top right and a line describing it. No Mod shows
-the Open Annihilation mark. A folder without an `oamod.yaml` shows the
-folder's name, "N/A" and "No oamod.yaml present". Text too long for its row
-is cut short with an ellipsis.
+You choose the mod in the Library, on its **Mods** tab
+([choosing a mod](../library.md#choosing-a-mod)). It lists the mods you
+installed and every other folder the game can play as a mod: each folder in
+the game folder's `mods` folder and in your own Mods folder, and the folder
+an earlier version's Pick Folder... chose, while it is still your chosen
+mod and still exists. Once you switch to another mod or to none, the game
+forgets that folder. Each shows its badge (its `oamod.png`, or letters of
+its name) and, from its `oamod.yaml`, its title and version, and its
+details its description. A folder without an `oamod.yaml` shows the
+folder's name and "N/A", and its details say "No oamod.yaml present"; it
+plays with the game's own rules. The mod being played is marked PLAYING.
 
-The list holds, in this order:
+To play a mod folder kept elsewhere, put it in the Mods folder. **MODS**
+under Your files in Settings › System opens your Mods folder in the
+system's file manager.
 
-- the mod being played, marked PLAYING;
-- **No Mod**, 3.1c as it is, when it is not the one being played;
-- every other mod, by title: each folder in the game folder's `mods`
-  folder and in your own Mods folder, and the folder an earlier version's
-  Pick Folder... chose, while it is still your chosen mod and still
-  exists. Once you switch to another mod or No Mod, the game forgets that
-  folder.
-
-To play a mod folder kept elsewhere, put it in the Mods folder. Under the
-list, **Open Mods Folder** opens your Mods folder in the system's file
-manager, and a line says which folders the list holds.
-
-Choosing a row other than the mod being played opens **Switch Mod**: the
-mod's badge, title and version, and "Switch to *title* now? The game
-reloads its data for the new mod and returns to the main menu. Your other
-settings are kept." A folder without an `oamod.yaml` adds "This folder has
-no oamod.yaml, so the game's own rules apply."
-
-- **Cancel** (Escape) leaves everything as it was.
-- **Switch** (Enter) keeps the settings' other changes, as **OK** does,
-  remembers the new mod, and reloads the game for it in place, without
-  closing the window or restarting the game. The main menu then shows,
-  playing the new mod. The folder chosen is played as `--mod-dir` would play
-  it, and so are later starts.
+- **PLAY NOW**, on a mod you are not playing, remembers the new mod and
+  reloads the game for it in place, without closing the window or
+  restarting the game. The main menu then shows, playing the new mod. The
+  folder chosen is played as `--mod-dir` would play it, and so are later
+  starts.
+- **SWITCH OFF**, on the mod being played, opens **Switch Mod**: "Switch to
+  No Mod now? The game reloads its data for the new mod and returns to the
+  main menu. Your other settings are kept." **Cancel** (Escape) leaves
+  everything as it was; **Switch** (Y) plays 3.1c as it is, from then on.
 
 A mod folder that holds the mod's `oamod.yaml` but not all of its game files
 can still be switched to, and its menus play. When the units its profile
@@ -201,16 +253,16 @@ unit panel as a side that names none. The game played without a mod still
 ends as it starts when such a file is missing, naming the first.
 
 A folder whose `oamod.yaml` cannot be played over the game folder is
-refused, the page saying why, and the mod stays as it was; so is any folder
+refused, a note over the Library saying why, and the mod stays as it was;
+so is any folder
 over a game folder that is a mod's copied install, and a folder without an
 `oamod.yaml` whose SIDEDATA the game's own rules cannot start with, such as
 one that lacks a section a side needs; the log says why. A remembered mod folder that has gone
 is dropped with a notice, and No Mod is played. While `--mod-dir` or
-`--base-game` decides the run's mod, the Mods page is locked "Set on the
-command line" and keeps the stored choice, which a start without them
-plays. During a game the page is locked too: "Locked during a
-game. Choose the mod from the main menu." The other rows are dimmed and do
-nothing, and **Open Mods Folder** is disabled.
+`--base-game` decides the run's mod, the Library's PLAY NOW and SWITCH OFF
+are greyed, its details saying "The command line chose this run's mod.",
+and the stored choice is kept, which a start without them plays. A game
+keeps the mod it started with: the Library shows only on the main menu.
 
 The command line chooses a mod for one run:
 
@@ -239,8 +291,9 @@ Its blocks are:
 - `author` and `packaging`: who made the mod (`unknown` when nobody is
   known, with an optional e-mail address), and who packaged it, on which
   day and in which revision; both are required;
-- `identity`: the display version, the network version its games
-  announce, its settings file, its registry root and its side names;
+- `identity`: the display version shown on the main menu in place of
+  "Open Annihilation" and this build's version, the network version its
+  games announce, its settings file, its registry root and its side names;
 - `layout`: the archives the engine mounts, and the directories and file
   names it reads;
 - `limits`: engine limits such as the number of units per player;
@@ -361,7 +414,7 @@ registry root, and a mod's first run fills in the values its profile seeds.
 ## Developer Mode
 
 Developer Mode, in the **Developer** section at the foot of Open
-Annihilation's settings (the **OA** button), changes the standard hacks of
+Annihilation's settings, changes the standard hacks of
 the profile the game plays without editing its `oamod.yaml`, which is never
 written. It is for trying a hack, or a hack's values, before writing them
 into a profile. With no mod it changes the plain 3.1c baseline, so it can

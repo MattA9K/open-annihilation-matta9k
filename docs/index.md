@@ -16,16 +16,48 @@ Every document in the repository, by what you want to do.
     non-Steam game, the Steam Input layouts and artwork installed by hand,
     the controls, the first start, the Deck's settings and the logs
   - [iPhone and iPad](installation/ios.md), built on your own Mac
+- [Command Line and Game Launching](command-line.md): every option the
+  game takes, by group (information; game data, folders and files; mods;
+  display and sound; network play; launch; status; recordings and video;
+  checks; tools), and every way to start a network game, with examples to
+  copy: a `.oalaunch` launch file with `-c` or `--launch`, the option for
+  every launch setting, TA Forever's settings file, a launch piped in on
+  standard input (Linux, macOS with `open -f -a`, Windows), opening a
+  launch file from the desktop, 3.1c's switches and the `-c` file,
+  `--list-content --json`, and the exit statuses and refusals.
+- [troubleshooting.md](troubleshooting.md): zooming out when memory is
+  short, and the message the game shows when it runs out of memory.
 - [settings.md](settings.md): Open Annihilation's own settings, with a
   picture of each section: opening them, OK, Cancel and Restore defaults,
-  and what every setting in Mods, Controls, Common Tweaks, Language,
-  Graphics, Touch, Controller, Game files and Developer does, its default,
-  when it takes effect and when to change it; the command-line options
-  that set them for one run, and where they are kept.
+  and what every setting in Mods, Controls, Engine Limits, Language & Text,
+  Graphics, User Interface (Menu scaling, Window frame, HUD scaling,
+  Interface size and Escape opens the game menu), Touch, Controller, Game files,
+  Downloads and Developer does, its default, when it takes effect and when
+  to change it; the command-line options that set them for one run, and
+  where they are kept.
+- [first-run.md](first-run.md): the welcome at the first main menu, which
+  chooses a language, explains online features and points out the Library
+  and Settings buttons.
+- [library.md](library.md): the Library, where mods, map packs and
+  language packs are found, installed, updated and rolled back from inside
+  the game: opening it, its tabs and states, search and filters, the
+  details, the download queue, updates, which downloads ask first and the
+  update question, "Finishes when you leave …", offline use and the check
+  that you are a person.
+- [downloads.md](downloads.md): registries and downloads: Core Prime's
+  built-in registry, adding one by its address or an `.oareg` file, "Not
+  reviewed by the OA team", mirrors, the Downloads settings and the install
+  ID, and privacy: exactly what a download sends, what Core Prime records
+  and for how long, and what a download shows to someone on the network.
 - [touch-controls.md](touch-controls.md): playing with fingers on an iPad,
   an iPhone or a touch screen: the gestures, the tablet and phone layouts,
   QUEUE, ADD and x5, the order wheel, building, the Touch settings, the
   keyboard's Cmd keys and the Pencil.
+- [controls.md](controls.md): group keys, and a second recall of the
+  group that is already selected, which centres the view and does not
+  follow it.
+- [skirmish.md](skirmish.md): the skirmish setup's one **Player** row,
+  which a campaign mission leaves as you set it.
 - [controllers.md](controllers.md): playing with a gamepad: the Steam
   Deck's pad pointer (the right trackpad as the mouse, the grips as QUEUE,
   ADD, FORCE and the groups, the order and build rings), sticks only for
@@ -36,18 +68,42 @@ Every document in the repository, by what you want to do.
   Total Annihilation files onto an iPhone or an iPad: its three routes,
   stopping and continuing a copy, Settings › Game files and managing the
   files, and the `--check-game-files` check.
+- [game-content.md](game-content.md): the base games and expansions the
+  engine knows, the files each one is made of, and which expansions need
+  which others.
+- [multiplayer/content.md](multiplayer/content.md): the base game and
+  expansions each player shows in the battle room, and when a difference
+  keeps the game from starting.
 - [typing.md](typing.md): typing in any script, Chinese among them, in
   the chat lines, a saved game's name and the whiteboard: input methods,
   commands, saves and recordings named in any script, the iPhone and iPad
   keyboard and the Steam Deck's.
+- [console.md](console.md): the chat line's commands, the `\` repeat and
+  the developer passphrase.
+- [cheats.md](cheats.md): every cheat and command, what it does, and
+  where it works in a skirmish, a campaign and a multiplayer game.
 - [languages.md](languages.md): the language the game shows its text in:
   how it is chosen (3.1c's command line, the Language setting, the
-  operating system), what the game data translates in German, French,
-  Italian and Spanish, the engine's own words, and adding a language.
+  operating system), the notice at start for a language to download, what
+  the game data translates in German, French, Italian and Spanish,
+  language packs and where to get them, Simplified Chinese, the engine's
+  own words, and adding a language.
 - [Network games from the command line](../README.md#network-games-from-the-command-line)
-  in the README: hosting a TCP/IP game with `--host` or joining one with
-  `--join ADDRESS`, with `--player-name`, `--game-name` and
-  `--game-password`, and what the game prints as it goes.
+  in the README: the OA badge and player card in the battle room and the
+  presence record behind them, hosting a TCP/IP game with `--host` or
+  joining one with `--join ADDRESS`, with `--player-name`, `--game-name`
+  and `--game-password`, and what the game prints as it goes.
+  [Command Line and Game Launching](command-line.md) has `--dplay-guid`,
+  the application GUID a game is hosted under and looked for, and every
+  other way to start a network game.
+- [multiplayer/application-guid.md](multiplayer/application-guid.md):
+  which games a search lists, and a launcher's per-mod GUID.
+- [multiplayer/launch-file.md](multiplayer/launch-file.md): where launch
+  files, Open Annihilation's `.oalaunch` file and TA Forever's, are
+  described: in [Command Line and Game Launching](command-line.md#launch-files).
+- [multiplayer/status.md](multiplayer/status.md): what a game reports on
+  its standard output for a launcher, with `--status-stdout`,
+  `--status-file` and `--quit-after-game`.
 - [Demo Recorder](../README.md#demo-recorder) in the README: playing back a
   recorded game (`.tad`) from the command line with `--play-demo`, what a
   recording needs to play, and recording network games.
@@ -63,9 +119,12 @@ Every document in the repository, by what you want to do.
   program on the same machine drives the game and watches it: `--fark`,
   `--fark-address` and `--fark-file`, connecting with the token, the
   requests, input through the event queue, events, what it never does,
-  and the ` REMOTED` line in the battle room.
-- [mods/README.md](mods/README.md): mod support: installing a mod in a mod
-  folder or as a copied install, choosing it in the settings or with
+  and the ` REMOTED` line in the battle room. Status lines for a
+  launcher, without the endpoint, are
+  [multiplayer/status.md](multiplayer/status.md).
+- [mods/README.md](mods/README.md): mod support: installing a mod from the
+  Library, in a mod folder or as a copied install, its updates and rolling
+  them back, choosing it in the settings or with
   `--mod-dir`, network play and saves under a mod, and the tables of every
   standard hack, each with its own page under
   [mods/standard-hacks/](mods/standard-hacks), and of every script
@@ -75,6 +134,22 @@ Every document in the repository, by what you want to do.
   format of a mod profile (`oamod.yaml`) and its rules: parameters,
   presets, settings, limits, script extensions, data keys, hashes and
   network compatibility.
+- [registries/README.md](registries/README.md): the OA Registry
+  Specification, version 1: the descriptor and `.oareg` file, the
+  catalogue and its signature, packages, the download API, running a
+  registry and mirrors.
+- [maps/README.md](maps/README.md): map packs for players: installing an
+  `.oamap` from a registry or a file, map names with `@`, one map's files
+  at a time, whether a map fits the game and the mod and why one is
+  refused, MORE MAPS… and the map browser, GET MAP in the battle room, and
+  what 3.1c players see.
+- [maps/oamap-standard.md](maps/oamap-standard.md): the OAMAP standard, the
+  format of a map pack's manifest (`oamap.yaml`) and its rules: the index,
+  map names, what a pack holds and how a map fits.
+- [expansions/oaexp-standard.md](expansions/oaexp-standard.md): the OAEXP
+  standard, the format of an expansion package (`oaexp.yaml` inside a
+  `.oaexp`) and its rules: the built-in expansion it names, and the files
+  it may carry.
 
 ## Developing
 
@@ -192,6 +267,15 @@ Platform and application:
 - [src/app](../src/app/README.md): the game application, `open-annihilation`,
   adding a screen or overlay, the extension table, and network play's
   place in the game.
+- [extensions/README.md](extensions/README.md): the extension API's chapter,
+  for the author of an extension: what an extension is, registering one,
+  the table's version and its rule, threads, ownership and errors, screens
+  and overlays, the services table, each group of hooks, the automation
+  endpoint and testing; and [extensions/ui-kit.md](extensions/ui-kit.md),
+  the OA UI kit's chapter: Settings pages, kit screens, notices and prompts,
+  drawing in a match overlay, sizes and scales, focus and touch, automation
+  names, and the [UI kit](../src/ui/kit/README.md) gallery's pictures at
+  Compact, Regular and Large.
 - [card command lists](../src/app/card/README.md): what a frame asks the
   graphics card to draw, and the executor that runs it on SDL's renderer,
   for the Full tier.

@@ -9,14 +9,19 @@
 #include "oa/app/asset_files.hpp"
 #include "oa/app/game_directory.hpp"
 #include "oa/app/hook_call.hpp"
-#include "oa/app/mod_install/inbox.hpp"
+#include "oa/app/package_install/inbox.hpp"
 #include "match_clock.hpp"
 #include "graphics_report.hpp"
 #include "render_host.hpp"
 #include "render_run.hpp"
 #include "oa/base/float_precision.hpp"
 #include "oa/data/defs/version.hpp"
+#include "oa/formats/hpi.hpp"
+#include "oa/media/intro_player.hpp"
 #include "oa/platform/app_loop.hpp"
+#include "oa/platform/preferences.hpp"
+#include "oa/ui/engine_settings.hpp"
+#include "oa/ui/first_run/first_run.hpp"
 #include "oa/platform/job_pool.hpp"
 #include "oa/platform/log_files.hpp"
 #include "oa/platform/system.hpp"
@@ -29,7 +34,10 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <iostream>
+#include <limits>
+#include <system_error>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -39,6 +47,141 @@
 #include <vector>
 
 namespace oa::app {
+
+namespace {
+
+/// The window a movie plays in, so Alt+Enter and a lost device are handled.
+struct IntroWindow {
+    SDL_Window* window{};
+    SDL_Renderer* renderer{};
+    RendererHost* host{};
+    FullScreenSwitch* full_screen{};
+};
+
+/// Plays one movie file and writes the intro line.
+///
+/// @param options the parsed command line
+/// @param path the movie file
+/// @param snapshot true when the intro movie may write --snapshot
+/// @param shown the window; null for a headless run
+void play_intro_file(
+    const Options& options, const fs::path& path, bool snapshot, IntroWindow* shown
+) {
+    if (!fs::exists(path)) {
+        std::cerr << "intro missing: " << path_to_utf8(path) << '\n';
+        return;
+    }
+    auto opened = oa::media::IntroPlayer::open(path);
+    if (!opened) {
+        std::cerr << "intro skip " << path_to_utf8(path.filename()) << ": " << opened.error << '\n';
+        return;
+    }
+    oa::media::PlaybackOptions playback;
+    playback.headless_check = options.headless_check;
+    playback.frame_limit = options.frame_limit.value_or(0);
+    playback.play_audio = !options.headless_check && !options.mute;
+    if (shown != nullptr && shown->window != nullptr) {
+        playback.window = shown->window;
+        playback.renderer = shown->host != nullptr ? shown->host->renderer() : shown->renderer;
+        playback.hooks.context = shown;
+        // The movie player does not hand its events on, so whether Alt+Enter
+        // took one does not matter. A lost device is noted for after the movie.
+        playback.hooks.window_event = [](void* context, const SDL_Event& event) {
+            auto& display = *static_cast<IntroWindow*>(context);
+            if (display.host != nullptr && display.host->take_event(event))
+                return;
+            if (display.full_screen != nullptr)
+                std::ignore = take_full_screen_event(display.window, *display.full_screen, event);
+        };
+    }
+    if (snapshot)
+        playback.snapshot_path = options.snapshot;
+    auto result = opened.player->play(playback);
+    if (shown != nullptr && shown->host != nullptr)
+        shown->host->service();
+    if (!result.ok()) {
+        std::cerr << "intro " << path_to_utf8(path.filename()) << ": " << result.error << '\n';
+        return;
+    }
+    std::cout << "intro " << path_to_utf8(path.filename()) << ": decoded " << result.decoded_frames
+              << " frame(s)" << (result.skipped ? ", skipped\n" : "\n");
+}
+
+} // namespace
+
+void play_intro_movies(
+    const Options& options,
+    SDL_Window* window,
+    SDL_Renderer* renderer,
+    RendererHost* host,
+    FullScreenSwitch* full_screen
+) {
+    // The game's -c, -n and -y switches skip the movies too. This path does
+    // not read PlayMovie: a start without the setup still plays the movies
+    // every time, and 3.1c plays them under those switches while PlayMovie
+    // is set. A switch that skips them is what leaves them unplayed.
+    if (options.skip_intro || options.launch.skip_intro != 0)
+        return;
+    // The logo movie, then the intro. The mod profile names each file
+    // (media.movies), and an empty name plays none there. A mod folder's
+    // movie replaces the game folder's.
+    const oa::AssetStore folders(options.game_folders);
+    IntroWindow shown{window, renderer, host, full_screen};
+    IntroWindow* place = window != nullptr ? &shown : nullptr;
+    const auto play = [&](std::string_view name, bool snapshot) {
+        if (name.empty())
+            return;
+        const auto found = folders.loose_file(std::string("Data/") + std::string(name));
+        play_intro_file(
+            options, found ? *found : options.game_dir / "Data" / std::string(name), snapshot, place
+        );
+    };
+    const oa::data::mod_profile::MediaMovies base_movies{};
+    const auto& movies = options.mod_profile ? options.mod_profile->media.movies : base_movies;
+    play(movies.logo, false);
+    play(movies.intro, true);
+    // The movies present on the game's renderer.
+    oa::base::float_precision::restore_program_float_control();
+}
+
+bool setup_shows_over_menu(const Options& options) {
+    namespace first_run = oa::ui::first_run;
+    first_run::GateFacts facts;
+    facts.force = options.first_run;
+    try {
+        // An unattended run reads a preferences file only when it was given one.
+        if (!options.unattended || options.preferences_file) {
+            const fs::path file = preference_file(options.preferences_file);
+            std::error_code error;
+            if (fs::exists(file, error) && !error) {
+                const oa::platform::preferences::Values values =
+                    oa::platform::preferences::load(file);
+                const auto found = values.find(std::string(first_run::preference_key));
+                if (found != values.end()) {
+                    facts.done = oa::ui::engine_settings::language_notice_trim(found->second) ==
+                                 first_run::preference_done;
+                }
+            }
+        }
+    } catch (const std::exception&) {
+        facts.done = false;
+    }
+    facts.headless_check = options.headless_check;
+    facts.preferences_file = options.preferences_file.has_value();
+    facts.benchmark = options.benchmark_frames.has_value();
+    facts.stage = !options.stage_file.empty();
+    facts.fark = options.remote_controlled;
+    const char* driver = SDL_WasInit(SDL_INIT_VIDEO) != 0 ? SDL_GetCurrentVideoDriver() : nullptr;
+    if (driver == nullptr)
+        driver = SDL_GetHint(SDL_HINT_VIDEO_DRIVER);
+    const char* ci = SDL_getenv("CI");
+    facts.unattended =
+        options.unattended || unattended_environment(
+                                  ci == nullptr ? std::string_view{} : std::string_view(ci),
+                                  driver == nullptr ? std::string_view{} : std::string_view(driver)
+                              );
+    return first_run::decide(facts) == first_run::Hold::show;
+}
 
 void Runtime::destroy_render_run(RenderRun* run) noexcept {
     delete run;
@@ -87,6 +230,30 @@ constexpr int32_t kHandoffWaitMs = 1000;
         return "briefing";
     }
     return "unnamed screen";
+}
+
+// The screen change whose first frame has not been presented yet.
+struct ScreenChange {
+    std::string name;
+    uint32_t began_ms = 0;
+    bool open = false;
+};
+
+ScreenChange& screen_change() {
+    static ScreenChange change;
+    return change;
+}
+
+bool& main_menu_phase_logged() {
+    static bool logged = false;
+    return logged;
+}
+
+// The main menu's screen-change first frame, so a later change that replaced
+// the pending name does not drop it and a finished one is not written twice.
+bool& menu_screen_framed() {
+    static bool framed = false;
+    return framed;
 }
 
 /// Returns the record of a frontend panel that holds the keyboard focus.
@@ -139,6 +306,43 @@ int32_t frontend_panel_focus(
 
 } // namespace
 
+void Runtime::begin_screen_change(std::string_view name) {
+    ScreenChange& change = screen_change();
+    change.name.assign(name.begin(), name.end());
+    change.began_ms = oa::platform::tick_ms();
+    change.open = true;
+    std::string phase = "screen ";
+    phase.append(name);
+    phase.append(" begin");
+    oa::platform::log_files::note_timing(phase);
+}
+
+void Runtime::finish_screen_change(std::string_view name) {
+    ScreenChange& change = screen_change();
+    if (!change.open || change.name != name)
+        return;
+    std::string phase = "screen ";
+    phase.append(name);
+    phase.append(" first frame");
+    oa::platform::log_files::note_timing_span(phase, change.began_ms);
+    change.open = false;
+    if (name == "main menu")
+        menu_screen_framed() = true;
+}
+
+void Runtime::note_shown_frame() {
+    note_launch_frame();
+    finish_screen_change(screen_label(screen_));
+    if (screen_ == Screen::main_menu && !main_menu_phase_logged()) {
+        main_menu_phase_logged() = true;
+        oa::platform::log_files::note_timing("main menu first frame");
+        if (!menu_screen_framed()) {
+            oa::platform::log_files::note_timing("screen main menu first frame");
+            menu_screen_framed() = true;
+        }
+    }
+}
+
 Runtime::Runtime(
     Options options,
     oa::AssetStore& assets,
@@ -174,14 +378,54 @@ Runtime::Runtime(
     start_session_display();
     choose_web_links();
     call_hook_or_raise<&Extension::startup>(extension_, *this);
+    const uint32_t sounds_began = oa::platform::tick_ms();
     load_all_sounds();
+    oa::platform::log_files::note_timing_span("sounds", sounds_began);
     register_screens();
     call_hook_or_raise<&Extension::ready>(extension_, *this);
+    const auto mark_phase = [](std::string_view phase_name, uint32_t started_ms) {
+        oa::platform::log_files::note_timing_span(phase_name, started_ms);
+    };
+    uint32_t phase_began = oa::platform::tick_ms();
     load_preference_file();
+    mark_phase("preferences", phase_began);
     // The player's own folder, and the one-time move of the saved games into
     // it, before the frontend's preferences read the Image Output Directory
     // that defaults to it.
+    phase_began = oa::platform::tick_ms();
     start_user_folder();
+    mark_phase("user folder", phase_began);
+    // Which copied files differ, for the main menu's notice and for the
+    // Library and Settings. A named --game-dir still fills it; the notice
+    // stays closed then. A bundle this start's setup already copied and
+    // checked is answered from that result and is not read again.
+    phase_began = oa::platform::tick_ms();
+    const char* content_line = options_.restarts > 0 ? "Applying your changes"
+                                                     : "Checking your copy of Total Annihilation";
+    run_progress(content_line, [this](LongWork& work) {
+        const auto note = [](uint32_t files_done, uint32_t files_total, void* context) -> bool {
+            auto& held = *static_cast<LongWork*>(context);
+            if (files_total == 0) {
+                held.done.store(-1, std::memory_order_release);
+                return true;
+            }
+            const int32_t whole =
+                files_total > static_cast<uint32_t>(std::numeric_limits<int32_t>::max())
+                    ? std::numeric_limits<int32_t>::max()
+                    : static_cast<int32_t>(files_total);
+            int32_t finished_files =
+                files_done > static_cast<uint32_t>(std::numeric_limits<int32_t>::max())
+                    ? whole
+                    : static_cast<int32_t>(files_done);
+            if (finished_files > whole)
+                finished_files = whole;
+            held.whole.store(whole, std::memory_order_release);
+            held.done.store(finished_files, std::memory_order_release);
+            return true;
+        };
+        content_check_ = check_managed_content(user_folder_, {}, note, &work);
+    });
+    mark_phase("content check", phase_began);
     // Stored after the one-time legacy import, which runs only while no
     // preferences file exists. An unwritable preferences file only costs the
     // next start the dialog.
@@ -199,7 +443,9 @@ Runtime::Runtime(
     // The language the game shows its text in, which loads the translation
     // table and the fonts: 3.1c's command line, else the setting, else the
     // operating system's.
-    start_language();
+    phase_began = oa::platform::tick_ms();
+    run_progress("Applying your changes", [this](LongWork&) { start_language(); });
+    mark_phase("language", phase_began);
     // SIDEDATA, and the sides' interface art and fonts it names, from the
     // language's folders first.
     load_side_table();
@@ -216,6 +462,24 @@ Runtime::Runtime(
     load_engine_settings();
     // The settings the profile's display rules let the player change.
     load_view_settings();
+    // The registries and their catalogues, after the player's folder and
+    // Developer mode are known. The registries check writes its own list
+    // first.
+    if constexpr (self_checks_built) {
+        if (options_.check_registries)
+            prepare_registries_check();
+        if (options_.check_map_browser)
+            prepare_map_browser_check();
+        if (options_.check_map_pack_lists)
+            prepare_map_pack_lists_check();
+        if (options_.check_first_run)
+            prepare_first_run_check();
+        if (options_.check_library_map_previews)
+            prepare_library_map_preview_check();
+    }
+    phase_began = oa::platform::tick_ms();
+    start_content();
+    mark_phase("catalogue and registries", phase_began);
     // The GUI text loops hand characters outside the 8-bit fonts to the
     // system's fonts when the profile's text rendering asks for it.
     install_game_text_hooks();
@@ -233,6 +497,8 @@ Runtime::Runtime(
     state_.skip_intro = options_.launch.skip_intro;
     call_hook_or_raise<&Extension::frontend_states>(extension_, frontend_states_);
     step(frontend::Step::reload_unit_overrides, state_);
+    // The dispatcher opens the main menu, which starts its hum unless the
+    // setup and the movies after it are still to come (play_menu_voice).
     frontend::dispatch(state_, *this, frontend_states_);
 }
 
@@ -248,7 +514,29 @@ Runtime::ExtensionRelease::~ExtensionRelease() {
     );
 }
 
+void Runtime::run_progress(std::string_view line, const std::function<void(LongWork&)>& job) {
+    SDL_Window* window = nullptr;
+    SDL_Renderer* renderer = nullptr;
+    if (!options_.headless_check) {
+        window = sdl_.window;
+        renderer = sdl_.renderer;
+    }
+    std::ignore = run_long_work(
+        window,
+        renderer,
+        nullptr,
+        "Open Annihilation",
+        line,
+        [this](oa::ui::paint::Canvas& canvas) { fill_progress_behind(canvas, &surface_); },
+        job
+    );
+}
+
 int Runtime::run() {
+    // The menu draws this window from here. A launch pump must not clear it.
+    release_launch_window();
+    take_pending_content();
+    log_first_run_gate(false);
     int exit_code = 0;
     const auto extension_run = [&](RunPhase phase) {
         return call_hook_or_raise<&Extension::run_mode>(extension_, *this, phase, exit_code);
@@ -293,9 +581,15 @@ int Runtime::run() {
         }
         if (extension_run(RunPhase::headless_first))
             return exit_code;
-        if constexpr (self_checks_built)
+        if constexpr (self_checks_built) {
             if (options_.check_navigation)
                 check_navigation();
+            if (options_.check_zoom_memory) {
+                check_zoom_memory();
+                flush_preferences();
+                return 0;
+            }
+        }
         if (extension_run(RunPhase::headless))
             return exit_code;
         if (options_.save_after || !options_.load_file.empty()) {
@@ -366,6 +660,16 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (options_.check_registered_kit) {
+            check_registered_kit();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_kit_gallery) {
+            check_kit_gallery();
+            flush_preferences();
+            return 0;
+        }
         if (options_.check_user_folder) {
             check_user_folder();
             flush_preferences();
@@ -376,6 +680,21 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (options_.check_map_packs) {
+            check_map_packs();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_map_browser) {
+            check_map_browser();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_map_pack_lists) {
+            check_map_pack_lists();
+            flush_preferences();
+            return 0;
+        }
         if (options_.check_mod_warning) {
             check_mod_warning();
             flush_preferences();
@@ -383,6 +702,41 @@ int Runtime::run() {
         }
         if (options_.check_mod_install) {
             check_mod_install();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_language_install) {
+            check_language_install();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_challenge) {
+            check_challenge();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_registries) {
+            check_registries();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_library) {
+            check_library();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_library_install) {
+            check_library_install();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_library_map_previews) {
+            check_library_map_previews();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_library_content) {
+            check_library_content();
             flush_preferences();
             return 0;
         }
@@ -463,6 +817,36 @@ int Runtime::run() {
         }
         if (options_.check_language_switch) {
             check_language_switch();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_language_registry) {
+            check_language_registry();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_language_notice) {
+            check_language_notice();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_first_run) {
+            check_first_run();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_setup_window) {
+            check_setup_window();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_progress) {
+            check_progress();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_text_fit) {
+            check_text_fit();
             flush_preferences();
             return 0;
         }
@@ -561,7 +945,7 @@ int Runtime::run() {
                                      )) {
             // While this copy takes a second start's mod packages, it looks
             // for them once a second even in the background.
-            if (mod_install::handoff_folder()) {
+            if (package_install::handoff_folder()) {
                 if (SDL_WaitEventTimeout(&event, kHandoffWaitMs))
                     dispatch_event(event, running);
                 take_handed_mod_files();
@@ -593,6 +977,12 @@ void Runtime::take_video_capture(std::unique_ptr<VideoCapture> capture) {
 }
 
 void Runtime::run_frame(bool& running) {
+    // A size the window reached without a resize is delivered before this
+    // frame's events, so the events and the frame use the window on screen.
+    // A headless check and a director lay the match out at a size of their
+    // own; the window must not replace it.
+    if (!options_.headless_check && director_ == nullptr)
+        sync_live_window_size();
     begin_loop_frame();
     SDL_Event event{};
     while (SDL_PollEvent(&event))
@@ -602,6 +992,9 @@ void Runtime::run_frame(bool& running) {
     // frame, for the screen the events left.
     apply_system_pointer(false);
     apply_window_frame();
+    // A pause, a menu or a resize since the last event settles Window edge
+    // before this frame is drawn.
+    apply_window_edge();
     idle_tick();
     const auto now_ms = static_cast<uint32_t>(SDL_GetTicks());
     if (oa::platform::finished_stream_sweep_due(now_ms, last_stream_sweep_ms_)) {
@@ -612,6 +1005,19 @@ void Runtime::run_frame(bool& running) {
 }
 
 void Runtime::dispatch_event(SDL_Event& event, bool& running) {
+    // Every return, the full-screen one included, settles Window edge after
+    // keep_pointer_on_screen has had its say.
+    struct WindowEdgeGuard {
+        Runtime& runtime;
+        bool force_release = false;
+
+        ~WindowEdgeGuard() { runtime.apply_window_edge(force_release); }
+    } window_edge{*this};
+
+    // The click that only gives a captured window the focus back, and its
+    // release, reach nothing.
+    if (take_window_edge_event(event, window_edge.force_release))
+        return;
     // The inactive-loop check's wake ends the run. It is not a focus change,
     // and it must not be read as one.
     if constexpr (self_checks_built)
@@ -729,6 +1135,7 @@ void Runtime::idle_tick() {
     // chose; whatever draws after it shows whole ticks.
     frame_draws_.units_drawn = 0;
     frame_draws_.units_between_ticks = 0;
+    frame_draws_.units_as_dots = false;
     frame_draws_.probe_drawn = false;
     // A new renderer record is told of once the main menu shows, the saved
     // games' move once that notice is closed, where the game folder was
@@ -737,7 +1144,24 @@ void Runtime::idle_tick() {
     tell_saves_moved();
     tell_found_install();
     tell_incomplete_mod();
+    tick_content();
+    tick_library();
+    // A catalogue that moved on adds its language packs to the registry.
+    note_catalogue_languages();
+    // After the catalogue, so a size that arrived this frame is on the cards,
+    // and before the language notice, which stays closed while this shows.
+    tell_first_run();
+    // Once the setup is over and the movies after it have played, or a
+    // switch skipped them, the main menu's hum that waited starts.
+    start_waiting_menu_hum();
+    // Content that differs is told with the language notice, and queues first.
+    tell_content_difference();
+    tell_missing_language();
     tell_mod_installs();
+    // An .oareg file the game was opened with opens the Add registry window
+    // once the main menu is free.
+    take_registry_files();
+    tell_challenges();
     render();
     presentation_alpha_ = 1.0F;
     capture_film_frame();
@@ -1045,6 +1469,17 @@ void Runtime::move_frontend_focus(oa::ui::gui_input::FocusDirection direction) {
 }
 
 void Runtime::load(Screen screen) {
+    begin_screen_change(screen_label(screen));
+    if (screen == Screen::main_menu && !pending_save_path_.empty()) {
+        const fs::path pending = path_from_utf8(pending_save_path_);
+        pending_save_path_.clear();
+        if (load_saved_game(pending))
+            return;
+    }
+    // A pack map's files are mounted for the skirmish setup that chose the
+    // map and the match it starts; the main menu shows none.
+    if (screen == Screen::main_menu)
+        release_pack_map();
     // The load and save dialogs are drawn over the screen they open from.
     if (screen == Screen::load_game && screen_ != Screen::load_game)
         capture_load_game_parent();
@@ -1195,7 +1630,12 @@ void Runtime::rebuild_surface() {
     std::vector<renderer::ListPresentation> lists;
     if (screen_ == Screen::map_selection && !bound_map_names_.empty()) {
         const auto selected = static_cast<std::size_t>(std::max<int16_t>(0, modal_map_index_));
-        lists.push_back({"MAPNAMES", bound_map_names_, map_first_visible(), selected});
+        const std::vector<std::string>& shown = bound_map_labels_.size() == bound_map_names_.size()
+                                                    ? bound_map_labels_
+                                                    : bound_map_names_;
+        lists.push_back({"MAPNAMES", shown, map_first_visible(), selected});
+        if (bound_map_grey_.size() == shown.size())
+            lists.back().grey = bound_map_grey_;
     }
     // A list its scroll bar scrolls shows the rows the bar brings into view.
     if (const auto first = frontend_list_first("Campaign"))

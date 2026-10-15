@@ -399,7 +399,7 @@ uses depends on its layer (default; maintainer to confirm):
 | base, sim | `src/base/game-math` and the geometry, timers and sine table in `src/ui/services`; `src/sim/*`, `src/sim/*`, `src/sim/*`, `src/sim/ai`, `src/sim/*`, `src/sim/ballistics`, `src/sim/scenario`, `src/sim/session`, and `src/sim/*` except the renderer and sprite animation | In code a simulation tick runs, and in the state it keeps: no exceptions, no virtual dispatch and no heap-allocating containers. `std::array`, `std::span`, `std::optional`, `<bit>` and `<algorithm>` are allowed. |
 | formats, data | `src/formats/*`, `src/data/defs`, `src/data/persist`, and the SQSH writer in `src/ui/services` | C++20; decoders take a byte span; errors are returned as values and no exception crosses the public interface; format libraries do not open files themselves |
 | platform, present, audio, media, ui, netgame, session, app | `src/platform`, `src/platform/preferences/*`, `src/present`, `src/present/world-renderer`, `src/sim/sprite-animation`, `src/audio`, `src/media`, `src/ui/*`, `src/ui/*`, `src/netgame`, `src/netgame/*`, `src/session/demo`, `src/app`, `src/app/netgame`, and the rest of `src/ui/services` (cursor, input, labels, preferences, console commands) | C++20, the standard library and virtual interfaces allowed; exceptions stay inside a layer. At the extension table a hook, or a check-host entry, reports an error by throwing `std::runtime_error`; the engine catches a hook's at the call and handles it as the hook's documentation says (`extension.hpp`); a hook documented as one that must not throw does not throw |
-| tests and tools | every `tests/` directory, `tests`, `tools`, `tools/oa-tool/main.cpp` | C++20 and the standard library; see [Tests](#tests) |
+| tests and tools | every `tests/` directory, `tests`, `tools`, `tools/oa-tool` | C++20 and the standard library; see [Tests](#tests) |
 
 `src/ui/services` holds code of three layers until the layout pass
 splits it; each part follows the rules of its own layer.
@@ -697,7 +697,16 @@ another use of a private `Runtime` name. Network play keeps its state for
 each runtime in its own object, freed through a hook as the runtime goes;
 its use of `Runtime`'s private names, and the `Runtime` members an
 extension still adds, are frozen and may only shrink. Raise
-`OA_EXTENSION_API_VERSION` with any change to the table's contract.
+`OA_EXTENSION_API_VERSION` with any change to the table's contract. From
+version 15 the OA UI kit's public headers, `oa/ui/kit/*.hpp`, and the
+registrations and services the table names (`oa/ui/screen_registry.hpp`,
+`oa/ui/screen_registry/kit.hpp`) are part of that contract: an extension
+builds its Settings pages, kit screens, notices, prompts and overlay
+components from them. A change to a kit header before 0.8.0, the first
+release that carries version 15, keeps 15 and updates the engine's own
+followers and the test extensions in the same change; from that release
+on, any change to a kit header raises the version, though the kit stays
+provisional and changes as the engine's screens need.
 A hook reports an error by throwing `std::runtime_error`, as the engine
 code around it does. The engine calls every hook through one guarded call,
 `call_hook` (`src/app/include/oa/app/hook_call.hpp`), which catches what
@@ -710,8 +719,8 @@ frozen members.
 - **Why:** an extension that is not part of the engine must be able to
   build on it without the engine naming it, and to tell, at compile time,
   whether the engine it builds against offers the contract it expects.
-- **Applies to:** `src/app`, `src/app/netgame`, `cmake/OaExtensions.cmake`,
-  `run.sh`.
+- **Applies to:** `src/app`, `src/app/netgame`, `src/ui/kit/include`,
+  `src/ui/screen-registry`, `cmake/OaExtensions.cmake`, `run.sh`.
 - **Checked by:** `runtime-surface-names` and `runtime-surface-selftest`
   (`tools/check_runtime_surface.py`, within
   `tools/runtime-surface-baseline.json`); `hook-calls` and
@@ -719,15 +728,31 @@ frozen members.
   engine code calls a hook pointer other than through `call_hook`, and
   `app-hook-call`, which throws from a hook of each handling;
   `app-extension-list` and the
-  extension tests in `tests/extension`; `netgame-runtime-surface`; CI builds
+  extension tests in `tests/extension`, among them `extension-kit`, whose
+  test extension uses the kit through the table alone;
+  `netgame-runtime-surface`; CI builds
   and starts `open-annihilation`, and builds and tests it with the recorder
   test extensions beside network play in the extension-recorder job.
 
 Game data never enters the repository: no archives, maps, sounds, movies,
 or captures of them, apart from the small screenshots that show the
 standard hacks on their pages, in `docs/mods/standard-hacks/images/`, the
-sections of the settings, in `docs/images/settings/`, and the trailer's
+sections of the settings, in `docs/images/settings/`, the UI kit gallery at
+its three size classes, in `docs/images/ui-kit/`, and the trailer's
 picture at the top of the README, `docs/images/trailer.jpg`.
+
+The settings pictures are drawn, not edited by hand.
+`oa-ui-engine-settings-pictures DIRECTORY` (built with the tests) draws
+each section of the dialog alone, unlocked, at Compact and 2×, 960 by 648,
+in the installed game's fonts, and writes them under the names that folder
+uses (`engine-limits.png`, `controls-1.png`, `downloads-2.png` for
+Downloads scrolled to its end, and the same for the other sections). It
+needs `OA_GAME_DIR`. The data test `ui-engine-settings-pictures` runs it
+into a scratch folder. Refresh the manual with:
+
+```sh
+oa-ui-engine-settings-pictures docs/images/settings
+```
 
 ## Checks
 

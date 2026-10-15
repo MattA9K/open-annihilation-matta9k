@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// The Mods page's row for a mod folder: the oamod.yaml's top-level scalars
+// What the Library shows of a mod folder: the oamod.yaml's top-level scalars
 // read without resolving the profile, and the oamod.png badge decoded with
 // the engine's PNG reader and scaled down to the badge's side.
 
@@ -361,6 +361,8 @@ ModSummary read_mod_summary(const fs::path& folder) {
                 summary.version = std::move(*version);
             if (auto description = scalar_text(root, "description"))
                 summary.description = std::move(*description);
+            if (auto id = scalar_text(root, "id"))
+                summary.id = std::move(*id);
         }
     }
 

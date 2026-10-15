@@ -8,7 +8,9 @@
 #include "director_presentation.hpp"
 #include "extension.hpp"
 #include "frame_pacing.hpp"
+#include "middle_pan.hpp"
 #include "full_screen.hpp"
+#include "sticky_edge.hpp"
 #include "match_model_draws.hpp"
 #include "megamap_state.hpp"
 #include "platform_hooks.hpp"
@@ -64,8 +66,13 @@
 #include "oa/ui/frontend/resource_palette.hpp"
 #include "oa/ui/engine_settings.hpp"
 #include "oa/ui/engine_settings/dialog.hpp"
+#include "oa/data/content_bundles/content_choice.hpp"
 #include "oa/ui/pad_controls.hpp"
 #include "oa/app/acceleration_status.hpp"
+#include "oa/app/content_copy.hpp"
+#include "oa/app/long_work.hpp"
+#include "oa/app/content/downloads.hpp"
+#include "oa/app/content/settings.hpp"
 #include "oa/app/renderer_records.hpp"
 #include "oa/ui/frontend_renderer/scroll_bars.hpp"
 #include "oa/present/world_renderer/world_radar.hpp"
@@ -135,7 +142,34 @@ namespace oa::media::director {
 struct EngineView;
 } // namespace oa::media::director
 
+namespace oa::ui::library {
+enum class Tab : uint8_t;
+enum class Action : uint8_t;
+struct EntryId;
+struct Inputs;
+} // namespace oa::ui::library
+
+namespace oa::ui::kit {
+struct Question;
+} // namespace oa::ui::kit
+
+namespace oa::data::map_fit {
+struct Fit;
+} // namespace oa::data::map_fit
+
+namespace oa::platform::text_font {
+class FontStack;
+} // namespace oa::platform::text_font
+
+namespace oa::ui::frontend_multiplayer {
+struct LobbyMapSource;
+struct LobbyPackMap;
+struct LocalPack;
+} // namespace oa::ui::frontend_multiplayer
+
 namespace oa::app {
+
+struct PresenceFacts;
 
 /// Loads the session palette, PALETTE.PAL, through the palette file loader.
 ///
@@ -151,6 +185,30 @@ struct MatchModels;
 struct WorldDrawList;
 class GafFrameCache;
 class RendererHost;
+
+/// Plays the logo and the intro the game starts with, unless a switch skips
+/// them. The window may be null for a headless run. A device lost while a
+/// movie plays is made again before this returns.
+///
+/// @param options the parsed command line, with the mod profile played
+/// @param window the window the movies show in; null for a headless run
+/// @param renderer that window's renderer; null with the window
+/// @param host what made the renderer; null when there is none
+/// @param full_screen Alt+Enter's switch, updated while a movie plays; null when there is none
+void play_intro_movies(
+    const Options& options,
+    SDL_Window* window,
+    SDL_Renderer* renderer,
+    RendererHost* host,
+    FullScreenSwitch* full_screen
+);
+
+/// Reports whether this start will show the setup over the menu. The same
+/// facts the runtime's gate uses once the video driver can be read.
+///
+/// @param options the parsed command line
+/// @return true when the setup will show
+[[nodiscard]] bool setup_shows_over_menu(const Options& options);
 struct FolderOpening;
 struct ModStartGaps;
 
@@ -252,6 +310,19 @@ struct MissionMoveGoal {
         point{};           // the condition's point on the terrain, 16.16 world units
     std::string type_name; // the unit type it names; empty for any type
 };
+
+namespace package_install {
+struct PackageKind;
+struct PackageOptions;
+} // namespace package_install
+
+class MapPacks;
+struct PackMap;
+class OaLayer;
+
+namespace content {
+class Service;
+} // namespace content
 
 class Runtime final : public menu::Host,
                       public entry::SinglePlayerHost,
@@ -574,6 +645,19 @@ class Runtime final : public menu::Host,
     /// @return true once they have opened
     [[nodiscard]] static bool modern_fonts_open();
 
+    /// Returns how many pack faces the open modern font stack holds.
+    ///
+    /// @return the count; 0 when the stack is not open
+    [[nodiscard]] static std::size_t modern_font_pack_faces();
+
+    /// Tells whether the modern fonts can draw a text with no missing character.
+    ///
+    /// True when their stack is not open: nothing has been found missing.
+    ///
+    /// @param text the bytes
+    /// @return false when an open stack cannot draw a visible character
+    [[nodiscard]] bool modern_fonts_draw(std::string_view text) const;
+
     /// Tells whether the language shown draws its text in the modern fonts,
     /// which are then on whatever the setting (Simplified Chinese).
     ///
@@ -613,13 +697,54 @@ class Runtime final : public menu::Host,
     /// @return the folders; empty when no pack holds the language
     [[nodiscard]] std::vector<std::filesystem::path> language_pack_folders() const;
 
+    /// Returns the generation of the language's font faces and warm-up text.
+    ///
+    /// It changes when the faces or the warm-up of the language shown change.
+    ///
+    /// @return the generation; 0 before start_language
+    [[nodiscard]] uint64_t language_fonts_generation() const noexcept;
+
+    /// Returns the warm-up text of the language shown.
+    ///
+    /// It is the first pack of the language, in lookup order, that has one.
+    ///
+    /// @return the text; empty when no pack has one, valid until the
+    ///     language changes
+    [[nodiscard]] std::string_view language_warmup() const;
+
+    /// Puts the language shown's font faces on an open stack.
+    ///
+    /// The stack's pack faces are removed, then each font of the language is
+    /// added with its role. A face that does not open is logged and skipped.
+    ///
+    /// @param stack the open stack
+    void use_language_fonts(oa::platform::text_font::FontStack& stack) const;
+
+    /// Puts the language shown's font faces on a stack (use_language_fonts)
+    /// when they changed since the stack last took them. Every stack that
+    /// draws the language's words follows them so: the game text's and the
+    /// picture captions'.
+    ///
+    /// @param stack the stack; null when it did not open, and only
+    ///     `generation` is kept
+    /// @param[in,out] generation the fonts generation the stack's faces are
+    ///     from (language_fonts_generation), empty before it took any; set
+    ///     to the current one
+    /// @return true when the faces changed since `generation`: the lines
+    ///     drawn in the stack before are stale, and a character they drew
+    ///     as the missing-glyph box may have a face now
+    [[nodiscard]] bool follow_language_fonts(
+        oa::platform::text_font::FontStack* stack, std::optional<uint64_t>& generation
+    ) const;
+
     /// Readies the modern fonts for the language shown now, as the first
     /// line drawn after the language changes does by itself: forgets the
     /// lines drawn before, draws ideographs at 12 px at the least while a
-    /// Chinese, Japanese or Korean language is shown, and then draws its
-    /// most common characters into the glyph store at the text size, so
-    /// that the first screen in it draws few new glyphs. Call it where the
-    /// language is chosen, or while a loading screen shows.
+    /// Chinese, Japanese or Korean language is shown, adds the language
+    /// packs' font faces, and lays out the pack's warm-up text into the
+    /// glyph store at the text size, so that the first screen in it draws
+    /// few new glyphs. Call it where the language is chosen, or while a
+    /// loading screen shows.
     void warm_game_text();
 
     /// Returns how game text is drawn now: the Language settings,
@@ -679,6 +804,10 @@ class Runtime final : public menu::Host,
     ///
     /// @param full_screen the switch the movies used
     void take_full_screen_switch(const FullScreenSwitch& full_screen) noexcept;
+
+    /// Points the remembered window place at this runtime's preferences, so a
+    /// change is written into the file the runtime flushes.
+    void attach_window_place();
 
     /// Hands the runtime the names of the renderer it borrows, which the
     /// "+stats" overlay's renderer row shows.
@@ -871,10 +1000,41 @@ class Runtime final : public menu::Host,
     /// @return the layout
     [[nodiscard]] oa::ui::display_layout::MatchLayout lay_out_match(int width, int height);
 
-    /// Keeps the player's skirmish setup before a saved, recorded or network
-    /// game fills skirmish_settings_ with its own players, so the preferences
-    /// keep the player's. A setup already kept stays kept.
+    /// Keeps the player's skirmish setup before a saved, recorded, network or
+    /// campaign game fills skirmish_settings_ with its own players, so the
+    /// preferences keep the player's. A setup already kept stays kept.
     void keep_player_skirmish_settings();
+
+    /// Puts the player's skirmish setup back and forgets the kept copy.
+    ///
+    /// A campaign start that never builds a match calls it. The return to the
+    /// skirmish setup does the same through the preferences load.
+    void release_player_skirmish_settings();
+
+    /// The base game, rule-changing expansions and language a presence record
+    /// may name. Bundles are named only for a managed copy whose choice is
+    /// usable. Music is left out. The language is the English name.
+    struct PresenceAnnouncement {
+        bool announce_bundles = false;       ///< the managed copy is mounted and usable
+        std::string base_game;               ///< the base game's id
+        std::vector<std::string> expansions; ///< rule-changing expansions, music left out
+        bool differs_from_known = false;     ///< a chosen bundle's file is not a known hash
+        std::string language;                ///< the shown language's English name
+    };
+
+    /// Reads what a presence record adds for this machine's content and language.
+    ///
+    /// @return the announcement
+    [[nodiscard]] PresenceAnnouncement presence_announcement() const;
+
+    /// Writes the content note beside a save or a recording. Network play
+    /// calls it for the recording it writes.
+    ///
+    /// The save or the recording itself is unchanged, so an older build still
+    /// reads it. The note names the base game and the rule-changing expansions.
+    ///
+    /// @param path the save or the recording
+    void note_content_beside(const fs::path& path) const;
 
   private:
 
@@ -1851,6 +2011,23 @@ class Runtime final : public menu::Host,
     /// @param runtime the running app
     /// @return the hash, 64 lower-case hexadecimal digits
     friend std::string simulation_hash(const Runtime& runtime);
+    /// Reads what this machine is playing (presence_facts in
+    /// presence_facts.hpp): Developer Mode, the simulation hash, whether the
+    /// rules differ from 3.1c, the mod and which standard hacks are on.
+    ///
+    /// @param runtime the running app
+    /// @return those facts
+    friend PresenceFacts presence_facts(const Runtime& runtime);
+    /// Returns the battle room's source of installed pack maps
+    /// (pack_map_source in pack_map_source.hpp).
+    ///
+    /// The names point into the installed packs and the base-map summaries,
+    /// which live as long as the runtime does. Choosing a map mounts its
+    /// files; releasing them unmounts that layer.
+    ///
+    /// @param runtime the running app
+    /// @return the source the multiplayer screens bind
+    friend oa::ui::frontend_multiplayer::LobbyMapSource pack_map_source(Runtime& runtime);
 
     // ---- Touch controls (docs/touch-controls.md) --------------------------------------
 
@@ -2582,6 +2759,14 @@ class Runtime final : public menu::Host,
     /// @param[in,out] image the decoded bitmap: its indices and RGB
     void caption_bitmap(std::string_view file, Image& image);
 
+    /// Lists the captions of the language shown that the picture captions'
+    /// fonts, as the captions last drawn left them, draw with the
+    /// missing-glyph box: those with a character none of their faces holds.
+    ///
+    /// @return each such caption as "<picture>: <caption>"; every caption
+    ///     while no caption has opened the fonts
+    [[nodiscard]] std::vector<std::string> picture_captions_missing_glyphs();
+
     /// Blits the covered pixels of a rendered GAF frame into an RGB image through a palette,
     /// clipped to the image.
     ///
@@ -2972,11 +3157,25 @@ class Runtime final : public menu::Host,
     ///         match's other keys
     bool press_match_panel_key(const SDL_KeyboardEvent& key);
 
+    /// Steps the lightbar sweep of the preferences a match opens, before the frame's HUD is drawn.
+    ///
+    /// Once a frame, while the sweep is due. The step that reaches the end plays "Options"
+    /// and opens the sound page, the first of the four, in place of the turned-over picture.
+    void advance_options_lightbar();
+
     /// Steps and draws the lightbar sweep of the preferences a match opens while it runs.
     ///
-    /// Called as the match frame draws its menus; the sweep steps once a frame
-    /// and is drawn over the side column and the battlefield beside it.
+    /// Called as the match frame draws its menus. The sweep is drawn over the side column
+    /// and the battlefield beside it until advance_options_lightbar opens the sound page.
     void draw_options_lightbar();
+
+    /// Loads one in-match options page beside the tabs.
+    ///
+    /// PREFS.GUI is widened and the page's GUI is merged into it. A page that cannot be
+    /// loaded is left unshown and the reason is written to the log.
+    ///
+    /// @param which sound, music, interface (speeds) or visuals
+    void open_match_options_page(ui::frontend::OptionsPanel which);
 
     /// Binds the running match's speech with its own captions to the offline services.
     void bind_match_speech();
@@ -3496,8 +3695,17 @@ class Runtime final : public menu::Host,
     /// With no mod it is the plain baseline's. With a mod that changes the
     /// simulation it is that profile's, and not the baseline's. Turning a
     /// simulation-changing Developer Mode override on then changes it, with
-    /// no new start. Throws std::runtime_error at the first failure.
+    /// no new start. The same run checks the presence facts that follow
+    /// those settings. Throws std::runtime_error at the first failure.
     void check_simulation_hash();
+
+    /// Eases a skirmish's zoom out to its limit and back, three times, on a
+    /// large battlefield, with the model budget OA_RENDERED_UNITS_BUDGET
+    /// names, then returns to the main menu.
+    ///
+    /// The budget must be 8 MiB or the check refuses to zoom. Units past the
+    /// budget are dots. Throws std::runtime_error at the first failure.
+    void check_zoom_memory();
 
     /// Checks the services and hooks the screens and the extension reach the
     /// runtime through, on the main menu.
@@ -3597,9 +3805,10 @@ class Runtime final : public menu::Host,
 
     // The Open Annihilation settings (oa/ui/engine_settings.hpp): read at
     // start and put in effect (runtime_engine_settings.cpp), and the dialog
-    // that changes them, opened from the OA button on the main menu
-    // (runtime_engine_settings_menu.cpp) and in the in-game menu's column
-    // (runtime_engine_settings_match.cpp), with Cmd+, on macOS or Ctrl+,
+    // that changes them, a screen of the OA layer (oa_layer.cpp), opened
+    // from the OA button on the main menu (runtime_engine_settings_menu.cpp)
+    // and in the in-game menu's column (oa_layer.cpp,
+    // runtime_engine_settings_match.cpp), with Cmd+, on macOS or Ctrl+,
     // elsewhere, and from the macOS application menu's Settings… item
     // (runtime_engine_settings_app_menu.cpp).
 
@@ -3622,11 +3831,14 @@ class Runtime final : public menu::Host,
     /// saved with the next change (settings::remembered_picked_folder).
     void load_engine_settings();
 
-    /// Lists the mod folders the settings' Mods page offers, each with what
-    /// its oamod.yaml and oamod.png give (read_mod_summary): the game
-    /// folder's mods folder's, the player's own Mods folder's, the folder an
-    /// earlier version's Pick Folder... stored while it is the mod stored and
-    /// still a folder, and the one played, each once.
+    /// Lists the mod folders the game can play, which the Library lists
+    /// beside the packages the installer knows, each with what its
+    /// oamod.yaml and oamod.png give (read_mod_summary): the game folder's
+    /// mods folder's, the player's own Mods folder's, the folder an earlier
+    /// version's Pick Folder... stored while it is the mod stored and still
+    /// a folder, and the one played, each once; and for a folder of the
+    /// player's own Mods folder, whether its .backup keeps a version the
+    /// game can play, for ROLL BACK.
     void list_offered_mods();
 
     /// Ends the run after this frame for main() to start the game afresh
@@ -3709,21 +3921,14 @@ class Runtime final : public menu::Host,
     /// @return the fonts; null when the game's files lack them
     [[nodiscard]] const oa::ui::engine_settings::DialogFonts* engine_settings_fonts();
 
-    /// Returns the Open Annihilation icon the settings dialog's header and
-    /// the OA buttons draw: the window icon's visible part, decoded on first
-    /// use.
+    /// Returns the app icon, the plates alone: the window icon's visible
+    /// part, decoded on first use. Notices, prompts, the Game files screen
+    /// and every OA header but Settings and the Library draw it, and the
+    /// first successful decode gives the kit the small maker's mark.
     ///
     /// @return the icon's pixels, which last as long as the runtime; an
     ///         empty picture, which draws the OA mark, when it cannot be decoded
     [[nodiscard]] oa::ui::frontend_renderer::RgbaPicture engine_settings_icon();
-
-    /// Returns the meaning a key has in the dialog.
-    ///
-    /// @param key SDL keycode
-    /// @param modifiers SDL_Keymod bits
-    /// @return the dialog's key; nothing for a key it does not answer to
-    [[nodiscard]] static std::optional<oa::ui::engine_settings::DialogKey>
-    engine_settings_dialog_key(uint32_t key, uint16_t modifiers) noexcept;
 
     /// Checks that each setting takes effect, in step with its console
     /// command and the command line (part of --check-engine-settings).
@@ -3755,8 +3960,9 @@ class Runtime final : public menu::Host,
     /// recorded in the preferences, which are written; no notice follows.
     void move_recordings_once();
 
-    /// The player's own folder's opener and the main menu's notice of the
-    /// move (user_folder_state.hpp, runtime_user_folder.cpp).
+    /// The player's own folder's opener and the notices of the engine's own
+    /// over a screen, the main menu's notice of the move among them
+    /// (user_folder_state.hpp, runtime_user_folder.cpp).
     struct UserFolderState;
 
     /// Frees the user folder's state.
@@ -3777,14 +3983,11 @@ class Runtime final : public menu::Host,
     /// @return what came of it
     oa::app::FolderOpening open_player_folder(const fs::path& folder);
 
-    /// Registers the main menu's notice of the move, over the settings
-    /// dialog's overlay.
-    void register_saves_notice_overlay();
-
-    /// Tells whether the notice of the saved games' move shows over the
-    /// main menu, which nothing else opens over.
+    /// Tells whether a notice of the engine's own, such as the saved games'
+    /// move, is on the OA layer (NoticeScreen), which Settings does not open
+    /// over.
     ///
-    /// @return true while it shows
+    /// @return true while one is
     [[nodiscard]] bool saves_notice_shown() const noexcept;
 
     /// Shows the notice of the saved games' moves over the main menu, once:
@@ -3795,15 +3998,76 @@ class Runtime final : public menu::Host,
     /// due, unless --check-user-folder asks for it.
     void tell_saves_moved();
 
-    /// Returns the folder of the mod played: the mod folder laid over the
-    /// game folder, else the folder of the profile --mod names, else the game
-    /// folder whose own profile plays.
+    /// Shows the notice that a language is only available as a download,
+    /// over the settled main menu, once that menu has been up for a frame
+    /// and stays, with no dialog and no settings over it. A run nobody
+    /// watches shows none unless the user-folder check asks for a notice.
+    /// 3.1c's command line naming the language shows none. Download queues
+    /// the pack; Use English records the answer; Escape closes it for this
+    /// run only.
+    void tell_missing_language();
+
+    /// The start's check of the managed copy. Empty when this start has no
+    /// copied bundle. The Library, Settings and setup read it.
+    ///
+    /// @return the check
+    [[nodiscard]] const ContentCheck& content_check() const noexcept;
+
+    /// Shows the notice that copied content differs, over the settled main
+    /// menu, once that menu has been up for a frame and stays, with no dialog
+    /// and no settings over it. DETAILS lists the files (Settings' Game
+    /// Content page replaces that list). OK and Escape close it for this
+    /// start only; the next start shows it again while the files differ.
+    /// A named --game-dir, and a run nobody watches, show none. Nothing is
+    /// written to skip it.
+    void tell_content_difference();
+
+    /// Shows the first-run setup over the settled main menu, once that menu
+    /// has been up for two frames and stays, with no dialog and no settings
+    /// over it. --first-run shows it even when it is done and in a run that
+    /// would otherwise leave it closed. Finish and Skip setup record it
+    /// done; leaving another way does not, so it returns.
+    void tell_first_run();
+
+    /// Plays the intro that waited for the setup, once the setup will not
+    /// show again, and writes "first-run: done" before it. A start that did
+    /// not wait returns without playing. The main menu's hum waited with the
+    /// intro, and starts after it (start_waiting_menu_hum).
+    void play_intro_after_setup();
+
+    /// Writes "first-run: not showing" once when the setup stays hidden, and
+    /// again when that reason changes.
+    ///
+    /// @param sdl_ready the video driver can be read
+    void log_first_run_gate(bool sdl_ready);
+
+    /// Tells whether the missing-language notice stays closed: the setup is
+    /// showing, about to show, or a stage line opened it.
+    ///
+    /// @return true when the notice stays closed
+    [[nodiscard]] bool first_run_blocks_language_notice();
+
+    /// Erases the finished-setup preference so the next main menu shows the
+    /// setup. The caller writes the preferences.
+    void forget_first_run();
+
+    /// Opens one step of the setup for a stage line. A stage-opened step
+    /// stays up until the line asks for another.
+    ///
+    /// @param token language, online or buttons
+    /// @return false when the token is not a step
+    bool open_staged_first_run(std::string_view token);
+
+    /// Returns the folder of the mod played: the mod folder this start
+    /// layered, else the folder of the profile --mod names, else the base
+    /// game folder. An expansion bundle is not that folder.
     ///
     /// @return the folder
     [[nodiscard]] fs::path played_mod_folder() const;
 
-    /// Tells whether a mod plays: a mod profile, or a mod folder laid over
-    /// the game folder without one.
+    /// Tells whether a mod plays: a mod profile, or a mod folder this start
+    /// layered, including one without a profile. An expansion bundle does
+    /// not count.
     ///
     /// @return true when a mod plays
     [[nodiscard]] bool plays_mod() const noexcept;
@@ -3881,12 +4145,23 @@ class Runtime final : public menu::Host,
     void check_user_folder();
 
     /// Takes one turn of --check-mod-switch: checks that the run plays the
-    /// mod its turn expects, the Mods page listing it first, then, until
-    /// ten switches are made, chooses the next mod there and answers SWITCH,
-    /// which ends the run for a soft restart. The first run writes the two
-    /// test profiles into the player's own Mods folder. Throws
-    /// std::runtime_error on a failure.
+    /// mod its turn expects, the Library showing it played, then, until ten
+    /// switches are made, chooses the next mod there, with PLAY NOW, or
+    /// SWITCH OFF and the Switch Mod question's SWITCH for no mod, which ends
+    /// the run for a soft restart. The first run writes the two test
+    /// profiles into the player's own Mods folder. Throws std::runtime_error
+    /// on a failure.
     void check_mod_switch();
+
+    /// Checks pack maps in the skirmish list (--check-map-packs): writes two
+    /// map packs into the player's own Maps folder, one that fits and one
+    /// whose feature clashes with the game's; lists the first after the base
+    /// maps and leaves the second out, with one log line for that pack and
+    /// the base game; mounts the first when it is chosen and unmounts it for
+    /// a base map; plays a skirmish on it with its files readable, unmounted
+    /// when the match ends; and refuses the second when it is chosen. Throws
+    /// std::runtime_error on a failure.
+    void check_map_packs();
 
     /// The mod packages opened in the game: their questions, unpacking and
     /// what came of them over the main menu (mod_install_state.hpp,
@@ -3905,26 +4180,449 @@ class Runtime final : public menu::Host,
     /// @return the state
     ModInstallState& mod_install_state();
 
-    /// Registers the prompt of the installs over the main menu, over the
-    /// notices' overlay.
-    void register_mod_install_overlay();
+    /// The installed map packs and the fit check a map pack's install uses.
+    struct MapPackState;
 
-    /// Tells whether a prompt of the installs shows over the main menu.
+    /// Frees the map packs' state.
     ///
-    /// @return true while one shows
+    /// @param state state to free; null is allowed
+    static void destroy_map_pack_state(MapPackState* state) noexcept;
+
+    /// Returns the installed map packs, made on first use over Maps in the
+    /// player's own folder. The manifests are not read until a refresh.
+    ///
+    /// @return the index
+    [[nodiscard]] MapPacks& map_packs() const;
+
+    /// The name an installed pack gives a map, for a campaign load.
+    friend const char* pack_index_title(void* context, const char* map_name);
+
+    /// The pack map whose files the store shows, the game's names, each
+    /// pack map's fit and the reasons maps were refused
+    /// (runtime_pack_maps.cpp).
+    struct PackMapState;
+
+    /// Frees the pack maps' state.
+    ///
+    /// @param state state to free; null is allowed
+    static void destroy_pack_map_state(PackMapState* state) noexcept;
+
+    /// Returns the pack maps' state, made on first use.
+    ///
+    /// @return the state
+    PackMapState& pack_map_state();
+
+    /// Returns the installed pack map of a name.
+    ///
+    /// The name must split into a stem and a pack id; the installed packs
+    /// are then asked for it, read from their manifests the first time.
+    ///
+    /// @param name the map's name, `<stem>@<id>`
+    /// @return the map; null for any name that is not an installed pack map
+    [[nodiscard]] const PackMap* pack_map(std::string_view name);
+
+    /// The words a screen shows for a pack map: its title, or its own name,
+    /// with the pack's name in brackets when another listed map uses the
+    /// same words. Empty when `key` is not a pack map's name.
+    ///
+    /// @param key the map's name, `name\@package`
+    /// @return those words
+    [[nodiscard]] std::string pack_map_shown_name(std::string_view key);
+
+    /// Returns how a pack map fits the game and the mod being played.
+    ///
+    /// Checks the map's files in its pack's folder, whatever layer is
+    /// mounted. The game's names are collected once, with the run's data
+    /// layout, at the first check; a later archive is not seen until
+    /// drop_pack_map_fits. The fit is kept for the pack's SHA-256, the map's
+    /// stem and the compatibility key of the game being played, so one
+    /// composition is not reused for another.
+    ///
+    /// @param map the map
+    /// @return every rule the map breaks; kept until the runtime ends
+    const oa::data::map_fit::Fit& pack_map_fit(const PackMap& map);
+
+    /// Drops the kept map-fit results.
+    ///
+    /// The game's names are collected once, from the archives mounted then.
+    /// A later archive is not seen until this drops that collection, so the
+    /// next check reads the names again.
+    void drop_pack_map_fits();
+
+    /// Makes a pack map's files, and no other map's, the store's pack layer.
+    ///
+    /// A map already mounted answers at once. Otherwise any mounted layer is
+    /// released first. A map whose kept fit fails is refused. Its files are
+    /// then mounted from its pack's folder, labelled with the pack's id and
+    /// the first 8 hex digits of its SHA-256, and checked again as mounted;
+    /// a failure there unmounts them and refuses the map. Each failure is
+    /// logged on a line of its own, and the first one's description is the
+    /// reason pack_map_refusal gives. Main thread only, never while a match
+    /// loads or runs.
+    ///
+    /// @param name the map's name, `<stem>@<id>`
+    /// @param[out] reason receives why the map was refused, if not null
+    /// @return true when the map's files are mounted
+    bool prepare_pack_map(std::string_view name, std::string* reason);
+
+    /// Unmounts the pack layer and logs it, when a map's files are mounted.
+    ///
+    /// Main thread only, never while a match loads or runs.
+    void release_pack_map();
+
+    /// Keeps a map pack's maps from being mounted while GET MAP installs it
+    /// (runtime_get_map.cpp): prepare_pack_map refuses them until the
+    /// download's queue item ends, done, failed or cancelled, or another
+    /// hold replaces this one.
+    ///
+    /// @param id the pack's id; empty lets any hold go
+    /// @param item the queue item that downloads and installs it
+    void hold_pack_maps(std::string_view id, uint64_t item);
+
+    /// Tells whether a pack's maps are held from being mounted
+    /// (hold_pack_maps). A hold whose queue item has ended, or is no longer
+    /// in the queue, is let go here.
+    ///
+    /// @param id the pack's id
+    /// @return true while they are held
+    [[nodiscard]] bool pack_maps_held(std::string_view id);
+
+    /// Returns the installed pack map whose files are mounted
+    /// (prepare_pack_map).
+    ///
+    /// @return the map; null while no pack map's files are mounted, or when
+    ///     the installed packs no longer list it
+    [[nodiscard]] const PackMap* mounted_pack_map();
+
+    /// Returns why a pack map was last refused.
+    ///
+    /// @param name the map's name
+    /// @return the first failure's description; nothing when the map was not
+    ///         refused, or was mounted since
+    [[nodiscard]] std::optional<std::string> pack_map_refusal(std::string_view name) const;
+
+    /// The base game, the expansions that are on, and the mod being played.
+    struct PlayedMapTarget {
+        /// The base game's id. Empty only before a choice is known; a run uses `totala`.
+        std::string base_game{};
+        /// Expansion ids that are on, in the built-in order.
+        std::vector<std::string> expansions{};
+        /// `<id>@<release>` when the mod came from a catalogue; empty otherwise.
+        std::string mod_key{};
+        /// A mod is played and it has no catalogue key, so the files decide.
+        bool unkeyed = false;
+    };
+
+    /// Returns the base game, the expansions that are on, and the mod's key.
+    ///
+    /// A run started with `--content` uses that choice. A named game folder
+    /// with no `--content` uses the bundles that folder holds: Total
+    /// Annihilation when it is there, otherwise the demo, and every expansion
+    /// of that base game the folder holds. Any other run uses the player's
+    /// choice. A mod from a catalogue adds `<id>@<release>`. A mod with no
+    /// such record is unkeyed.
+    ///
+    /// @return the target
+    [[nodiscard]] PlayedMapTarget played_map_target() const;
+
+    /// Returns the compatible-table key of the game being played.
+    ///
+    /// The key names the base game, then each expansion that is on, in the
+    /// built-in order, other than music, then `<id>@<release>` when a
+    /// catalogue mod is played.
+    /// A mod with no catalogue record has an empty key. The names a catalogue
+    /// published earlier, `ta-3.1c` and `<id>@<release>` alone, are still read.
+    ///
+    /// @return the key; empty when the mod being played has none
+    [[nodiscard]] std::string played_map_key() const;
+
+    /// How a registry pack's catalogue answers for one map and one mod key.
+    enum class CatalogueMapFit {
+        /// The content service has not started, or the snapshot does not
+        /// list this pack's release. The file check is provisional.
+        unlisted,
+        /// The key is empty, or the map's compatible table has no row for
+        /// it. The files decide, and a miss is final.
+        unchecked,
+        /// The table records the key as fitting.
+        fits,
+        /// The table records the key as not fitting, or the release lists
+        /// no such map.
+        unfit,
+    };
+
+    /// Rebuilds the pack maps in the skirmish list and the battle room's list.
+    ///
+    /// Keeps the base maps already listed, in their order and under their
+    /// names. Every installed pack map is listed. It can be played when the
+    /// pack supports the base game, every required expansion is on, and it
+    /// fits the mod. Otherwise it stays listed and greyed, and choosing it
+    /// says why. Nothing is mounted to build the list. For a pack from a
+    /// registry, the catalogue's compatible table is final when it answers
+    /// for this game: a new name wins, and `ta-3.1c` or `<id>@<release>` is
+    /// read when the table has no new name. A true answer lists the map as
+    /// playable and a false one greys it, and the files are not read either
+    /// way. An empty key, a key the table lacks, and a mod with no catalogue
+    /// record are decided by the map-fit check, as a sideloaded pack is, and
+    /// a miss there is final. A release the snapshot does not list yet is
+    /// greyed by that check until the table arrives, and a miss then is not
+    /// logged. A map that cannot be played for good writes one log line for
+    /// its pack and the game, the first time that pair is greyed. An open
+    /// skirmish map list is filled again, in one order by the name each row
+    /// shows, and so is an open battle-room map list. The default stays a
+    /// map that can be played.
+    void refresh_listed_pack_maps();
+
+    /// Rebuilds the pack-map lists when the catalogue snapshot has moved on.
+    ///
+    /// Does nothing until the content service has published a snapshot, and
+    /// nothing when that snapshot's generation is the one already noted.
+    /// Does not start the content service.
+    void note_pack_catalogue();
+
+    /// Returns the pack maps listed for the game being played.
+    ///
+    /// Every installed pack map is listed, including one that is greyed. The
+    /// names stay valid until the next refresh_listed_pack_maps. An empty
+    /// list is returned before the first one, and that empty list is not the
+    /// installed index.
+    ///
+    /// @return `<stem>@<id>` of each listed pack map, in the index's order
+    [[nodiscard]] const std::vector<std::string>& listed_pack_maps();
+
+    /// Why one installed map is greyed, and whether the log names the miss.
+    struct PackMapDecision {
+        /// The short English reason; empty when the map can be played.
+        std::string row{};
+        /// What choosing the map says: a ready sentence, or a fit detail.
+        std::string refusal{};
+        /// `refusal` is a sentence the description shows as it is.
+        bool sentence = false;
+        /// The log names this miss once for the pack and the game.
+        bool final_note = false;
+    };
+
+    /// Decides whether one installed map can be played.
+    ///
+    /// A base-game or expansion miss does not read the map's files. A
+    /// catalogue answer does not either. A file check reads the pack's
+    /// folder and does not mount it.
+    ///
+    /// @param map the installed map
+    /// @return the decision
+    [[nodiscard]] PackMapDecision decide_pack_map(const PackMap& map);
+
+    /// Returns the short reason a listed pack map is greyed with.
+    ///
+    /// The words are English: "for the TA demo", "for {name}", "needs {name}"
+    /// or "doesn't fit". A map that can be played, and a name that is not
+    /// listed, has none.
+    ///
+    /// @param name the map's name, `<stem>@<id>`
+    /// @return the reason; empty when the map can be played
+    [[nodiscard]] std::string pack_map_row_reason(std::string_view name) const;
+
+    /// Returns the short reason a listed pack map is greyed with.
+    ///
+    /// The pointer addresses the list's own text and stays valid until the
+    /// next refresh_listed_pack_maps. Null when the map can be played.
+    ///
+    /// @param name the map's name, `<stem>@<id>`
+    /// @return the English reason; null when the map can be played
+    [[nodiscard]] const char* pack_map_blocked_reason(std::string_view name) const;
+
+    /// Returns the log lines for pack maps left out of the lists.
+    ///
+    /// @return one line per pack and mod, in the order they were written
+    [[nodiscard]] std::vector<std::string> pack_map_omission_lines() const;
+
+    /// The registries and cached catalogues (runtime_content.cpp).
+    struct ContentState;
+
+    /// Frees the content service, joining its worker.
+    ///
+    /// @param state state to free; null is allowed
+    static void destroy_content_state(ContentState* state) noexcept;
+
+    /// Reads the registries and starts a refresh where one is due.
+    void start_content();
+
+    /// Passes Developer mode on when it changed, and notes a catalogue that moved on.
+    void tick_content();
+
+    /// Returns the generation of the content service's snapshot.
+    ///
+    /// Does not start the content service. Nothing is returned until a
+    /// snapshot has been published.
+    ///
+    /// @return the generation; nothing when the service has not started
+    [[nodiscard]] std::optional<uint64_t> content_catalogue_generation() const;
+
+    /// The compatible rows a registry pack's catalogue holds for one map.
+    struct CatalogueMapTable {
+        /// The content service has not started, or the snapshot does not list this release.
+        bool unlisted = false;
+        /// The release lists this map.
+        bool named = false;
+        /// The map's compatible rows, in the order written. Empty unless `named`.
+        std::vector<std::pair<std::string, bool>> rows{};
+    };
+
+    /// Returns the compatible rows a registry pack's catalogue holds for a map.
+    ///
+    /// Unlisted when the content service has not started, or its snapshot
+    /// does not yet list that pack's release. A release that lists no such
+    /// map has `named` false. Does not start the content service, and does
+    /// not open the map's files.
+    ///
+    /// @param map the installed pack map
+    /// @return the table
+    [[nodiscard]] CatalogueMapTable catalogue_map_table(const PackMap& map) const;
+
+    /// Returns how a registry pack's catalogue answers for a map and a key.
+    ///
+    /// Unlisted when the content service has not started, or its snapshot
+    /// does not yet list that pack's release. Unchecked when the release
+    /// lists the map and the key is empty or absent from its compatible
+    /// table. Unfit when the release lists no such map, or records the key
+    /// as false. Fits when the key is recorded true. Does not start the
+    /// content service, and does not open the map's files.
+    ///
+    /// @param map the installed pack map
+    /// @param key the mod's key; empty is not a row of the table
+    /// @return the catalogue's answer for that map and key
+    [[nodiscard]] CatalogueMapFit
+    catalogue_map_fits(const PackMap& map, std::string_view key) const;
+
+    /// Returns the content service, starting it on first use.
+    ///
+    /// @return the service
+    [[nodiscard]] content::Service& content_service();
+
+    /// Returns one registry's install ID for a download, making it when none is stored.
+    ///
+    /// This is the only way a registry's ID is made for a download. The
+    /// player's RESET in Settings › Downloads (M07), through reset_install_id,
+    /// is the only other way an ID is made. Nothing is made when that
+    /// registry's ID is off, or when the system's generator cannot be read.
+    /// A new ID is written to the preferences before this returns.
+    ///
+    /// @param registry the registry id
+    /// @return the ID, or nothing when it is off or the generator cannot be read
+    [[nodiscard]] std::optional<std::string> content_install_id(std::string_view registry);
+
+    /// Queues one catalogue package for download.
+    ///
+    /// The target comes from the current snapshot. A registry whose install
+    /// ID is required has one made or read first, and the download is refused
+    /// when that ID is off. Nothing is fetched on this thread.
+    ///
+    /// @param registry the registry id
+    /// @param key the package key
+    /// @param reason why the player asked
+    /// @param[out] why why it was not queued; may be null
+    /// @return the queue item, or nothing when it was refused
+    [[nodiscard]] std::optional<uint64_t> queue_download(
+        std::string_view registry,
+        std::string_view key,
+        oa::app::content::DownloadReason reason,
+        std::string* why
+    );
+
+    /// Returns the download queue, starting the content service on first use.
+    ///
+    /// @return the queue
+    [[nodiscard]] oa::app::content::Downloads& content_downloads();
+
+    /// Stops downloads for a match, before the match loads anything.
+    void pause_content_for_match();
+
+    /// Reads every registry's install ID again and tells the queue.
+    ///
+    /// Settings › Downloads calls this after it resets an ID or turns one on
+    /// or off. No ID is made here.
+    void content_install_ids_changed();
+
+    /// Returns the folder that holds downloaded packages.
+    ///
+    /// @return the downloads folder; empty when the game has no data folder
+    [[nodiscard]] std::filesystem::path content_downloads_folder() const;
+
+    /// Removes downloaded packages no queued item is using.
+    ///
+    /// This is the player's EMPTY in Settings › Downloads.
+    ///
+    /// @return what was removed, and how many files were left in use
+    oa::app::content::EmptyResult empty_content_downloads();
+
+    /// Tells whether the prompt of the installs is on the OA layer
+    /// (QuestionScreen), over the main menu.
+    ///
+    /// @return true while it is
     [[nodiscard]] bool mod_install_prompt_shown() const noexcept;
 
-    /// Installs the mod packages opened in the game, one at a time, once the
+    /// Installs the packages opened in the game, one at a time, once the
     /// main menu, its own and not a screen package's, has shown for two
     /// frames and stays, with no dialog, notice or settings dialog over it:
     /// reads the next package, asks what its plan asks, unpacks it, a budget
     /// at a time each frame with its progress shown, puts it in place and
     /// tells what came of it; a change to the mod played waits for the run to
-    /// end (request_soft_restart). Also tells what a change that waited did,
-    /// takes the packages a second start handed over, and deletes the
-    /// folders a change dropped, a step a frame. A run nobody watches leaves
-    /// the packages waiting, unless --check-mod-install asks for them.
+    /// end (request_soft_restart). A map pack from a catalogue is the
+    /// exception: it installs on any screen but a match, with no prompt, and
+    /// a plan that asks waits for the settled main menu. Also tells what a
+    /// change that waited did, takes the packages a second start handed over,
+    /// and deletes the folders a change dropped, a step a frame. A mod the
+    /// player chose in the Library also starts while the Library shows
+    /// (catalogue_mod_may_start), asks only what its registry must, and its
+    /// update to the mod played waits until the player leaves the mod. A run
+    /// nobody watches, unless its check asks, leaves the packages waiting but
+    /// a catalogue language pack, a chosen mod while the Library is on top,
+    /// and a catalogue map pack while the map browser is on top or GET MAP shows.
     void tell_mod_installs();
+
+    /// Tells whether a mod the player chose in the Library may start
+    /// installing now: on the main menu with nothing of Open Annihilation's
+    /// own over it, or with the Library the top screen; never in a match,
+    /// on a loading screen, over a message box or while Settings, a notice
+    /// or a question is on top.
+    ///
+    /// @return true when it may
+    [[nodiscard]] bool catalogue_mod_may_start();
+
+    /// Tells whether a folder is what the game plays now, which a kind
+    /// decides: a change to it waits for the run to end. A mod folder is the
+    /// one layered over the game folder.
+    ///
+    /// @param kind the package's kind
+    /// @param folder the folder the change acts on
+    /// @return true when the game plays it
+    [[nodiscard]] bool
+    package_target_in_use(const package_install::PackageKind& kind, const fs::path& folder) const;
+
+    /// Tells whether PLAY NOW is offered after a package of this kind is
+    /// installed: the player can switch the game to what it put in place.
+    /// A mod package offers it when the Mod setting is the player's to change.
+    ///
+    /// @param kind the package's kind
+    /// @return true when PLAY NOW is offered
+    [[nodiscard]] bool package_offers_play(const package_install::PackageKind& kind) const;
+
+    /// Takes in what a change of this kind put in place. A mod change lists
+    /// the Mods folder again. A map pack change reads Maps again.
+    ///
+    /// @param kind the package's kind
+    /// @param folder the folder the change put in place
+    void package_changed(const package_install::PackageKind& kind, const fs::path& folder);
+
+    /// Returns what a kind's hooks need from this run. A mod package gets
+    /// the unimplemented-hack setting, the preferences and the game folder.
+    /// A map pack's context points at the fit check against the base game.
+    /// Every other kind gets the defaults, and its context stays null.
+    ///
+    /// @param kind the package's kind
+    /// @return the options
+    [[nodiscard]] package_install::PackageOptions
+    package_options(const package_install::PackageKind& kind) const;
 
     /// Takes the mod packages a second start handed over (handoff.hpp) into
     /// the inbox, and brings the window forward when it took any.
@@ -3936,50 +4634,444 @@ class Runtime final : public menu::Host,
     /// @param button the button pressed, from 0
     void answer_mod_install_prompt(int32_t button);
 
-    /// Switches the game to a mod folder as the Mods page's SWITCH does:
-    /// checks it can be played, stores it as the Mod setting and ends the run
-    /// for main() to start it (PLAY NOW).
+    /// Switches the game to a mod folder, or to no mod: checks a folder can
+    /// be played, stores it as the Mod setting, or no mod with the folder an
+    /// earlier version picked forgotten, and ends the run for main() to
+    /// start it (PLAY NOW, and SWITCH OFF's SWITCH).
     ///
-    /// @param folder the mod folder
+    /// @param folder the mod folder; empty for no mod
     /// @param[out] refusal why it cannot be played, in a few words
     /// @return true when the run ends to play it
     bool switch_to_mod_folder(const fs::path& folder, std::string& refusal);
 
     /// Rolls a folder of the player's own Mods folder back to the version
     /// its .backup keeps, which must be playable: at once, or, for the mod
-    /// played, as the run ends (the Mods page's ROLL BACK). A failure is
-    /// told on the Mods page.
+    /// played, as the run ends, Settings where it is open keeping its
+    /// choices, saving them and closing as OK does (ROLL BACK in the
+    /// Library). A refusal changes nothing; its prompt is kept for the
+    /// Library to show (ModInstallState::roll_back_refusal).
     ///
-    /// @param dialog the settings dialog, open on Mods
-    /// @return true when the dialog closed
-    bool roll_back_mod_folder(oa::ui::engine_settings::Dialog& dialog);
+    /// @param folder the mod folder
+    /// @param[out] refusal why it was not rolled back, in the player's words
+    /// @return true when it was rolled back, or will be as the run ends
+    bool roll_back_mod_folder(const fs::path& folder, std::string& refusal);
 
     /// Installs made-up mod packages through each of the main menu's
     /// questions, by a dropped file and from the command line, rolls a mod
-    /// back on the Mods page, and replaces and rolls back the mod played
+    /// back in the Library, and replaces and rolls back the mod played
     /// across soft restarts, checking the player's Mods folder after each
     /// (--check-mod-install). Each run is one turn.
     void check_mod_install();
 
-    /// The main menu's OA button and dialog (engine_settings_menu_host.hpp).
+    /// Installs the pseudo language pack through the main menu's question,
+    /// declines installing it again, then installs a catalogue revision while
+    /// Settings stay open and no prompt shows (--check-language-install).
+    void check_language_install();
+
+    /// Replaces the download queue the check window reads. A null generation
+    /// or a null list of items puts the real queue back. --check-challenge
+    /// sets this before the window is told of.
+    ///
+    /// @param generation reads the queue's generation
+    /// @param items reads the queue
+    /// @param cancel_item cancels one item; null does nothing
+    /// @param retry_item starts one item again; null does nothing
+    /// @param context passed to each of those
+    void set_challenge_probe(
+        uint64_t (*generation)(void* context),
+        std::vector<oa::app::content::DownloadView> (*items)(void* context),
+        void (*cancel_item)(void* context, uint64_t item),
+        void (*retry_item)(void* context, uint64_t item),
+        void* context
+    );
+
+    /// Shows the download check over the main menu when a download is waiting
+    /// on one, refreshes that window when the download changes, and closes it
+    /// when the check passes, the download is cancelled, or the main menu is
+    /// left. Called once a frame beside tell_mod_installs. A check that
+    /// arrives during a game waits until the main menu.
+    void tell_challenges();
+
+    /// Shows a made-up download check over the main menu, opens its page,
+    /// retries it and cancels it, and keeps it hidden during a skirmish
+    /// (--check-challenge).
+    void check_challenge();
+
+    /// The Add registry window as a screen of the OA layer
+    /// (runtime_registries.cpp).
+    struct AddRegistryScreen;
+
+    /// Opens the Add registry window over the Library or the main menu, to add a
+    /// registry by its address: ADD REGISTRY… on the Library's Registries tab,
+    /// and a caller with an address, whose check starts at once. Nothing opens
+    /// while the window already shows.
+    ///
+    /// @param url the address to check at once; none opens the window empty
+    void open_add_registry(std::optional<std::string> url);
+
+    /// Opens the Add registry window for a mirror of a registry the player
+    /// added (ADD MIRROR…). Nothing opens for a registry that is built in or
+    /// not in effect.
+    ///
+    /// @param registry_id the registry's id
+    void open_add_mirror(std::string_view registry_id);
+
+    /// Takes the next .oareg file the game was opened with and opens the Add
+    /// registry window filled in from it: one at a time, on the settled main
+    /// menu, with no OA screen that takes every input showing and no game
+    /// running. A run nobody watches leaves the files waiting, unless
+    /// --check-registries asks for them. Called once a frame beside
+    /// tell_mod_installs.
+    void take_registry_files();
+
+    /// Turns a registry on or off at once, through the content service, and
+    /// refreshes an open Library. A refusal is logged, and the Registries tab
+    /// says why.
+    ///
+    /// @param id the registry's id
+    /// @param on true to turn it on
+    void change_library_registry(std::string_view id, bool on);
+
+    /// Removes a registry the player added, at once, and refreshes an open
+    /// Library. A refusal is logged, and the Registries tab says why.
+    ///
+    /// @param id the registry's id
+    void remove_library_registry(std::string_view id);
+
+    /// Keeps why the last registry change was refused, for the Library's
+    /// Registries tab, and refreshes an open Library. Empty clears the note.
+    ///
+    /// @param notice the sentence; empty when the change was kept
+    void finish_registry_edit(std::string notice);
+
+    /// Returns why the last registry change was refused.
+    ///
+    /// @return the sentence; empty when the last change was kept
+    [[nodiscard]] std::string registry_edit_notice() const;
+
+    /// Counts the checks the Add registry windows have asked the content
+    /// service for in this process, which --check-registries reads.
+    ///
+    /// @return the checks asked
+    [[nodiscard]] uint64_t registry_checks_asked() const noexcept;
+
+    /// Writes the registries check's own registry list and descriptor under
+    /// the player's folder before the content service starts
+    /// (--check-registries).
+    void prepare_registries_check();
+
+    /// Lists, switches and removes an added registry on the Library's Registries
+    /// tab, asks the content service about an https address, and
+    /// opens an .oareg file the run posts, which is refused once its catalogue
+    /// cannot be reached (--check-registries).
+    void check_registries();
+
+    /// The main menu's OA button (engine_settings_menu_host.hpp).
     struct EngineSettingsMenuHost;
 
-    /// Frees the main menu's settings host.
+    /// Frees the main menu's OA button's state.
     ///
-    /// @param host host to free; null is allowed
+    /// @param host state to free; null is allowed
     static void destroy_engine_settings_menu_host(EngineSettingsMenuHost* host) noexcept;
 
-    /// Returns the main menu's settings host, made on first use.
+    /// Returns the main menu's OA button's state, made on first use.
     ///
-    /// @return the host
+    /// @return the state
     EngineSettingsMenuHost& engine_settings_menu_host();
 
-    /// Registers the main menu's overlays: the OA button under the
-    /// extensions' overlays and the dialog over them.
-    void register_engine_settings_overlays();
+    /// Registers the main menu's OA button: an overlay under the extensions'
+    /// overlays, drawn into the main menu's picture.
+    void register_engine_settings_button();
 
-    /// Opens the dialog over the darkened main menu.
+    /// When the window shows the main menu's OA buttons larger than the
+    /// picture's squares, copies the frame with those squares put back to
+    /// the menu. The icons are drawn by present_menu_icon_buttons.
+    ///
+    /// @param[out] frame the copy, when this returns true
+    /// @return true when frame holds that copy
+    bool replace_menu_button_pixels(std::vector<uint8_t>& frame);
+
+    /// Draws the main menu's OA buttons in the window's pixels, over the
+    /// scaled picture and under the OA layer's screens.
+    void present_menu_icon_buttons();
+
+    /// Forgets that this frame's cursor is presented above the main menu's
+    /// window-pixel buttons.
+    void clear_menu_button_cursor_hold() noexcept;
+
+    /// When the cursor covers a main-menu button that a larger window draws
+    /// again in its own pixels, leaves the cursor out of the picture. The
+    /// picture's button then still matches what was drawn, so the window-pixel
+    /// icon replaces it, and the cursor is presented above that icon.
+    ///
+    /// @return true when the cursor stays out of the picture
+    bool hold_menu_button_cursor();
+
+    /// Tells whether this frame presents the cursor above the main menu's
+    /// window-pixel buttons.
+    ///
+    /// @return true when hold_menu_button_cursor left it out of the picture
+    [[nodiscard]] bool menu_button_cursor_held() const noexcept;
+
+    /// Destroys the main menu buttons' window-pixel textures, while the
+    /// renderer that made them is still alive.
+    void release_menu_button_textures() noexcept;
+
+    /// Opens the dialog over the darkened main menu, as the OA layer's
+    /// settings screen.
     void open_engine_settings_from_menu();
+
+    // The Library on the OA layer (library_host.hpp, runtime_library.cpp):
+    // the main menu's OA button opens it, Settings › Language links to it,
+    // and it is fed from the content service, the updates its worker finds
+    // and the download queue.
+
+    /// The Library's host: its model, its screen's state, its feed and its worker.
+    struct LibraryHost;
+
+    /// The Library as a screen of the OA layer, named library.
+    struct LibraryScreen;
+
+    /// Frees the Library's host, stopping and joining its worker.
+    ///
+    /// @param host the host to free; null is allowed
+    static void destroy_library_host(LibraryHost* host) noexcept;
+
+    /// Returns the Library's host, made on first use with the runtime's own
+    /// feed.
+    ///
+    /// @return the host
+    LibraryHost& library_host();
+
+    /// Builds the Library's inputs from the runtime's own sources: the
+    /// registries and catalogues of the content service's snapshot, and
+    /// whether CHECK NOW can ask them or one is being asked; the installed
+    /// packages and their updates as the Library's worker last found them,
+    /// and every other mod folder the game can play (list_offered_mods) as
+    /// the player's own, ROLL BACK kept only for a version the game can
+    /// play; the download queue, the badge pictures the worker has read,
+    /// and the run (this build's version, the mod played, a match, whether
+    /// the command line chose the mod). Reads no file and waits on nothing.
+    ///
+    /// @return the inputs
+    [[nodiscard]] oa::ui::library::Inputs library_inputs();
+
+    /// Returns a count that moves on whenever library_inputs would give
+    /// something else: the content service's generation, the download
+    /// queue's, the searches the Library's worker has done, the pictures it
+    /// has read and the times the mod folders were listed
+    /// (list_offered_mods), added. A match coming or going is not counted.
+    ///
+    /// @return the count
+    [[nodiscard]] uint64_t library_feed_generation();
+
+    /// Opens the Library on the OA layer over the main menu: on a tab, else
+    /// on Active. When the Library is on the layer already, the screens
+    /// above it close and it is on top again; it is never on the layer
+    /// twice. Asks the content service to refresh, as the player's setting
+    /// allows, outside unattended runs.
+    /// Refused, as the settings are, off the main menu, while a package owns
+    /// the frame, over a message box, while the saves notice shows, or
+    /// without the dialog's fonts.
+    ///
+    /// @param tab the tab; nothing opens it on Active
+    void open_library(std::optional<oa::ui::library::Tab> tab);
+
+    /// Closes the Library and every screen above it on the OA layer; the
+    /// screen under it shows again. Without the Library, nothing.
+    void close_library();
+
+    /// Counts the updates the Library offers that can be installed, as its
+    /// Updates tab and the main menu's OA button show them, from the last
+    /// inputs its feed gave.
+    ///
+    /// @return the updates
+    [[nodiscard]] std::size_t library_update_count();
+
+    /// Tells whether a registry is built in, as the Library's feed says: the
+    /// same answer the Library shows as Registry::built_in. A built-in
+    /// registry's downloads never ask before they install.
+    ///
+    /// @param registry the registry's id
+    /// @return true for a registry that ships with the game
+    [[nodiscard]] bool library_registry_built_in(std::string_view registry);
+
+    /// Carries out an entry's ROLL BACK, PLAY NOW, SWITCH OFF, UPDATE or
+    /// UNINSTALL, UPDATE ALL, or CHECK NOW. ROLL BACK asks the Roll Back Mod question
+    /// over the Library (oa::ui::library::roll_back_question), and ROLL BACK
+    /// on it rolls the folder back (roll_back_mod_folder), a refusal told in
+    /// a prompt over the Library (MOD NOT ROLLED BACK). PLAY NOW switches the
+    /// game to the installed mod's folder (switch_to_mod_folder), a refusal
+    /// told in a note over the Library
+    /// (oa::ui::library::switch_refused_note). SWITCH OFF asks the Switch
+    /// Mod question for no mod (oa::ui::library::switch_off_question), whose
+    /// SWITCH plays the game with no mod and whose CANCEL leaves it. PLAY
+    /// NOW and SWITCH OFF do nothing during a game, or while the command
+    /// line chose the mod. A refusal also shows in the status line. CHECK
+    /// NOW asks the registries for their lists again. UPDATE asks
+    /// request_update, and UNINSTALL library_uninstall. UPDATE ALL asks it at once for
+    /// each update that can be installed and asks nothing first
+    /// (oa::ui::library::asks_before_update), in the order the list shows
+    /// them, and asks the update question once about the others
+    /// (update_all_question), whose UPDATE asks request_update for each of
+    /// them in that order and whose NOT NOW leaves them.
+    ///
+    /// @param action Action::roll_back, play_now, switch_off, update,
+    ///     update_all, uninstall (library_uninstall) or check_now; any other
+    ///     does nothing
+    /// @param entry the entry; none for UPDATE ALL and CHECK NOW
+    void
+    library_entry_action(oa::ui::library::Action action, const oa::ui::library::EntryId& entry);
+
+    /// Carries out an installed entry's UNINSTALL, which library_entry_action
+    /// hands here. For the mod being played, or the language pack the game
+    /// shows its words from, as the Library's model or this run says
+    /// (package_target_in_use, language_pack_in_use), it shows the notice of
+    /// what comes first over the Library and removes nothing. Otherwise it
+    /// asks the Uninstall question (oa::ui::library::uninstall_question),
+    /// whose UNINSTALL looks again and removes the package's folder in the
+    /// player's Mods, Maps or Languages folder, with the copy ROLL BACK
+    /// keeps (package_install::uninstall_package), the folders it drops
+    /// deleted a step a frame. A folder outside those folders is never
+    /// touched, and a refusal shows its notice. Nothing happens while the
+    /// button is off.
+    ///
+    /// @param entry the entry
+    void library_uninstall(const oa::ui::library::EntryId& entry);
+
+    /// Tells whether a language pack's folder is one the game shows its words
+    /// from now: the language shown's, or one of its fallbacks'
+    /// (language_pack_folders).
+    ///
+    /// @param folder the pack's folder
+    /// @return true when it is
+    [[nodiscard]] bool language_pack_in_use(const std::filesystem::path& folder) const;
+
+    /// Starts an entry's update: the one place an update reaches the download
+    /// queue, from the Library's UPDATE and UPDATE ALL. An update that asks
+    /// first (oa::ui::library::update_question: an added registry's mod
+    /// whose rules hash changes or cannot be known) pushes the update
+    /// question at once over the screen that asked, NOT NOW
+    /// marked; its UPDATE queues the update, and NOT NOW, Escape or B leaves
+    /// it. Any other update, every built-in registry's among them, is queued
+    /// at once. A refusal shows in the status line.
+    ///
+    /// @param entry the entry
+    /// @param answered the player answered UPDATE on the update question for
+    ///     it already (ask_before_updates): it is queued with no question.
+    ///     Only that question's own UPDATE passes true.
+    /// @return true when the update was queued or its question asked
+    bool request_update(const oa::ui::library::EntryId& entry, bool answered = false);
+
+    /// Pushes the update question at once over the screen that asked, the
+    /// Library or Settings, never queued behind it: on the main menu, NOT
+    /// NOW marked. Its UPDATE asks request_update for each entry, in order,
+    /// as answered; NOT NOW, Escape or B leaves them all.
+    ///
+    /// @param question the kit question (oa::ui::library::update_prompt)
+    /// @param entries the entries its UPDATE starts, in list order
+    void ask_before_updates(
+        const oa::ui::kit::Question& question, const std::vector<oa::ui::library::EntryId>& entries
+    );
+
+    /// Brings the Library up to date once a frame: on the main menu its
+    /// worker finds the updates again after a catalogue refresh or an
+    /// install, its model follows its feed, and its pictures wait while a
+    /// match runs.
+    void tick_library();
+
+    /// Runs --check-library: the main menu's OA button, its dot and the
+    /// Library over a feed of fixtures, its actions, Settings over it and it
+    /// over Settings, and the in-match OA button, at 640x480 and 1920x1080.
+    ///
+    /// Throws std::runtime_error naming the first step that failed.
+    void check_library();
+
+    /// Runs --check-library-install: made-up mod packages posted as the
+    /// download queue posts them, from a built-in registry and two added
+    /// ones, installed while the Library shows, each asking only what its
+    /// registry must, the last run one nobody watches; refusals in the
+    /// Library's queue; ROLL BACK and PLAY NOW from the Library; and an
+    /// update to the mod played held until the mod is switched, whose CANCEL
+    /// drops it before it is held again. Each run is one turn.
+    ///
+    /// Throws std::runtime_error naming the first step that failed.
+    void check_library_install();
+
+    /// Writes --check-library-map-previews's two installed packs and its
+    /// registry list, and serves its catalogue, before the content service
+    /// reads the player's folder.
+    ///
+    /// Every built-in registry is turned off. Throws std::runtime_error when
+    /// the run has no player folder or data folder, or a file cannot be written.
+    void prepare_library_map_preview_check();
+
+    /// Runs --check-library-map-previews: the Library opens on Maps and each
+    /// of the three pictures is decoded at the size that place produces, then
+    /// the Active tab's two map tiles show the installed ones. Throws
+    /// std::runtime_error naming the first step that failed.
+    void check_library_map_previews();
+
+    /// Runs --check-library-content. The first run turns Core Contingency off
+    /// and closes the Library. The next requires its maps out of the skirmish
+    /// list, chooses the demo when its installer is named, and closes. The
+    /// last requires the demo mounted. Throws std::runtime_error naming the
+    /// first step that failed. With no installer, the demo half is not run.
+    void check_library_content();
+
+    // The map browser on the OA layer (runtime_map_browser.cpp): MORE MAPS…
+    // over the skirmish map list and over the host's map list in the battle
+    // room opens it.
+
+    /// The MORE MAPS… button over a map list, a screen of the OA layer named
+    /// more-maps.
+    struct MoreMapsScreen;
+
+    /// The map browser, a screen of the OA layer named map-browser.
+    struct MapBrowserScreen;
+
+    /// Keeps MORE MAPS… on the OA layer while the skirmish map list (SELMAP)
+    /// shows, or the host's map dialog in the battle room: pushes it when the
+    /// layer has none. OaLayer::tick calls it once a frame.
+    void keep_more_maps_screen();
+
+    /// Writes --check-map-browser's registry list into the player's folder,
+    /// every built-in registry turned off, before the content service reads
+    /// it, so that the check fetches nothing.
+    void prepare_map_browser_check();
+
+    /// Writes --check-map-pack-lists's registry list and serves its catalogue
+    /// before the content service reads the player's folder.
+    ///
+    /// Every built-in registry is turned off. One added registry points at
+    /// the check's own server, which offers one map pack. Throws
+    /// std::runtime_error when the run has no player folder or data folder,
+    /// or the server cannot listen.
+    void prepare_map_pack_lists_check();
+
+    /// Runs --check-map-pack-lists: shows the skirmish list and reads the
+    /// battle room's list, installs that pack through the Library path, and
+    /// requires the new map in both the next time they are read. A map the
+    /// catalogue records as not fitting the base game stays out. A local mod
+    /// with no origin then lists a map whose table lacks that mod when its
+    /// files fit, and leaves one out, logged, when they do not. Uninstalling
+    /// the pack removes both maps from both lists. The map that fits is
+    /// played to its first frame.
+    ///
+    /// Throws std::runtime_error naming the first step that failed.
+    void check_map_pack_lists();
+
+    /// Runs --check-map-browser: the map pack check's two packs in the
+    /// player's own folder, and at 640x480, 1280x720, 1920x1080 and 2560x1440
+    /// SELMAP's MORE MAPS… and the map browser: its size class, scale and
+    /// columns, everything inside its window, the installed packs' two maps,
+    /// the search, the clashing map greyed with its reason, and Select moving
+    /// SELMAP's selection; then, nobody watching, a catalogue map pack waiting
+    /// with the browser closed and installing with no prompt while it shows.
+    /// Writes each size's frame as map-browser-<w>x<h>.png in the working folder.
+    ///
+    /// Throws std::runtime_error naming the first step that failed.
+    void check_map_browser();
 
     /// Opens the Game files screen over the main menu (Settings › Game files › Manage…),
     /// which does not respond until it is closed, then refreshes the section's rows
@@ -4012,6 +5104,16 @@ class Runtime final : public menu::Host,
     /// the settings taking effect.
     void check_engine_settings();
 
+    /// Runs --check-registered-kit: a registered settings page, kit screen,
+    /// notice and prompt, hosted from inside the engine.
+    void check_registered_kit();
+
+    /// Runs --check-kit-gallery: the UI kit gallery opened from Settings ›
+    /// Developer on 640x480, 1280x720 and 1920x1080 windows, its size class,
+    /// scale, pixels and focus, and Escape back to Developer
+    /// (runtime_kit_gallery_check.cpp).
+    void check_kit_gallery();
+
     /// Checks that set_unit_limit stores the unit limit preference and clamps
     /// it as the setting does (part of --check-engine-settings).
     void check_unit_limit_preference();
@@ -4038,6 +5140,19 @@ class Runtime final : public menu::Host,
     /// every section, each setting in effect at once, OK, Cancel and Restore
     /// defaults and the preferences they save (part of --check-engine-settings).
     void check_engine_settings_dialog();
+
+    /// Checks that Window edge's strip and Edge stickiness's slider fit the
+    /// settings dialog on a 640x480 window in English and German, with each
+    /// way of the strip, as part of --check-engine-settings. Leaves the
+    /// window at 640x480 and the language as it found it.
+    void check_window_edge_rows_fit();
+
+    /// Checks that System's File Type Registration and its five file-type
+    /// switches fit the settings dialog on a 640x480 window in English and
+    /// German, at the section's top and its end, as part of
+    /// --check-engine-settings. Leaves the window at 640x480 and the
+    /// language as it found it.
+    void check_file_type_rows_fit();
 
     /// Checks the main menu with its OA button, and the dialog on each of its
     /// sections, as windows of several sizes show them (part of
@@ -4112,25 +5227,81 @@ class Runtime final : public menu::Host,
         std::string_view label
     ) const;
 
-    /// The in-game menu's OA button and dialog (engine_settings_match_host.hpp).
-    struct EngineSettingsMatchHost;
+    // The OA layer (oa_layer.hpp): one host for Open Annihilation's own
+    // screens over every screen of the game, the in-game OA button with it.
+    friend class OaLayer;
 
-    /// Frees the match's settings host.
+    /// The settings dialog as a screen of the OA layer, on the main menu or
+    /// in a match (oa_layer.cpp).
+    struct SettingsScreen;
+
+    /// Frees the OA layer.
     ///
-    /// @param host host to free; null is allowed
-    static void destroy_engine_settings_match_host(EngineSettingsMatchHost* host) noexcept;
+    /// @param layer layer to free; null is allowed
+    static void destroy_oa_layer(OaLayer* layer) noexcept;
 
-    /// Returns the match's settings host, made on first use.
+    /// Returns the OA layer, through which every screen reaches the host of
+    /// Open Annihilation's own screens; made on first use.
     ///
-    /// @return the host
-    EngineSettingsMatchHost& engine_settings_match_host();
+    /// @return the layer
+    OaLayer& oa_layer();
 
-    /// Registers the match's overlay: the OA button under Resume and the
-    /// dialog beside the in-game menu's column.
-    void register_engine_settings_match_overlay();
+    /// Registers the OA layer's overlay: one overlay on every screen, over
+    /// the extensions' overlays, that hands the layer the input, the frames'
+    /// ticks and, on the front end, the frame.
+    void register_oa_layer();
 
-    /// Opens the dialog beside the darkened in-game menu, opening the menu
-    /// first from play; a game played alone stays paused, a shared game runs on.
+    /// Puts the open settings dialog on the OA layer as its top screen.
+    ///
+    /// @param in_match the dialog was opened in a match; otherwise on the main menu
+    void push_settings_screen(bool in_match);
+
+    /// Keeps the presence card's screen (runtime_presence_card.cpp) on the OA
+    /// layer while the multiplayer screens show: pushes it when the layer
+    /// has none. OaLayer::tick calls it once a frame.
+    void keep_presence_card_screen();
+
+    /// GET MAP over the battle room, as a screen of the OA layer
+    /// (runtime_get_map.cpp).
+    struct GetMapScreen;
+
+    /// Keeps GET MAP's screen (runtime_get_map.cpp) on the OA layer while the
+    /// multiplayer screens show: pushes it when the layer has none.
+    /// OaLayer::tick calls it once a frame.
+    void keep_get_map_screen();
+
+    /// Returns what this machine has of a map pack (runtime_get_map.cpp):
+    /// from the installed packs, whose SHA-256, registry and release come
+    /// from each pack folder's origin record.
+    ///
+    /// @param id the pack's id
+    /// @param sha256 a release's SHA-256, 64 lower-case hex digits: a pack of
+    ///     that id with this SHA-256 is the one answered, else the first of
+    ///     that id
+    /// @return the pack; not installed when no installed pack has that id
+    [[nodiscard]] oa::ui::frontend_multiplayer::LocalPack
+    local_map_pack(std::string_view id, std::string_view sha256) const;
+
+    /// Tells whether this machine may download from a registry
+    /// (runtime_get_map.cpp): it is on, not set aside for a built-in
+    /// registry of its id, allowed by Developer Mode, and its downloads are
+    /// on, that is its install ID is not off where the registry needs one.
+    ///
+    /// @param view the registry
+    /// @return true when a download from it may be queued
+    [[nodiscard]] bool registry_fetches(const content::RegistryView& view) const;
+
+    /// Hands the settings screen on the OA layer an action of the dialog, as
+    /// its own events do: its sound, the settings, and the layer taking the
+    /// screen off when the dialog closes. Without the screen, the action
+    /// goes to the settings alone (take_engine_settings_action).
+    ///
+    /// @param action what the dialog asked
+    void take_settings_screen_action(oa::ui::engine_settings::DialogAction action);
+
+    /// Opens the dialog beside the darkened in-game menu, as the OA layer's
+    /// settings screen, opening the menu first from play; a game played alone
+    /// stays paused, a shared game runs on.
     ///
     /// @param kind which settings it shows; the mod options only while the
     ///     profile turns ui.options-dialog on
@@ -4142,6 +5313,54 @@ class Runtime final : public menu::Host,
     ///
     /// @return the locks
     [[nodiscard]] oa::ui::engine_settings::Locks engine_settings_locks() const;
+
+    /// Returns the base game and expansions this run plays.
+    ///
+    /// `--content` names them for the run. Otherwise they are the preferences,
+    /// or totala with every copied expansion when no base game is stored.
+    /// Copied bundles are the ones wholly present in the game folder. The
+    /// files mounted now are unchanged: the choice takes effect at the next
+    /// mount.
+    ///
+    /// @return the choice
+    [[nodiscard]] oa::data::content_bundles::ContentChoice content_choice() const;
+
+    /// Reports whether this start plays the managed copy.
+    ///
+    /// True when the game folder was composed as the player's copy. A named
+    /// --game-dir, an archive, and a scripted run that names neither a user
+    /// folder nor a preferences file are false. Presence names the base game
+    /// and expansions only when this is true.
+    ///
+    /// @return true when the managed copy is mounted
+    [[nodiscard]] bool managed_content_mounted() const noexcept;
+
+    /// Turns one expansion on or off and stores the choice when it changes.
+    ///
+    /// The on and off rules are the content choice's. A match refuses it, and
+    /// so does a run `--content` named. A mod whose required expansion goes
+    /// off is forgotten, and the content note is set; the sentence is chosen
+    /// later. The mounted files stay until the next mount.
+    ///
+    /// @param bundle_id the expansion
+    /// @param on true to turn it on, false to turn it off
+    /// @param required the expansions the remembered mod needs; empty when it
+    ///     needs none
+    /// @return what the change did
+    [[nodiscard]] oa::data::content_bundles::ContentChangeResult turn_content_expansion(
+        std::string_view bundle_id, bool on, std::span<const std::string_view> required
+    );
+
+    /// Chooses a base game, turns on every copied expansion of it, and stores
+    /// that choice.
+    ///
+    /// A remembered mod is cleared. A match refuses it, and so does a run
+    /// `--content` named. The mounted files stay until the next mount.
+    ///
+    /// @param bundle_id the base game
+    /// @return what the change did
+    [[nodiscard]] oa::data::content_bundles::ContentChangeResult
+    choose_content_base_game(std::string_view bundle_id);
 
     /// Returns what the run knows now of whether the graphics card could
     /// scale its frames: the setting and the flags, the environment's
@@ -4261,20 +5480,6 @@ class Runtime final : public menu::Host,
     ///
     /// @return hertz; 0 without a window or when the display reports none
     [[nodiscard]] float display_refresh_rate() const;
-
-    /// Draws the match's settings layer, the OA button and the dialog with the
-    /// column darkened, over a composed match frame at the display gamma.
-    ///
-    /// @param[in,out] frame the composed frame, at the window's size
-    void compose_engine_settings_layer(renderer::Surface& frame);
-
-    /// Draws the match's settings layer over the presented layers, under the
-    /// message boxes and the cursor, as the other layers laid out 1:1 are
-    /// drawn (one_to_one_scale_mode).
-    void present_engine_settings_layer();
-
-    /// Destroys the match's settings layer's textures.
-    void destroy_engine_settings_textures();
 
     /// Checks the in-game menu's OA button and dialog (part of --check-engine-settings).
     void check_engine_settings_in_match();
@@ -4973,6 +6178,7 @@ class Runtime final : public menu::Host,
         HudRect unit_metal_use{350, 468, 0, 8};
         HudRect unit_energy_make{400, 458, 0, 8};
         HudRect unit_energy_use{400, 468, 0, 8};
+        HudRect logo{132, 5, 21, 21};          // SIDEDATA LOGO: the viewed player's colour
         HudRect logo2{132, 455, 21, 21};       // SIDEDATA LOGO2: the cursor unit owner's logo
         HudRect mission_text{385, 449, 16, 2}; // MISSIONTEXT: head order status, centred on x
         HudRect unit_name2{555, 452, 1, 9};    // UNITNAME2: the second unit, centred on x
@@ -5080,6 +6286,16 @@ class Runtime final : public menu::Host,
     /// @param height rectangle height
     /// @param palette_index match palette colour
     void fill_source_rect(int x, int y, int width, int height, uint8_t palette_index);
+
+    /// Draws one player's colour mark into a HUD rectangle.
+    ///
+    /// The mark is the frame of the logo sheet that the player's colour names,
+    /// fitted to `at` the same way the unit panel fits its owner's mark. An
+    /// empty rectangle, or a player with no frame, draws nothing.
+    ///
+    /// @param player player whose colour is drawn
+    /// @param at rectangle in HUD source space
+    void draw_player_mark(const oa::Player& player, const HudRect& at);
 
     /// Draws a SIDEDATA resource trough: the fill to the shown amount and the share threshold's
     /// marker.
@@ -6269,10 +7485,90 @@ class Runtime final : public menu::Host,
     /// @return the state
     LanguageState& language_state();
 
+    /// Shows the progress dialog while `job` runs, when this run has a window
+    /// and is not a headless check. The title is Open Annihilation. `line`
+    /// is an English key of the interface catalogue. With no window, or while
+    /// a dialog is already up, `job` runs on this thread and nothing is drawn.
+    ///
+    /// @param line the line's English key
+    /// @param job the work; it may store how far it has come
+    void run_progress(std::string_view line, const std::function<void(LongWork&)>& job);
+
     /// Chooses the language at start, once the preferences file is read: asks
     /// the operating system for its preferred locales, reads the interface
     /// catalogue and the setting, and puts the language in effect.
     void start_language();
+
+    /// Reads the language packs again and puts them in effect, on the
+    /// interface's thread between frames: the registry, the interface
+    /// catalogue, the pack layers and the font faces. When the raw language
+    /// setting names a pack that can now be shown, the game switches to it.
+    /// When the system's language now finds a pack, System default follows.
+    void reload_language_packs();
+
+    /// Reads the three pack lists, registers the player's and the engine's
+    /// and the catalogues' available languages, chooses the system's
+    /// language again and rebuilds the interface catalogue.
+    /// start_language and reload_language_packs both call it.
+    void load_language_packs();
+
+    /// Registers the kept available languages beside the packs installed.
+    void register_available_languages();
+
+    /// One language pack a catalogue offers that is not installed, and the
+    /// registry that lists it. A check may pass these in place of a snapshot.
+    struct CatalogueLanguage {
+        std::string registry;                     ///< the registry id
+        bool reviewed = true;                     ///< true for a built-in registry
+        oa::data::languages::LanguageEntry entry; ///< the tag, names, word and locales
+        std::string publisher;                    ///< who published it; empty when unnamed
+        std::optional<double> coverage;           ///< the fraction translated, when named
+        uint64_t bytes = 0;                       ///< the pack's size
+    };
+
+    /// Rebuilds the available languages from the catalogues and registers them.
+    ///
+    /// A tag the game can already show is left out. The first registry to
+    /// offer a tag wins. A check's list is left in place while it asks.
+    void refresh_available_languages();
+
+    /// Registers the languages a check offers, in place of the catalogues.
+    ///
+    /// Later catalogue refreshes leave them until release_available_languages.
+    /// An open settings dialog is filled from them.
+    ///
+    /// @param offered the packs, in the order the list shows them
+    void refresh_available_languages(std::span<const CatalogueLanguage> offered);
+
+    /// Lets the catalogues replace a check's available languages.
+    void release_available_languages();
+
+    /// Queues a download of the language pack a catalogue offers for a tag.
+    ///
+    /// The registry that offers the tag is the one queued. A check may record
+    /// the tag in place of the queue.
+    ///
+    /// @param tag the pack's tag
+    /// @param[out] failure why it was not queued; empty when it was
+    /// @return true when the pack was queued
+    bool download_language(std::string_view tag, std::string& failure);
+
+    /// Fills an open settings dialog's available languages when the catalogues
+    /// or the download queue have moved on.
+    ///
+    /// @param dialog the open dialog
+    /// @return true when its rows changed
+    bool refresh_settings_languages(oa::ui::engine_settings::Dialog& dialog);
+
+    /// Brings Game Content up to date. A copy and a check run on their own
+    /// threads; this reads how far they have got. The dialog stays open.
+    ///
+    /// @param dialog the open dialog
+    /// @return true when its rows changed, or while a copy or a check is running
+    bool refresh_game_content(oa::ui::engine_settings::Dialog& dialog);
+
+    /// Reads the catalogues into the available languages when they have changed.
+    void note_catalogue_languages();
 
     /// Reads the interface catalogue files of the languages folder beside the
     /// game's other files, in the order of their names; a file that does not
@@ -6289,7 +7585,12 @@ class Runtime final : public menu::Host,
     /// Puts the chosen language in effect: the translation table and the
     /// fonts of the game data's word when it changed, and the words the
     /// interface shows units' names and descriptions and its own words in.
+    /// A window that is not a headless check shows the progress dialog
+    /// while it runs, unless one is already up.
     void apply_language();
+
+    /// Puts the chosen language in effect on this thread, with no dialog.
+    void apply_language_now();
 
     /// Shows the language just put in effect at once. The screen or match
     /// panel the settings showed over is loaded again in it, its texts
@@ -6467,6 +7768,31 @@ class Runtime final : public menu::Host,
     /// @param height texture height
     void ensure_texture(int width, int height);
 
+    /// Asks SDL to take the size of the window the player sees, when that
+    /// size was never delivered.
+    ///
+    /// On macOS a resize that a full-screen change skipped leaves the
+    /// recorded size behind the window on screen. The recorded size is then
+    /// set to the live content size, once for that size, and the resize is
+    /// delivered as any other. A full-screen, maximised or minimised window
+    /// is left as it is. Elsewhere this does nothing.
+    void sync_live_window_size();
+
+    /// Lays a match out at the window's size when the layout is still the
+    /// size of an earlier window.
+    ///
+    /// The layout is taken when a resize is handled (apply_output_mode). A
+    /// size that changed without one, or one not yet handled, is laid out
+    /// here, so the first frame of a game and every OA screen use the same
+    /// scale a resize of this window would. sync_live_window_size runs
+    /// first, so the size is the window on screen.
+    void follow_window_output();
+
+    /// Returns the canvas size apply_output_mode would lay a match out at.
+    ///
+    /// @return the width and height, in canvas pixels; 0 when there is none
+    [[nodiscard]] SDL_Point match_canvas_point() const;
+
     /// Sets the SDL presentation for the current screen.
     ///
     /// A match lays the battlefield and chrome out for the window's pixel size,
@@ -6525,9 +7851,9 @@ class Runtime final : public menu::Host,
 
     /// Tells whether the match's next frame draws its units as dots: a
     /// frame of the player's view zoomed out farther than After zoom with
-    /// Zoomed out units at Dots, or past detail_zoom_floor where the models'
-    /// drawing would take more memory than the machine can spare
-    /// (rendered_units_budget) or where a unit drawn may stand farther from
+    /// Zoomed out units at Dots, or any zoom where the models' drawing would
+    /// take more memory than the machine can spare (rendered_units_budget),
+    /// or past detail_zoom_floor where a unit drawn may stand farther from
     /// the camera than kMostModelOffset map pixels. Such a frame draws no
     /// model of a unit, feature, projectile, fragment or debris, no health
     /// bar or squad digit, and a model bridge of one pixel. A director's
@@ -6536,11 +7862,14 @@ class Runtime final : public menu::Host,
     /// @return true when the units are drawn as dots
     [[nodiscard]] bool dots_frame() const noexcept;
 
-    /// Returns the memory the models' drawing may take past
-    /// detail_zoom_floor, where its model bridge holds every map pixel the
-    /// view shows: an eighth of the machine's physical memory
-    /// (kRenderedUnitsMemoryShare), or kRenderedUnitsUnknownBudget where the
-    /// machine does not say.
+    /// Returns the memory the models' drawing may take, where its model
+    /// bridge holds every map pixel the view shows: an eighth of the
+    /// machine's physical memory (kRenderedUnitsMemoryShare), or
+    /// kRenderedUnitsUnknownBudget where the machine does not say, and on a
+    /// 32-bit build at most an eighth of the free address space or
+    /// kRenderedUnitsAddressCap where that is not known. OA_RENDERED_UNITS_BUDGET,
+    /// a number of bytes, replaces it, and on a 32-bit build is cut to the
+    /// free address space.
     ///
     /// @return bytes
     [[nodiscard]] uint64_t rendered_units_budget() const noexcept;
@@ -7629,12 +8958,30 @@ class Runtime final : public menu::Host,
     /// without the cursor (frame_without_cursor_).
     ///
     /// On a window at native density the cursor over the match's layers is
-    /// drawn with them at the display's pixels (one_to_one_scale_mode), and
-    /// over any other frame with SDL's own LINEAR; on any other window its
-    /// texture keeps SDL's own filter.
+    /// drawn with them at the display's pixels (one_to_one_scale_mode). Above
+    /// an OA screen it is stamped into a texture the size of the picture, at
+    /// the same whole pixels as the cursor in the picture, and enlarged with
+    /// the picture's own scaling (standard_frame_scale_mode). Over any other
+    /// frame, on a window at native density or a scaled frame, it uses SDL's
+    /// own LINEAR; otherwise its texture keeps SDL's own filter.
     ///
     /// @param match_layers the cursor goes over the match's layers
     void present_software_cursor(bool match_layers);
+
+    /// Logs the start of a screen change. The next presented frame of that
+    /// name logs the change's first frame.
+    ///
+    /// @param name the screen's name, as the timing line prints it
+    void begin_screen_change(std::string_view name);
+
+    /// Logs the first frame of the screen change begun with `name`, once.
+    ///
+    /// @param name the screen's name
+    void finish_screen_change(std::string_view name);
+
+    /// Logs the window's first presented frame once, and the first frame of
+    /// the screen change that this frame shows.
+    void note_shown_frame();
 
     /// Composes the current screen and presents it.
     ///
@@ -7669,6 +9016,197 @@ class Runtime final : public menu::Host,
     /// @param x canvas column
     /// @param y canvas row
     void update_pointer(float x, float y);
+
+    /// Feeds one pointer sample to the sticky window edge.
+    ///
+    /// The place is in window points, before the frame's letterbox moves
+    /// it. Called only while the battlefield wants the rule. On macOS,
+    /// Windows and X11 the desktop distance past the edge is the push, and
+    /// the pointer is put back on the last pixel while the rule holds.
+    ///
+    /// @param x place across the window
+    /// @param y place down the window
+    /// @param motion_x movement across since the previous sample
+    /// @param motion_y movement down since the previous sample
+    /// @param time_ms the sample's time, in milliseconds
+    void note_sticky_motion(float x, float y, float motion_x, float motion_y, uint64_t time_ms);
+
+    /// Returns the Window edge setting in effect: Capture when there are
+    /// no settings, as on a new install.
+    ///
+    /// @return the way chosen
+    [[nodiscard]] oa::ui::engine_settings::WindowEdge window_edge_mode() const;
+
+    /// Tells whether a match's battlefield shows, in play: the match runs,
+    /// and no game menu, pause screen, settings dialog or message box is
+    /// over it. Says nothing of the window.
+    ///
+    /// @return true while the battlefield is played
+    [[nodiscard]] bool battlefield_in_play();
+
+    /// Tells whether the game's window, not full screen, has the input
+    /// focus over a battlefield in play: when Window edge acts.
+    ///
+    /// Full screen keeps its own rule.
+    ///
+    /// @param require_mouse the pointer has to be inside the window too
+    /// @return true while Window edge may keep the pointer
+    [[nodiscard]] bool window_edge_battlefield(bool require_mouse = true);
+
+    /// Tells whether a match's battlefield in a focused window wants the
+    /// pointer held at the window's edges.
+    ///
+    /// Menus, the pause screen, a settings dialog, a message box, a window
+    /// without the focus, full screen, Window edge Capture and Free, and
+    /// Edge stickiness 0.0 do not. Full screen keeps its own rule. While a
+    /// soft wall is holding, the pointer may be past the edge for the moment
+    /// it is put back, so the mouse focus is not required then.
+    ///
+    /// @param require_mouse the pointer has to be inside the window; false
+    ///        while a soft wall is putting it back
+    /// @return true while the sticky edge should keep the pointer at the edges
+    [[nodiscard]] bool sticky_edge_wanted(bool require_mouse = true);
+
+    /// Returns how firm a sticky edge is, from Edge stickiness.
+    ///
+    /// @return the push and the flick that let the pointer go
+    [[nodiscard]] StickyLimits sticky_edge_limits() const;
+
+    /// Tells whether Window edge Capture wants the pointer kept in the
+    /// window.
+    ///
+    /// Only while a match's battlefield in play shows in a focused window
+    /// and Window edge is Capture, and not after Escape or a lost focus
+    /// until the battlefield is clicked again.
+    ///
+    /// @param require_mouse the pointer has to be inside the window, as it
+    ///        must before a capture starts
+    /// @return true while the pointer should not leave the window
+    [[nodiscard]] bool capture_wanted(bool require_mouse = true);
+
+    /// Notes what an event means to Window edge, before any screen sees it.
+    ///
+    /// A motion feeds the sticky edge. Losing the focus lets the pointer go,
+    /// and with Capture the pointer then waits for a click on the battlefield.
+    /// The click that gives the window the focus back, before the focus or
+    /// within focus_click_ms of it with no key pressed between, is only that:
+    /// the press and its release reach nothing. Escape in a match lets a
+    /// captured pointer go until the battlefield is clicked again; that
+    /// click, like a later one after a lost focus, acts as any click does.
+    ///
+    /// @param event the event about to be dispatched
+    /// @param[out] force_release set when this event lets the pointer go
+    ///        whatever the window's flags say
+    /// @return true when the event is the focusing click or its release, and
+    ///         nothing else should see it
+    bool take_window_edge_event(const SDL_Event& event, bool& force_release);
+
+    /// Keeps the pointer in the window, at its edges or free, as Window edge
+    /// says, after an event or before a frame.
+    ///
+    /// Full screen is left to keeps_pointer_on_screen. Capture holds SDL's
+    /// window grab, which confines the pointer to the window on every
+    /// system, and Sticky follows apply_sticky_edge.
+    ///
+    /// @param force_release let go for this call even when the battlefield
+    ///        still looks wanted, as when the focus is lost and the window's
+    ///        flags have not caught up
+    void apply_window_edge(bool force_release = false);
+
+    /// Takes or gives up the window's grab for Window edge Capture.
+    ///
+    /// The grab is asked for again on every call while it is wanted, since
+    /// a change of the window's state may have cleared it. Letting go leaves
+    /// a Wayland sticky edge's confinement alone.
+    ///
+    /// @param force_release let go for this call
+    void apply_capture(bool force_release);
+
+    /// Ends the window's grab and mouse rect unless the other way of Window
+    /// edge still holds them.
+    void release_window_edge_grab();
+
+    /// Tells whether this window system leaves the pointer free, so the
+    /// game puts it back on an edge itself.
+    ///
+    /// Wayland cannot place the pointer, and keeps SDL's confinement. Every
+    /// other driver, including macOS, Windows and X11, is a soft wall.
+    ///
+    /// @return true when the pointer is put back instead of confined
+    [[nodiscard]] bool sticky_soft_wall() const;
+
+    /// Tells whether a motion is the one just posted to put the pointer back.
+    ///
+    /// That motion is the game's, so it is not a push and not a flick. The
+    /// first matching motion is consumed.
+    ///
+    /// @param event the event about to be fed to the rule
+    /// @return true when the rule should ignore it
+    [[nodiscard]] bool sticky_ignores_motion(const SDL_Event& event);
+
+    /// Keeps the pointer at the window's edges, or lets it go, as the rule says.
+    ///
+    /// Called by apply_window_edge for a window. A window that does
+    /// not want the rule, or force_release, lets the pointer go until it
+    /// has moved back in. Becoming wanted samples the pointer once with no
+    /// movement, so a pointer already on an edge is not trapped. A soft
+    /// wall puts the pointer back on the last pixel while the rule holds.
+    /// Wayland confines it.
+    ///
+    /// @param force_release let go for this call even when the battlefield
+    ///        still looks wanted, as when the focus is lost and the window's
+    ///        flags have not caught up
+    void apply_sticky_edge(bool force_release = false);
+
+    /// Forgets a hold, so the next apply holds again only from inside, and
+    /// forgets that Capture held the grab, which a dialog of the system's
+    /// clears.
+    void forget_sticky_edge();
+
+    /// Tells whether the desktop pointer's place is a real distance past the
+    /// window. The dummy driver reports the window's own pointer there.
+    ///
+    /// @return true on macOS, Windows and X11
+    [[nodiscard]] bool sticky_trust_global() const;
+
+    /// Tells whether the desktop pointer has moved since the push was last read.
+    ///
+    /// A place that has not moved reports no new push, so one rest is not
+    /// added on every frame. The place is remembered.
+    ///
+    /// @return true when the desktop pointer is in a new place
+    [[nodiscard]] bool sticky_global_moved();
+
+    /// Reads how far the desktop pointer is past the window.
+    ///
+    /// @param past_x set past the left (negative) or the right, or to zero
+    /// @param past_y set past the top (negative) or the bottom, or to zero
+    void sticky_global_past(float& past_x, float& past_y) const;
+
+    /// Remembers the desktop pointer's place, so the warp that put it back
+    /// is not itself a push.
+    void remember_sticky_global();
+
+    /// Puts the pointer back on the edge it has crossed, while the rule holds.
+    ///
+    /// @param x place across the window, which may be past the edge
+    /// @param y place down the window, which may be past the edge
+    /// @param fed the sample was already given to the rule, so this only
+    ///        puts the pointer back
+    void restore_sticky_pointer(float x, float y, bool fed);
+
+    /// Puts the pointer on one pixel of the window and drops the motion
+    /// that the warp posts, which is not the player's.
+    ///
+    /// @param x place across the window
+    /// @param y place down the window
+    void warp_pointer_to_edge(float x, float y);
+
+    /// Drops a queued warp motion at this place, when the warp posted one.
+    ///
+    /// @param x the place the pointer was put
+    /// @param y the place the pointer was put
+    void drop_warp_motion(float x, float y);
 
     /// Tells whether a press on a gadget of the current screen selects it: a grayed-out button
     /// takes no press, as in the game's panels.
@@ -8522,8 +10060,9 @@ class Runtime final : public menu::Host,
     /// Centres the view on the map point under a radar position and stops following a unit.
     ///
     /// The camera goes half the visible battlefield (visible_map_width() and
-    /// visible_map_height(), at the current zoom) up and left of the point; the
-    /// pointer may lie off the radar, and the render clamps the camera to the map.
+    /// visible_map_height(), at the current zoom) up and left of the point, then
+    /// is held within the view's limits (set_camera_position). The pointer may
+    /// lie off the radar.
     ///
     /// @param x canvas column
     /// @param y canvas row
@@ -8848,12 +10387,19 @@ class Runtime final : public menu::Host,
     /// there. The settings dialog's ease about the centre keeps the follow,
     /// in play and under a menu, with the unit at the centre on every frame,
     /// and so for a unit in the map's corner, past the map's edges. A
-    /// scroll and moving the view from the minimap end the follow. Returns
+    /// scroll and moving the view from the minimap end the follow. A middle
+    /// click then pans toward the pointer, a left click ends that pan without
+    /// an order, and Home ends another without its command. Returns
     /// to the skirmish menu; throws std::runtime_error on a failure.
     /// [runtime_tracking_zoom_check.cpp]
     ///
     /// @param group the navigation check's group: all, zoom, or a window's zoom group
     void check_tracking_zoom(NavigationGroup group);
+
+    /// Checks a middle click pans the view toward the pointer, and that the
+    /// click and the key which end it give no order and run no command.
+    /// Throws std::runtime_error on a failure. The match is already running.
+    void check_middle_pan();
 
     /// Checks that every frame of a zoom keeps the map point under the
     /// pointer there, on the game's screen.
@@ -9101,7 +10647,9 @@ class Runtime final : public menu::Host,
 
     /// Selects a squad (digit; shift joins it to the selection), then plays SelectSquad.
     ///
-    /// Its CTRL_F members are left out while it also holds an armed unit.
+    /// Its CTRL_F members are left out while it also holds an armed unit. When the
+    /// squad is already exactly the selection, the view moves to the group's centre
+    /// and tracking stops.
     ///
     /// @param squad squad number, 1 through 9
     /// @param add true to add to the selection
@@ -10358,6 +11906,46 @@ class Runtime final : public menu::Host,
     /// differed.
     void check_language_switch();
 
+    /// Lists every live language and the one the run shows, and checks that
+    /// English is first, the built-in languages follow in their order, the
+    /// pseudo language is installed with the word Pseudo, and the run shows
+    /// it, as the preferences file chooses. Throws std::runtime_error
+    /// naming what differed.
+    void check_language_registry();
+
+    /// Shows the missing-language notice over the main menu and presses
+    /// Use English. With the language set to Simplified Chinese and no pack,
+    /// the notice names that language, Use English stores English and the
+    /// notice does not return. With System default and the operating system
+    /// asking for Simplified Chinese, Use English remembers that language
+    /// and a second pass shows no notice. Throws std::runtime_error naming
+    /// what differed.
+    void check_language_notice();
+
+    /// Walks the first-run setup over the main menu: a built-in language, a
+    /// pack that fails and then retries, Skip setup, and both online
+    /// choices. Throws std::runtime_error naming what differed.
+    void check_first_run();
+
+    /// Walks language, the game and the copy in the pre-game window, then
+    /// checks the online step over the main menu. Throws std::runtime_error
+    /// naming what differed.
+    void check_setup_window();
+
+    /// Shows the progress dialog for a short job and for a long one, in a
+    /// spinner and with a bar, and writes a picture of each at three window
+    /// sizes. Throws std::runtime_error naming what differed.
+    void check_progress();
+
+    /// Opens every Open Annihilation screen in English, German, French,
+    /// Spanish, Italian and Simplified Chinese, at 640x480 and 1280x720.
+    /// Throws std::runtime_error naming each text drawn wider than its box
+    /// or across another text, with the screen, the language and the size.
+    void check_text_fit();
+
+    /// Writes the first-run check's registries file before content starts.
+    void prepare_first_run_check();
+
     /// Checks the commander's build pages against the side column on windows of several sizes.
     ///
     /// On each window from 640x480 to 5120x2880 a skirmish starts, the commander
@@ -11104,10 +12692,13 @@ class Runtime final : public menu::Host,
     ///
     /// The mission start opened the cheat class to the chat line, so "+atm" runs
     /// and its echo goes to everyone; a word no list registers goes out as plain
-    /// chat, since the spawn fallback needs the developer class. Every cheat then
-    /// takes effect (check_console_cheat_effects). The Game Settings sheet
-    /// MISSION opens shows the difficulty and no Cheat Codes row, and its OK
-    /// returns to the options panel. Throws std::runtime_error on a failure.
+    /// chat. Every cheat then takes effect (check_console_cheat_effects). The
+    /// Game Settings sheet MISSION opens shows the difficulty and no Cheat Codes
+    /// row, and its OK returns to the options panel. "+control" takes another
+    /// player and hands it back. "+ai" leaves a computer player, hands the
+    /// local player to the computer and back, and a unit name refuses a missing
+    /// player (check_console_takeover_and_spawn). Throws std::runtime_error on
+    /// a failure.
     ///
     /// @param enter_line runs one console line
     void check_console_skirmish_cheats(const std::function<void(const char*)>& enter_line);
@@ -11119,9 +12710,24 @@ class Runtime final : public menu::Host,
     /// and its echo goes to everyone, option commands such as "+clock" run,
     /// every cheat takes effect (check_console_cheat_effects) and "+sing"
     /// works (check_console_sing_command), all typed through the chat line
-    /// without the developer passphrase. Throws std::runtime_error on a
-    /// failure.
+    /// without the developer passphrase. "+control" takes another player and
+    /// hands it back. "+ai" leaves a computer player and hands the local player
+    /// to the computer and back, and a unit name refuses a missing player.
+    /// Throws std::runtime_error on a failure.
     void check_console_campaign_cheats();
+
+    /// Checks "+control", "+ai" and a unit name on the running match.
+    ///
+    /// "+control" makes another player the local and viewed player, then hands
+    /// the original player back. "+ai" on a player who is already a computer
+    /// says so and leaves them. "+ai" hands the local player to the computer
+    /// and back, and that hand-back does not change the computer beside them.
+    /// "+NAME 99" posts "No such player" and creates nothing. "+NAME" then
+    /// creates a unit beside a live unit of the local player, or posts why the
+    /// ground refused it. Throws std::runtime_error on a failure.
+    ///
+    /// @param enter_line runs one console line
+    void check_console_takeover_and_spawn(const std::function<void(const char*)>& enter_line);
 
     /// Checks the mod profile's texts in the running match.
     ///
@@ -11161,10 +12767,11 @@ class Runtime final : public menu::Host,
     /// turns the damage bars on and off. Pause flips the pause bit of
     /// Game.sim_run_flags and reports it through Extension::pause_changed. In
     /// a multiplayer game Tab opens and closes the team menu and 'h' opens
-    /// SHARE.GUI. Developer keys: backslash repeats the last console line
-    /// (where the key below Escape types it, that key turns the damage bars on
-    /// and off instead) and F11 toggles the debug keys once the passphrase
-    /// is accepted; while the debug keys are on, '=', ']', 'i' and 'm' go to the
+    /// SHARE.GUI. Backslash repeats the last console line under the same rule
+    /// as typing it (where the key below Escape types it, that key turns the
+    /// damage bars on and off instead). F11 toggles the debug keys once the
+    /// passphrase is accepted; while the debug keys are on, '=', ']', 'i' and
+    /// 'm' go to the
     /// debug dispatcher instead of their normal use. Ctrl+F10 starts a film
     /// capture.
     ///
@@ -11309,6 +12916,62 @@ class Runtime final : public menu::Host,
     /// @param path savegame file
     /// @return false when the save cannot be started
     bool load_saved_game(const fs::path& path);
+
+    /// Writes the content note in a film's folder, once for that folder.
+    ///
+    /// @param folder the film's folder
+    void note_film_content(const fs::path& folder);
+
+  public:
+
+    /// Checks the shared commands and the takeover cheats of a network game.
+    ///
+    /// "+shootall" runs on both machines and is turned back off. "+ai" takes
+    /// this machine's player only when cheats are allowed, and is handed back
+    /// before the wait. The peer's copy of that same person, found by player
+    /// id rather than by slot, stays mirrored. A computer player seated
+    /// beside them is unchanged on both machines.
+    /// "+control" of another player changes only this machine, and is handed
+    /// back at once. The line is shown in the player just taken. A failure
+    /// throws std::runtime_error.
+    ///
+    /// @param peer the other machine of the loopback game
+    /// @param advance runs one networked tick on this machine, and on the peer
+    ///        too when passed true
+    void check_console_network_takeover(
+        Runtime& peer, const std::function<void(bool peer_runs)>& advance
+    );
+
+    /// Shows the comparison when `path`'s note needs other content.
+    ///
+    /// TURN ON AND LOAD stores the choice and asks for a soft restart, then
+    /// the next start loads the save or plays the recording. CANCEL leaves
+    /// the question. A file with no note, and a note this run already matches,
+    /// show nothing.
+    ///
+    /// @param path the save, the recording or the film folder
+    /// @param title the name the question shows
+    /// @param recording true for a recording, false for a save
+    /// @return true when the question is showing
+    bool offer_content_switch(const fs::path& path, std::string_view title, bool recording);
+
+    /// The sentence the question would show, when the note needs other content.
+    ///
+    /// @param path the save or the recording
+    /// @return the sentence, or empty when nothing is asked
+    [[nodiscard]] std::string content_switch_sentence(const fs::path& path) const;
+
+    /// Takes a save or a recording TURN ON AND LOAD left for this start.
+    void take_pending_content();
+
+    /// The recording this start should play, after take_pending_content.
+    ///
+    /// @return its path, or empty
+    [[nodiscard]] const std::string& pending_demo_path() const noexcept {
+        return pending_demo_path_;
+    }
+
+  private:
 
     /// Reads the Summary fields a load needs from a save file.
     ///
@@ -11538,15 +13201,17 @@ class Runtime final : public menu::Host,
     void center_camera_on_unit(uint16_t id);
 
     /// Centres the view on a point of the map, as a tracking camera follows
-    /// a unit. While the frames draw the view between map pixels, the view
-    /// is placed (place_match_view) with the point at the battlefield's
-    /// middle: on the screen pixels laid from the map's corner, the screen
-    /// pixel the point lies in, so that the view moves by screen pixels,
-    /// finer than a map pixel when zoomed in; exactly where the card moves
-    /// its picture by the rest of a screen pixel (view_shift), and wherever
-    /// the frames draw the view off those pixels. Else the camera is put on
-    /// the whole map pixel half the view before the point's, as the game
-    /// puts it.
+    /// a unit. The place is held within the view's limits first
+    /// (view_within_limits), by the span alone, so a follow stops at the
+    /// limit and a jump to the point does not stay past it. While the frames
+    /// draw the view between map pixels, the view is placed
+    /// (place_match_view) with the point at the battlefield's middle: on
+    /// the screen pixels laid from the map's corner, the screen pixel the
+    /// point lies in, so that the view moves by screen pixels, finer than a
+    /// map pixel when zoomed in; exactly where the card moves its picture
+    /// by the rest of a screen pixel (view_shift), and wherever the frames
+    /// draw the view off those pixels. Else the camera is put on the whole
+    /// map pixel half the view before the point's, as the game puts it.
     ///
     /// @param x the point's column, 16.16 map pixels
     /// @param z the point's row, 16.16 map pixels
@@ -11771,6 +13436,36 @@ class Runtime final : public menu::Host,
     /// @param way_z -1 up, 1 down, 0 neither; held to that range
     /// @param step screen pixels the frame scrolls, at or above 0
     void scroll_match_view(int32_t way_x, int32_t way_z, double step);
+
+    /// Scrolls the view by a screen distance this frame, through the same
+    /// limits as any scroll (held_view, View past the map's edge). A
+    /// distance other than zero stops tracking a unit, though the view is
+    /// already at its limit and stays as it is.
+    ///
+    /// @param screen_dx screen points to the right
+    /// @param screen_dy screen points downward
+    void scroll_match_view_by(double screen_dx, double screen_dy);
+
+    /// Takes a gesture for a middle-click pan, when one is running or a
+    /// middle press might start one.
+    ///
+    /// On the battlefield a middle click, or a middle press that moves,
+    /// starts the pan (middle_pan_). Another button, the wheel, a key or
+    /// the window losing focus ends it, and that press or key is consumed:
+    /// the matching button release is consumed too, so it gives no order.
+    /// The pointer moving only updates the pan.
+    ///
+    /// @param event the SDL event
+    /// @return true when the event must not reach the rest of the game
+    bool middle_pan_take(const SDL_Event& event);
+
+    /// Draws the pan's anchor, and an arrow at the pointer once it has left
+    /// the anchor. Both stay on the screen where the gesture put them.
+    void draw_middle_pan_marks();
+
+    /// Tells whether the pointer has left the anchor far enough to show the
+    /// pan's direction instead of the usual cursor.
+    [[nodiscard]] bool middle_pan_shows_direction() const;
 
     /// Returns the camera as the next frame draws it: held within the
     /// view's limits (held_camera), which let the view go past the map's
@@ -12016,16 +13711,37 @@ class Runtime final : public menu::Host,
             report_unplayed_sound(selection.sound->resource, error);
     }
 
-    /// Starts the main menu's music: the CD music's menu mode and the menu voice loop.
+    /// Starts the main menu's music: the CD music's menu mode and the menu
+    /// voice loop, the hum (runtime_menu_audio.cpp).
     void start_menu_music();
 
-    /// Loops an ALLSOUND alternate voice as the menu music (the menu's BGM entry is drone2).
+    /// Loops an ALLSOUND alternate voice as the menu music (the menu's BGM entry
+    /// is drone2), the main menu's hum.
     ///
-    /// Nothing plays when muted, headless or already playing; a failure is
-    /// reported on stderr.
+    /// While the setup is still to finish and the movies to play after it
+    /// (menu_hum_waits), the hum waits: nothing plays, and
+    /// start_waiting_menu_hum starts it once they are over. Otherwise
+    /// "menu hum: starts" is written as the hum starts, muted and headless
+    /// runs included. Nothing plays when muted, headless or already playing;
+    /// a failure is reported on stderr.
     ///
     /// @param sound ALLSOUND name
     void play_menu_voice(std::string_view sound);
+
+    /// Tells whether the main menu's hum waits: while the setup is still to
+    /// finish and the movies to play after it (Options::intro_after_setup).
+    /// A --first-run start, whose setup shows again and whose movies wait
+    /// for a walk that will not, waits only until the walk is first finished.
+    ///
+    /// @return true while the hum waits
+    [[nodiscard]] bool menu_hum_waits() const;
+
+    /// Starts the main menu's hum that waited for the setup and the movies
+    /// after it, once they are over: the frame after the movies played, or
+    /// after the setup ended where a switch skips them. Called every frame;
+    /// does nothing while they are still to come or when no menu asked for
+    /// the hum.
+    void start_waiting_menu_hum();
 
     /// Plays an ALLSOUND sound on the alternate route, looping it as the menu
     /// music plays, in place of whatever that route plays.
@@ -12038,7 +13754,8 @@ class Runtime final : public menu::Host,
     /// @return true when the sound started
     bool play_alternate_sound(std::string_view sound);
 
-    /// Stops the menu music loop and puts the CD music into its match mode.
+    /// Stops the menu music loop and puts the CD music into its match mode. A
+    /// hum that waited is forgotten: the menu asks for it again.
     void stop_menu_music();
 
     // CD music (runtime_music.cpp): music files play as the disc.
@@ -12434,11 +14151,37 @@ class Runtime final : public menu::Host,
     /// @return the object
     init::MapListHandle construct(init::MapListHandle handle, int32_t selector_value) override;
 
-    /// Lists the maps the skirmish and multiplayer map pickers offer: every map with a multiplayer
-    /// schema, in find order; the first one is the default selection.
+    /// Records one base map the start scan listed: its title, description, size,
+    /// the player counts its numplayers lists (or, when that lists none, the
+    /// most start positions of a network schema, alone), and the memory its
+    /// terrain needs.
     ///
-    /// Game data with no such map, such as the Total Annihilation demo (1997), leaves both the
-    /// list and the default selection empty.
+    /// @param name the map's name
+    /// @param ota the map's parsed document; null records the name alone
+    void remember_base_map(const char* name, const oa::formats::tdf::Document* ota);
+
+    /// How many base maps the start scan kept, for the battle room's list.
+    ///
+    /// @param context the running app
+    /// @return the count
+    static int32_t bound_base_count(void* context);
+
+    /// Writes one base map the start scan kept into the battle room's list.
+    ///
+    /// @param context the running app
+    /// @param index the map's place, from 0
+    /// @param[out] out the map; left unchanged when `index` is out of range
+    /// @return true when `out` was written
+    static bool
+    bound_base_at(void* context, int32_t index, oa::ui::frontend_multiplayer::LobbyPackMap* out);
+
+    /// Lists the maps the skirmish and multiplayer map pickers offer: every map with a multiplayer
+    /// schema, in find order; the first one is the default selection. The installed pack maps
+    /// follow, in the order the installed packs list them, without opening any of their files;
+    /// the default selection is always a base map. The same scan records each base map's summary.
+    ///
+    /// Game data with no such map, such as the Total Annihilation demo (1997), leaves the
+    /// default selection empty, and the list empty unless pack maps are installed.
     void discover_first_map();
 
     /// Finds a gadget of the current screen by name.
@@ -12526,6 +14269,11 @@ class Runtime final : public menu::Host,
     void record_typed_key(uint8_t key);
 
     /// Runs the SINGLE.GUI setup and installs its DRDEATH key hook.
+    ///
+    /// Load Game is greyed when the data has no save dialog, Any Mission stays
+    /// hidden when the data has no any-mission screen, and Skirmish is greyed
+    /// when the base game is the Total Annihilation demo (1997). A greyed
+    /// button takes no press and its key does nothing.
     void enter_single_player_panel();
 
     /// Tells whether the game data holds the any-mission screen: NEWGAME.GUI over playanygame4.
@@ -12543,6 +14291,14 @@ class Runtime final : public menu::Host,
     ///
     /// @return true when the layout is present
     [[nodiscard]] bool offers_saved_games() const;
+
+    /// Tells whether Single Player offers Skirmish.
+    ///
+    /// The Total Annihilation demo (1997), when it is the base game, does not.
+    /// A game folder that is not a managed base game does.
+    ///
+    /// @return false only when the mounted base game is the demo
+    [[nodiscard]] bool offers_skirmish() const;
 
     /// Tells whether the game data holds a campaign for a side.
     ///
@@ -12735,6 +14491,15 @@ class Runtime final : public menu::Host,
     /// @return the names, in find order
     std::vector<std::string> copy_map_names() override;
 
+    /// Orders the skirmish map list by the name each row shows.
+    ///
+    /// The game's own maps, installed pack maps and maps offered for download
+    /// are one list. A grey reason is not part of the name, so a map that
+    /// cannot be played keeps its place.
+    ///
+    /// @param[in,out] names the map names
+    void order_map_names(std::vector<std::string>& names) override;
+
     /// Loads SELMAP.GUI as the map selection screen over the skirmish screen's frame.
     ///
     /// Throws std::runtime_error for any other layout or flags.
@@ -12753,6 +14518,11 @@ class Runtime final : public menu::Host,
     ///
     /// @param names sorted map names
     void bind_map_names(std::span<const std::string> names) override;
+
+    /// Fills the words MAPNAMES shows from the pack index, in `bound_map_names_` order.
+    ///
+    /// A base map's row stays its file name. The names themselves do not change.
+    void label_bound_maps();
 
     /// Installs the MAPNAMES selection-change callback; the runtime previews the selection itself.
     void install_map_selection_callback() override;
@@ -12801,7 +14571,7 @@ class Runtime final : public menu::Host,
     std::string permitted_player_counts_text() override;
 
     /// Returns the selected map's description, the map object's summary text:
-    /// lowered and looked up in gamedata\translate.tdf, as 3.1c reads a map's
+    /// lowered and looked up in gamedata\\translate.tdf, as 3.1c reads a map's
     /// description, else as the map writes it.
     ///
     /// @return the description; empty without a selected map
@@ -12884,12 +14654,29 @@ class Runtime final : public menu::Host,
 
     /// Selects a map by name for a skirmish: its OTA metadata, terrain and start markers.
     ///
+    /// An installed pack map's files are mounted first (prepare_pack_map); a
+    /// pack map that is refused clears the selection as a missing file does.
+    /// Any other name releases a mounted pack map before its files are read.
     /// Throws std::runtime_error when the metadata or terrain does not parse.
     ///
     /// @param name map name
-    /// @return 1 when the map loads; 0 when a file is missing or it has no
-    ///     two-player schema
+    /// @return 1 when the map loads; 0 when a file is missing, it has no
+    ///     two-player schema or it is a pack map that does not fit
     int32_t select_map(std::string_view name) override;
+
+    /// Returns why a map in the picker cannot be chosen.
+    ///
+    /// @param name map name
+    /// @return the reason a pack map was refused; nothing for any other map
+    std::optional<std::string> map_refusal(std::string_view name) override;
+
+    /// Shows a refused pack map in the picker: MAPNAME its title, SIZE its
+    /// size and players, DESCRIPTION "Doesn't fit {game}: {reason}", where
+    /// the game is the mod played or Total Annihilation 3.1c, and no picture.
+    ///
+    /// @param name map name
+    /// @param reason why the map was refused
+    void show_refused_map(std::string_view name, std::string_view reason) override;
 
     /// Returns how many players the selected map holds for the roster's player count, keeping its
     /// start markers.
@@ -12934,10 +14721,42 @@ class Runtime final : public menu::Host,
 
     /// Moves the local camera, whose view is then drawn on its own map pixel.
     ///
+    /// A jump to a point, the match opening on the Commander, a loaded
+    /// game, Track, an event or the minimap, is held within the view's
+    /// limits (held_camera) by the same rule as a scroll from a view the
+    /// limits have not held: as near the point as those limits allow, and
+    /// no further. At 50% a point on the shown map stays where the jump
+    /// asked. The limits then hold the next view from the view placed, so
+    /// a later scroll cannot return to a place past them. Without a map
+    /// the camera is put where it was asked.
+    ///
     /// @param x camera left edge, whole world units
     /// @param z camera top edge, whole world units
     /// @param flags always 0 from commander placement
     void set_camera_position(int32_t x, int32_t z, uint32_t flags) override;
+
+    /// Returns a view's place held within the limits by the span alone.
+    ///
+    /// The same rule as a scroll from a view the limits have not held
+    /// (held_view, with no earlier centre). None without a shown map, or
+    /// when the battlefield shows no map pixels, so a caller leaves the
+    /// place as it was asked.
+    ///
+    /// @param x the map column at the battlefield's left edge
+    /// @param z the map row at its top edge
+    /// @return the held place, or none when the limits do not apply
+    [[nodiscard]] std::optional<std::array<double, 2>> view_within_limits(double x, double z) const;
+
+    /// Records the view the limits hold the next one from.
+    ///
+    /// Its centre is half the map the battlefield shows past the place, at
+    /// the current zoom. A jump records the view it placed, so the next
+    /// scroll is held from there and not from a view that lay further past
+    /// the limits.
+    ///
+    /// @param x the map column at the battlefield's left edge
+    /// @param z the map row at its top edge
+    void remember_placed_view(double x, double z);
 
     /// Builds the skirmish match from the roster, as the Start click does.
     void apply_skirmish_players() override;
@@ -13166,6 +14985,16 @@ class Runtime final : public menu::Host,
     // applied.
     FullScreenSwitch full_screen_switch_{};
     oa::ui::display_layout::MatchLayout match_layout_{};
+    // The canvas size apply_output_mode last laid a match out at
+    // (match_canvas_point). 0 until a match is laid out, and 0 again off one,
+    // so a size that changed with no resize still lays the next match out.
+    int followed_canvas_width_ = 0;
+    int followed_canvas_height_ = 0;
+    // The live content size last asked of the window (sync_live_window_size),
+    // so a size the system's window keeps and the recorded size does not is
+    // asked once. 0 until then.
+    int nudged_window_width_ = 0;
+    int nudged_window_height_ = 0;
     // The scaled frame the match was last laid out at (scaled_frame_size);
     // 0 by 0 when it is laid out at the window's size.
     int scaled_frame_width_ = 0;
@@ -13187,9 +15016,10 @@ class Runtime final : public menu::Host,
     /// folder, kept whole when it is too long for Game.capture_path.
     std::string film_folder_;
     entry::SkirmishSettings skirmish_settings_{};
-    /// The player's own skirmish setup while a saved, recorded or network
-    /// game's players fill skirmish_settings_ for its match; the preferences
-    /// save it in their place. Empty while skirmish_settings_ is the player's.
+    /// The player's own skirmish setup while a saved, recorded, network or
+    /// campaign game's players fill skirmish_settings_ for its match; the
+    /// preferences save it in their place. Empty while skirmish_settings_ is
+    /// the player's.
     std::optional<entry::SkirmishSettings> player_skirmish_settings_;
     skirmish::UiState skirmish_ui_{};
     TypedKeyHook typed_key_hook_ = TypedKeyHook::none;
@@ -13197,9 +15027,62 @@ class Runtime final : public menu::Host,
     init::MapListState map_list_state_{};
     std::map<uintptr_t, int32_t> map_list_objects_;
     std::map<std::string, std::string> preference_values_;
+    /// The save TURN ON AND LOAD loads once the next start reaches the main menu.
+    std::string pending_save_path_{};
+    /// The recording TURN ON AND LOAD plays on this start.
+    std::string pending_demo_path_{};
+    /// The film folder whose content note this run already wrote.
+    std::string film_content_noted_{};
+    /// The missing-language notice for this run (runtime_language_notice.cpp).
+    friend class LanguageNoticeHost;
+
+    struct LanguageNoticeRun {
+        uint32_t main_menu_frames{}; ///< settled main-menu frames since the case last applied
+        bool closed_for_run{};       ///< Escape or B closed it; it stays closed
+        std::string tag;             ///< the language the notice is about
+        bool system_case{};          ///< the operating system asked, not the setting
+        bool download_failed{};      ///< Download was asked and did not queue
+    };
+
+    LanguageNoticeRun language_notice_run_{};
+
+    /// The first-run setup for this run (runtime_first_run.cpp).
+    friend class FirstRunHost;
+    friend class FirstRunScreen;
+
+    struct FirstRunRun {
+        bool gate_logged{};              ///< a not-showing line has been written for gate_hold
+        int gate_hold{-1};               ///< the hold last logged; -1 before any
+        uint32_t main_menu_frames{};     ///< settled main-menu frames since the case last applied
+        bool staged{};                   ///< a stage line opened a step; tell leaves it up
+        bool opened_logged{};            ///< a showing line has been written for opened_step
+        int opened_step{-1};             ///< the step last logged; -1 before any
+        std::string download_tag;        ///< the pack asked for, until it can be shown
+        uint64_t download_item{};        ///< the queue item of that pack; 0 when none
+        std::string pending_failure;     ///< a refusal, already looked up
+        std::string pending_failure_tag; ///< the pack that refusal is about
+    };
+
+    FirstRunRun first_run_run_{};
     fs::path preference_path_;
     std::string first_map_name_;
     std::vector<std::string> eligible_map_names_;
+
+    /// One base map gathered while the eligible maps are listed.
+    struct BaseMapSummary {
+        std::string name;
+        std::string title;       ///< the map's mission name
+        std::string description; ///< the map's mission description
+        std::string size;        ///< the map's width and height, as its file states it
+        /// The player counts the map is for, sorted and without repeats: each
+        /// count its numplayers lists, from 2 to 10. When that lists none, the
+        /// most start positions of a network schema, alone.
+        std::vector<int32_t> player_counts{};
+        int32_t players{};   ///< the most players: the largest of player_counts
+        int32_t memory_mb{}; ///< memory the map's terrain needs, in MB
+    };
+
+    std::vector<BaseMapSummary> base_map_summaries_;
     std::optional<oa::formats::ota::MapMetadata> selected_map_metadata_;
     // The selected map's OTA, whose GlobalHeader the session and scenario read.
     std::optional<oa::formats::tdf::OwnedDocument> selected_ota_document_;
@@ -13600,6 +15483,10 @@ class Runtime final : public menu::Host,
     std::vector<oa::data::defs::UnitPreviewKeys> unit_preview_keys_;
     map_modal::ModalState map_modal_{};
     std::vector<std::string> bound_map_names_;
+    /// The words MAPNAMES shows, one per `bound_map_names_` entry. The names stay the keys.
+    std::vector<std::string> bound_map_labels_;
+    /// One byte per `bound_map_labels_` entry: non-zero greys that row.
+    std::vector<uint8_t> bound_map_grey_;
     std::string pending_parent_map_name_;
     // The map selection's picture; null until a map's picture is first used.
     std::unique_ptr<MapPictureState, void (*)(MapPictureState*) noexcept> map_picture_{
@@ -13784,7 +15671,6 @@ class Runtime final : public menu::Host,
     oa::formats::gaf::Archive logo_textures_{};
     const oa::formats::gaf::Sequence* logo_sequence_ = nullptr;
     Screen options_parent_ = Screen::main_menu;
-    int squad_double_tap_ = 0;
     oa::ui::hud::KillBoard kill_board_{};
     // The message log's random numbers (message_hooks), never the match's.
     PresentationRandom message_random_{};
@@ -14325,6 +16211,57 @@ class Runtime final : public menu::Host,
     /// other screen has shown and the match's screen has kept its size.
     /// Until then the screen's edges do not scroll the camera.
     bool match_pointer_known_ = false;
+    /// The sticky window edge's memory. The runtime puts the pointer back,
+    /// or confines it on Wayland, while it holds, and only on a match's window.
+    StickyEdge sticky_edge_{};
+    /// The battlefield wanted the sticky edge the last time it was applied,
+    /// so a change to wanting it samples the pointer once before it holds.
+    bool sticky_wanted_ = false;
+    /// The window is confined for the sticky edge, so letting go clears it.
+    /// A soft wall leaves this false: the pointer stays free.
+    bool sticky_confined_ = false;
+    /// The desktop place last read for the push. A repeat of it adds nothing.
+    bool sticky_global_known_ = false;
+    /// Desktop place last read, across the desktop.
+    float sticky_global_x_ = 0;
+    /// Desktop place last read, down the desktop.
+    float sticky_global_y_ = 0;
+    /// The next motion at sticky_warp_x_ and sticky_warp_y_ with no timestamp
+    /// is the warp, and the rule ignores it.
+    bool sticky_drop_warp_motion_ = false;
+    /// Where the pointer was last put back, across the window.
+    float sticky_warp_x_ = 0;
+    /// Where the pointer was last put back, down the window.
+    float sticky_warp_y_ = 0;
+    /// Window edge Capture holds the window's grab, so letting go clears it.
+    bool capture_held_ = false;
+    /// Capture waits for a click on the battlefield before it keeps the
+    /// pointer again: after Escape in a match, and after the window lost
+    /// the focus.
+    bool capture_waits_for_click_ = false;
+    /// The window lost the focus while Capture applied, and no press, and
+    /// no key since the focus came back, has come since: a click on the
+    /// battlefield before the focus, or within focus_click_ms after it, only
+    /// gives the window the focus back.
+    bool capture_focus_click_ = false;
+    /// When the focus came back while capture_focus_click_ waits, in
+    /// milliseconds; 0 while it has not.
+    uint64_t capture_focus_gained_ms_ = 0;
+    /// How long after the focus comes back a click is still the one that
+    /// brought it, in milliseconds. A window system sends the two together.
+    static constexpr uint64_t focus_click_ms = 500;
+    /// The button of the focusing click Capture took, whose release it takes
+    /// too; 0 for none.
+    uint8_t capture_swallowed_button_ = 0;
+    /// A middle-click pan: idle, a click still deciding, or a drag. The
+    /// anchor is a screen point.
+    middle_pan::State middle_pan_{};
+    /// The button whose press ended a pan. Its release is consumed too, so a
+    /// left press cannot give its order when the button comes up. Zero is none.
+    uint8_t middle_pan_swallow_button_{0};
+    /// The key that ended a pan also types a character. That character is
+    /// dropped, then this clears.
+    bool middle_pan_drop_text_{false};
     float pointer_x_ = 0;
     float pointer_y_ = 0;
     oa::formats::gaf::Archive cursor_gaf_{};
@@ -14342,6 +16279,15 @@ class Runtime final : public menu::Host,
     uint8_t cursor_index_ = 0xff;
     bool cursors_loaded_ = false;
     bool menu_music_playing_ = false;
+    /// The main menu asked for its hum while it waited for the setup and the
+    /// movies after it (play_menu_voice, start_waiting_menu_hum).
+    bool menu_hum_waiting_ = false;
+    /// The hum has started and no match has stopped it, muted and headless
+    /// runs included; "menu hum: starts" is written as this turns true.
+    bool menu_hum_on_ = false;
+    /// The setup's walk was finished in this run, by Start playing or Skip
+    /// setup (menu_hum_waits).
+    bool setup_finished_ = false;
     // The settings the profile's display rules let the player change.
     view_rules::ViewSettings view_settings_{};
 
@@ -14418,12 +16364,22 @@ class Runtime final : public menu::Host,
     std::unique_ptr<LanguageState, void (*)(LanguageState*) noexcept> language_{
         nullptr, destroy_language_state
     };
+    /// A check's stand-in for queueing a language pack. Null uses the queue.
+    using LanguageDownloadHook =
+        bool (*)(void* context, std::string_view tag, std::string& failure);
+    LanguageDownloadHook language_download_hook_{}; ///< null while the queue is used
+    void* language_download_hook_context_{};        ///< passed to language_download_hook_
     // The captions drawn over the player's own pictures; null until first used.
     std::unique_ptr<PictureCaptionState, void (*)(PictureCaptionState*) noexcept>
         picture_caption_state_{nullptr, destroy_picture_caption_state};
-    // The main menu's OA button and dialog; null until first used.
+    // The main menu's OA button; null until first used.
     std::unique_ptr<EngineSettingsMenuHost, void (*)(EngineSettingsMenuHost*) noexcept>
         engine_settings_menu_{nullptr, destroy_engine_settings_menu_host};
+    // The Library's host and its worker, joined as the runtime goes; null
+    // until first used.
+    std::unique_ptr<LibraryHost, void (*)(LibraryHost*) noexcept> library_{
+        nullptr, destroy_library_host
+    };
     // The player's own folder for this run (start_user_folder); empty
     // before it is chosen.
     fs::path user_folder_;
@@ -14432,13 +16388,31 @@ class Runtime final : public menu::Host,
     std::unique_ptr<UserFolderState, void (*)(UserFolderState*) noexcept> user_folder_state_{
         nullptr, destroy_user_folder_state
     };
+    /// The managed copy's check for this start, filled once the player's
+    /// folder is known.
+    ContentCheck content_check_{};
+    /// OK or Escape closed the content notice for this start. The next start
+    /// shows it again while files differ. Leaving the main menu does not.
+    bool content_notice_closed_{};
+    /// Frames in a row the main menu has shown as itself while the notice waits.
+    uint32_t content_notice_frames_{};
     // The mod packages opened in the game and their prompt; null until first used.
     std::unique_ptr<ModInstallState, void (*)(ModInstallState*) noexcept> mod_install_state_{
         nullptr, destroy_mod_install_state
     };
-    // The in-game menu's OA button and dialog; null until first used.
-    std::unique_ptr<EngineSettingsMatchHost, void (*)(EngineSettingsMatchHost*) noexcept>
-        engine_settings_match_{nullptr, destroy_engine_settings_match_host};
+    // The installed map packs and a map pack's fit check; null until first used.
+    mutable std::unique_ptr<MapPackState, void (*)(MapPackState*) noexcept> map_pack_state_{
+        nullptr, destroy_map_pack_state
+    };
+    // The mounted pack map, the game's names, the fits and the refusals;
+    // null until a pack map is first named.
+    std::unique_ptr<PackMapState, void (*)(PackMapState*) noexcept> pack_map_state_{
+        nullptr, destroy_pack_map_state
+    };
+    // The registries and their catalogues; null until start_content.
+    std::unique_ptr<ContentState, void (*)(ContentState*) noexcept> content_{
+        nullptr, destroy_content_state
+    };
     // The state of the renderer borrowed with its host; null without one,
     // as in a headless run, on a window of the runtime's own or in the
     // second runtime of a loopback check.
@@ -14452,6 +16426,9 @@ class Runtime final : public menu::Host,
     };
     // The gamepads' state; null until a gamepad or the pad check needs it.
     std::unique_ptr<PadState, void (*)(PadState*) noexcept> pad_{nullptr, destroy_pad_state};
+    // The OA layer and its screens; null until first used. Declared after
+    // render_run_, so its textures go before the renderer they belong to.
+    std::unique_ptr<OaLayer, void (*)(OaLayer*) noexcept> oa_layer_{nullptr, destroy_oa_layer};
     bool lifecycle_watch_installed_ = false; // install_lifecycle_watch ran
     // The SDL event type the macOS Settings… item posts; 0 while none is registered.
     uint32_t engine_settings_menu_event_{};

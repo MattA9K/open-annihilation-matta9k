@@ -16,10 +16,16 @@
 # lists, which oa_copy_text_fonts() copies beside a program, into the folder
 # oa::platform::text_font::bundled_font_directory() finds at run time. The list
 # is the module's face_files (oa/platform/text_font.hpp) and the bootstrap's
-# FONT_FILES; the three change together.
+# FONT_FILES; the three name the same files, in Face order. Every base face
+# is required.
+#
+# OA_TEXT_FONT_TESTS_DIR holds the test fixture's face. The build never copies
+# it beside the game. A missing fixture face is reported and does not stop
+# the configuration: the checks that need it fail later and name the bootstrap.
 include_guard(GLOBAL)
 
-set(OA_TEXT_FONT_FILES DejaVuSans-Bold.ttf DejaVuSans.ttf NotoSansCJKsc-Bold.otf NotoEmoji.ttf)
+set(OA_TEXT_FONT_FILES DejaVuSans-Bold.ttf DejaVuSans.ttf
+  NotoSansCJKsc-Bold-Endonyms.otf NotoEmoji.ttf)
 get_filename_component(oa_text_fonts_default "${CMAKE_CURRENT_LIST_DIR}/../local/deps/text-fonts" ABSOLUTE)
 set(OA_TEXT_FONTS_DIR "${oa_text_fonts_default}" CACHE PATH
   "Folder holding the fonts tools/bootstrap_text_fonts.py makes, which the build copies beside the game")
@@ -28,6 +34,18 @@ foreach(font IN LISTS OA_TEXT_FONT_FILES)
     message(FATAL_ERROR "The text font ${font} is not in ${OA_TEXT_FONTS_DIR}. "
       "Run python3 tools/bootstrap_text_fonts.py, which fetches and builds FreeType and the fonts "
       "into local/deps, or name the folder that holds them with -DOA_TEXT_FONTS_DIR=.")
+  endif()
+endforeach()
+# The default follows OA_TEXT_FONTS_DIR, including a path given with -D, so the
+# fixture face sits in the folder beside the fonts the configuration uses.
+get_filename_component(oa_text_font_tests_default "${OA_TEXT_FONTS_DIR}/../text-fonts-tests" ABSOLUTE)
+set(OA_TEXT_FONT_TESTS_DIR "${oa_text_font_tests_default}" CACHE PATH
+  "Folder holding the test fixture's font, which the build never copies beside the game")
+set(OA_TEXT_FONT_TEST_FILES NotoSansCJKsc-Bold-Fixture.otf)
+foreach(font IN LISTS OA_TEXT_FONT_TEST_FILES)
+  if(NOT EXISTS "${OA_TEXT_FONT_TESTS_DIR}/${font}")
+    message(STATUS "The test font ${font} is not in ${OA_TEXT_FONT_TESTS_DIR}. "
+      "Run python3 tools/bootstrap_text_fonts.py, which cuts the test fixture's font.")
   endif()
 endforeach()
 
@@ -54,18 +72,44 @@ else()
 endif()
 message(STATUS "Text fonts: FreeType ${OA_FREETYPE_VERSION}, fonts from ${OA_TEXT_FONTS_DIR}")
 
-# Copies the text fonts into the fonts folder of a directory after a target
-# is built, leaving files that are already current.
+# Stages the text fonts into <directory>/fonts once for that directory, and
+# makes <target> depend on the staging. Programs that share a directory must
+# pass the same <directory> text, generator expressions included: one rule
+# then owns the folder. The rule empties the folder before it copies, so a
+# font the list drops is not left where a program could open it, and nothing
+# else deletes a folder this rule writes.
+#
+# The directory is often $<TARGET_FILE_DIR:...> or another target generator
+# expression. Those are not allowed as the output of a custom command, so
+# this is a custom target and it runs whenever a program that needs the
+# folder is built. A wiped fonts folder is filled again on the next build,
+# and a changed font is copied then too.
+#
+# Two directory texts can still name one folder: in a multi-config build
+# several programs are written into <build>/<config>. The staging rules
+# therefore take turns in one Ninja job pool, so no rule empties a folder
+# another is copying into. The programs themselves still build in parallel.
 #   oa_copy_text_fonts(<target> <directory>)
 # The directory may be a generator expression, such as the game's
 # OA_GAME_FILES_DIR.
+set_property(GLOBAL APPEND PROPERTY JOB_POOLS oa_text_fonts=1)
 function(oa_copy_text_fonts target directory)
-  set(sources "")
-  foreach(font IN LISTS OA_TEXT_FONT_FILES)
-    list(APPEND sources "${OA_TEXT_FONTS_DIR}/${font}")
-  endforeach()
-  add_custom_command(TARGET ${target} POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory "${directory}/fonts"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${sources} "${directory}/fonts"
-    VERBATIM)
+  string(SHA256 oa_font_dir_key "${directory}")
+  string(SUBSTRING "${oa_font_dir_key}" 0 32 oa_font_dir_key)
+  set(oa_font_stage_target "oa-stage-text-fonts-${oa_font_dir_key}")
+  if(NOT TARGET ${oa_font_stage_target})
+    set(sources "")
+    foreach(font IN LISTS OA_TEXT_FONT_FILES)
+      list(APPEND sources "${OA_TEXT_FONTS_DIR}/${font}")
+    endforeach()
+    add_custom_target(${oa_font_stage_target}
+      COMMAND ${CMAKE_COMMAND} -E rm -rf "${directory}/fonts"
+      COMMAND ${CMAKE_COMMAND} -E make_directory "${directory}/fonts"
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different ${sources} "${directory}/fonts"
+      DEPENDS ${sources}
+      COMMENT "Staging text fonts"
+      JOB_POOL oa_text_fonts
+      VERBATIM)
+  endif()
+  add_dependencies(${target} ${oa_font_stage_target})
 endfunction()

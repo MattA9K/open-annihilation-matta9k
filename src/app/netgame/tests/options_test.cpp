@@ -3,13 +3,15 @@
 
 // Network play's long options through oa-game's command line: the loopback,
 // host-not-found, demo and network game options, with the options the engine keeps, none
-// of them without the extension, and "-y", which network play leaves to an
-// extension built on it; the names the frontend's entry takes from a launch;
+// of them without the extension, and "-y", which network play takes and which
+// only skips the intro; the names the frontend's entry takes from a launch;
 // and the multiplayer frontend states' answers about joining and leaving a
 // session.
 #include "oa/app/app.hpp"
 #include "net_options.hpp"
+#include "oa/netgame/dplay.hpp"
 
+#include <array>
 #include <cstdio>
 #include <cstring>
 #include <stdexcept>
@@ -168,9 +170,75 @@ int main() {
     expect(!plain.net.check_host_not_found, "no host-not-found check without the flag");
     expect(!plain.net.dplay_port, "the standard DirectPlay port unless --dplay-port gives one");
     expect(
+        !plain.net.dplay_guid, "Total Annihilation's application GUID unless --dplay-guid names one"
+    );
+    expect(
         parse({"--dplay-port", "51234"}).net.dplay_port == uint16_t{51234},
         "--dplay-port takes a port"
     );
+    const auto guid_bytes = [](const char* spelling) {
+        const auto taken = parse({"--dplay-guid", spelling}).net.dplay_guid;
+        return taken ? *taken : std::array<uint8_t, 16>{};
+    };
+    const auto guid_named = [](const char* spelling) {
+        return parse({"--dplay-guid", spelling}).net.dplay_guid.has_value();
+    };
+    std::array<uint8_t, 16> ta_guid{};
+    std::memcpy(ta_guid.data(), oa::netgame::application_guid, ta_guid.size());
+    const char* braced = "{99797420-F5F5-11CF-9827-00A0241496C8}";
+    const char* bare = "99797420-F5F5-11CF-9827-00A0241496C8";
+    const char* mixed = "{99797420-f5f5-11cf-9827-00a0241496c8}";
+    expect(
+        guid_named(braced) && guid_named(bare) && guid_named(mixed) &&
+            guid_bytes(braced) == ta_guid && guid_bytes(bare) == ta_guid &&
+            guid_bytes(mixed) == ta_guid,
+        "--dplay-guid takes a GUID with or without braces, in any case"
+    );
+    const std::array<uint8_t, 16> custom_guid = {
+        0xdd,
+        0xcc,
+        0xbb,
+        0xaa,
+        0xff,
+        0xee,
+        0x22,
+        0x11,
+        0x33,
+        0x44,
+        0x55,
+        0x66,
+        0x77,
+        0x88,
+        0x99,
+        0xaa,
+    };
+    expect(
+        guid_named("{AABBCCDD-EEFF-1122-3344-5566778899AA}") &&
+            guid_bytes("{AABBCCDD-EEFF-1122-3344-5566778899AA}") == custom_guid,
+        "--dplay-guid stores the first three groups little-endian"
+    );
+    expect(
+        rejection({"--dplay-guid", "99797420-F5F5-11CF-9827-00A0241496C8}"}) ==
+                "--dplay-guid expects a GUID, with or without braces" &&
+            rejection({"--dplay-guid", "{99797420-F5F5-11CF-9827-00A0241496C8"}) ==
+                "--dplay-guid expects a GUID, with or without braces" &&
+            rejection({"--dplay-guid", "99797420F5F511CF982700A0241496C8"}) ==
+                "--dplay-guid expects a GUID, with or without braces" &&
+            rejection({"--dplay-guid", "nope"}) ==
+                "--dplay-guid expects a GUID, with or without braces" &&
+            rejection({"--dplay-guid"}) == "--dplay-guid requires a value",
+        "--dplay-guid rejects anything that is not a GUID"
+    );
+    {
+        oa::app::NetgameContext context{};
+        oa::app::Extension table{};
+        oa::app::fill_option_hooks(table, context);
+        const char* runs = table.text(table.context, oa::app::ExtensionText::usage_runs);
+        expect(
+            runs != nullptr && std::strstr(runs, "[--dplay-guid GUID] ") != nullptr,
+            "--help lists --dplay-guid"
+        );
+    }
     expect(
         rejection({"--dplay-port", "0"}) == "--dplay-port expects a port from 1 through 65535" &&
             rejection({"--dplay-port", "65536"}) ==
@@ -241,10 +309,19 @@ int main() {
           "--net-loopback-check",
           "--net-loopback-watcher",
           "--check-host-not-found",
+          "--dplay-guid",
           "--host",
           "--join"})
         expect(rejection({flag}, false) == std::string("unknown option: ") + flag, flag);
-    // "-y" is not network play's: with network play alone the build refuses it.
-    expect(rejection({"-y"}) == "-y is not handled by this build", "-y is not network play's");
+    // "-y" opens 3.1c's built-in internet lobby, which this game does not
+    // have: network play takes it, and it only skips the intro.
+    const auto lobby = parse({"-y"});
+    expect(
+        lobby.app.launch.skip_intro == 1 && !lobby.net.launch_planned &&
+            !oa::app::start_notes().empty() &&
+            oa::app::start_notes().front().starts_with("-y opens"),
+        "-y skips the intro and is noted"
+    );
+    expect(rejection({"-y"}, false) == "-y is not handled by this build", "-y is network play's");
     return failures == 0 ? 0 : 1;
 }

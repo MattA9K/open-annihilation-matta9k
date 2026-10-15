@@ -11,6 +11,8 @@
 // (netgame-runtime-surface, tools/runtime-surface-baseline.json).
 #pragma once
 
+#include "oa/app/netgame/opened_launch.hpp"
+#include "oa/app/presence_facts.hpp"
 #include "oa/app/runtime.hpp"
 
 #include <cstddef>
@@ -20,6 +22,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace oa::app {
 
@@ -102,6 +105,23 @@ class NetworkPlay {
     /// recording's playback, which follow it from their next line and
     /// setup block. Run every frame.
     void follow_unicode_chat();
+
+    /// Passes this machine's presence record to the battle room
+    /// (multiplayer_bind_presence_record), which sends it to the OA players
+    /// of other machines. Run every frame.
+    ///
+    /// The facts (presence_facts) are read while the multiplayer screens
+    /// show, and on the first call. The record carries this build's version,
+    /// the platform and architecture, the mod and where it was published, the
+    /// sim hash, the game and view hacks with their counts, and Developer
+    /// Mode with its overrides; the host's map pack is the battle room's to
+    /// add. It is written within presence_record_max_bytes less
+    /// presence_map_pack_field_max_bytes, so that the host's pack always
+    /// fits beside it, unless its fixed fields alone need more. A fact that
+    /// breaks the record's rules is left out, with one line on the error
+    /// stream the first time. The battle room is told only when the record's
+    /// bytes change. No setup block carries any of it.
+    void follow_presence();
 
     /// Runs one frame of the network match; nothing without an active match.
     ///
@@ -273,11 +293,14 @@ class NetworkPlay {
 
     /// Selects a map by the name lobbies and recordings use (runtime_netgame.cpp).
     ///
-    /// The name is first tried as a map file stem; otherwise the installed
-    /// maps/*.ota files are searched for that OTA mission name, ignoring case.
+    /// The name is first tried as a map file stem. A name with a package
+    /// suffix then matches only that way, so it is not paired with another
+    /// map's title. Any other name is searched for among the installed maps
+    /// as an OTA mission name, ignoring case.
     ///
     /// @param name Map file stem or OTA mission name.
-    /// @return Whether a map was selected; false for an empty name.
+    /// @return Whether a map was selected; false for an empty name or a
+    ///         suffixed name that is not installed.
     bool select_map_named(std::string_view name);
 
     /// Draws a network load's player bars and ready count over the loading screen.
@@ -420,7 +443,9 @@ class NetworkPlay {
     /// must run only when the option is on, and either way its line must reach
     /// the other machine and the match report. A watching peer's Enter must
     /// open no chat line; a playing peer's "+atm" must follow the option and
-    /// reach this machine the same way. A failure throws std::runtime_error.
+    /// reach this machine the same way. The shared commands and the takeover
+    /// cheats are checked by Runtime::check_console_network_takeover. A failure
+    /// throws std::runtime_error.
     ///
     /// @param peer The other machine of the loopback game.
     /// @param step Runs one networked tick on this machine, and on the peer too
@@ -438,6 +463,22 @@ class NetworkPlay {
     /// @param[in,out] world Match world the departure is posted to.
     /// @param player_id Session id of the player who left.
     void post_departure(oa::World& world, uint32_t player_id);
+
+    // Launch files the system opens while the game runs (runtime_opened_launch.cpp).
+
+    /// Returns what the game plays, for comparing an opened launch's content: the mounted
+    /// base game and expansions where it plays the player's copy, and the mod in play, read
+    /// through Runtime's public methods.
+    ///
+    /// @return the content
+    [[nodiscard]] netgame::RunningContent running_content() const;
+
+    /// Posts a line to the running match's message log, as a notice from no player, through
+    /// the console host the engine hands network play as each match starts.
+    ///
+    /// @param line the line, already in the language shown
+    /// @return false when no match's console host is kept, and nothing was posted
+    bool post_match_line(std::string_view line);
 
   private:
 
@@ -474,6 +515,17 @@ class NetworkPlay {
     const oa::data::mod_profile::ModProfile* bound_profile_ = nullptr;
     oa::base::sha256::Digest bound_sim_hash_{};
     uint8_t bound_lobby_buttons_ = 0;
+    // The presence record bound to the battle room (follow_presence), the
+    // facts it was written from, whether they have been read once, and the
+    // problems with them already reported (one bit each).
+    std::vector<uint8_t> bound_presence_record_;
+    PresenceFacts presence_facts_{};
+    bool presence_taken_ = false;
+    uint32_t presence_reported_ = 0;
+    // The base game, expansions and language the bound record was written
+    // from. They are not part of PresenceFacts. Read through Runtime's
+    // public methods only.
+    std::string presence_content_key_;
 };
 
 } // namespace oa::app

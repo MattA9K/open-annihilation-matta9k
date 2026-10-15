@@ -4,8 +4,12 @@
 // Text drawn with the fonts that travel with the game, through FreeType, the
 // same on every platform: one line of UTF-8 at a pixel size and weight,
 // drawn as coverage, hinted to whole pixels in one bit per pixel, or
-// anti-aliased. Each character comes from the first font of the stack that
-// has it: DejaVu Sans Bold, DejaVu Sans, Noto Sans CJK, Noto Emoji.
+// anti-aliased. Each character comes from the first open font of the stack
+// that has it. The base faces are DejaVu Sans Bold, DejaVu Sans, the endonym
+// face and Noto Emoji. The endonym face is a cut of Noto Sans CJK that holds
+// the languages' own names and the notice shown before a language pack is
+// installed. A language pack may add faces while the stack is open. The full
+// Simplified Chinese face travels with that pack.
 #pragma once
 
 #include <array>
@@ -21,22 +25,53 @@
 
 namespace oa::platform::text_font {
 
-/// The fonts of the stack, in the order a character is looked for in them.
+/// The base fonts of the stack. Values from face_count up are pack faces
+/// (pack_face), added while the stack is open.
 enum class Face : uint8_t {
     dejavu_sans_bold, ///< Latin, Greek, Cyrillic and symbols, bold
     dejavu_sans,      ///< the same scripts with more characters, regular
-    noto_sans_cjk,    ///< Chinese, Japanese and Korean, bold
+    endonyms,         ///< languages' own names and the notice before a pack is installed
     noto_emoji,       ///< emoji, drawn in one colour like any character
 };
 
-/// How many fonts the stack holds.
+/// How many base fonts the stack holds. Pack faces are counted apart.
 inline constexpr std::size_t face_count = 4;
+
+/// The most font faces a language pack may add to an open stack.
+inline constexpr std::size_t most_pack_faces = 4;
+
+/// How a pack's face is drawn.
+enum class FaceRole : uint8_t {
+    ideographs, ///< drawn as Noto Sans CJK is, at the style's least size
+    letters,    ///< drawn at the sans faces' size
+};
+
+/// Returns the pack face added at an index.
+///
+/// face_count keeps meaning the base faces. The first pack face is
+/// face_count, the next one past it, and so on up to most_pack_faces.
+///
+/// @param index the face's place among the pack faces, from 0
+/// @return the face
+[[nodiscard]] constexpr Face pack_face(std::size_t index) noexcept {
+    return static_cast<Face>(face_count + index);
+}
+
+/// Tells whether open requires a base face's file.
+///
+/// Every base face is required. A missing file fails open.
+///
+/// @param face a face
+/// @return true for a base face
+[[nodiscard]] constexpr bool face_required(Face face) noexcept {
+    return static_cast<std::size_t>(face) < face_count;
+}
 
 /// The file of each font in the fonts folder, by Face.
 inline constexpr std::array<std::string_view, face_count> face_files{
     "DejaVuSans-Bold.ttf",
     "DejaVuSans.ttf",
-    "NotoSansCJKsc-Bold.otf",
+    "NotoSansCJKsc-Bold-Endonyms.otf",
     "NotoEmoji.ttf",
 };
 
@@ -66,15 +101,16 @@ enum class Rendering : uint8_t {
 
 /// How a line is drawn.
 struct Style {
-    /// pixels per em of the DejaVu faces, 1..max_pixel_size; Noto Sans CJK
-    /// and Noto Emoji are drawn at related_pixel_size of it
+    /// pixels per em of the DejaVu faces, 1..max_pixel_size; the endonym
+    /// face and Noto Emoji are drawn at related_pixel_size of it
     int32_t pixel_size{14};
     Weight weight{Weight::bold};
     Rendering rendering{Rendering::mono};
     /// pixels added after each character's advance, 0..max_letter_spacing
     int32_t letter_spacing{};
-    /// the least pixels per em Noto Sans CJK is drawn at, 0..max_pixel_size:
-    /// smaller ideographs fill in; 0 leaves it at related_pixel_size
+    /// the least pixels per em an ideograph-sized face is drawn at,
+    /// 0..max_pixel_size: smaller ideographs fill in; 0 leaves it at
+    /// related_pixel_size
     int32_t least_cjk_pixel_size{};
 };
 
@@ -99,8 +135,8 @@ inline constexpr int32_t status_readout_pixel_size = 11;
 /// Pixels per em of the regular sans face beside the labels' and the chat
 /// line's font.
 inline constexpr int32_t label_pixel_size = 11;
-/// The least pixels per em of the CJK face while a Chinese, Japanese or
-/// Korean language is shown, so its strokes do not fill in.
+/// The least pixels per em of an ideograph-sized face while a Chinese,
+/// Japanese or Korean language is shown, so its strokes do not fill in.
 inline constexpr int32_t least_cjk_language_pixel_size = 12;
 
 /// One drawn line: how much of each pixel the text covers.
@@ -127,18 +163,20 @@ struct Placement {
     int32_t advance{}; ///< pixels the pen moves past it, letter spacing included
 };
 
-/// Gives the faces a weight looks a character up in, in that order.
+/// Gives the base faces a weight looks a character up in, in that order.
 ///
-/// Bold looks in DejaVu Sans Bold first, then DejaVu Sans for what it
-/// lacks. Regular looks in DejaVu Sans first. Both then look in Noto Sans
-/// CJK and Noto Emoji. The span lives as long as the program.
+/// This is the base chain, without a pack's faces. Bold looks in DejaVu
+/// Sans Bold first, then DejaVu Sans for what it lacks. Regular looks in
+/// DejaVu Sans first. Both then look in the endonym face and Noto Emoji.
+/// FontStack::chain gives the faces one open stack looks in, pack faces
+/// included. The span lives as long as the program.
 ///
 /// @param weight the weight of the line
-/// @return the faces, the first that has a character drawing it
+/// @return the base faces, the first that has a character drawing it
 [[nodiscard]] std::span<const Face> fallback_chain(Weight weight) noexcept;
 
-/// Gives the pixel size Noto Sans CJK and Noto Emoji are drawn at next to the
-/// DejaVu faces at a size.
+/// Gives the pixel size the endonym face and Noto Emoji are drawn at next
+/// to the DejaVu faces at a size.
 ///
 /// Ideographs stand about as tall as DejaVu's capitals with one or two
 /// rows more, as they do at 12 px beside the 14-px log font: six sevenths
@@ -146,7 +184,7 @@ struct Placement {
 /// is smaller.
 ///
 /// @param pixel_size the DejaVu faces' pixels per em
-/// @return the CJK and emoji pixels per em
+/// @return the ideograph and emoji pixels per em
 [[nodiscard]] int32_t related_pixel_size(int32_t pixel_size) noexcept;
 
 /// Decodes UTF-8 text.
@@ -185,12 +223,59 @@ struct Placement {
 class FontStack {
   public:
 
-    /// Opens the stack's fonts.
+    /// Opens the stack's base fonts.
     ///
-    /// @param directory the folder that holds every file of face_files
-    /// @return the stack; null when a file is missing or FreeType cannot
-    ///         read it
+    /// Every base face is required (face_required). A missing file, a file
+    /// FreeType cannot read, or a file that is not scalable fails the open.
+    ///
+    /// @param directory the folder that holds the files of face_files
+    /// @return the stack; null when a required file is missing or FreeType
+    ///         cannot read a file that is there
     [[nodiscard]] static std::unique_ptr<FontStack> open(const std::filesystem::path& directory);
+
+    /// Adds a pack face, after the ones added already.
+    ///
+    /// @param file the font file
+    /// @param role how the face is drawn
+    /// @return false, changing nothing, when the stack already holds
+    ///     most_pack_faces, or the file is missing, unreadable or not a
+    ///     scalable font; true when the face was added
+    [[nodiscard]] bool add_face(const std::filesystem::path& file, FaceRole role);
+
+    /// Drops every pack face and every glyph drawn from one.
+    ///
+    /// The base faces stay. A face added afterwards may reuse a pack face's
+    /// index; the glyphs of the face that left are not drawn for it.
+    void remove_pack_faces() noexcept;
+
+    /// Returns how many pack faces the stack holds.
+    ///
+    /// @return the count, at most most_pack_faces
+    [[nodiscard]] std::size_t pack_face_count() const noexcept;
+
+    /// Tells whether a face is open.
+    ///
+    /// @param face a base face or a pack face
+    /// @return true when the stack opened it
+    [[nodiscard]] bool has_face(Face face) const noexcept;
+
+    /// Gives the faces a weight looks a character up in, in that order.
+    ///
+    /// Bold: DejaVu Sans Bold, DejaVu Sans, the letters pack faces in the
+    /// order they were added, the ideographs pack faces in that order, the
+    /// endonym face, then Noto Emoji. Regular is the same without DejaVu
+    /// Sans Bold. A face that is not open is left out of the chain, and
+    /// lookup skips one that is closed.
+    ///
+    /// @param weight the weight of the line
+    /// @return the faces
+    [[nodiscard]] std::vector<Face> chain(Weight weight) const;
+
+    /// Tells whether FreeType opens a file as a scalable font.
+    ///
+    /// @param file the file
+    /// @return true when it opens and is scalable
+    [[nodiscard]] static bool face_file_opens(const std::filesystem::path& file);
 
     /// Closes the fonts and the FreeType library they were opened with.
     ~FontStack();
@@ -201,27 +286,49 @@ class FontStack {
     ///
     /// @param character the code point
     /// @param weight the weight of the line
-    /// @return the first font of the weight's chain that has the character,
-    ///         else the chain's first font, which draws its missing-glyph box;
-    ///         empty for a character is_invisible names
+    /// @return the first open font of the stack's chain for the weight that
+    ///         has the character, else that chain's first open font, which
+    ///         draws its missing-glyph box; empty for a character
+    ///         is_invisible names
     [[nodiscard]] std::optional<Face> face_for(char32_t character, Weight weight) const;
+
+    /// Tells whether the stack can draw a text in a weight with no
+    /// missing character.
+    ///
+    /// True when the text is UTF-8 and every character that takes room is
+    /// held by an open face of the stack's chain for the weight. A caller
+    /// uses it to choose between a language's own name and its English
+    /// name. A character that draws nothing is passed over.
+    ///
+    /// @param text the bytes
+    /// @param weight the weight of the line
+    /// @return false when the text is not UTF-8, or a visible character is
+    ///     in no face of the chain
+    [[nodiscard]] bool draws(std::string_view text, Weight weight) const;
 
     /// Gives the rows of a line in a style.
     ///
+    /// The rows are the greatest ascent and descent of the open base faces
+    /// at the size the style draws them. A pack's faces never change them.
+    /// The endonym face is cut from Noto Sans CJK and keeps those rows, so
+    /// a line beside the 14 px bold face has 14 above the baseline and 4
+    /// below.
+    ///
     /// @param style the style; its pixel size must be 1..max_pixel_size
-    /// @return the ascent and descent of the tallest font of the stack at
-    ///         its size; empty for a size out of range
+    /// @return the rows; empty for a size out of range
     [[nodiscard]] std::optional<LineMetrics> metrics(const Style& style);
 
     /// Gives the rows of one face at the pixel size a style draws it at.
     ///
-    /// The sans faces take the style's pixel size. Noto Sans CJK and Noto
-    /// Emoji take related_pixel_size of it, and Noto Sans CJK no less than
-    /// the style's least size. Noto Emoji is set to the style's weight.
+    /// The sans faces and letters pack faces take the style's pixel size.
+    /// The endonym face and ideographs pack faces take related_pixel_size
+    /// of it, and no less than the style's least size. Noto Emoji takes
+    /// related_pixel_size and is set to the style's weight.
     ///
     /// @param face the face
     /// @param style the style; its pixel size must be 1..max_pixel_size
-    /// @return the face's size and rows; empty for a size out of range
+    /// @return the face's size and rows; empty for a size out of range or a
+    ///         face that is not open
     [[nodiscard]] std::optional<FaceMetrics> face_metrics(Face face, const Style& style);
 
     /// Lays a line out without drawing it.

@@ -1,0 +1,753 @@
+# OA UI kit
+
+The OA UI kit (`oa/ui/kit`, `oa::ui::kit`, the library `oa-ui-kit`): one
+look, one scale and one input model for Open Annihilation's own screens.
+Settings and its notices and prompts, the Library, the map browser, the
+download check, the Add registry window, the battle room's card, the Game
+files screen and the folder chooser are built from it, and from version 15
+of the extension table an extension builds its Settings pages, kit
+screens, notices, prompts and match-overlay components from it too
+([docs/extensions/ui-kit.md](../../../docs/extensions/ui-kit.md)). It lays
+a screen out in points at a size class, as one display list of what is
+drawn and which controls a press reaches; draws that list on a canvas at a
+whole scale or at 150%; and turns a pointer, a finger, the keys and the
+wheel into what a screen does, with every control named for automation.
+Nothing in it reads or writes the preferences file, and it never looks a
+word up: a caller passes the text to show. It is provisional until it is
+declared stable (D31): its headers change whenever a screen needs them to
+([Limitations](#limitations)).
+
+## Entry points
+
+Every header below is public, and each is part of the extension table's
+contract from version 15 (`src/app/include/oa/app/extension.hpp`).
+
+- `theme.hpp`: the colour tokens (the settings dialog, the Game files screen
+  and the folder chooser, the touch controls) and the metrics of the three
+  size classes: `compact_metrics`, 0.7.3's, and `regular_metrics` and
+  `large_metrics`, which give the settings dialog, its notices and its
+  prompts more room (their sizes, the padding, the nav list's width and the
+  characters a host's line under a row holds) and keep every other size.
+  The Game files screen's and the folder chooser's tokens (`screen_colour`)
+  are one family with the dialog's. Three that nearly matched the dialog's
+  are now the dialog's: `text` is `colour::text` (e7e8df, was e8eae4),
+  `line` is `colour::control_border` (3a4034, was 3a4037) and `amber` is
+  `colour::lock` (e0b04f, was e8b44c). `background`, `green`, `ink` and
+  `button_text` were the dialog's already; `panel` (232721), `dim` (9aa094)
+  and `red` (e06c5c, the kit's `colour::danger`) are the screens' own.
+- `text.hpp`: the game's two text faces, their width, drawing a line and a
+  boxed line, and the one wrap; `fitting_start`, where the wrap breaks a word
+  wider than a line; `path_break`, a `WordBreak` that breaks a folder's path
+  wider than a line after its last separator that fits (the folder
+  chooser's texts break so); `fit`, a line shortened to a width with the
+  `ellipsis`;
+  and, for a screen drawn in the modern fonts, `TextMeasureHooks` (the app
+  measures with the bundled fonts) with `measured_width` and
+  `measured_line`, which estimate what a null hook leaves out.
+- `layout.hpp`: points, the Auto scale and the three size classes,
+  `layer_viewport` (the scale an Interface size gives a canvas, held to
+  what fits Compact's dialog: a whole step, or 150%,
+  `fractional_scale_percent`, where Compact fits at one and a half; Auto
+  passes 0, or `auto_with_fraction_percent` while 150% is offered), `metrics_of` (a class's metrics, which a screen takes its window's sizes
+  from), `to_canvas` (points as canvas pixels, each edge rounded to the
+  nearest pixel on its own), rows, columns, grids, splits and scroll
+  areas, and the display list, whose `Role`s are listed in `all_roles`, in
+  their order, with `canvas_draws` telling which `paint` draws (every role
+  but those of a screen drawn in the modern fonts). A screen drawn in the modern fonts (the Game files screen and the
+  folder chooser) lays its parts out in canvas pixels at a scale that may
+  be a fraction (`Typesetter`, `canvas_pixels`, `canvas_font`) with:
+  - `text_part`, a text wrapped to a room in a `Lettering` (size, weight,
+    colour and `TextStyle`), at most so many lines, the last ending with an
+    ellipsis, as wide as the room or its widest line (`TextFit`), a word
+    wider than the room breaking where a `WordBreak` such as `path_break`
+    says;
+  - `line_part`, one line fitted to a room and centred on a row;
+  - `button_span` and `button_part`, a button of a `ButtonSpec` (its label,
+    look, `Glyph` and control), and `button_row`, its left and right groups
+    on one line or wrapped from the left (`ButtonRowSizes`);
+  - `icon_part` and `plain_part`, a glyph in a box and a part with no text;
+  - `move_parts`, parts moved down and appended, clipped or not;
+  - `scroll_column`, a column of a fixed top, a body and a fixed bottom
+    placed in an area: one after another, else the body scrolling between
+    the others, else the whole column scrolling, as a `ScrollArea`;
+  - `first_live_part` and `list_part_controls`, the controls of the parts
+    above the last backdrop, the top one first, and the Tab order.
+
+  `hit` takes a `DisabledControl` rule for a disabled control a point lies
+  in: it `passes` the point on to the controls under it (the rule without
+  one, the Game files screen's), or `blocks` it, and the point reaches no
+  control (the folder chooser's).
+- `input.hpp`: a pointer and a finger's reach (in whole points, or in a
+  fraction of a point for a screen at a fractional scale, and by the
+  `DisabledControl` rule, a disabled control the finger is on blocking the
+  press and every search), `mark_states` (the focused and held parts of an
+  `Interaction`), the keys, Tab in a declared order, the arrows by where
+  controls sit (`focus_toward`; given the scroll areas, judged with them
+  laid out whole), the wheel, and a text
+  field's editing: `insert_text` for typed text and `edit_text` for Backspace,
+  Delete, Left, Right, Home and End. For automation, `automation_entries`
+  lists the named controls, and `automation_parts` lists each control
+  followed by the parts of it that take a press of their own (an
+  `AutomationEntry` with `part` set): a switch's halves `<name>.off` and
+  `<name>.on`, a strip's levels where `level_at` finds them, a row of
+  buttons' buttons, and an open drop-down's items at `choice_item`, each
+  named by its control's `Control::parts` word, else its place from 1. A
+  control's rectangle there is the part of it a press reaches. The
+  endpoint lists them after `oa.` (docs/automation.md).
+- `looks.hpp`: how a control looks. A look owns its texts. A text field's
+  state, `TextField`, is its text and its caret. A picture item draws its
+  `PictureLook`'s picture, such as a mod's badge, or else the canvas's icon.
+  `StateIcon` names the state icons: a circled check, a circled up-arrow,
+  a download arrow, a key, and the two maker's marks (the OA badge and
+  the bone). `MakerMark` on a list row draws one of those marks under the
+  row's state icon.
+- `canvas.hpp`: the canvas the components draw on, `Canvas`, in its two
+  forms, and the primitives every draw function draws through: `fill_rect`,
+  `blend_rect`, `outline_rect`, `bevel_rect`, `rule_rect`, `box_text`,
+  `measure_text`, `draw_picture`, `draw_mark`, `clipped` and `placed_at`;
+  and, for a shape worked out at the canvas's own pixels, `covered_pixels`
+  (how many pixels a rectangle covers on either form) and `blend_coverage`
+  (a colour blended through a map of one byte a pixel). `perspective_blit`
+  draws a laid-out rectangle into one reused offscreen buffer and copies it
+  onto the canvas as a trapezoid: one vertical edge keeps its height and the
+  other is shorter, so the rectangle looks turned about its vertical axis,
+  at an opacity. On the crisp form each destination pixel copies the one
+  nearest source pixel. On the smooth form each destination pixel blends
+  the source pixels around its sample. The sample runs from the source's
+  first pixel at the trapezoid's first pixel toward one past the last
+  pixel at the far edge, so a sample between two pixels mixes them by the
+  distance. `scale_blit` is that copy with no turn. The buffer is
+  kept for the thread, grown and never replaced, and a drawing that is
+  already using it draws nothing if it asks for the buffer again.
+- `components.hpp`: the controls, drawn through the canvas's primitives on
+  either form. One button, five looks. `draw_state_icon` draws a state
+  icon, filling a square of a rectangle's shorter side. A circled check,
+  a circled up-arrow, a download arrow and a key are one colour: their
+  rings and strokes, from a design of 24 units (the ring 2 units wide, its
+  outer edge a unit in, every stroke 2.5 units wide with round ends), are
+  worked out at the canvas's own pixels, each pixel's share counted from
+  16 samples in integers, and drawn through `blend_coverage`, so the icon
+  keeps its edges at 1x, 2x, 3x and 150% alike and never scales a picture
+  or a one-bit mark. The bone is a filled shape sampled the same way, in
+  its own colours, and ignores the colour passed in: off-white with a dark
+  outline. The OA badge is the app icon when `set_open_annihilation_mark`
+  has been given one, drawn through `draw_picture` from the copy kept for
+  the mark's size, and otherwise that same kind of shape: a rounded plate
+  with the letters in the lock colour. `paint` draws a display list. The
+  OA button (`draw_oa_button`, `OaButtonLook`) may wear the kit's attention
+  dot, as the main menu's does while updates wait: a disc
+  `oa_button_dot_side` (7) points across in the warning token
+  (`colour::lock`), its outer point a ring in the outline token
+  (`colour::control_border`), `oa_button_dot_inset` (2) points in from the
+  button's top and right edges (`oa_button_dot`), at the canvas's scale.
+  It may also wear a badge in the bottom right (`OaButtonMark`,
+  `oa_button_badge`): the count, "999+" above 999, in the small font on a
+  dark pill, or a spinner of eight places in that pill while the count is
+  not final. The spinner is worked out at the canvas's own pixels, each
+  pixel's share counted from 16 samples in integers, and drawn through
+  `blend_coverage`. `turn` names which place is lit. One full turn is
+  `refresh_revolution_ms` (1.6 seconds), the same period as a refresh mark,
+  measured in time. The badge does not
+  move when the button is pressed, and a button too small to hold it draws
+  none. Without the dot and without a corner mark the button is drawn
+  exactly as before. `draw_menu_icon_button` is the main menu's button
+  at every size: the icon itself, filtered into the square, its clear
+  corners left clear, with no panel and no bevel. Hover and focus draw a
+  ring in the accent that follows the icon's corner
+  (`menu_icon_corner_256`, 56/256 of the side); a press draws that ring in
+  the held accent and shifts the icon by one point. The dot and the badge
+  are the same as on `draw_oa_button`.
+- `chrome.hpp`: the window's face and edge, its header and footer band,
+  the nav list, and a section's heading, row, rule and locked fade.
+- `controls.hpp`: the controls of the Library, the map browser and the
+  battle room's card:
+  - a list row, in its full form (`list_row_height`, a 28-point badge) and
+    its short form (`short_list_row_height`, the Mods row's), with a badge
+    picture, letters or a blank badge, a title and its byline, lines cut
+    with "...", an aside, a chip and tags;
+  - chips in seven states: get, installed, update, playing, online, a
+    problem and a filter, each selectable, hovered and disabled, and
+    `chip_width`. A chip with a state icon (`ChipLook::icon`) draws only
+    the icon, `state_icon_side` (14) points square, in its state's colour
+    (the hint for get, the accent for installed and playing, the lock
+    colour for update), in `control_hover`'s grey while disabled, on the
+    hover face while hovered, and keeps its text for automation. A row
+    places it as it places a chip (`list_row_chip_rect`); a screen whose
+    row icon takes a press adds a control of its own there, before the
+    row's. A row's aside is as wide as its widest entry by the canvas's
+    measure and by the game's fonts', so a version such as "4.8 · rev 3"
+    is never cut on either form;
+  - a pill (`PillLook`, `pill_width`, `pill_height`, `draw_pill`,
+    `add_pill`): a small-font word on a fully rounded ground
+    `chip_height` (12) points high. The word keeps `chip_padding` (4 points
+    at 1x) clear of each semicircle, and an empty pill stays a circle.
+    Playing and active fill the accent and
+    write `on_accent`; neutral and inactive fill a muted ground
+    (`control_hover`) and write the text colour, for "Built in" and for a
+    filter that is off; installed, update and problem fill that same muted
+    ground and outline the word in the colour the chip of that state uses.
+    Hover lightens an accent ground and outlines a muted one; focus
+    outlines the pill in the text colour; disabled is the muted ground
+    under the idle colour and ignores hover and focus. The ends are
+    stepped at 1x on the crisp form and smooth at 150%. A chip stays a
+    rectangle;
+  - a text field, and with the magnifier the search field, its text moved
+    so its caret shows;
+  - tabs with a count, `tab_rects`;
+  - cards with a square preview or a placeholder, chips on the preview, a
+    title and a subtitle, greyed or not, `card_height` and `card_cells`, a
+    grid of as many columns as fit or of a fixed number;
+  - a hover card with the OA mark (the logo when the canvas carries the icon,
+    otherwise the one-bit mark), a title and an aside, label and value
+    rows, a quiet block and an arrow from any edge, `hover_card_size`,
+    `hover_card_rect` and `hover_card_due`, which says when the pointer has
+    rested on one control for `hover_card_delay_ms` (400);
+  - a link, `link_width`.
+
+  Each has a draw function and an `add_*` that puts it in a display list
+  with its name, kind and Tab place; `paint` draws them.
+- `components_more.hpp`: the notice and the question (the settings
+  dialog's notice and prompt): their models, placement at their size class
+  (`Notice::size_class`, `Question::size_class`), display lists, pointer,
+  finger and key events and drawing, and the progress bar. A
+  notice's and a question's `word` (`notice` and `prompt` unless the code
+  that raises it gives its own, as the missing-language question's
+  `language-notice`) starts its controls' names: a notice's `<word>.ok` and
+  `<word>.open`, a question's buttons `<word>.<id>` by their
+  `QuestionButton::id`, or `<word>.button-<n>` from 1 without one, and
+  both's text `<word>.body`, a control of kind `area` that is neither
+  enabled nor focusable, so that no press, finger or key reaches it, whose
+  text is the title, the paragraphs and the failure, one a line. The work
+  dialog is the same panel with no buttons: a title, one line and either a
+  bar (`progress` of 0 to `question_progress_whole`) or a spinner
+  (`progress` of -1, `work_spinner_side`, `draw_spinner`). Its word is
+  `progress` and its one control is `<progress>.body`, the same kind of
+  area. The spinner is drawn directly and is not a role of the display list.
+- `rows.hpp`: declared rows. A settings page is a table of `RowSpec`s,
+  each made by a factory that takes the row's id first: `toggle`, `choice`,
+  `slider`, `levels`, `value_and_button`, `buttons`, `text_field`, `link`
+  and `text`, bound to a model's fields or to its get and set functions:
+
+  ```cpp
+  constexpr std::array<kit::RowSpec<Downloads>, 3> kDownloadsRows{
+      kit::choice("check-updates", "Check for content updates", &Downloads::check, kCheckCaptions),
+      kit::toggle("install-id-on", "Install ID", &Downloads::install_id_on, {"A random number."}),
+      kit::value_and_button("install-id", "", install_id_text, "RESET", "reset", kResetId),
+  };
+  ```
+
+  A row bound to a preference is a `PreferenceRow` (`RowSpec<PreferenceModel>`).
+  `preference_toggle`, `preference_choice`, `preference_slider` and
+  `preference_text_field` take the row's id, its label, its key, its default
+  text and its hint; a choice also takes its choices' ids and captions, a
+  slider its range and step. The model holds an
+  `oa::platform::preferences::Values`. A missing or malformed stored value
+  reads as the default. A toggle stores `1` or `0`, a choice one of its
+  choices' ids, a slider a decimal on its step, and a text field the player's
+  text up to 256 bytes. A key is dotted words of a to z, 0 to 9 and hyphens,
+  at least two words, at most 64 bytes, and it does not start with
+  `open-annihilation.`. `preference_key_problem` names a key that is refused.
+
+  `view_of` reads a row's `RowView` from its spec and the model through the
+  caller's text function; `place_rows` places a column of views,
+  `rows_scroll` and `scroll` scroll it, and `add_rows` lists what the rows
+  draw and their controls, named `<prefix>.<id>`. A drop-down's items and a
+  strip's levels have ids too, beside their captions: an index field's
+  `choice_ids` (the `choice` factory that takes them) and a stepper's `id`
+  function (`row_choice_id` reads either). `add_rows` gives a control its
+  levels' or items' ids, or a row of buttons' `button_ids`, as its parts'
+  words, which automation names its parts by. `step`, `activate`,
+  `press`, `drag`, `choose`, `type` and `edit` change the model as a row's
+  control is used.
+
+- `first_run.hpp`: the pieces a first-run flow is built from. The words
+  arrive already looked up. Reduced motion is `Frame::reduced_motion`, off
+  until a later Settings row sets it. The kit does not read preferences: a
+  screen copies the flag onto the look, and the draw functions read the look.
+  - A language card (`draw_language_card`, `language_card_layout`,
+    `add_language_card`): a tall card. The badge is centred at the top
+    (the pack's picture, or the language's letters on the hint grey,
+    accent while the card is active). Under it, centred, the language's
+    own name, large and shrunk until it fits, its English name, a facts
+    line and a pill centred at the bottom. A facts line wider than the
+    card wraps onto the next small line, above the pill, so the whole
+    line is shown. An active card, and the carousel's chosen card once it
+    faces the player (`CarouselLook::chosen`; with none, the centre card),
+    have an accent border and a one-point accent ring outside it. The
+    pill follows `LanguageAvailability`. Built in, get, downloading and
+    checking are neutral; active uses the accent pill and an accent badge;
+    a failed fetch uses the problem pill; offline is neutral and the card
+    is dimmed. Hovered, held and disabled change the face. A progress bar,
+    when the layout leaves room for one, sits under the card and is the
+    kit's own progress bar, not part of the card.
+  - A carousel (`draw_carousel`, `carousel_fit`, `carousel_places`,
+    `carousel_go`, `carousel_tick`, `carousel_key`, `carousel_command`,
+    `carousel_pointer`): cards in a ring. The centre card faces the player.
+    Each step out turns 18°, falls back and shrinks. A card stays fully
+    opaque through two steps, so its name can be read and a floor drawn
+    behind the carousel does not show through the face, and fades out over
+    the third step. Two cards show on each side. A move takes 0.5 s and
+    eases out. The place at a time is the same however many frames drew it.
+    `carousel_settle` puts the centre on the selected card with no move, for
+    the moment the carousel is first shown. Reduced motion slides the cards
+    flat. The arrows are the caller's
+    buttons. A pager of one bar a card lights the bar nearest the centre.
+    Left and Right move one card, Enter on the centre picks it, a press on
+    a side card centres it, and a swipe of 24 points or more moves one
+    card. Shoulders and a stick are not keys: the host fills a
+    `CarouselCommand` and `carousel_command` applies it. Each card and each
+    arrow is a control.
+  - A step indicator (`draw_step_indicator`, `step_indicator_width`): the
+    step's name and "N OF M" in the small font, letter-spaced, and one
+    segment a step, lit from the first up to the current one.
+  - The setup window (`draw_setup_chrome`, `setup_buttons`): the kit
+    window's header (the mark, "Open Annihilation", a muted page word and
+    the step indicator at the right; without `SetupChromeLook::brand`, the
+    page word at the left and the step indicator) and its footer (Skip
+    setup, a quiet button on the left, then Back and an accent Next). It
+    spans the window and is drawn from the canvas's origin.
+  - A choice card (`draw_choice_card`, `choice_step`): a radio row with a
+    title and a hint, idle, hovered, held, chosen and disabled. Up and Left
+    move to the previous row of a group and Down and Right to the next,
+    held inside the group.
+  - A coach mark (`draw_coach_mark`, `place_coach_mark`) and its spotlight
+    (`draw_spotlight`): a numbered card with an accent border and a
+    one-point accent connector to a target rectangle. The card is placed to
+    the right of the target, then the left, then below, then above, with a
+    gap of 8 points, so it stays in the room and never covers the target.
+    The spotlight dims the layer to 74 percent of the backdrop except a
+    cut-out around the target, which keeps an accent ring.
+  - A picture well (`draw_picture_well`, `picture_well_layout`): a one-point
+    border, a 6-point inset the caller draws into, scaled with `scale_blit`,
+    and a caption under it. The kit ships no picture for it. A sample may
+    fill the inset with a stand-in pattern.
+  - A call to action (`draw_call_to_action`): an accent button for a flow's
+    last step. It brightens to the light accent and sends out a ring every
+    1.8 s, from the time. Reduced motion holds a steady ring. Disabled, it
+    is the disabled button and sends no ring.
+
+- `gallery.hpp`: the UI kit gallery (see [Gallery](#gallery)):
+  `GalleryModel`, `gallery_layout`, `draw_gallery`, `gallery_act` and
+  `gallery_text_field`, and its fixed samples' `gallery_version` and
+  `gallery_languages`.
+
+### The parts of a screen drawn in the modern fonts
+
+The display list's `Item` has what such a screen draws besides the crisp
+canvas's fields: `lines` (its text, already wrapped), `pixel_size` and
+`bold`, `style` (a `TextStyle`: header, title, subtitle, lead, body, small,
+row title, row detail, button or mark text), `glyph` (a `Glyph`: folder,
+device, disk, clock, warning, check, cross, dash, info, stop, play, trash,
+refresh, plus, file or the OA mark) and `glyph_size`, and `fraction` (a
+progress fill's share). Its colour is one of the screen's tokens
+(`screen_colour`), and its clip the scrolled view. The roles such a screen
+draws besides `text`, `button` and `toggle`, from those fields rather than a
+look, are `header_bar`, `badge`, `header_text`, `version`, `title`, `panel`
+(a card or a panel of rows; the kit's `card` is a grid's card, drawn from its
+`CardLook`), `icon`, `banner`, `row`, `divider`, `button_main`,
+`button_danger`, `progress_track`, `progress_fill` (the kit's `progress` is a
+whole bar drawn from its `ProgressLook`), `progress_busy`, `backdrop` and
+`sheet`. Their painter is the screen's own; `paint` draws nothing for them on either
+form of the canvas.
+
+## The canvas's two forms
+
+A `Canvas` draws in one of two forms, and the components keep one set of
+draw functions for both: each draws through the canvas's primitives, and
+only the primitives know the form.
+
+- The crisp form, a canvas with a `surface`, draws with the artless painter
+  at a whole scale (`placement.scale`) in the game's own fonts, the modern
+  faces drawing only the characters they lack. It is the 0.7.3 look, pixel
+  for pixel at every whole scale, and the OA layer draws with it at 100%,
+  200%, 300% and 400%.
+- The smooth form, a canvas whose `smooth` has a painter, draws with the
+  painter of `oa/ui/paint` into an RGBA canvas at a scale in percent
+  (`SmoothCanvas::scale_percent`), in the bundled modern fonts
+  (`SmoothCanvas::fonts`). The OA layer draws with it at 150%, which the
+  game's bitmap fonts cannot take: they are never scaled by a fraction.
+
+Places stay in points on both. On the smooth form a point's edge is
+`lround(point * scale)` (`to_canvas`, a half away from zero), each edge of
+a rectangle rounded on its own, so a fill covers whole pixels, two fills that
+share an edge in points share it in pixels, and a 10 by 10 point fill at
+1.5x covers 15 by 15 pixels. An outline, a raised edge and a rule are
+`max(1, lround(points * scale))` whole pixels thick, two at 1.5x, from
+their first edge. A one-bit mark is a fill of each set point. A coverage
+map is one byte a pixel the form draws at: on the crisp form a rectangle's
+points times the whole scale, on the smooth form the pixels its rounded
+edges cover; so a state icon is worked out at 2x or 1.5x as finely as the
+pixels allow, never scaled up from 1x. Text is drawn
+antialiased at `lround(smooth_text_points * scale)` pixels per em: 12 points
+for the regular font, drawn bold as the game's heavy title, label and value
+font is, and 10 for the small one, so 18 and 15 pixels at 1.5x; tracking is
+`lround(tracking * scale)` pixels. Its capitals are centred on its box's
+height as the game font's are. A text wider than its box at that size keeps
+its size; the kit records it (text_fit_records) so a check can name the
+screen. Recording is off in a release build.
+`measure_text` gives the smooth width in points, rounded up. A picture,
+such as the Open Annihilation icon, is drawn filtered, never by the nearest
+pixel. A clip is the clipped rectangle's pixels, and `placed_at` moves the
+origin in points.
+
+The layout, the hit tests and the display list are the same on both forms:
+the game's fonts measure the texts in points whichever form draws them.
+
+## Gallery
+
+The gallery shows every component of the kit at the scale and size class of
+its frame, once working on its own model and once in each fixed state, so
+that a change to a shared component shows up there, and in its one golden
+frame for each class, before it shows up across the screens. The extension
+chapter shows it at Compact, Regular and Large, in the pictures its check
+takes ([docs/extensions/ui-kit.md](../../../docs/extensions/ui-kit.md#the-gallery)).
+
+- **What it shows.** One window over the whole frame: the face, the header
+  (the OA mark, "Open Annihilation", "UI kit gallery" and the class and
+  scale, such as "Large · 1x", in the lock colour), the footer band with
+  CLOSE, and the edge. Between them the sections, each under its heading
+  and a rule: First run (a carousel of language cards, turned, with an
+  arrow on each side and a pager; language cards in each pill state; choice
+  cards; the setup window with Skip setup, Back and Next; a coach mark and
+  the spotlight under it; a picture well; a call to action; and a step
+  indicator), Window chrome (an OA window over a darkened screen, its
+  header saying `v1.2.3`, never the build's version), Tabs, Buttons (the
+  four looks, a link), Toggle, Level strip, Drop-down (one shown open with
+  an aside), Slider, Search field (and a plain text field), Chips (every
+  state), Pills (playing, neutral, installed, update and problem, each a
+  word on a rounded ground and none taking a press), Progress, Nav list,
+  List rows, Scroll list, Card grid, Hover card,
+  Section, label and hint, Lock, Notice, Question and OA mark (the OA
+  button with and without its dot, the mark alone, the icon and every
+  one-bit mark). They flow into the shortest column: one at Compact, two
+  at Regular, three at Large, and scroll between the header and the footer
+  where they are taller than it. A notice, a question and the window
+  chrome's sample are drawn from their own origin (`GalleryPanel`), as the
+  kit draws their header and footer from a canvas's origin.
+- **Working and fixed samples.** Each interactive component appears once
+  working on `GalleryModel`, named `gallery.<section>.<n>` from 1: tabs
+  switch, the button, the link and the OA button count presses, the switch
+  flips, the strip steps, the drop-down opens and chooses a language, the
+  slider moves and drags, the search field takes typing, filter chips turn
+  on and off, nav entries, rows and cards are chosen, and the scroll list
+  scrolls, the carousel's arrows and cards
+  (`gallery.carousel.previous`, `gallery.carousel.next` and
+  `gallery.carousel.card.<tag>`) move which card is centred, a choice card
+  is chosen, and the language card, Skip setup, Back and Next
+  (`gallery.setup.skip`, `gallery.setup.back`, `gallery.setup.next`) and
+  the call to action take a press. CLOSE is `gallery.close`, last in Tab's
+  order. Each appears again in each fixed state, which takes no input:
+  idle, hovered, pressed, focused (with the focus ring), disabled (its
+  disabled look, or the locked fade over it), and locked where it has a
+  lock. The sample texts are fixed: "Sample Mod" by "the sample team",
+  "Example Maps", "Another Mod", "Third Mod", English, Deutsch, Español,
+  Français and 日本語, a Ridge card ("From Ridge · Coverage 100%"), choice
+  cards "Ridge pack" and "Not now", a coach mark "Library", a picture well
+  captioned "Library, Active" and a call to action "Start playing". Nothing
+  in the gallery reads or changes a setting.
+- **How its test guards the kit.** `ui-kit-gallery` lays it out at Compact
+  (640 by 480 points at 1x), Large (1280 by 720 at 1x) and Regular (960 by
+  540 points at 2x), and fails when a role of `all_roles` that `paint`
+  draws has no part in it, naming the role: a component added to the kit
+  without a sample in the gallery breaks it. Every component role whose
+  parts draw a control shows idle, hovered, pressed, focused and disabled;
+  every part lies in the frame or its scroll area; no two controls
+  overlap; Tab visits every focusable control once in the declared order;
+  Down goes to the nearest control below; the names are sound and start
+  with `gallery.`; no text holds the build's version; and toggling,
+  choosing and typing change the model alone.
+- **How to open it.** Settings › Developer's UI kit gallery row: SHOW
+  (`oa.settings.kit-gallery.show`) opens it on the OA layer, modal, over
+  the whole window, on the main menu or in a match; Escape or CLOSE goes
+  back to Developer. The automation endpoint names it `oa.gallery`. The
+  native check `native-kit-gallery` and a stage's `gallery` line open it
+  too ([src/app/README.md](../../app/README.md)).
+
+## State
+
+None: every model is the caller's. The kit keeps nothing between calls and
+writes no file and no setting. A screen holds its own model (a settings
+page's values, the gallery's `GalleryModel`, a notice's or a question's
+marked button), its `Interaction` (the hovered, held and focused control),
+its fields' text and caret, its scroll offsets and its hover card's timer,
+and passes them in; the kit's functions read them and change only what they
+are handed. A preference row reads and writes the `PreferenceModel` its
+caller fills from the preferences and saves. `load_game_fonts` reads the
+game's font files, and the canvas draws on the surface or the painter its
+caller gives it. Reduced motion is `Frame::reduced_motion`. It comes from
+a later Settings row, and the kit does not read that row: a screen copies
+the flag onto a carousel's look and a call to action's look. Off, the
+default, the carousel turns and the call to action sends out a ring. On,
+the carousel slides flat and the call to action holds a steady ring.
+
+## Invariants
+
+- Compact is 0.7.3's pixels. At Compact, on the crisp form at 1x, the
+  settings dialog, its notices and prompts and the OA button draw exactly
+  the pixels 0.7.3 draws: `ui-engine-settings-pixels` and
+  `ui-engine-settings-pixels-data` hold their hashes in fixed states to
+  `src/ui/engine-settings/tests/pixels.txt`, which changes only when a
+  change to their look is accepted.
+- Compact metrics are 0.7.3's exactly, for the controls 0.7.3 has. Regular
+  and Large metrics differ from them only in the sizes the design's table
+  gives the classes, and in the first-run language card and the carousel's
+  step; rows, text and the other controls keep Compact's sizes, so a
+  larger class shows more rows instead of growing them.
+- Every token's value is pinned by `ui-kit-theme`.
+- One wrap. Its rules are the only differences between its callers.
+- The kit never looks text up in the interface catalogue. Callers pass what
+  to show. A button's caption, a switch's OFF and ON, a strip's captions, a
+  menu's items, a header's words, a nav entry, a row's label and hints, a
+  chip's, a tab's, a card's, a hover card's and a link's words arrive
+  already looked up. A text field holds the player's own text. A notice's
+  title, lines and captions pass through the look-up its caller hands it,
+  when one is handed: the notice wraps the words it was given and shows
+  each line as the look-up returns it, as the settings dialog's notice
+  always has. A question's texts are drawn as given.
+- The new controls use only kit tokens, and their sizes are
+  `compact_metrics` members. The design's components mockup is drawn in web
+  colours; the kit draws them so:
+
+  | Mockup | Kit token |
+  |---|---|
+  | lime | `colour::accent` |
+  | lime ink | `colour::on_accent` |
+  | amber | `colour::lock` |
+  | red | `colour::danger` (e06c5c, the Game files screen's red) |
+  | blue | `colour::online` (6ea8d6) |
+  | dim | `colour::hint` |
+  | line | `colour::control_border` |
+  | line2 | `colour::control_hover` |
+  | field | `colour::well` |
+  | panel2 | `colour::list_selected` |
+  | the hover card's ground | `colour::band` |
+  | a selected row's tint | `colour::accent` blended at `selected_tint` (15/256) over the face |
+
+- A text field's text is well-formed UTF-8 without control characters, and
+  its caret stands on a character boundary: `insert_text` refuses anything
+  else whole, and `edit_text` deletes and steps over whole characters.
+- `kit::Key` keeps the settings dialog's keys' values up to No; the editing
+  keys, Backspace and Delete, follow it, and then the information key,
+  Info, which the OA layer gives F1 outside a match. `key` does nothing
+  with Info, as with Yes and No: a screen that has more to tell about what
+  the pointer or the focus is on answers it before it calls `key`.
+- A hover card is due only once the pointer has rested on one control for
+  `hover_card_delay_ms`. The timer is the screen's: the kit keeps none.
+- A notice and a question place their parts from the Compact metrics, but
+  for their width and greatest height, which are their size class's: their
+  text wraps at the wider width, and their buttons keep their sizes. A
+  question's buttons are as wide as their captions at the estimated width,
+  whatever the fonts, so a press lands where a button is drawn. Their
+  events hit and reach through `hit` and `reach` over the same controls
+  their display lists hold: a notice's OK before its open button, a
+  question's buttons left to right.
+- One button, five looks: accent, plain, quiet, inset, and plain while
+  disabled. The kit chooses every colour. A caller passes the style and
+  whether the pointer is over the button or holds it.
+- `paint` draws a display list's items in the list's order. A control is
+  added with its automation name.
+- Two backends, one set of components. The crisp form of the canvas draws
+  every whole scale exactly as 0.7.3 does, in the game's fonts; the smooth
+  form, for 150%, puts every rectangle's edge on a whole pixel, draws its
+  text in the modern fonts and never scales a game font. Both draw through
+  the same primitives, from the same draw functions, and lay out the same
+  ([The canvas's two forms](#the-canvass-two-forms)).
+- The display list is the only record of what a screen drew and where its
+  controls are. Hit testing reads `controls`. Drawing reads `items`.
+- Every control of a kit screen carries a name unique on its screen,
+  ignoring case: words of a-z, 0-9 and hyphens joined by dots, at most 100
+  bytes. Names are lower case, so two that differ differ ignoring case too;
+  `name_problem` reports the first fault. The automation endpoint adds its
+  own prefix; the name here has none. A part of a control is named after
+  it with one word more, from the code's own words (a row's, a choice's or a
+  button's id), never from a text as shown.
+- A column of rows is placed exactly as the settings dialog places a
+  section's rows: `ui-kit-rows` holds rows shaped as Controls', Graphics' and
+  Developer's to the dialog's own placement, and U08 proves it on every page.
+- A row's kind is its spec's `kind`, and nothing else decides it. A spec
+  has an id, one word of a-z, 0-9 and hyphens; a table built at compile time
+  with a malformed id does not compile.
+- A `RowView` and the display list own their texts: they keep nothing of
+  the spec or the model.
+
+The arrows move by where controls sit. A control's own scroll area is searched
+first, including rows the area does not show. The focus leaves that area only
+when nothing in it lies that way, and a move from outside never lands on a
+row the area hides. A control in no scroll area, such as a footer button or
+an entry of a section list, has no area of its own: every control that shows
+is searched at once. Given the scroll areas (`focus_toward` with `areas`),
+the arrows judge every control where it lies with the areas laid out whole:
+a row moved back by its area's offset, a control under an area's view moved
+down by its limit, every row a candidate whether its area shows it or not,
+so that from a button under a list Up reaches the list's last row, as the
+folder chooser's arrows do. Tab follows the declared order and wraps. Up and Down
+never follow that order. Left and Right go to a focused text field, which
+moves its caret, as do Home, End, Backspace and Delete. Tabs and cards do not
+take Left and Right: the arrows move the focus between them. Enter goes to a
+focused button, link, list row or tab.
+
+## Tests
+
+`ui-kit-theme` checks every token against the value it replaces (the
+screen's text, line and amber against the dialog's text, control border and
+lock), the Compact metrics against 0.7.3's numbers, Regular's and Large's against the
+design's table of sizes and that they differ from Compact's in nothing
+else, and that each class's dialog and notices fit the least window of their
+class. `ui-kit-text` checks the UTF-8
+helpers, the estimated width, the stand-ins, the wrap against copies of
+the six wraps it replaces, `fit` and `fitting_start` against the Game files
+screen's copies, `path_break` at its separators and against the folder
+chooser's copy, and the modern fonts' measure through its hooks and
+without them. `ui-kit-layout` checks the Auto scale, the design's
+window sizes, the Interface size's examples and Auto at each window, 150%
+where Compact fits at one and a half and 1x where it does not, that
+`metrics_of` gives each class its metrics, `to_canvas`'s rounding at 1.5x,
+arrangements, the scroll arithmetic and hit testing (a disabled control
+passing a point on or blocking it), and each helper of a screen drawn in the
+modern fonts with a made-up measure: points to canvas pixels, a text part's
+wrap, line limit, fit and path break, a line part, a button's span, label and
+look, a row of buttons on one line and wrapped, icons, plain parts and moved
+parts, the three ways a column is placed, and the controls listed from parts
+under and above a backdrop.
+`ui-kit-smooth` checks the smooth form at 1.5x: a coverage map landing on
+the pixels a rectangle covers, a state icon inside its square's pixels
+with smoothed edges, a 10 by 10 point fill
+covering exactly 15 by 15 pixels from `lround(x * 1.5)`, at even and odd
+points, fills sharing their edges, outlines, raised edges and rules of whole
+pixels, text measured wider than at 1x and narrower than at 2x, drawn
+antialiased with its capitals centred, the regular font bold, a text too
+wide for its box drawn at full size and recorded, tracking, a clip that keeps what
+lies outside it, a picture drawn filtered, a mark, a moved origin, and a
+button and a display list drawn through the same functions as on the crisp
+form. Its text checks read the bundled fonts beside the test.
+`ui-kit-input` checks reach (with a reach of a fraction of a point too, and
+a disabled control blocking a finger), `mark_states`, the pointer, Tab, the
+arrows (with a scroll area laid out whole too), the keys and
+their values, the wheel's fractions, the names, the parts automation lists
+(a switch's halves splitting it, a strip's levels where `level_at` finds
+them, an open drop-down's items at `choice_item` and a screen's own item
+control listed once, a menu with a divider naming the other items by their
+ids and naming the divider not at all, a row of buttons' buttons and a
+clipped control's press area), and a text field's typing and editing over
+characters of one to four bytes. `ui-kit-components` checks each control's
+pixels, the OA button's dot at 24 and 32 points in every look, with and
+without the icon, at 1× and 2× (the button drawn without it unchanged, and
+with it differing only inside the dot's square), that `paint` matches a
+direct draw, and the controls' geometry,
+including a menu row that is a divider, one with a right-aligned aside and
+one that cannot be chosen.
+`ui-kit-chrome` checks the header, the footer band, the nav list, a row's
+frame and the locked fade, and that `paint` matches those direct draws.
+`ui-kit-controls` checks each new control's pixels in the tokens above with
+a synthetic font: list rows in both forms, every chip state, the three
+state icons at 1x and 2x (inside their square, worked out at 2x rather
+than doubled, whole and smoothed pixels, the ring and the download
+arrow's shaft where the design puts them), a chip with a state icon in
+each colour and its place in a row, a row's aside keeping a whole
+version, the field's
+placeholder, caret and scrolling, tabs with and without a count, cards and
+their grid at three widths and at 3, 4 and 6 columns, the arrows through a
+grid of cards, the hover card with an arrow on each side, its place in a
+frame and its delay, and links; and that every `add_*` names its controls
+and `paint` matches the direct draws.
+`ui-kit-notices` checks where six notices and six questions place their
+parts against the settings dialog's own placement, their display lists'
+names, kinds and Tab order, a word of their own (`language-notice`) and
+their text's control, which changes what no press or finger finds at any
+point of the box, where a finger lands, every key (the editing
+keys and Info, which do nothing, among them), that `paint` matches `draw_notice` and
+`draw_question`, and the progress bar's fill.
+`ui-kit-rows` lays out, draws, focuses and changes a page of every row
+kind from a table: the placement of rows shaped as the settings dialog's
+Controls, Graphics and Developer sections, with the game's fonts and the
+modern fonts' taller hints, locked and not, against values computed with
+the dialog's own placement, and the scroll against the dialog's; the names,
+kinds, Tab order and drawing order of the display list; the ids of a
+drop-down's items and a strip's levels, and the parts they name; rows of two models
+in one column; every event on every kind; and the page painted.
+
+`ui-kit-gallery` checks the gallery at Compact, Large and Regular, as
+[Gallery](#gallery) says: every drawn role of `all_roles` present, five
+states of every component role that takes input, every part in the frame
+or its scroll area, no two controls overlapping, Tab and Down, the names,
+no text holding the build's version (which the test is given), and the
+working samples changing the model alone; and that it draws.
+`ui-kit-first-run` checks the perspective blit (a turned edge shorter than
+the near one, an opacity, a clip, a nested blit that draws nothing, and a
+smooth copy that is filtered), that a carousel's place at a time is the
+same however the time was sliced, where a choice group steps and where a
+coach mark sits, and that every first-run component draws at Compact,
+Regular and Large, on the crisp form and at 150%, with its states differing.
+
+The module's ctests are those twelve: `ui-kit-theme`, `ui-kit-text`,
+`ui-kit-layout`, `ui-kit-input`, `ui-kit-components`, `ui-kit-chrome`,
+`ui-kit-controls`, `ui-kit-notices`, `ui-kit-smooth`, `ui-kit-rows`,
+`ui-kit-gallery` and `ui-kit-first-run`, none of which needs the game's
+data. Others guard the
+kit from its users: `ui-engine-settings-pixels` and
+`ui-engine-settings-pixels-data` pin Compact's pixels
+([Invariants](#invariants));
+`native-kit-gallery` opens the gallery from Settings › Developer on
+640x480, 1280x720 and 1920x1080 windows and checks its class, scale and
+pixels, with game data; `screen-registry` checks the registrations an
+extension makes; `native-registered-kit` checks a page, a kit screen, a
+notice and a prompt registered from inside the engine; and, in a build
+configured with `-DOA_RECORD_EXTENSION_HOOKS=ON`, `extension-kit` checks
+the Kit fixture, a test extension that uses the kit through the extension
+table alone (`tests/extension/kit_fixture.cpp`).
+
+## Limitations
+
+The kit is provisional until it is declared stable (D31), a decision of its
+own that is not tied to a release: until then it changes whenever OA's
+screens need it to, and the rework that follows is expected, in the
+engine's screens and in any extension that uses it. Each header says so in
+its first comment. From version 15 its public headers are part of the
+extension table's contract (`OA_EXTENSION_API_VERSION`, in
+`src/app/include/oa/app/extension.hpp`): a change to one before 0.8.0, the
+first release that carries version 15, keeps 15 and updates the engine's
+own followers and test extensions in the same change; from 0.8.0 on, any
+change to a kit header raises the version.
+
+The compact picture is the first-run section, which spans that window at
+the cards' real size, so the sections under it sit further down. Its
+choice-card states sit over the footer, clear of CLOSE. The regular picture
+shows First run and the headings of the next sections. The large picture
+shows First run and the tops of Window chrome, Tabs and Buttons. A facts
+line wider than its language card wraps onto the next small line above the
+pill. The Chips section shows the two maker's marks, the OA badge and
+the bone, as chips with no control. The other state icons are reviewed in
+the Library's pictures (`oa-ui-library-draw-test --frames`).
+
+Text is laid out and drawn left to right, one character after another, in
+the order it is stored: the kit has no right-to-left or bidirectional
+layout, and no screen is mirrored. 150% is the only fractional size, and
+only on the smooth form in the modern fonts; every other scale is a whole
+step.
+
+The metrics hold the settings dialog's, its notices' and its prompts' sizes
+for each class (`regular_metrics`, `large_metrics`, `metrics_of`); the
+Library's and the map browser's are theirs to add. A drop-down's open menu
+keeps above the footer line it is given (`choice_menu`), the Compact
+settings dialog's unless a larger dialog gives its own. A menu item may be
+a divider, drawn as a section heading and skipped by the focus, with no
+automation name; an item may carry a right-aligned aside, clipped before it
+meets the label; and an item may be greyed so a press does not choose it
+(`ChoiceMenuRow`). The smooth form lays
+the screens out in the game's fonts' widths and draws them in the modern
+fonts, so a text that would not fit its box is drawn a little smaller; the
+only fractional scale the layer offers is 150%. The arrows' rule is one function, its weight named, and is to be
+tuned after controller playtests (D30). The look of the list rows, chips, fields, tabs, cards,
+hover cards and links follows the design's components mockup in the kit's
+tokens; it is reviewed in the gallery ([Gallery](#gallery)) and pinned by
+golden frames (U17). A field takes typed text and the editing keys; it has no selection,
+no clipboard and no press that places the caret.
+A row of buttons takes up to three, with Your files' widths. A link is as
+wide as its line unless its spec gives a width. The rows do not draw a
+drop-down's open menu, a scroll bar or the rule a scrolled view keeps at
+its top: the screen draws them, as the settings dialog does. The gallery
+shows the parts of a screen drawn in the modern fonts (`header_bar` to
+`sheet`) nowhere, since `paint` draws nothing for them: the Game files
+screen and the folder chooser show them. Its notice and question are
+Compact's at every class, the width a column holds, and its fixed samples
+keep Compact's sizes, as every component does.

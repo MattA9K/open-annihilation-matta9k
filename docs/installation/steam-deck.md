@@ -144,6 +144,10 @@ Steam, still in Desktop Mode:
    current layout, then **Templates**, and pick **Open Annihilation**.
 3. Choose **Play**.
 
+A later start opens as you left it. In Game Mode the first start is still
+the screen's size. A window you leave is kept only as far as it fits that
+screen.
+
 At its first start the game looks for Total Annihilation where Steam,
 Heroic, Lutris and Bottles put it: Steam's copy in any of your Steam
 libraries, SD cards included, a Heroic install, a Lutris or Wine prefix in
@@ -153,16 +157,26 @@ libraries, SD cards included, a Heroic install, a Lutris or Wine prefix in
   says on the main menu where it found it; it remembers it as if you had
   chosen it.
 - **When it finds several**, or none, or the folder you chose before has
-  gone, it asks in its own folder chooser, which works with the D-pad and
-  A, the trackpad pointer or a finger: pick one of the copies found, browse
-  to a folder, such as the one you copied in step 3, or choose the 1997
-  demo. It remembers your choice.
+  gone, it asks in its own locator. The title says to choose a folder or an
+  installer, and a line says what qualifies. Places include Home, Downloads
+  and a microSD card, and the games it knows from Steam, Heroic, Lutris and
+  Bottles. Each file or folder is one row: an icon, a name and a size,
+  folders first. Typing filters the names, and Y does the same. The D-pad
+  moves, A opens, X chooses the folder and B goes back. A trackpad, a finger
+  or the keys do the same. Game Mode does not open the desktop's folder
+  dialog. It remembers your choice.
+
+  ![The locator on a Steam Deck](../images/folder-chooser/deck.png)
 - **To name the folder yourself**, give it as a launch option: in the
   game's **Properties**, **Launch Options**, type for example
   `--game-dir "/home/deck/Games/Total Annihilation"`. A folder named this
   way, or one you chose before, always wins over the copies the game finds.
   `--choose-game-dir` as the launch option makes it ask at every start
   until you remove it again; the two cannot be given together.
+
+Every launch option the game takes, among them `-c` for a launch file that
+opens a network game's battle room, is in
+[Command Line and Game Launching](../command-line.md).
 
 ## Controls
 
@@ -260,8 +274,9 @@ On a Steam Deck the game starts with **Maximum frame rate** at the
 screen's rate, 60 frames a second on the LCD model and 90 on the OLED, and
 with **Control size** at **Larger**, so the touch controls are near the
 size they have on an iPad. Both are ordinary settings: change them in
-Open Annihilation's settings (the **OA** button at the bottom right of the
-main menu): Maximum frame rate under **Graphics**, Control size under
+Open Annihilation's settings (**SETTINGS…** at the foot of the Library,
+which the **OA** button at the bottom right of the main menu opens):
+Maximum frame rate under **Graphics**, Control size under
 **Touch** or **Controller**. A value you set is kept, and **Restore
 defaults** brings the Deck's starting values back. Steam's own frame limit
 and power settings in the Quick Access menu (···) stay yours and work as
@@ -269,10 +284,11 @@ for any game.
 
 In Game Mode the window opens at the screen's size, 1280×800 on the Deck's
 own screen, unless `--resolution` or the **Screen size** setting names
-another. Steam shows a larger window shrunk to fit, but its pointer stops
-short of that window's lower and right edges, so leave Screen size at
-**Desktop**. The log says the size the window opened at (see
-[Logs](#logs-and-reporting-a-problem)).
+another. A later start opens as you left it, and a remembered window is
+kept only as far as it fits the screen. Steam shows a larger window shrunk
+to fit, but its pointer stops short of that window's lower and right
+edges, so leave Screen size at **Desktop**. The log says the size the
+window opened at (see [Logs](#logs-and-reporting-a-problem)).
 
 ## The touch screen
 

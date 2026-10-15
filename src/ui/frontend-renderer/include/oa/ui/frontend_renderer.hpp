@@ -74,6 +74,10 @@ struct ListPresentation {
     // The items are game text, such as chat lines, which the Language
     // settings may draw in the modern fonts.
     bool game_text = false;
+    // One byte per item: a non-zero byte greys that row. Empty greys none.
+    // A greyed row is shaded before the selection light, so a chosen grey
+    // row stays highlighted.
+    std::span<const uint8_t> grey{};
 };
 
 struct Surface {
@@ -202,7 +206,7 @@ enum class MainMenuLayout : uint8_t { with_overlay, base_game };
 /// The button's caption was translated whole as its GUI file was read; each
 /// stage's caption is then translated on its own, as 3.1c translates them
 /// on the panel's first draw, so that "Easy|Medium|Hard" shows each word as
-/// gamedata\translate.tdf gives it.
+/// gamedata\\translate.tdf gives it.
 ///
 /// @param button the button's fields
 /// @param stage the button's stage

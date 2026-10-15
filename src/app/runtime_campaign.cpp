@@ -20,10 +20,12 @@
 #include "oa/present/world_renderer/world_camera.hpp"
 #include "oa/ui/campaign/campaign.hpp"
 #include "oa/ui/campaign/single_player.hpp"
+#include "oa/ui/frontend/single_player_menu.hpp"
 #include "oa/ui/frontend_renderer/game_text.hpp"
 #include "oa/ui/gui_input/gadget_panel.hpp"
 #include "oa/ui/gui_layout/gui_gadget.hpp"
 #include "oa/ui/hud/player_records.hpp"
+#include "map_packs.hpp"
 #include "match_fault.hpp"
 
 #include <SDL3/SDL.h>
@@ -49,6 +51,21 @@
 #include <vector>
 
 namespace oa::app {
+
+/// The name an installed pack gives a map, or null when the index has no entry.
+///
+/// @param context the runtime
+/// @param map_name the map's name, `<stem>@<id>`
+/// @return the index's name; the text stays valid through the call that asks
+const char* pack_index_title(void* context, const char* map_name) {
+    if (context == nullptr || map_name == nullptr)
+        return nullptr;
+    const PackMap* found = static_cast<Runtime*>(context)->map_packs().find(map_name);
+    if (found == nullptr || found->title.empty())
+        return nullptr;
+    return found->title.c_str();
+}
+
 namespace {
 
 namespace campaign = oa::ui::campaign;
@@ -324,6 +341,7 @@ bool names_equal(std::string_view left, std::string_view right) {
 bool load_skirmish_session(
     missions::CampaignFile* session,
     oa::AssetStore& assets,
+    Runtime& runtime,
     uint32_t difficulty,
     const entry::SkirmishSettings& settings,
     const std::string& map
@@ -343,7 +361,9 @@ bool load_skirmish_session(
         nullptr,
         nullptr
     };
-    const missions::CampaignEnv env{&files, nullptr, static_cast<int32_t>(difficulty), roster};
+    missions::CampaignEnv env{&files, nullptr, static_cast<int32_t>(difficulty), roster};
+    env.pack_index_name = pack_index_title;
+    env.pack_index_context = &runtime;
     session->kind = missions::SessionKind::skirmish;
     return missions::campaign_load_mission_info(session, &env, map.c_str());
 }
@@ -446,17 +466,39 @@ void Runtime::enter_single_player_panel() {
     const auto host = single_player_host();
     campaign::single_player_enter(&setup, &host, game_language());
     typed_key_hook_ = TypedKeyHook::single_player_code;
-    if (!offers_saved_games())
-        if (auto* gadget = widget("LoadGame"))
-            if (auto* button = std::get_if<oa::ui::gui_layout::ButtonFields>(&gadget->fields))
-                button->grayed_out = true;
-    if (!offers_any_mission())
-        if (auto* gadget = widget("AnyMsn"))
-            gadget->common.active = 0;
+    // Load Game, Any Mission and Skirmish follow what this base game can open.
+    oa::ui::frontend::Panel offers_panel;
+    oa::ui::frontend::panel_load_layout(offers_panel, resources_.layout);
+    oa::ui::frontend::SinglePlayerOffers offers;
+    offers.saved_games = offers_saved_games();
+    offers.any_mission = offers_any_mission();
+    offers.skirmish = offers_skirmish();
+    oa::ui::frontend::apply_single_player_offers(offers_panel, offers);
+    for (const std::string_view entry_name : {"LoadGame", "AnyMsn", "Skirmish"}) {
+        const auto found = oa::ui::frontend::panel_find(offers_panel, entry_name);
+        if (found < 0 || static_cast<std::size_t>(found) >= resources_.layout.gadgets.size())
+            continue;
+        const auto& control = offers_panel.controls[static_cast<std::size_t>(found)];
+        auto& gadget = resources_.layout.gadgets[static_cast<std::size_t>(found)];
+        gadget.common.active = static_cast<int8_t>(control.active);
+        if (auto* button = std::get_if<oa::ui::gui_layout::ButtonFields>(&gadget.fields))
+            button->grayed_out = control.grayed != 0;
+    }
 }
 
 bool Runtime::offers_saved_games() const {
     return assets_.file_size(oa::data::defs::gui_path("loadgame.gui")) != 0;
+}
+
+bool Runtime::offers_skirmish() const {
+    // A game folder chosen directly keeps skirmish. Only the demo chosen as
+    // the base game has no skirmish to offer.
+    if (!managed_content_mounted())
+        return true;
+    const oa::data::content_bundles::ContentChoice choice = content_choice();
+    if (!choice.error.empty())
+        return true;
+    return choice.base_game != "totala-demo";
 }
 
 bool Runtime::offers_any_mission() const {
@@ -614,9 +656,11 @@ const missions::CampaignFile* Runtime::match_map_context() {
     const char* name = selected_map_name_runtime_.c_str();
     if (oa::formats::tdf::compare_nocase(state.map.mission_name, name) != 0) {
         const auto files = missions::campaign_asset_files(assets_);
-        const missions::CampaignEnv env{
+        missions::CampaignEnv env{
             &files, nullptr, static_cast<int32_t>(preferences_.difficulty), 0
         };
+        env.pack_index_name = pack_index_title;
+        env.pack_index_context = this;
         if (!missions::campaign_select_mission(&state.map, &env, name)) {
             state.map.mission_name[0] = '\0';
             return nullptr;
@@ -670,6 +714,9 @@ bool Runtime::load_campaign_map(std::string_view mission_file) {
 }
 
 void Runtime::configure_campaign_players() {
+    // The mission seats its own two players in these slots. The player's
+    // skirmish setup is kept, and the preferences write that instead.
+    keep_player_skirmish_settings();
     const auto& file = campaign_runtime().file;
     skirmish_settings_.slot_count = 2;
     for (auto& slot : skirmish_settings_.slots)
@@ -743,6 +790,7 @@ std::string Runtime::session_ai_profile_path() {
     if (load_skirmish_session(
             session.get(),
             assets_,
+            *this,
             preferences_.difficulty,
             skirmish_settings_,
             selected_map_name_runtime_
@@ -765,6 +813,7 @@ std::string Runtime::session_schema() {
     if (load_skirmish_session(
             session.get(),
             assets_,
+            *this,
             preferences_.difficulty,
             skirmish_settings_,
             selected_map_name_runtime_
@@ -819,6 +868,7 @@ void Runtime::load_mission_features(
         if (load_skirmish_session(
                 session.get(),
                 assets_,
+                *this,
                 preferences_.difficulty,
                 skirmish_settings_,
                 selected_map_name_runtime_
@@ -1716,6 +1766,7 @@ void Runtime::start_campaign_mission() {
         return;
     }
     campaign_mission_ = true;
+    bool campaign_seated = false;
     try {
         if (!load_campaign_map(mission_file)) {
             campaign_mission_ = false;
@@ -1723,6 +1774,7 @@ void Runtime::start_campaign_mission() {
             return;
         }
         configure_campaign_players();
+        campaign_seated = true;
         // The mission info sets the unit limit from the GlobalHeader's maxunits
         // and mission start leaves it for a campaign.
         bootstrap_match(
@@ -1736,6 +1788,10 @@ void Runtime::start_campaign_mission() {
         status_ = std::string("campaign start: ") + error.what();
         std::cerr << "unsupported operation: " << status_ << '\n';
     }
+    // A start that never builds a match puts the player's setup back. The
+    // preferences then keep those slots, not the mission's two players.
+    if (campaign_seated && !match_)
+        release_player_skirmish_settings();
 }
 
 void Runtime::leave_load_dialog() {

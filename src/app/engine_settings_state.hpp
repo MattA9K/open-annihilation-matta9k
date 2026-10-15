@@ -9,10 +9,12 @@
 #pragma once
 
 #include "oa/app/mod_profile_loader.hpp"
+#include "oa/app/mod_summary.hpp"
 #include "oa/app/runtime.hpp"
 #include "oa/app/window_icon.hpp"
 #include "oa/base/sha256.hpp"
 #include "oa/data/mod_profile.hpp"
+#include "oa/platform/file_types.hpp"
 #include "oa/ui/engine_settings.hpp"
 #include "oa/ui/engine_settings/dialog.hpp"
 
@@ -25,6 +27,26 @@
 namespace oa::app {
 
 struct Runtime::EngineSettingsState {
+    /// What the Library shows of an offered mod folder besides its title:
+    /// read from its oamod.yaml and the oamod.png beside it.
+    struct OfferedMod {
+        std::string version{};     ///< the profile's version; "N/A" without an oamod.yaml
+        std::string description{}; ///< the profile's description, or why there is none
+        /// The folder holds an oamod.yaml; without one its files layer over
+        /// the game folder's and the game plays by 3.1c's own rules.
+        bool has_profile{};
+        /// The id its oamod.yaml gives; empty without one, and the Library
+        /// names it by its folder's name.
+        std::string profile_id{};
+        ModBadge badge{}; ///< its oamod.png, decoded; empty without one
+        /// A folder of the player's own Mods folder whose .backup keeps an
+        /// earlier version of its mod that the game can play, checked as a
+        /// pick is: the Library offers ROLL BACK on it.
+        bool roll_back{};
+        std::string kept_version{}; ///< that version, as its oamod.yaml writes it
+        int64_t kept_revision{};    ///< that version's packaging revision; 0 when it names none
+    };
+
     oa::ui::engine_settings::EngineSettings current{}; ///< in effect
     /// The installation's totala.ini, as read; empty when it has none or
     /// --preferences-file names the preferences file.
@@ -40,23 +62,27 @@ struct Runtime::EngineSettingsState {
     /// a second (Inputs::steam_deck_panel_hz), as read once at start; 0 on
     /// every other machine.
     uint32_t steam_deck_panel_hz{};
-    /// The mod folders Mods lists, as absolute UTF-8 paths, read once at
-    /// start: the game folder's mods folder's (list_mod_folders), the
-    /// player's own Mods folder's, the folder an earlier Pick Folder...
-    /// stored while it is the mod stored and still a folder, and the one
-    /// played.
+    /// The mod folders the Library lists, as absolute UTF-8 paths, read at
+    /// start and again as a mod is installed or rolled back
+    /// (Runtime::list_offered_mods): the game folder's mods folder's
+    /// (list_mod_folders), the player's own Mods folder's, the folder an
+    /// earlier Pick Folder... stored while it is the mod stored and still a
+    /// folder, and the one played.
     std::vector<std::string> mod_folders;
-    /// Their titles, in the same order, as Mods shows them (read_mod_summary).
+    /// Their titles, in the same order, as the Library shows them (read_mod_summary).
     std::vector<std::string> mod_names;
-    /// Their versions, descriptions and badges, in the same order.
-    std::vector<oa::ui::engine_settings::ModDetails> mod_details;
+    /// Their versions, descriptions, badges and kept versions, in the same order.
+    std::vector<OfferedMod> mod_details;
+    /// Counts the times the folders above were listed, so that the
+    /// Library's feed moves on with them.
+    uint64_t offered_generation{};
     /// The mod folder the game plays, as the preferences keep one; empty
     /// for none. With --mod-dir or --base-game, the Mod setting as read at
     /// start, which the flags set aside for the run.
     std::string playing_mod_folder;
     /// The Mod setting as stored when the start dropped its folder for
-    /// being gone; empty when none was. The dialog shows No Mod in its
-    /// place, and the settings' next save stores the choice over it.
+    /// being gone; empty when none was. The game plays no mod in its place,
+    /// and the settings' next save stores the choice over it.
     std::string dropped_mod_folder;
     /// The machine's physical memory in bytes, as read once at start; 0 when
     /// the system does not say.
@@ -70,14 +96,26 @@ struct Runtime::EngineSettingsState {
     RendererHost* records_host{};
     std::optional<oa::ui::engine_settings::Dialog> dialog; ///< the open dialog
     /// The section the dialog showed when it last closed; it opens there,
-    /// and on Mods the first time.
-    oa::ui::engine_settings::Page last_page{oa::ui::engine_settings::Page::mods};
+    /// and on its first section, Controls, the first time.
+    oa::ui::engine_settings::Page last_page{oa::ui::engine_settings::Page::controls};
+    /// What OK last asked of the five file-type switches, on a Mac; none
+    /// before OK asked. The hint under File Type Registration names a type
+    /// this copy still opens that was asked off, until a later opening's
+    /// read-back matches this.
+    std::optional<oa::platform::file_types::TypeSet> file_type_asked{};
+    /// That hint, kept for this run. Empty once every switch matches.
+    std::string file_type_kept_hint{};
     std::optional<oa::ui::engine_settings::DialogFonts> fonts; ///< loaded on first use
     bool fonts_missing{}; ///< loading the fonts failed; they are not tried again
-    /// The icon the header and the OA buttons draw: the window icon's
-    /// visible part, decoded on first use.
+    /// The app icon, the plates alone: the window icon's visible part,
+    /// decoded on first use. Notices, prompts and the other OA headers draw
+    /// it. Settings and the Library replace it with their own icons.
     std::optional<WindowIcon> icon;
     bool icon_missing{}; ///< decoding the icon failed; it is not tried again
+    /// The app icon filtered down for the small maker's mark. Its pixels
+    /// outlive the picture the kit keeps.
+    std::optional<WindowIcon> maker_mark;
+    bool maker_mark_set{}; ///< the kit has been given the mark; it is not set again
     /// The pointer event being taken comes from a finger: its mouse is
     /// SDL_TOUCH_MOUSEID, as the touch controls' clicks and SDL's own are.
     /// A finger's press takes the nearest control of the dialog within the
@@ -171,12 +209,12 @@ struct Runtime::EngineSettingsState {
 
     /// Returns the screen sizes the display the window is on offers
     /// (offered_screen_sizes), from the floor the profile's display rules
-    /// set: the options' Screen Size list, and the settings' Screen size
-    /// after Desktop. In full screen where full screen switches the
-    /// display's mode (run_full_screen_method), the display's modes; else
-    /// the sizes that fit its desktop, as a window or as a frame scaled to
-    /// the screen. Without a window, the primary display's for the way the
-    /// next start shows them (start_use).
+    /// set: the options' Screen Size list, the settings' Screen size after
+    /// Desktop, and the battle room's RES column. In full screen, the
+    /// display's modes, including on a desktop that scales its frame and
+    /// cannot switch the output's mode. In a window, the sizes that fit the
+    /// desktop. Without a window, the primary display's for the way the next
+    /// start shows them (start_use).
     ///
     /// @param runtime the runtime
     /// @return the sizes, the narrower first; never empty

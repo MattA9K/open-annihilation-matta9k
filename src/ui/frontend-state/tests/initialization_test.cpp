@@ -183,6 +183,64 @@ void player_slots() {
     require(storage.chat_head == 0 && storage.chat_tail == 0, "ordinary reset fields");
 }
 
+void a_stored_skirmish_count_is_kept() {
+    State state;
+    game_entry::SkirmishSettings settings;
+    init::Preferences p;
+    SettingsHost host;
+    host.number("NumSkirmishPlayers", 4);
+    host.strings[SettingsHost::key(init::general_section, "SkirmishMap")] = "Kept";
+    init::load_preferences(state, settings, p, host);
+    require(settings.slot_count == 4, "a stored count of four stays four");
+    require(settings.slots[3].metal == 1000 && settings.slots[3].energy == 1000, "the fourth row");
+    require(settings.slots[4].metal == 0, "a row past the stored count stays empty");
+}
+
+void set_skirmish_player_count_writes_the_one_key() {
+    game_entry::SkirmishSettings settings;
+    for (int32_t index = 0; index < 4; ++index) {
+        auto& slot = settings.slots[static_cast<std::size_t>(index)];
+        slot.controller = 2;
+        slot.side = 1;
+        slot.color = 7;
+        slot.alliance = 2;
+        slot.metal = 1000;
+        slot.energy = 1500;
+    }
+    SettingsHost host;
+    init::set_skirmish_player_count(settings, 9, host);
+    require(settings.slot_count == 9, "the count is the one asked for");
+    require(
+        host.written.size() == 1 &&
+            host.written.at(SettingsHost::key(init::general_section, "NumSkirmishPlayers")) == 9,
+        "only NumSkirmishPlayers is stored"
+    );
+    require(
+        settings.slots[0].controller == 2 && settings.slots[0].side == 1 &&
+            settings.slots[0].color == 7 && settings.slots[0].alliance == 2 &&
+            settings.slots[0].energy == 1500,
+        "a row the setup already filled is kept"
+    );
+    require(
+        settings.slots[8].controller == 0 && settings.slots[8].side == 0 &&
+            settings.slots[8].color == 8 &&
+            settings.slots[8].alliance == game_entry::unassigned_alliance &&
+            settings.slots[8].metal == 1000 && settings.slots[8].energy == 1000,
+        "a newly shown row is open"
+    );
+    require(settings.slots[9].metal == 0, "a row past the count stays empty");
+    SettingsHost quiet;
+    init::set_skirmish_player_count(settings, 0, quiet);
+    require(settings.slot_count == 0 && quiet.written.empty(), "zero is not stored");
+    bool refused = false;
+    try {
+        init::set_skirmish_player_count(settings, 12, quiet);
+    } catch (const std::invalid_argument&) {
+        refused = true;
+    }
+    require(refused && settings.slot_count == 0, "a count past the slots is refused");
+}
+
 void preferences() {
     State state;
     game_entry::SkirmishSettings settings;
@@ -223,11 +281,12 @@ void preferences() {
         "string defaults"
     );
     require(
-        settings.slot_count == 4 && settings.map_name == "First Map" &&
-            state.play_intro_movie == 1 && p.skirmish_difficulty == 1 && p.skirmish_location == 1,
+        settings.slot_count == init::default_skirmish_player_count &&
+            settings.map_name == "First Map" && state.play_intro_movie == 1 &&
+            p.skirmish_difficulty == 1 && p.skirmish_location == 1,
         "skirmish defaults"
     );
-    for (int i = 0; i < 4; ++i) {
+    for (int i = 0; i < init::default_skirmish_player_count; ++i) {
         const auto& s = settings.slots[static_cast<std::size_t>(i)];
         require(
             s.controller == 0 && s.side == i % 2 && s.color == i && s.alliance == 5 &&
@@ -291,7 +350,7 @@ void preferences() {
     );
     require(
         settings.map_name == "Saved Map" && settings.slots[0].controller == 2 &&
-            state.play_intro_movie == 0,
+            settings.slot_count == 1 && state.play_intro_movie == 0,
         "stored values"
     );
     require(
@@ -427,6 +486,48 @@ struct Maps final : init::MapListHost {
     }
 };
 
+// Slot 1 and slot 5 both stored as Player. The load keeps Player on slot 5,
+// the row a skirmish starts as, and slot 1 reads Computer. One stored Player
+// is left as it is.
+void one_local_player() {
+    State state;
+    game_entry::SkirmishSettings settings;
+    init::Preferences p;
+    const auto controller = [](int32_t row) {
+        return SettingsHost::key(
+            init::skirmish_section, "Player" + std::to_string(row) + "Controller"
+        );
+    };
+    SettingsHost two;
+    two.number("NumSkirmishPlayers", 10);
+    two.strings[SettingsHost::key(init::general_section, "SkirmishMap")] = "Saved Map";
+    two.numbers[controller(0)] = 1;
+    two.numbers[controller(1)] = 2;
+    two.numbers[controller(4)] = 1;
+    init::load_preferences(state, settings, p, two);
+    require(settings.slot_count == 10, "ten rows stay ten rows");
+    require(
+        settings.slots[0].controller == 2 && settings.slots[1].controller == 2 &&
+            settings.slots[4].controller == 1,
+        "slot 1 becomes Computer and slot 5 stays Player"
+    );
+    int32_t player_rows = 0;
+    for (int32_t row = 0; row < settings.slot_count; ++row)
+        if (settings.slots[static_cast<std::size_t>(row)].controller == 1)
+            ++player_rows;
+    require(player_rows == 1, "one Player after the load");
+    SettingsHost one;
+    one.number("NumSkirmishPlayers", 10);
+    one.strings[SettingsHost::key(init::general_section, "SkirmishMap")] = "Saved Map";
+    one.numbers[controller(0)] = 2;
+    one.numbers[controller(4)] = 1;
+    init::load_preferences(state, settings, p, one);
+    require(
+        settings.slots[0].controller == 2 && settings.slots[4].controller == 1,
+        "one stored Player is unchanged"
+    );
+}
+
 void save_preferences() {
     State state;
     state.play_intro_movie = 0;
@@ -537,8 +638,19 @@ void save_preferences() {
         "unchanged movie rate is not written"
     );
     require(
-        host.written.count(SettingsHost::key(init::general_section, "NumSkirmishPlayers")) == 0,
-        "slot count is not written"
+        host.written.at(SettingsHost::key(init::general_section, "NumSkirmishPlayers")) == 2,
+        "the row count is written with the rows"
+    );
+    const auto count_write = std::find(
+        host.calls.begin(),
+        host.calls.end(),
+        "write:" + SettingsHost::key(init::general_section, "NumSkirmishPlayers")
+    );
+    require(count_write != host.calls.end(), "the row count is written");
+    require(
+        count_write + 1 != host.calls.end() &&
+            *(count_write + 1) == "write:" + SettingsHost::key(init::general_section, "PlayMovie"),
+        "the row count is written immediately before PlayMovie"
     );
     require(
         host.strings.at(SettingsHost::key(init::general_section, "Password")) == "pw" &&
@@ -588,6 +700,60 @@ void save_preferences() {
         launched.written.at(SettingsHost::key(init::general_section, "Movie Output Rate")) == 15 &&
             p.movie_output_rate_changed == 0,
         "changed movie rate is written once"
+    );
+}
+
+// Two rows read Player. The save stores Player on the last of them and
+// Computer on the earlier one, before any load repairs the setup. The
+// setup in memory is left with both.
+void one_player_is_written() {
+    State state;
+    game_entry::SkirmishSettings settings;
+    settings.slot_count = 10;
+    settings.map_name = "Painted Desert";
+    for (int32_t row = 0; row < settings.slot_count; ++row) {
+        auto& slot = settings.slots[static_cast<std::size_t>(row)];
+        slot.controller = 2;
+        slot.side = row % 2;
+        slot.color = row;
+        slot.alliance = 5;
+        slot.metal = 1000;
+        slot.energy = 1000;
+    }
+    settings.slots[0].controller = 1;
+    settings.slots[0].side = 1;
+    settings.slots[0].color = 6;
+    settings.slots[0].metal = 2500;
+    settings.slots[0].energy = 4500;
+    settings.slots[4].controller = 1;
+    init::Preferences p;
+    SettingsHost host;
+    init::save_preferences(state, settings, p, host);
+    const auto player = [&](std::string_view key) {
+        return host.written.at(SettingsHost::key(init::skirmish_section, key));
+    };
+    require(player("Player0Controller") == 2, "an earlier Player row is written as Computer");
+    require(
+        player("Player0Side") == 1 && player("Player0Color") == 6 &&
+            player("Player0Metal") == 2500 && player("Player0Energy") == 4500,
+        "that row's side, colour and resources are written as set"
+    );
+    require(player("Player4Controller") == 1, "the last Player row is written as Player");
+    for (int32_t row = 0; row < settings.slot_count; ++row) {
+        if (row == 4)
+            continue;
+        require(
+            player("Player" + std::to_string(row) + "Controller") == 2,
+            "no other row is written as Player"
+        );
+    }
+    require(
+        host.written.at(SettingsHost::key(init::general_section, "NumSkirmishPlayers")) == 10,
+        "the written row count is the setup's"
+    );
+    require(
+        settings.slots[0].controller == 1 && settings.slots[4].controller == 1,
+        "the setup in memory still names both Player rows"
     );
 }
 
@@ -1159,8 +1325,12 @@ void copy_track_type() {
 int main() {
     try {
         player_slots();
+        a_stored_skirmish_count_is_kept();
+        set_skirmish_player_count_writes_the_one_key();
         preferences();
+        one_local_player();
         save_preferences();
+        one_player_is_written();
         maps();
         restore_options_entry();
         restore_options_undo();

@@ -66,12 +66,16 @@ constexpr int32_t kUncachedTerrainCamera = INT32_MIN;
 /// Bytes the model bridge takes for each map pixel a frame shows: its 8-bit
 /// picture and the indices it captured.
 constexpr uint64_t kModelBridgeBytesPerMapPixel = 2;
-/// The share of the machine's physical memory the models' drawing may take
-/// past the drawing's floor, where it grows with the map shown: an eighth.
+/// The share of the machine's physical memory the models' drawing may take,
+/// at every zoom, where it grows with the map shown: an eighth. A 32-bit
+/// build also takes at most this share of the free address space.
 constexpr uint64_t kRenderedUnitsMemoryShare = 8;
-/// The memory the models' drawing may take past the drawing's floor where
-/// the machine does not say how much it has: 512 MiB.
+/// The memory the models' drawing may take where the machine does not say
+/// how much it has: 512 MiB.
 constexpr uint64_t kRenderedUnitsUnknownBudget = uint64_t{512} << 20U;
+/// The memory the models' drawing may take on a 32-bit build that cannot
+/// say how much address space is free: 256 MiB.
+constexpr uint64_t kRenderedUnitsAddressCap = uint64_t{256} << 20U;
 /// Screen pixels past the battlefield's edges a frame still draws what
 /// stands there at least, so that a large unit or its shadow reaching into
 /// the view is drawn.
@@ -260,6 +264,14 @@ inline constexpr bool self_checks_built = true;
 struct Options {
     // Empty until main() resolves it when --game-dir is not passed.
     fs::path game_dir;
+    // True when the command line named --game-dir, set before
+    // find_game_directory fills game_dir. That folder is played as it
+    // stands: the content check still runs, and its notice stays closed.
+    bool game_dir_named = false;
+    /// True when this start plays the managed copy: the game folder's source
+    /// is managed after the last compose. A named --game-dir stays false.
+    /// Presence names the base game and expansions only then.
+    bool managed_content = false;
     // Opens the folder dialog even when a usable folder is remembered.
     bool choose_game_dir = false;
     // The folder the dialog chose, which the runtime stores in the
@@ -283,9 +295,22 @@ struct Options {
     fs::path mod_dir;
     // Plays the game folder without the remembered mod folder (--base-game).
     bool base_game = false;
+    /// The base game and expansions for this run (--content
+    /// GAME[:EXPANSION,...]). Empty when the run uses the remembered choice.
+    /// It is not written to the preferences, and the mounted files change
+    /// with the next mount.
+    std::string content{};
     // The folders loose files come from, highest precedence first: the mod
-    // folder, then game_dir. main() fills it; empty means game_dir alone.
+    // folder when one is layered, then each expansion bundle, then the base
+    // game. main() fills it; empty means game_dir alone. How many there are
+    // does not say that a mod is playing: that is layered_mod_folder.
     std::vector<fs::path> game_folders;
+    /// The mod folder layered over the game for this start; empty when no
+    /// mod plays. main() sets it from the resolved game directory, including
+    /// a mod folder a named --game-dir layers. An expansion bundle is never
+    /// this folder. The Library, Settings, presence and the played mod read
+    /// this.
+    fs::path layered_mod_folder;
     // The mod profile the game plays, resolved from --mod or the folders'
     // own oamod.yaml before any archive is mounted: its limits size the
     // game's tables and its rules reach every match. Null for base 3.1c.
@@ -448,6 +473,9 @@ struct Options {
     // Reads the simulation hash with no mod and under a mod, then after a
     // Developer Mode override that changes the simulation, without a new start.
     bool check_simulation_hash = false;
+    // Eases a large battlefield's zoom out and back with a small model
+    // budget and returns to the main menu.
+    bool check_zoom_memory = false;
     // Starts a skirmish and checks, through the SDL presenter, that the
     // build menu, the bottom bar and the unit panel show units' names and
     // descriptions in the language this BCP-47 tag names, as the unit files
@@ -458,6 +486,40 @@ struct Options {
     // and back, and checks each screen under them shows it as it shows
     // opened again in it.
     bool check_language_switch = false;
+    // Lists every language the game knows and the one the run shows, and
+    // checks English comes first, the built-in languages follow in their
+    // order, and the pseudo pack is installed and shown.
+    bool check_language_registry = false;
+    // Shows the notice for a language that is only available, over the main
+    // menu, and checks Use English records the answer.
+    bool check_language_notice = false;
+    // Shows the first-run setup even when the preference says it is done,
+    // and in a run that would otherwise leave it closed.
+    bool first_run = false;
+    // The logo and the intro wait until the setup will not show again, then
+    // play before the menu is used. A start that does not show the setup
+    // leaves this clear and plays them where it always has.
+    bool intro_after_setup = false;
+    // Walks the first-run setup over the main menu: a built-in language, a
+    // pack that fails and then retries, Skip setup, and both online choices.
+    bool check_first_run = false;
+    // Walks language, the game and the copy in the pre-game window, then
+    // continues at online features over the main menu. The named --game-dir
+    // is what the menu plays; the window copies the check's install.
+    bool check_setup_window = false;
+    // Opens a window at a size, saves that place and checks the next start
+    // opens at the same size, wholly on a connected display.
+    bool check_window_place = false;
+    // Shows the progress dialog for a slow fixture, checks it animates and
+    // closes with no input, writes pictures, and checks the four languages.
+    bool check_progress = false;
+    // Opens every Open Annihilation screen in English, German, French,
+    // Spanish, Italian and Simplified Chinese, at 640x480 and 1280x720, and
+    // fails when any text is wider than its box or crosses another text.
+    bool check_text_fit = false;
+    // Opens the locator on --game-dir's parent, moves onto that folder with
+    // Tab and chooses it. With --snapshot, writes that PNG and a Deck PNG.
+    bool check_folder_chooser = false;
     // Sends a construction kbot on PATROL through the SDL presenter with the
     // metal store low and checks it reclaims a feature on its way.
     bool check_patrol_reclaim = false;
@@ -491,6 +553,13 @@ struct Options {
     bool touch_controls = false;
     /// --check-game-files: the Game files screen driven through a route by scripted hooks.
     bool check_game_files = false;
+    /// --check-content-copy PATH: copies a small fixture into PATH, standing in
+    /// for Documents, and checks that copy. The run does nothing else.
+    fs::path check_content_copy{};
+    /// --check-installer FILE: reads a recognised Windows installer, macOS
+    /// installer or disk image for older Macs, lists the bundles it holds and
+    /// every file's SHA-256. The run does nothing else and copies nothing.
+    fs::path check_installer{};
     /// --no-game-files-screen: with no usable game folder, the notice with its look-again
     /// button instead of the Game files screen, where the platform offers both.
     bool no_game_files_screen = false;
@@ -543,30 +612,91 @@ struct Options {
     // its sections, controls, keys, OK, Cancel and Restore defaults, the
     // preferences it writes, and each setting taking effect.
     bool check_engine_settings = false;
+    // Drives a settings page, a kit screen, a notice and a prompt registered
+    // from inside the engine: the page under its owner's divider at three
+    // window sizes, the screen opened by name, and the notice, the prompt
+    // and the saves notice one at a time. Needs --preferences-file.
+    bool check_registered_kit = false;
+    // Opens the UI kit gallery from Settings › Developer on 640x480,
+    // 1280x720 and 1920x1080 windows: its size class and scale, its pixels
+    // over the darkened main menu, Tab through every control, and Escape
+    // back to Developer. Needs --preferences-file.
+    bool check_kit_gallery = false;
     // Drives the player's own folder through the SDL presenter: the saved
     // games moved once from beside the preferences file, the main menu's
     // notice of the move shown once and closed, and the settings' Your files
     // buttons opening its folders through a recorded opener.
     bool check_user_folder = false;
-    // Switches the mod ten times through the settings' Mods page, between
-    // No Mod and two test profiles in the player's own Mods folder, each a
-    // soft restart on the same window, and requires the working set to
-    // stay level.
+    // Switches the mod ten times through the Library, between no mod and
+    // two test profiles in the player's own Mods folder, each a soft
+    // restart on the same window, and requires the working set to stay
+    // level.
     bool check_mod_switch = false;
+    // Writes two map packs into the player's own Maps folder and requires
+    // the skirmish list to show the map that fits after the base maps, the
+    // one that clashes left out, the one that fits mounted alone while
+    // chosen and for its match and unmounted after, and the clash refused
+    // when it is chosen by name.
+    bool check_map_packs = false;
+    // Writes the map pack check's two packs into the player's own folder,
+    // with every built-in registry off, and at four window sizes opens
+    // SELMAP's MORE MAPS… and requires the map browser's size class,
+    // columns and window, its installed maps, its search, the clashing map
+    // greyed with its reason, and Select moving SELMAP's selection.
+    bool check_map_browser = false;
+    // Installs one map pack from the check's own registry while both map
+    // lists already exist. Requires the map whose stem has a space, an
+    // apostrophe and parentheses in both lists, under its index title,
+    // played to the first frame and named in a saved game, and the map
+    // that fits only another mod left out with one log line.
+    bool check_map_pack_lists = false;
     // Switches to a made-up mod whose unit files are missing and to one
     // that plays whole, each a soft restart, and requires the first's
     // warning once over the main menu and over a refused Skirmish start,
     // and none for the second.
     bool check_mod_warning = false;
-    // --install-mod FILE, repeated, and the bare arguments that name a
-    // .oamod file, any case: mod packages to install once the main menu
-    // shows, each asked about first; absolute, in the order given.
-    std::vector<fs::path> install_mods;
+    // --open FILE and --install-mod FILE, repeated, and the bare arguments
+    // that name a .oamod, .oalang, .oamap or .oareg file, any case: files to
+    // open once the main menu shows; absolute, in the order given.
+    std::vector<fs::path> open_files;
     // Installs made-up mod packages through each of the main menu's
-    // questions, by a dropped file and the command line, rolls a mod back on
-    // the Mods page, and replaces and rolls back the mod played across soft
+    // questions, by a dropped file and the command line, rolls a mod back in
+    // the Library, and replaces and rolls back the mod played across soft
     // restarts, checking the player's Mods folder after each.
     bool check_mod_install = false;
+    // Installs the pseudo language pack from a dropped file, declines
+    // installing it again, then installs a catalogue revision while Settings
+    // stay open and no prompt shows.
+    bool check_language_install = false;
+    // Shows a made-up download check over the main menu, opens its page,
+    // retries it and cancels it, and keeps it hidden during a skirmish.
+    bool check_challenge = false;
+    // Lists, switches and removes an added registry in Settings › Downloads,
+    // asks the content service about an https address, and opens
+    // an .oareg file the run posts. It writes its own registry list under
+    // --user-folder before the content service starts.
+    bool check_registries = false;
+    // Opens the Library from the main menu's OA button over a feed of
+    // made-up packages, wears the button's dot while updates wait, carries
+    // out the Library's actions, opens Settings over it and it over
+    // Settings, and keeps the in-match OA button on Settings.
+    bool check_library = false;
+    // Installs made-up mod packages posted as the download queue posts them,
+    // from a built-in registry and two added ones, while the Library shows:
+    // the questions each registry asks, the refusals in its queue, ROLL BACK
+    // and PLAY NOW from it, and an update to the mod played held until the
+    // mod is switched, over soft restarts.
+    bool check_library_install = false;
+    // Opens the Library on Maps with three packs, one picture from a pack,
+    // one from a terrain minimap and one from a catalogue, then shows the
+    // two installed maps on the Active tab. Each picture has its own size.
+    bool check_library_map_previews = false;
+    // Turns Core Contingency off and, when OA_DEMO_INSTALLER names the demo's
+    // installer, chooses the demo. Each change is mounted when the Library
+    // closes, over a soft restart, and Core Contingency's maps leave the
+    // skirmish list. The run names --game-dir only so the copy can be made;
+    // the check itself plays the player's copy.
+    bool check_library_content = false;
     // The soft restarts the process has made before this run: 0 for the
     // first; each switch of the mod from the settings adds one.
     uint32_t restarts = 0;
@@ -699,6 +829,36 @@ struct Options {
 };
 
 struct Extension;
+
+/// Writes one notice on the standard output and ends the process with status 0.
+///
+/// On Windows a program built without a console attaches to the console it was
+/// started from, when there is one and nothing is capturing the output, and
+/// writes the notice there as well. A captured stream, or a test that has
+/// replaced the output buffer, receives the notice only on the standard output.
+/// The text is written as given; a text with no newline gains one.
+///
+/// @param text the notice
+[[noreturn]] void write_startup_line(std::string_view text);
+
+/// Records the window's first frame once.
+///
+/// The quiet frame drawn when the renderer is ready records it. A later
+/// present does not write that line again.
+void note_launch_frame();
+
+/// Pumps events and redraws the quiet launch frame while start-up work runs
+/// off this thread.
+///
+/// The frame stays the quiet colour. A moment that lasts shows the progress
+/// dialog over it. After release_launch_window it does nothing, so it cannot
+/// draw over the setup or the menu.
+void pump_launch_window();
+
+/// Stops the quiet launch frame.
+///
+/// The setup and the menu draw the window from then on.
+void release_launch_window();
 
 /// Parses the command line into the run options.
 ///

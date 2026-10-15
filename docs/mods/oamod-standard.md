@@ -30,7 +30,8 @@ The standard hacks themselves are listed in the
     [4.3 Command-line options](#43-command-line-options) ·
     [4.4 Saves and settings](#44-saves-and-settings) ·
     [4.5 The badge](#45-the-badge) ·
-    [4.6 The .oamod package](#46-the-oamod-package)
+    [4.6 The .oamod package](#46-the-oamod-package) ·
+    [4.7 Catalogue releases](#47-catalogue-releases)
 - [5. Parameters, defaults and presets](#5-parameters-defaults-and-presets)
   - [5.1 What the registry declares](#51-what-the-registry-declares) ·
     [5.2 Ways to write a limit or hack](#52-ways-to-write-a-limit-or-hack) ·
@@ -152,8 +153,12 @@ optional.
 | `id` | The mod's stable id: lower-case words of `a`-`z` and `0`-`9` joined by single hyphens | `id: example-mod` |
 | `name` | The mod's display name, a string | `name: Example Mod` |
 | `version` | The mod's version, a string | `version: "2.1"` |
-| `description` | One line about the mod, a string of at most 120 characters with no line break or other control character. The Mods page of the Open Annihilation settings shows it under the mod's name and version. | `description: "Larger armies and renamed data directories."` |
-| `requires` | The base game and registry catalogue the profile is written for: `base` must be `ta-3.1c` and `catalogue` must be `1` | `requires: {base: ta-3.1c, catalogue: 1}` |
+| `description` | One line about the mod, a string of at most 120 characters with no line break or other control character. | `description: "Larger armies and renamed data directories."` |
+| `homepage` | The mod's site: an `http` or `https` address of 1 to 256 bytes, the scheme in either case, with no space or control character. The Library links to it. | `homepage: "https://example.org/example-mod"` |
+| `tags` | One to eight tags the Library files the mod under. Each is 1 to 32 bytes of lower-case words of `a`-`z` and `0`-`9` joined by single hyphens, and none is repeated. An empty list is refused: leave the key out instead. | `tags: [balance, ai]` |
+| `supportedGames` | The base games the mod runs with, `totala` and `totala-demo`, in the order written. Leaving the key out means `[totala]`. An empty list is refused. At most 16 ids, none repeated. | `supportedGames: [totala, totala-demo]` |
+| `requiredExpansions` | Expansions that must be on, such as `core-contingency`, in the order written. Leaving the key out, or writing `[]`, means none. Each one must extend a game in `supportedGames`. At most 16 ids, none repeated. | `requiredExpansions: [core-contingency]` |
+| `requires` | The base game, the registry catalogue and the Open Annihilation the profile runs on. `base` must be `ta-3.1c` and `catalogue` must be `1`. `engine` is a requirement such as `">= 0.8.0"`, quoted. | `requires: {base: ta-3.1c, catalogue: 1, engine: ">= 0.8.0"}` |
 | `author` | Who made the mod: `name`, and optionally `email` | `author: {name: A. Modder}` |
 | `packaging` | Who packaged the profile and the mod's files, when, and how often since: `revision`, `date` and `packager` | `packaging: {revision: 1, date: 2026-10-04, packager: P. Packer}` |
 | `identity` | Display version, network version bytes, settings file, registry root, side names | `network-version: [20, 1]` |
@@ -165,6 +170,13 @@ optional.
 | `settings` | Bindings of parameters to the mod's INI or registry settings, and `registry-seeds` | `limits.effects.queue: {ini: Preferences/SfxLimit}` |
 | `strings` | Replacement engine texts by name | `status: {nanolathing: Building}` |
 | `media` | Front-end movie names | `movies: {intro: ""}` |
+
+`supportedGames` and `requiredExpansions` name built-in bundles, compared
+exactly. A required expansion must extend at least one supported game.
+`requires.base: ta-3.1c` still reads. When `supportedGames` is omitted, that
+old key means `[totala]`; when both are written, `supportedGames` is the
+list and `requires.base` stays `ta-3.1c`. `oa-tool check` suggests writing
+`supportedGames` instead of `requires.base`.
 
 `identity`, `layout`, `limits`, `hacks`, `data-keys`, `strings`, `media` and
 `settings` must each be a mapping when present.
@@ -180,7 +192,9 @@ optional.
 | `packaging.packager` | Who made the package, a string of 1 to 128 bytes | yes |
 
 They describe the package, not the rules: they enter the full hash, never
-the sim hash ([11](#11-the-resolved-profile-and-its-hashes)). A date written
+the sim hash ([11](#11-the-resolved-profile-and-its-hashes)). `homepage`,
+`tags`, `supportedGames`, `requiredExpansions` and `requires`, including
+`requires.engine`, do the same. A date written
 plainly, `date: 2026-10-04`, is a string, as [3.3](#33-strict-yaml-rules)
 says.
 
@@ -253,7 +267,9 @@ refused with the rule and the line and column where it is broken.
   as the game matches them.
 - **Quoting.** A string that starts with a YAML indicator (`*`, `%`, `&`,
   `!`, `@`) or holds `: ` or ` #` is quoted. Single quotes keep backslashes
-  as written (`'Software\Example Mod'`).
+  as written (`'Software\Example Mod'`). A value that starts with `>` is a
+  block scalar unless it is quoted, so an engine requirement is written
+  `engine: ">= 0.8.0"`.
 - **Comments.** `#` comments start a line or follow white space, may appear
   anywhere, and are the place to explain a value. They are not part of the
   ruleset and never reach the hashes.
@@ -276,6 +292,12 @@ that names a catalogue in `requires` must name this one. A hack whose
 meaning changes gets a new id, and the old id keeps its meaning, so an
 existing profile never changes how it plays.
 
+`requires.engine`, when a profile gives one, is checked when the profile
+is resolved. A player whose Open Annihilation does not meet it is told the
+version the mod needs, and the mod is not played. The text of `version`
+stays free text: Open Annihilation never orders version strings. Only
+`requires.engine` is a range.
+
 ### 3.6 Validation and diagnostics
 
 The engine checks the whole profile against the registry before it plays.
@@ -288,7 +310,16 @@ on:
 - a value of the wrong type, out of range, not a multiple of what it must
   be, too long, not matching its pattern, of the wrong length, repeated or
   not in ascending order where the parameter requires it;
-- `requires` naming another base game or catalogue;
+- `requires` naming another base game or catalogue, a `requires.engine`
+  that is not a requirement, or an engine requirement this Open
+  Annihilation does not meet;
+- a `homepage` that is not an http or https address of 1 to 256 bytes, or
+  a `tags` list that is empty, longer than eight, or holds a tag that is
+  not lower-case kebab-case or that repeats;
+- a `supportedGames` or `requiredExpansions` value that is not a list of
+  ids, is empty when it is `supportedGames`, holds more than 16 ids, repeats
+  an id, names an id that is not a base game or an expansion, or names an
+  expansion that extends none of the supported games;
 - a missing `author` or `packaging` block, a missing `author.name`,
   `packaging.revision`, `packaging.date` or `packaging.packager`, a
   malformed e-mail address, or a date that is not a calendar day;
@@ -373,6 +404,13 @@ the same files would give:
   game folder is never layered, searched or mounted from: a mod folder keeps
   the version an update replaced there ([4.6](#46-the-oamod-package)).
 
+A start that does not name `--game-dir` plays a managed copy. The loose
+folders, highest first, are the mod folder when a mod is playing, then each
+expansion that is on, then the base game under `Games/<game>`. An
+expansion's folder is never the mod folder. Archive discovery runs over
+those folders merged, file by file, in the same order as a copied install
+of the same files. `--game-dir` still scans the one folder it names.
+
 ### 4.2 Choosing a mod
 
 One profile plays per run. The profile comes from, in order:
@@ -382,20 +420,21 @@ One profile plays per run. The profile comes from, in order:
    the one the preferences remember;
 3. else the game folder's own `oamod.yaml`, for a copied install.
 
-The **Mods** page of the Open Annihilation settings lists the mod folders
-in the game folder's `mods` folder and in the player's own
-`Documents/Open Annihilation/Mods` folder, the mod being played first. Each
-row shows the mod's badge ([4.5](#45-the-badge)), and from its `oamod.yaml`
-its `name`, its `version` and its `description`; a folder without an
-`oamod.yaml` shows the folder's name, "N/A" and "No oamod.yaml present".
-Choosing another mod there, once the player confirms it, reloads the game's
-data for that mod and returns to the main menu without restarting the game,
-and the choice is remembered for later starts. A remembered mod folder that
-is gone is dropped with a notice. There is no detection of installed mods
-and no built-in list of mods. The [mod support overview](README.md#choosing-a-mod)
-describes the page.
+The Library's **Mods** tab lists, beside the mods installed from packages,
+the mod folders in the game folder's `mods` folder and in the player's own
+`Documents/Open Annihilation/Mods` folder. Each shows the mod's badge
+([4.5](#45-the-badge)), and from its `oamod.yaml` its `name` and its
+`version`, and its details its `description`; a folder without an
+`oamod.yaml` shows the folder's name, "N/A" and, in its details, "No
+oamod.yaml present". PLAY NOW on another mod reloads the game's data for
+that mod and returns to the main menu without restarting the game, and the
+choice is remembered for later starts; SWITCH OFF on the mod being played,
+once the player confirms it, does the same with no mod. A remembered mod
+folder that is gone is dropped with a notice. There is no detection of
+installed mods and no built-in list of mods. The
+[mod support overview](README.md#choosing-a-mod) describes choosing a mod.
 
-The page lists no folder whose name starts with a dot, as file managers
+The Library lists no folder whose name starts with a dot, as file managers
 hide such folders: the folders an install of a `.oamod` package keeps in
 `Mods` while it works are named so.
 
@@ -404,7 +443,7 @@ hide such folders: the folders an install of a `.oamod` package keeps in
 | Option | What it does |
 | --- | --- |
 | `--mod FILE` | Reads the profile from `FILE` instead of the folder's own, for development and for mods that do not ship a profile. |
-| `--mod-dir PATH` | Plays the mod folder at `PATH`, layered over the game folder. |
+| `--mod-dir PATH` | Plays the mod folder at `PATH`, layered over the expansions that are on and the base game, or over the folder `--game-dir` names. |
 | `--base-game` | Plays without the remembered mod folder. It cannot be combined with `--mod-dir`. |
 | `--print-profile` | Prints the resolved profile of `--mod FILE`, or of the `--mod-dir` or `--game-dir` folder, and exits. The output is the effective profile as indented JSON, then a `sha256-sim` line and a `sha256-full` line with the two hashes. The folder's INI settings are applied, as a game applies them. A folder without a profile prints that it plays 3.1c; a profile with errors prints each, one a line, and exits with status 1. |
 | `--accept-unimplemented-hacks` | Accepts, with a warning each, hacks this build does not implement yet. For development only; it needs a mod (`--mod`, `--mod-dir`, `--game-dir` or `--print-profile`). |
@@ -436,8 +475,8 @@ Game folders are never written to.
 ### 4.5 The badge
 
 A mod folder can hold a badge: a PNG image named `oamod.png`, matched
-without case, beside its `oamod.yaml`. The Mods page shows it, about 40
-pixels across, at the left of the mod's row.
+without case, beside its `oamod.yaml`. The Library shows it beside the
+mod's name.
 
 - Make it square, 64 by 64 pixels. A badge larger than that is scaled down
   to fit within 64 by 64 as it is read, keeping its proportions.
@@ -506,7 +545,7 @@ revisions 1, 2 and 3 leave 3 in the folder and 2 in `.backup`. A reinstall
 leaves `.backup` as it is. Rolling back swaps the folder's version and the
 one in `.backup`, so it can be undone, one version deep. `.backup` is
 invisible to the game: never layered over the game folder, never searched
-for archives, never listed on the Mods page.
+for archives, never listed in the Library.
 
 **How it is put in place.** The files are unpacked into a staging folder
 inside `Mods`, a little at a time, each made anew and synced to storage,
@@ -518,6 +557,19 @@ before the change or after it; a change to the mod the game plays is made
 between two runs, once its archives are closed. The folders an install
 keeps in `Mods` while it works start with `.oamod-`; `Mods/.oamod-lock`
 keeps a second copy of the game from changing the folder at the same time.
+
+### 4.7 Catalogue releases
+
+A registry's catalogue numbers every release of a package key (`release`)
+and never orders version strings. An update is a higher release of the same
+key from the same registry. `packaging.revision` rises with every package
+of the same version, so a file install still sees an update when the
+catalogue is not involved. A publisher never reuses a version and revision
+with different bytes: the content-library publish script refuses it.
+
+A mod whose engine requirement is not met, or whose hacks this Open
+Annihilation does not implement, is listed and cannot be installed. The
+Library shows the mod's homepage and files the mod under its tags.
 
 ## 5. Parameters, defaults and presets
 
@@ -681,7 +733,7 @@ Identity keys are written directly under `identity`.
 
 | Key | Meaning | 3.1c | Type | Scope |
 | --- | --- | --- | --- | --- |
-| `display-version` | The version text on the main menu | `v3.1` | string, at most 16 | view |
+| `display-version` | The version text on the main menu, in place of the program's own. Left as 3.1c's `v3.1`, the menu shows "Open Annihilation" and this build's version (`v0.8.0`, with `-` and the version label on a development build) when the game data names its revision, and hides the label when it does not, as the demo does | `v3.1` | string, at most 16 | view |
 | `network-version` | The two network version bytes, major then minor. Also the build version unit files are checked against: a unit whose `Version` is later is unavailable. | `[3, 1]` | two integers, 0 to 255 | sim |
 | `replay-network-version` | The version bytes a replay presents | `[3, 1]` | two integers, 0 to 255 | sim |
 | `settings-file` | The name of the INI file the game reads its settings from | `totala.ini` | string, at most 64 | view |
@@ -715,14 +767,20 @@ the same data. The mount order is loose files, the revision archive, the
 `ccx` group, the `ufo` group, the installation archives in the order written,
 at most ten archives of the `hpi` group, then the disc's archives. With no
 installation archives that slot mounts nothing, which is how an install that
-does not name any is mounted. A mod's own archive of the `hpi` group still
-mounts with that group, after the named installation archives.
+does not name any is mounted. A name that is an expansion's archive, such
+as `ccdata.ccx`, is still a valid installation archive. `oa-tool check`
+suggests declaring that expansion in `requiredExpansions` instead. Base-game
+files such as `rev31.gp3`, `totala1.hpi`, `totala2.hpi` and `TADemo.hpi`
+are not expansions, and the check does not suggest one for them. A mod's
+own archive of the `hpi` group still mounts with that group, after the
+named installation archives.
 
 Each installation-archive name is a file name of 1 to 64 characters: no
 slash, backslash or colon, and not `.` or `..`. Names are matched without
 case. The same name twice is refused, and so are two names that differ only
 in the case of their letters. The name is sought in the merged top-level
-listing of the mod folder and the game folder, the same listing a copied
+listing of the folders the start mounts (the mod folder, each expansion
+that is on, and the base game, or the one folder `--game-dir` names), the same listing a copied
 install of those files would give. One that no folder holds is reported
 while mounting, with no line and column, as
 `file: layout.installation-archives: installation archive 'NAME' is missing`.
@@ -986,8 +1044,10 @@ window in eight and the second on the others, each named as below the
 
 Resolution gives the **effective profile**: every value the profile sets,
 resolved in the order of [5.3](#53-resolution-order). It holds `oamod`,
-`id`, `name`, `version`, `description`, `requires`, `author` and
-`packaging` as written; every identity, layout,
+`id`, `name`, `version`, `description`, `homepage`, `tags`,
+`supportedGames`, `requiredExpansions`, `requires`,
+`author` and `packaging` as written, and it does not fill in a key the
+profile left out; every identity, layout,
 string and media value, written or at its baseline; every limit, with each
 parameter; every hack that is on, with each parameter; the script
 extensions with their fidelity; the data-key bindings; and the settings
@@ -1004,7 +1064,8 @@ change it, so two profiles that mean the same thing hash the same.
   values, every limit and every hack whose entry is sim scope with its
   sim-scope parameters, the script extensions and their fidelity, and the
   sim-scope data keys. It leaves out `id`, `name`, `version`,
-  `description`, `requires`, `author`, `packaging`, the settings block,
+  `description`, `homepage`, `tags`, `supportedGames`, `requiredExpansions`,
+  `requires`, `author`, `packaging`, the settings block,
   strings, media, the visual
   hacks and every view value.
 
@@ -1129,8 +1190,11 @@ limits) and [src/app](../../src/app/README.md#mod-profile-and-mod-folders)
 7. **Display rules.** The visual hacks change only what this machine draws
    and plays and how its input works, never what another machine is told.
 8. **The front end** shows the profile's display version on the main menu
-   and its name, version, description and badge on the Mods page of the
-   settings, keeps the game's settings under its registry root, seeds its registry
+   when it names one other than 3.1c's `v3.1`. Otherwise the label reads
+   "Open Annihilation" and this build's version when the game data names
+   its revision, and stays hidden when it does not. It shows the profile's
+   name, version, description and badge in the Library, keeps the game's
+   settings under its registry root, seeds its registry
    values on a first run, and keeps its saves in `Saves/<id>`
    ([4.4](#44-saves-and-settings)).
 
@@ -1251,8 +1315,8 @@ What it plays:
 | 3.1c | Total Annihilation at version 3.1c, unmodified. Every baseline in this document is its behaviour. |
 | Profile, `oamod.yaml` | The strict YAML file in the root of a mod's folder that describes the mod as changes from 3.1c. |
 | Package, packaging revision | A mod's profile and files as one person put them together on one day; its revision counts the updates of that package from 1. |
-| Game folder | The installed game. Under a mod folder it must be plain 3.1c, with no `oamod.yaml`. |
-| Mod folder | A folder holding a mod's files and its `oamod.yaml`, in the game folder's `mods` folder or named with `--mod-dir`. It plays as if copied over the game folder. |
+| Game folder | The installed game. Under a mod folder it must be plain 3.1c, with no `oamod.yaml`. A managed start plays `Games/<game>` as that folder. |
+| Mod folder | A folder holding a mod's files and its `oamod.yaml`, in the game folder's `mods` folder or named with `--mod-dir`. It plays as if copied over the expansions that are on and the base game. An expansion folder is not a mod folder. |
 | Copied install | A mod installed by copying its files into the game folder itself. |
 | Hack registry | The catalogue of every entry a profile may name, with its parameters, baselines and defaults: `src/data/mod-profile/registry/hack-registry.yaml`. |
 | Catalogue | The version of the hack registry's contents; this document describes catalogue 1. |

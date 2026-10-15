@@ -2,11 +2,16 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // The Open Annihilation settings: read at start, put in effect, saved, and
-// the dialog's session that both hosts share.
+// the dialog's session, which the OA layer's settings screen shows on the
+// main menu and in a match.
 
 #include "engine_settings_state.hpp"
-#include "oa/app/mod_install.hpp"
-#include "oa/app/mod_install/prompts.hpp"
+#include "library_host.hpp"
+#include "mod_install_state.hpp"
+#include "oa_layer.hpp"
+#include "oa/app/package_install.hpp"
+#include "oa/app/package_install/oamod.hpp"
+#include "oa/app/package_install/prompts.hpp"
 #include "oa/app/game_directory.hpp"
 #include "oa/app/game_files_hooks.hpp"
 #include "oa/app/mod_profile_loader.hpp"
@@ -14,39 +19,60 @@
 #include "oa/app/user_folder.hpp"
 
 #include "oa/app/acceleration_status.hpp"
+#include "oa/app/content/downloads.hpp"
+#include "oa/app/content/service.hpp"
+#include "oa/app/content/settings.hpp"
+#include "oa/app/content_copy.hpp"
+#include "oa/app/setup_before_game.hpp"
 #include "oa/app/runtime.hpp"
+#include "oa/ui/engine_settings/file_types.hpp"
+#include "oa/ui/first_run/first_run.hpp"
+#include "oa/netgame/presence.hpp"
 #include "oa/app/view_rules.hpp"
+#include "oa/data/registry/descriptor.hpp"
 #include "oa/data/languages/interface_text.hpp"
 #include "oa/data/mod_profile/overrides.hpp"
 #include "render_host.hpp"
 #include "render_run.hpp"
 #include "screen_size.hpp"
+#include "oa/platform/file_types.hpp"
 #include "oa/platform/machine.hpp"
+#include "oa/platform/system.hpp"
 #include "oa/platform/render_probe.hpp"
+#include "oa/app/window_icon.hpp"
 #include "oa/sim/ground_orders/search_worker.hpp"
 #include "oa/ui/display_layout.hpp"
+#include "oa/ui/kit/components.hpp"
 #include "oa/ui/frontend/savegame_dialogs.hpp"
 #include "oa/ui/frontend_multiplayer/screens.hpp"
 #include "oa/ui/touch_hud.hpp"
 
 #include <SDL3/SDL.h>
 
+#include <cstddef>
+
 #include <algorithm>
 #include <array>
 #include <atomic>
 #include <cctype>
+#include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <exception>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <thread>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -58,6 +84,12 @@
 namespace oa::app {
 
 namespace settings = oa::ui::engine_settings;
+
+static_assert(
+    settings::default_skirmish_players == init::default_skirmish_player_count,
+    "the slider's default and a new install's skirmish rows are the same count"
+);
+namespace kit = oa::ui::kit;
 namespace render_probe = oa::platform::render_probe;
 
 static_assert(settings::base_path_search_nodes == oa::sim::ground_orders::search_tick_credit);
@@ -71,6 +103,523 @@ static_assert(
 
 // The settings dialog keeps the mod folder the game starts with.
 static_assert(mod_directory_preference == settings::key::mod_directory);
+
+namespace {
+
+namespace content = oa::app::content;
+
+/// What Downloads shows, from the registries in effect and the stored IDs.
+/// No ID is made here.
+///
+/// @param values the preference values
+/// @param snapshot the registries in effect; null lists no install ID
+/// @param folder the downloads folder
+/// @param busy a download is queued, running or paused
+/// @return the offer
+[[nodiscard]] settings::DownloadsOffer downloads_offer_of(
+    const std::map<std::string, std::string>& values,
+    const std::shared_ptr<const content::Snapshot>& snapshot,
+    const std::filesystem::path& folder,
+    bool busy
+) {
+    settings::DownloadsOffer offer;
+    if (snapshot) {
+        for (const content::RegistryView& listed : snapshot->registries) {
+            if (listed.registry.descriptor.install_id != oa::data::registry::InstallIdUse::required)
+                continue;
+            const content::InstallId stored =
+                content::read_install_id(values, listed.registry.descriptor.id);
+            settings::InstallIdRow row;
+            row.registry_id = listed.registry.descriptor.id;
+            row.registry_name = listed.registry.descriptor.name;
+            row.on = stored.state != content::InstallIdState::off;
+            row.made = stored.state == content::InstallIdState::on;
+            row.id_text = content::install_id_shown(stored.text);
+            offer.install_ids.push_back(std::move(row));
+        }
+    }
+    offer.kept_bytes = content::downloaded_bytes(folder);
+    offer.downloads_busy = busy;
+    offer.https_over_http = content::https_read_over_http();
+    return offer;
+}
+
+/// Gives the dialog the offer Downloads shows now.
+///
+/// @param[in,out] dialog the dialog
+/// @param values the preference values
+/// @param service the content service, for its registries
+/// @param downloads the queue, for whether it is busy
+/// @param folder the downloads folder
+void give_downloads(
+    settings::Dialog& dialog,
+    const std::map<std::string, std::string>& values,
+    content::Service& service,
+    content::Downloads& downloads,
+    const std::filesystem::path& folder
+) {
+    settings::set_downloads_offer(
+        dialog, downloads_offer_of(values, service.snapshot(), folder, downloads.busy())
+    );
+}
+
+/// Stores each install-ID switch the player moved. A switch turned on makes
+/// no ID; the next download asks for one.
+///
+/// @param[in,out] values the preference values
+/// @param opened the switches as the dialog opened
+/// @param chosen the switches the player leaves
+void store_install_switches(
+    std::map<std::string, std::string>& values,
+    const std::vector<settings::InstallIdChoice>& opened,
+    const std::vector<settings::InstallIdChoice>& chosen
+) {
+    const std::size_t count = std::min(opened.size(), chosen.size());
+    for (std::size_t index = 0; index < count; ++index) {
+        if (opened[index].on == chosen[index].on)
+            continue;
+        if (chosen[index].on)
+            content::turn_install_id_on(values, chosen[index].registry_id);
+        else
+            content::turn_install_id_off(values, chosen[index].registry_id);
+    }
+}
+
+/// Tells the queue each install-ID switch the player moved: nothing, so a
+/// switch turned off stops that registry's downloads, and one turned on
+/// waits until the next download asks.
+///
+/// @param downloads the queue
+/// @param opened the switches as the dialog opened
+/// @param chosen the switches the player leaves
+void tell_install_switches(
+    content::Downloads& downloads,
+    const std::vector<settings::InstallIdChoice>& opened,
+    const std::vector<settings::InstallIdChoice>& chosen
+) {
+    const std::size_t count = std::min(opened.size(), chosen.size());
+    for (std::size_t index = 0; index < count; ++index) {
+        if (opened[index].on == chosen[index].on)
+            continue;
+        downloads.set_install_id(chosen[index].registry_id, std::nullopt);
+    }
+}
+
+/// The content service's check that matches the dialog's.
+///
+/// @param check the dialog's choice
+/// @return the service's
+[[nodiscard]] content::CheckForUpdates check_mode(settings::ContentCheck check) noexcept {
+    switch (check) {
+    case settings::ContentCheck::automatically:
+        return content::CheckForUpdates::automatically;
+    case settings::ContentCheck::when_library_opens:
+        return content::CheckForUpdates::library_only;
+    case settings::ContentCheck::never:
+        return content::CheckForUpdates::never;
+    }
+    return content::CheckForUpdates::automatically;
+}
+
+/// Replaces `{token}` once.
+void replace_token(std::string& text, std::string_view token, std::string_view value) {
+    const auto at = text.find(token);
+    if (at != std::string::npos)
+        text.replace(at, token.size(), value);
+}
+
+/// "Checking… N%". The check's thread only counts files; this writes the line.
+std::string checking_line(uint32_t done, uint32_t total) {
+    std::string text{oa::data::languages::interface_text("Checking… {percent}%")};
+    const uint32_t percent =
+        total == 0 ? 0 : static_cast<uint32_t>((static_cast<uint64_t>(done) * 100ULL) / total);
+    replace_token(text, "{percent}", std::to_string(percent));
+    return text;
+}
+
+/// "{done} of {total} · N%", the copy's file line.
+std::string files_progress_line(uint32_t done, uint32_t total) {
+    std::string text{oa::data::languages::interface_text("{done} of {total} · {percent}%")};
+    const uint32_t percent =
+        total == 0 ? 0 : static_cast<uint32_t>((static_cast<uint64_t>(done) * 100ULL) / total);
+    replace_token(text, "{done}", std::to_string(done));
+    replace_token(text, "{total}", std::to_string(total));
+    replace_token(text, "{percent}", std::to_string(percent));
+    return text;
+}
+
+/// The check Game Content starts. It hashes off the UI thread.
+struct ContentCheckJob {
+    ~ContentCheckJob() {
+        stop.store(true);
+        if (worker.joinable())
+            worker.join();
+    }
+
+    std::mutex mutex{};
+    std::atomic<bool> stop{false};
+    std::atomic<bool> exited{true};
+    std::thread worker{};
+    uint64_t generation{0};        ///< bumped to discard a check that was stopped
+    uint64_t worker_generation{0}; ///< the generation the running thread serves
+    bool running{false};
+    bool restart{false}; ///< start again once the thread has left
+    bool changed{false};
+    bool result_ready{false};
+    uint32_t done{0};
+    uint32_t total{0};
+    ContentCheck result{};
+    fs::path folder{};
+};
+
+ContentCheckJob& content_check_job() {
+    static ContentCheckJob job;
+    return job;
+}
+
+/// A copy Game Content started. The copying step's worker does the bytes.
+struct ContentCopyWatch {
+    bool active{false}; ///< a copy this dialog started has not finished
+    bool awake{false};  ///< the screen saver was turned off for that copy
+    fs::path folder{};
+    std::vector<settings::GameContentRow> before{}; ///< the rows before the bytes moved
+};
+
+ContentCopyWatch& content_copy_watch() {
+    static ContentCopyWatch watch;
+    return watch;
+}
+
+/// The check's progress. It runs on the check's thread and only stores counts.
+bool on_settings_check(uint32_t done, uint32_t total, void* context) {
+    if (context == nullptr)
+        return false;
+    auto* job = static_cast<ContentCheckJob*>(context);
+    const std::lock_guard<std::mutex> lock(job->mutex);
+    if (job->stop.load() || job->generation != job->worker_generation)
+        return false;
+    job->done = done;
+    job->total = total;
+    job->changed = true;
+    return true;
+}
+
+/// Starts a check. The caller has joined any thread that was still running.
+void launch_content_check(const fs::path& folder) {
+    ContentCheckJob& job = content_check_job();
+    if (folder.empty() || job.worker.joinable())
+        return;
+    job.stop.store(false);
+    job.exited.store(false);
+    uint64_t generation = 0;
+    {
+        const std::lock_guard<std::mutex> lock(job.mutex);
+        ++job.generation;
+        generation = job.generation;
+        job.worker_generation = generation;
+        job.running = true;
+        job.restart = false;
+        job.result_ready = false;
+        job.changed = true;
+        job.done = 0;
+        job.total = 0;
+        job.folder = folder;
+        job.result = {};
+    }
+    job.worker = std::thread([generation, folder] {
+        ContentCheckJob& held = content_check_job();
+        ContentCheck check;
+        bool threw = false;
+        try {
+            check = check_managed_content(
+                folder, oa::data::content_bundles::bundles(), on_settings_check, &held, &held.stop
+            );
+        } catch (const std::exception&) {
+            threw = true;
+        }
+        {
+            const std::lock_guard<std::mutex> lock(held.mutex);
+            if (!threw && held.generation == generation && !held.stop.load()) {
+                held.result = std::move(check);
+                held.result_ready = true;
+            }
+            held.running = false;
+            held.changed = true;
+        }
+        held.exited.store(true);
+    });
+}
+
+/// Asks a running check to stop. A restart waits until that thread has left,
+/// so this does not join it.
+void halt_content_check(bool restart_after, const fs::path& folder) {
+    ContentCheckJob& job = content_check_job();
+    job.stop.store(true);
+    const std::lock_guard<std::mutex> lock(job.mutex);
+    job.restart = restart_after && !folder.empty();
+    if (!folder.empty())
+        job.folder = folder;
+    ++job.generation;
+    job.result_ready = false;
+    job.result = {};
+    job.done = 0;
+    job.total = 0;
+    job.changed = true;
+}
+
+/// Joins a check that has left, then starts one that was asked for again.
+void service_content_check() {
+    ContentCheckJob& job = content_check_job();
+    if (job.exited.load() && job.worker.joinable())
+        job.worker.join();
+    bool start = false;
+    fs::path folder;
+    {
+        const std::lock_guard<std::mutex> lock(job.mutex);
+        if (!job.worker.joinable() && job.restart && !content_copy_watch().active) {
+            start = true;
+            folder = job.folder;
+            job.restart = false;
+        }
+    }
+    if (start)
+        launch_content_check(folder);
+}
+
+/// Starts a check, or asks the running one to start again when it leaves.
+void request_content_check(const fs::path& folder) {
+    if (folder.empty() || content_copy_watch().active)
+        return;
+    ContentCheckJob& job = content_check_job();
+    if (job.worker.joinable() && !job.exited.load()) {
+        halt_content_check(true, folder);
+        return;
+    }
+    if (job.worker.joinable())
+        job.worker.join();
+    launch_content_check(folder);
+}
+
+/// Stops a copy and a check and waits for both. The dialog is closing, so the
+/// wait is the time until the next chunk.
+void finish_content_workers() {
+    setup_request_cancel();
+    ContentCheckJob& job = content_check_job();
+    job.stop.store(true);
+    {
+        const std::lock_guard<std::mutex> lock(job.mutex);
+        job.restart = false;
+        ++job.generation;
+        job.result_ready = false;
+    }
+    setup_stop_join();
+    if (job.worker.joinable())
+        job.worker.join();
+    setup_release_located();
+    ContentCopyWatch& watch = content_copy_watch();
+    if (watch.awake)
+        SDL_EnableScreenSaver();
+    watch = {};
+}
+
+/// Lists every bundle with its size. An empty folder says nothing is copied.
+/// A folder that has a copy says the check is starting, and does not hash.
+void lay_game_content(settings::Dialog& dialog, const fs::path& user_folder) {
+    const auto table = oa::data::content_bundles::bundles();
+    const bool look = !user_folder.empty();
+    const std::string waiting = checking_line(0, 0);
+    dialog.game_content.clear();
+    dialog.game_content.reserve(table.size());
+    for (const auto& bundle : table) {
+        settings::GameContentRow row;
+        row.id = std::string(bundle.id);
+        row.name = std::string(bundle.english_name);
+        uint64_t bytes = 0;
+        for (const auto& file : bundle.files)
+            bytes += file.size;
+        row.size = settings::download_size_text(bytes);
+        row.checking = look;
+        row.check = look ? waiting : std::string(oa::data::languages::interface_text("not added"));
+        dialog.game_content.push_back(std::move(row));
+    }
+}
+
+/// Writes a finished check onto the rows. `found` is not kept.
+void paint_check_result(settings::Dialog& dialog, const ContentCheck& check) {
+    for (settings::GameContentRow& row : dialog.game_content) {
+        const ContentBundleCheck* found = nullptr;
+        for (const ContentBundleCheck& checked : check.bundles) {
+            if (checked.id == row.id) {
+                found = &checked;
+                break;
+            }
+        }
+        row.checking = false;
+        row.copying = false;
+        row.bar_done = -1;
+        row.bar_whole = 1;
+        if (found == nullptr) {
+            row.check = std::string(oa::data::languages::interface_text("not added"));
+            row.warn = false;
+        } else {
+            row.check = content_bundle_line(*found);
+            row.warn = found->files_differ > 0;
+        }
+    }
+}
+
+/// Writes the check's percent onto every row.
+void paint_checking(settings::Dialog& dialog, uint32_t done, uint32_t total) {
+    const std::string line = checking_line(done, total);
+    for (settings::GameContentRow& row : dialog.game_content) {
+        row.checking = true;
+        row.copying = false;
+        row.warn = false;
+        row.bar_done = -1;
+        row.bar_whole = 1;
+        row.check = line;
+    }
+}
+
+/// The bundle of this name, or -1.
+int find_copy_bundle(
+    const std::vector<oa::ui::first_run::CopyBundle>& bundles, std::string_view name
+) {
+    for (int index = 0; index < static_cast<int>(bundles.size()); ++index) {
+        if (bundles[static_cast<std::size_t>(index)].name == name)
+            return index;
+    }
+    return -1;
+}
+
+/// Writes a copy's progress, its check, or "Copied" after a check that was
+/// stopped once the bytes had landed.
+void paint_copy(
+    settings::Dialog& dialog,
+    const oa::ui::first_run::CopyView& view,
+    const std::vector<settings::GameContentRow>& before
+) {
+    dialog.game_content = before;
+    if (view.hashing) {
+        paint_checking(dialog, view.check_done, view.check_total);
+        // The bytes have landed. Cancel stays on the row that was copying, so
+        // the check can be stopped without closing Settings.
+        for (settings::GameContentRow& row : dialog.game_content) {
+            const int index = find_copy_bundle(view.bundles, row.name);
+            if (index < 0)
+                continue;
+            if (view.bundles[static_cast<std::size_t>(index)].phase ==
+                oa::ui::first_run::CopyPhase::copying)
+                row.copying = true;
+        }
+        return;
+    }
+    const bool landed = view.bytes_landed && !view.running && !view.checked;
+    for (settings::GameContentRow& row : dialog.game_content) {
+        const int index = find_copy_bundle(view.bundles, row.name);
+        row.copying = false;
+        row.checking = false;
+        row.bar_done = -1;
+        row.bar_whole = 1;
+        if (index < 0)
+            continue;
+        const oa::ui::first_run::CopyBundle& bundle = view.bundles[static_cast<std::size_t>(index)];
+        if (view.checked) {
+            if (bundle.phase == oa::ui::first_run::CopyPhase::waiting) {
+                row.check = std::string(oa::data::languages::interface_text("not added"));
+                row.warn = false;
+            } else {
+                row.check = bundle.amount.empty()
+                                ? std::string(oa::data::languages::interface_text("Copied"))
+                                : bundle.amount;
+                row.warn = bundle.phase == oa::ui::first_run::CopyPhase::differ;
+            }
+            continue;
+        }
+        if (landed && bundle.phase != oa::ui::first_run::CopyPhase::waiting) {
+            row.check = view.verdict.empty()
+                            ? std::string(oa::data::languages::interface_text("Copied"))
+                            : view.verdict;
+            row.warn = !view.verdict.empty();
+            continue;
+        }
+        if (bundle.phase != oa::ui::first_run::CopyPhase::copying)
+            continue;
+        row.copying = true;
+        row.warn = false;
+        row.bar_done = bundle.done;
+        row.bar_whole = bundle.whole > 0 ? bundle.whole : 1;
+        row.check = view.overall.empty() ? files_progress_line(0, 0) : view.overall;
+    }
+}
+
+/// True when two row lists would draw differently.
+bool content_rows_differ(
+    const std::vector<settings::GameContentRow>& left,
+    const std::vector<settings::GameContentRow>& right
+) {
+    if (left.size() != right.size())
+        return true;
+    for (std::size_t index = 0; index < left.size(); ++index) {
+        const settings::GameContentRow& a = left[index];
+        const settings::GameContentRow& b = right[index];
+        if (a.check != b.check || a.warn != b.warn || a.copying != b.copying ||
+            a.checking != b.checking || a.bar_done != b.bar_done || a.bar_whole != b.bar_whole)
+            return true;
+    }
+    return false;
+}
+
+/// True when a row was still being checked.
+bool rows_checking(const std::vector<settings::GameContentRow>& rows) {
+    for (const settings::GameContentRow& row : rows)
+        if (row.checking)
+            return true;
+    return false;
+}
+
+/// Asks for a place and starts the copy on the copying step's thread.
+/// The dialog keeps drawing. A second copy while one is running is ignored.
+///
+/// @param[in,out] dialog the dialog
+/// @param window the window the picker is attached to
+/// @param user_folder the player's folder
+void start_game_content_copy(
+    settings::Dialog& dialog, SDL_Window* window, const fs::path& user_folder
+) {
+    ContentCopyWatch& watch = content_copy_watch();
+    if (watch.active || user_folder.empty())
+        return;
+    const bool was_checking = rows_checking(dialog.game_content);
+    halt_content_check(false, user_folder);
+    oa::ui::first_run::Model model;
+    if (!setup_locate_source(window, user_folder, model)) {
+        setup_release_located();
+        if (was_checking)
+            halt_content_check(true, user_folder);
+        return;
+    }
+    watch.before = dialog.game_content;
+    for (settings::GameContentRow& row : watch.before) {
+        row.copying = false;
+        row.bar_done = -1;
+    }
+    watch.folder = user_folder;
+    if (!setup_begin_copy(user_folder, model)) {
+        setup_release_located();
+        watch.before.clear();
+        if (was_checking)
+            halt_content_check(true, user_folder);
+        return;
+    }
+    watch.active = true;
+    if (!watch.awake) {
+        SDL_DisableScreenSaver();
+        watch.awake = true;
+    }
+}
+
+} // namespace
 
 namespace {
 
@@ -193,10 +742,11 @@ Runtime::EngineSettingsState::offered_screen_sizes(const Runtime& runtime) {
     SDL_DisplayID display = SDL_GetDisplayForWindow(runtime.sdl_.window);
     if (display == 0)
         display = SDL_GetPrimaryDisplay();
+    // Full screen lists the display's modes, whether or not the output can
+    // switch to one of them. A window lists the sizes that fit the desktop.
     const bool full_screen = (SDL_GetWindowFlags(runtime.sdl_.window) & SDL_WINDOW_FULLSCREEN) != 0;
-    const auto use = full_screen && run_full_screen_method() == FullScreenMethod::switch_mode
-                         ? oa::platform::display_modes::Use::full_screen
-                         : oa::platform::display_modes::Use::window;
+    const auto use = full_screen ? oa::platform::display_modes::Use::full_screen
+                                 : oa::platform::display_modes::Use::window;
     return oa::app::offered_screen_sizes(runtime.options_, display, use, minimum_height);
 }
 
@@ -474,6 +1024,16 @@ void Runtime::load_engine_settings() {
                  runtime, EngineSettingsState::offered_screen_sizes(runtime)
              );
              return mp::DisplayMode{size.width, size.height, game_bits};
+         },
+         [](void* context, int32_t width, int32_t height) {
+             // A screen size keeps each side in 16 bits.
+             constexpr int32_t widest = std::numeric_limits<uint16_t>::max();
+             if (width <= 0 || height <= 0 || width > widest || height > widest)
+                 return;
+             EngineSettingsState::take_screen_size(
+                 *static_cast<Runtime*>(context),
+                 {static_cast<uint16_t>(width), static_cast<uint16_t>(height)}
+             );
          }}
     );
 }
@@ -500,13 +1060,17 @@ void Runtime::list_offered_mods() {
         if (fs::is_directory(folder, missing))
             offered.push_back(folder);
     }
-    // The mod folder played is the one layered over the game folder.
-    state.playing_mod_folder =
-        options_.game_folders.size() > 1
-            ? path_to_utf8(fs::absolute(options_.game_folders.front()).lexically_normal())
-            : std::string{};
-    if (options_.game_folders.size() > 1)
-        offered.push_back(options_.game_folders.front());
+    // The mod folder played is the one this start layered. An expansion
+    // bundle is another game folder and is not offered as that mod.
+    state.playing_mod_folder.clear();
+    if (!options_.layered_mod_folder.empty()) {
+        std::error_code absolute_error;
+        const fs::path absolute = fs::absolute(options_.layered_mod_folder, absolute_error);
+        state.playing_mod_folder = path_to_utf8(
+            (absolute_error ? options_.layered_mod_folder : absolute).lexically_normal()
+        );
+        offered.push_back(options_.layered_mod_folder);
+    }
     // A folder of the player's own Mods folder offers ROLL BACK while its
     // .backup keeps an earlier version of its mod that the game can play,
     // checked as a pick is.
@@ -530,29 +1094,28 @@ void Runtime::list_offered_mods() {
             state.mod_folders.end())
             continue;
         ModSummary summary = read_mod_summary(folder);
-        settings::ModDetails details;
+        EngineSettingsState::OfferedMod details;
         details.version = std::move(summary.version);
         details.description = std::move(summary.description);
         details.has_profile = summary.has_profile;
-        details.badge_width = summary.badge.width;
-        details.badge_height = summary.badge.height;
-        details.badge_pixels = std::move(summary.badge.pixels);
+        details.profile_id = std::move(summary.id);
+        details.badge = std::move(summary.badge);
         if (!own_mods.empty() && path_from_utf8(path).parent_path() == own_mods)
-            if (const auto backup = mod_install::read_backup(folder);
-                backup && backup->kind == mod_install::FolderKind::mod &&
-                playable(entry_without_case(folder, mod_install::backup_folder_name)
-                             .value_or(folder / std::string(mod_install::backup_folder_name)))) {
-                const auto now = mod_install::read_installed_mod(folder);
-                const bool same_version = now.version == backup->version;
-                details.roll_back_from =
-                    mod_install::version_label(now.version, now.revision, same_version);
-                details.roll_back_to =
-                    mod_install::version_label(backup->version, backup->revision, same_version);
+            if (const auto backup = package_install::oamod::read_backup(folder);
+                backup && backup->kind == package_install::FolderKind::package &&
+                playable(
+                    entry_without_case(folder, package_install::backup_folder_name)
+                        .value_or(folder / std::string(package_install::backup_folder_name))
+                )) {
+                details.roll_back = true;
+                details.kept_version = backup->version;
+                details.kept_revision = backup->revision;
             }
         state.mod_folders.push_back(path);
         state.mod_names.push_back(std::move(summary.title));
         state.mod_details.push_back(std::move(details));
     }
+    ++state.offered_generation;
 }
 
 void Runtime::request_soft_restart() {
@@ -657,6 +1220,11 @@ void Runtime::apply_engine_settings(const settings::EngineSettings& chosen) {
     // them from the next frame, not from where it lies now.
     if (before.view_past_map_edge != chosen.view_past_map_edge)
         view_hold_ = {};
+    // Turning middle-click panning off stops a pan that is already running.
+    if (before.middle_click_pan && !chosen.middle_click_pan) {
+        middle_pan_ = {};
+        middle_pan_swallow_button_ = 0;
+    }
     // ui.megamap acts only while the wheel zoom is off.
     if (before.wheel_zoom != chosen.wheel_zoom && match_)
         megamap_wheel_zoom_changed();
@@ -771,8 +1339,8 @@ void Runtime::load_profile_layers() {
     // apart from the game's without a mod.
     if (options_.mod_profile)
         state.profile_id = options_.mod_profile->id;
-    else if (options_.game_folders.size() > 1)
-        state.profile_id = folder_overrides_id(options_.game_folders.front());
+    else if (!options_.layered_mod_folder.empty())
+        state.profile_id = folder_overrides_id(options_.layered_mod_folder);
     else
         state.profile_id = std::string(profiles::base_game_id);
     state.profile_hacks = profiles::base_hack_states();
@@ -1005,6 +1573,12 @@ std::optional<std::string> Runtime::save_engine_settings(
     return EngineSettingsState::flush(*this);
 }
 
+std::optional<oa::platform::file_types::OpenerReport> show_system_openers(settings::Dialog& dialog);
+
+std::string kept_opener_hint_for(
+    oa::platform::file_types::TypeSet asked, oa::platform::file_types::TypeSet open
+);
+
 settings::Dialog& Runtime::open_engine_settings_dialog(settings::DialogKind kind) {
     EngineSettingsState::take_live_settings(*this);
     auto& state = engine_settings_state();
@@ -1034,6 +1608,13 @@ settings::Dialog& Runtime::open_engine_settings_dialog(settings::DialogKind kind
     // game files in, Manage… runs over the menu, never over a match.
     const bool game_files =
         screen_ == Screen::main_menu && game_files_import_offered(game_files_hooks());
+    // The slider shows the count the setup has. Zero means the setup is not
+    // loaded yet, so the dialog keeps the new-install default and OK writes
+    // nothing until the player moves the slider.
+    const int32_t shown_players = skirmish_settings_.slot_count;
+    if (shown_players > 0 &&
+        static_cast<std::size_t>(shown_players) <= skirmish_settings_.slots.size())
+        state.current.skirmish_players = shown_players;
     settings::open_dialog(
         dialog,
         state.current,
@@ -1043,12 +1624,6 @@ settings::Dialog& Runtime::open_engine_settings_dialog(settings::DialogKind kind
         state.last_page,
         acceleration_report().status,
         settings::highest_offered_unit_limit(limits_.units_per_player),
-        settings::ModOffer{
-            state.mod_names,
-            state.mod_folders,
-            state.mod_details,
-            state.playing_mod_folder,
-        },
         state.profile_hacks,
         &system_language(),
         touch_controls_active(),
@@ -1091,23 +1666,248 @@ settings::Dialog& Runtime::open_engine_settings_dialog(settings::DialogKind kind
     dialog.steam_input = pad_steam_input();
     dialog.steam_deck_panel_hz = state.steam_deck_panel_hz;
     fill_game_files_rows(dialog);
+    // Downloads: the registries that use an install ID, none made here, and
+    // the downloaded files. Opening settings starts the content service.
+    {
+        content::Downloads& downloads = content_downloads();
+        give_downloads(
+            dialog, preference_values_, content_service(), downloads, content_downloads_folder()
+        );
+    }
+    lay_game_content(dialog, user_folder_);
+    request_content_check(user_folder_);
     // Your files shows the player's own folder.
     dialog.user_folder = path_to_utf8(user_folder_);
     // The languages whose packs turn Unicode chat on.
     dialog.unicode_chat_languages = unicode_chat_language_tags();
+    // Languages a catalogue offers that are not installed, and where a
+    // download of one of them stands.
+    std::ignore = refresh_settings_languages(dialog);
+    // On the main menu Language links to the Library, which opens over the
+    // dialog; never in a match.
+    dialog.library_link = screen_ == Screen::main_menu;
     // Developer Mode opens as it was left: its open areas and hacks and its filter.
     if (state.last_developer_list) {
         dialog.developer.areas_open = state.last_developer_list->areas_open;
         dialog.developer.hacks_open = state.last_developer_list->hacks_open;
         dialog.developer.active_only = state.last_developer_list->active_only;
     }
+    // Registered pages join the engine's dialog after it is open, so open
+    // does not wipe them. A mod's options never lists them. The rows stay
+    // the registry's caller.
+    if (oa_layer_ != nullptr) {
+        const SettingsRegistry& registry = oa_layer_->registered_settings();
+        std::vector<settings::RegisteredPage> pages;
+        pages.reserve(registry.page_count);
+        for (uint32_t index = 0; index < registry.page_count; ++index) {
+            const SettingsPageDesc& desc = registry.pages[index];
+            settings::RegisteredPage page;
+            if (desc.id != nullptr)
+                page.id = desc.id;
+            if (desc.title != nullptr)
+                page.title = desc.title;
+            if (desc.owner != nullptr)
+                page.owner = desc.owner;
+            page.rows = desc.rows;
+            page.row_count = desc.row_count;
+            page.applied = desc.applied;
+            page.state = desc.state;
+            pages.push_back(std::move(page));
+        }
+        settings::set_registered_pages(dialog, pages, preference_values_);
+    }
+    // On macOS the five switches show what the system reports now, not the
+    // stored preference. A start does not change an opener; only a switch
+    // that moves, at OK, does.
+    if (const std::optional<oa::platform::file_types::OpenerReport> report =
+            show_system_openers(dialog)) {
+        if (state.file_type_asked && report->error.empty())
+            state.file_type_kept_hint = kept_opener_hint_for(*state.file_type_asked, report->open);
+        dialog.file_type_kept_hint = state.file_type_kept_hint;
+    }
     return dialog;
+}
+
+/// Writes what a file-type change did.
+///
+/// @param result what the change did
+void log_file_type_change(const oa::platform::file_types::Registration& result) {
+    for (const auto& line : result.lines)
+        std::cerr << "open-annihilation: file types: " << line << '\n';
+    if (!result.error.empty())
+        std::cerr << "open-annihilation: file types: " << result.error << '\n';
+}
+
+/// The sentence for types OK asked off that this copy still opens. Empty when
+/// none stayed.
+///
+/// @param asked what OK asked
+/// @param open what the system reports now
+/// @return the hint; empty when nothing stayed
+std::string kept_opener_hint_for(
+    const oa::platform::file_types::TypeSet asked, const oa::platform::file_types::TypeSet open
+) {
+    const std::vector<std::string> stayed =
+        oa::platform::file_types::extensions_still_opened(asked, open);
+    std::vector<std::string_view> dotted;
+    dotted.reserve(stayed.size());
+    for (const std::string& extension : stayed)
+        dotted.emplace_back(extension);
+    return settings::kept_opener_hint(dotted);
+}
+
+/// Sets the five switches from what the system reports, where a switch is the
+/// default opener. A question that fails leaves that switch as the dialog
+/// already shows it and is logged. The hint under File Type Registration
+/// names a type this copy still opens that OK asked off, and clears when the
+/// read-back matches what was asked.
+///
+/// @param dialog the dialog just opened
+/// @return what the system reported; nullopt where a switch is not the opener
+std::optional<oa::platform::file_types::OpenerReport>
+show_system_openers(settings::Dialog& dialog) {
+    namespace file_types = oa::platform::file_types;
+    if (!file_types::default_opener_is_a_setting() || !dialog.file_type_switches)
+        return std::nullopt;
+    const file_types::Handler application = file_types::running_application();
+    if (application.bundle_id.empty())
+        return std::nullopt;
+    const file_types::OpenerReport report = file_types::reported_openers(
+        file_types::system_handler_calls(),
+        application.bundle_id,
+        settings::file_type_set(dialog.chosen)
+    );
+    if (!report.error.empty())
+        std::cerr << "open-annihilation: file types: " << report.error << '\n';
+    settings::set_file_type_switches(dialog.opened, report.open);
+    settings::set_file_type_switches(dialog.chosen, report.open);
+    return report;
+}
+
+/// On macOS, a check, a snapshot and any other run that is not someone
+/// playing must not change the opener a player chose in Finder.
+///
+/// @param options the run's command line
+/// @return false when this run must leave every opener as it is
+bool openers_follow_ok(const Options& options) {
+    namespace file_types = oa::platform::file_types;
+    if (!file_types::default_opener_is_a_setting())
+        return true;
+    if (options.headless_check || options.unattended || options.preferences_file)
+        return false;
+    if (const auto driver = oa::platform::environment_value("SDL_VIDEO_DRIVER");
+        driver && (*driver == "dummy" || *driver == "offscreen"))
+        return false;
+    return true;
+}
+
+/// Registers the file types `chosen` leaves on and withdraws the rest, where
+/// this system takes a registration at run time. On macOS, asks the system to
+/// change only the switches that moved. A registration that skips or fails
+/// withdraws nothing.
+///
+/// @param opened the settings the dialog opened with
+/// @param chosen the settings OK is keeping
+/// @return true when macOS was asked and this copy is an application
+bool apply_chosen_file_types(
+    const settings::EngineSettings& opened, const settings::EngineSettings& chosen
+) {
+    namespace file_types = oa::platform::file_types;
+    if (file_types::default_opener_is_a_setting()) {
+        const std::vector<file_types::OpenerChange> changes =
+            settings::moved_file_type_switches(opened, chosen);
+        if (changes.empty())
+            return false;
+        const file_types::Registration done = file_types::apply_opener_changes(
+            file_types::system_handler_calls(), file_types::running_application(), changes
+        );
+        log_file_type_change(done);
+        // A run that is not an application never asked the system, so it
+        // does not claim the opener stayed.
+        bool skipped = !done.supported;
+        for (const std::string& line : done.lines)
+            skipped = skipped || line.rfind("skipped:", 0) == 0;
+        return !skipped;
+    }
+    const auto executable = file_types::running_executable();
+    if (!executable)
+        return false;
+    const file_types::TypeSet enabled = settings::file_type_set(chosen);
+    const auto done = file_types::register_file_types(*executable, window_icon_png(), {}, enabled);
+    log_file_type_change(done);
+    if (!done.supported || !done.error.empty())
+        return false;
+    for (const auto& line : done.lines)
+        if (line.rfind("skipped:", 0) == 0)
+            return false;
+    log_file_type_change(file_types::withdraw_file_types(enabled.complement()));
+    return false;
 }
 
 settings::Dialog* Runtime::engine_settings_dialog() {
     if (!engine_settings_ || !engine_settings_->dialog)
         return nullptr;
     return &*engine_settings_->dialog;
+}
+
+bool Runtime::refresh_game_content(settings::Dialog& dialog) {
+    service_content_check();
+    ContentCopyWatch& watch = content_copy_watch();
+    if (watch.active) {
+        oa::ui::first_run::CopyView view;
+        static_cast<void>(setup_pull_copy(view));
+        const bool cancelled_bytes =
+            !view.running && !view.hashing && !view.bytes_landed && !view.checked;
+        if (cancelled_bytes) {
+            if (!view.verdict.empty())
+                std::ignore = settings::set_folder_notice(dialog, view.verdict);
+            dialog.game_content = watch.before;
+        } else {
+            paint_copy(dialog, view, watch.before);
+        }
+        if (!view.running && !view.hashing) {
+            const bool resume = cancelled_bytes && rows_checking(watch.before);
+            const fs::path folder = watch.folder;
+            setup_stop_join();
+            setup_release_located();
+            if (watch.awake)
+                SDL_EnableScreenSaver();
+            watch = {};
+            if (resume)
+                request_content_check(folder);
+        }
+        // A match draws the dialog only when this says so, so the bar moves
+        // on the frames the copy is running.
+        return true;
+    }
+    ContentCheckJob& job = content_check_job();
+    bool apply = false;
+    bool running = false;
+    uint32_t done = 0;
+    uint32_t total = 0;
+    ContentCheck result;
+    {
+        const std::lock_guard<std::mutex> lock(job.mutex);
+        running = job.running || !job.exited.load();
+        done = job.done;
+        total = job.total;
+        if (job.result_ready) {
+            apply = true;
+            result = std::move(job.result);
+            job.result_ready = false;
+            running = false;
+        }
+    }
+    if (apply) {
+        const std::vector<settings::GameContentRow> saved = dialog.game_content;
+        paint_check_result(dialog, result);
+        return content_rows_differ(saved, dialog.game_content);
+    }
+    if (running) {
+        paint_checking(dialog, done, total);
+        return true;
+    }
+    return false;
 }
 
 bool Runtime::take_engine_settings_action(settings::DialogAction action) {
@@ -1155,14 +1955,20 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
         take_renderer_retry(*dialog);
         {
             // A Screen size moved to applies when OK is pressed; until then
-            // the setting stays as it was.
+            // it stays as it was. The check for content updates does too,
+            // and so does which file types the game opens. An Interface size
+            // applies as it is chosen, and the open dialog and every OA
+            // screen are laid out at it. Cancel puts back the size the
+            // dialog opened with.
             settings::EngineSettings live = dialog->chosen;
             live.screen_size = dialog->opened.screen_size;
+            live.content_check = dialog->opened.content_check;
             apply_engine_settings(live);
+            oa_layer().lay_out_for_size();
         }
         return false;
-    case settings::DialogAction::accepted:
-    case settings::DialogAction::switch_mod: {
+    case settings::DialogAction::accepted: {
+        finish_content_workers();
         if (dialog->kind == settings::DialogKind::mod_options) {
             view_rules::apply_dialog_options(
                 dialog->chosen.mod_options, ui_rules(), view_settings_
@@ -1170,39 +1976,6 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
             save_view_settings();
             state.dialog.reset();
             return true;
-        }
-        // A mod folder the next start could not play is refused before
-        // anything is stored: the page says why, and the dialog stays open
-        // with the mod played still chosen.
-        if (action == settings::DialogAction::switch_mod && !dialog->chosen.mod_folder.empty()) {
-            const auto& game_folder =
-                options_.game_folders.empty() ? options_.game_dir : options_.game_folders.back();
-            const fs::path picked = path_from_utf8(dialog->chosen.mod_folder);
-            auto check = check_picked_mod_folder(
-                picked,
-                game_folder,
-                ModChoice{{}, {}, options_.accept_unimplemented_hacks, &preference_values_}
-            );
-            // Without a profile, the start ends on a SIDEDATA it cannot play,
-            // such as one a side's section is missing from, in the language
-            // the dialog leaves chosen.
-            if (check.refusal.empty() && check.without_profile)
-                if (auto problem = side_data_problem_over(
-                        picked, game_folder, data_word_for(dialog->chosen.language)
-                    );
-                    !problem.empty()) {
-                    check.refusal = "That folder cannot be played; the log says why.";
-                    check.errors.push_back(std::move(problem));
-                }
-            for (const auto& line : check.errors)
-                std::cerr << "open-annihilation: the mod chosen: " << line << '\n';
-            if (!check.refusal.empty()) {
-                dialog->chosen.mod_folder = state.current.mod_folder;
-                std::ignore = settings::set_folder_notice(
-                    *dialog, oa::data::languages::interface_text(check.refusal)
-                );
-                return false;
-            }
         }
         take_renderer_retry(*dialog);
         keep_renderer_records();
@@ -1215,8 +1988,49 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
             (state.window_screen_size_shown && !dialog->window_screen_size);
         if (screen_size_moved)
             chosen.screen_size = EngineSettingsState::stored_screen_size(*this, chosen.screen_size);
+        const bool check_changed = chosen.content_check != dialog->opened.content_check;
+        const settings::ContentCheck chosen_check = chosen.content_check;
+        const bool file_types_changed =
+            !settings::moved_file_type_switches(dialog->opened, chosen).empty();
+        const std::vector<settings::InstallIdChoice> switches_opened = dialog->install_id_opened;
+        const std::vector<settings::InstallIdChoice> switches_chosen = dialog->install_id_chosen;
+        // The switches are stored before the settings, so one save writes both.
+        store_install_switches(preference_values_, switches_opened, switches_chosen);
         apply_engine_settings(chosen);
+        // The registration follows the settings OK kept, at once. Cancel
+        // never reaches here, and a switch moved before OK does not either.
+        if (file_types_changed && openers_follow_ok(options_) &&
+            apply_chosen_file_types(dialog->opened, chosen)) {
+            const oa::platform::file_types::TypeSet asked = settings::file_type_set(chosen);
+            state.file_type_asked = asked;
+            const oa::platform::file_types::Handler application =
+                oa::platform::file_types::running_application();
+            const oa::platform::file_types::OpenerReport report =
+                oa::platform::file_types::reported_openers(
+                    oa::platform::file_types::system_handler_calls(), application.bundle_id, asked
+                );
+            if (report.error.empty())
+                state.file_type_kept_hint = kept_opener_hint_for(asked, report.open);
+        }
+        // Changed registered keys join the values write_settings keeps, and
+        // their owners are told once the flush succeeds.
+        const std::vector<settings::RegisteredWrite> registered =
+            settings::registered_writes(*dialog);
+        for (const settings::RegisteredWrite& write : registered)
+            preference_values_[write.key] = write.value;
+        // SHOW AGAIN is kept only when OK is pressed. The key is erased
+        // before the settings are written, so the same flush records it.
+        if (dialog->welcome_again)
+            forget_first_run();
+        // The same NumSkirmishPlayers the setup's key codes store. A slider
+        // that did not move leaves a stored count, including one the stops
+        // do not offer, where it was.
+        if (chosen.skirmish_players != dialog->opened.skirmish_players)
+            init::set_skirmish_player_count(skirmish_settings_, chosen.skirmish_players, *this);
         const auto failure = save_engine_settings(dialog->opened, chosen, dialog->restored);
+        tell_install_switches(content_downloads(), switches_opened, switches_chosen);
+        if (check_changed)
+            content_service().set_check_for_updates(check_mode(chosen_check));
         state.last_page = dialog->page;
         state.last_developer_list = dialog->developer;
         state.dialog.reset();
@@ -1228,13 +2042,14 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
             EngineSettingsState::report_failed_save(*this, *failure);
             return true;
         }
-        // SWITCH reloads the game for the mod now stored, back on the main
-        // menu: the loop ends after this frame and main() starts afresh.
-        if (action == settings::DialogAction::switch_mod)
-            request_soft_restart();
+        for (const settings::RegisteredWrite& write : registered) {
+            if (write.applied != nullptr)
+                write.applied(write.state, write.key.c_str(), write.value.c_str());
+        }
         return true;
     }
     case settings::DialogAction::cancelled: {
+        finish_content_workers();
         if (dialog->kind == settings::DialogKind::mod_options) {
             view_rules::apply_dialog_options(
                 dialog->opened.mod_options, ui_rules(), view_settings_
@@ -1259,10 +2074,92 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
         // The dialog stays open under the Game files screen.
         open_game_files_manage();
         return false;
-    case settings::DialogAction::roll_back_mod:
-        // The dialog stays open, unless the mod played rolls back as the
-        // run ends.
-        return roll_back_mod_folder(*dialog);
+    case settings::DialogAction::show_gallery:
+        // The gallery covers the window over the dialog, which stays open
+        // under it; Escape and its CLOSE come back to Developer.
+        oa_layer().open_gallery();
+        return false;
+    case settings::DialogAction::check_content:
+        // A copy is already reading the files. The check waits for it.
+        if (content_copy_watch().active)
+            return false;
+        paint_checking(*dialog, 0, 0);
+        request_content_check(user_folder_);
+        return false;
+    case settings::DialogAction::copy_content_again:
+        start_game_content_copy(*dialog, sdl_.window, user_folder_);
+        return false;
+    case settings::DialogAction::cancel_content_copy:
+        // Stop between chunks. The dialog keeps drawing, and the bytes already
+        // in the managed folders stay.
+        if (content_copy_watch().active)
+            setup_request_cancel();
+        return false;
+    case settings::DialogAction::open_content_folder: {
+        const fs::path folder = user_folder_ / std::string(managed_games_folder);
+        const FolderOpening opening = open_player_folder(folder);
+        std::ignore = settings::set_folder_notice(*dialog, opening.opened ? "" : opening.reason);
+        return false;
+    }
+    case settings::DialogAction::reset_install_id: {
+        // A new ID is stored at once. Cancel does not put the old one back.
+        // Nothing is made when the generator cannot be read, and the dialog
+        // stays open either way. The ID is not written to the log.
+        const std::string registry = dialog->install_id_registry;
+        if (!content::reset_install_id(preference_values_, registry))
+            return false;
+        preferences_dirty_ = true;
+        flush_preferences();
+        const content::InstallId stored = content::read_install_id(preference_values_, registry);
+        content::Downloads& downloads = content_downloads();
+        if (stored.state == content::InstallIdState::on)
+            downloads.set_install_id(registry, stored.text);
+        give_downloads(
+            *dialog, preference_values_, content_service(), downloads, content_downloads_folder()
+        );
+        return false;
+    }
+    case settings::DialogAction::empty_downloads:
+        // Files a download is using stay. The dialog stays open, and Cancel
+        // does not put the removed files back.
+        static_cast<void>(empty_content_downloads());
+        give_downloads(
+            *dialog,
+            preference_values_,
+            content_service(),
+            content_downloads(),
+            content_downloads_folder()
+        );
+        return false;
+    case settings::DialogAction::add_registry:
+    case settings::DialogAction::add_mirror:
+        // The Library's Registries tab asks for these itself.
+        return false;
+    case settings::DialogAction::open_library:
+        // MORE IN THE LIBRARY…: the Library opens over the dialog, which
+        // stays open under it; where the Library is under the dialog
+        // already, the dialog closes back to it.
+        open_library(library_tab_of(dialog->library_tab));
+        return false;
+    case settings::DialogAction::download_language: {
+        // The dialog stays open. The language applies when the pack arrives.
+        std::string why;
+        const bool queued = download_language(dialog->download_request, why);
+        for (settings::AvailableLanguage& pack : dialog->available_languages) {
+            if (pack.tag != dialog->download_request)
+                continue;
+            if (queued) {
+                pack.state = settings::AvailableLanguage::State::waiting;
+                pack.percent = 0;
+                pack.failure.clear();
+            } else {
+                pack.state = settings::AvailableLanguage::State::failed;
+                pack.failure = std::move(why);
+            }
+            break;
+        }
+        return false;
+    }
     }
     return false;
 }
@@ -1291,50 +2188,27 @@ oa::ui::frontend_renderer::RgbaPicture Runtime::engine_settings_icon() {
         if (!state.icon || state.icon->pixels.empty()) {
             state.icon.reset();
             state.icon_missing = true;
-            std::cerr << "open-annihilation: the settings' icon is missing"
+            std::cerr << "open-annihilation: the app icon is missing"
                       << (error.empty() ? std::string{} : ": " + error) << '\n';
+        } else if (!state.maker_mark_set) {
+            const WindowIcon& full = *state.icon;
+            if (full.width <= maker_mark_prepared_side && full.height <= maker_mark_prepared_side)
+                state.maker_mark = full;
+            else
+                state.maker_mark = area_scaled(full, maker_mark_prepared_side);
+            kit::OpenAnnihilationMark mark;
+            mark.full = {full.width, full.height, full.pixels};
+            if (state.maker_mark && !state.maker_mark->pixels.empty())
+                mark.prepared = {
+                    state.maker_mark->width, state.maker_mark->height, state.maker_mark->pixels
+                };
+            kit::set_open_annihilation_mark(mark);
+            state.maker_mark_set = true;
         }
     }
     if (!state.icon)
         return {};
     return {state.icon->width, state.icon->height, state.icon->pixels};
-}
-
-std::optional<settings::DialogKey>
-Runtime::engine_settings_dialog_key(uint32_t key, uint16_t modifiers) noexcept {
-    switch (key) {
-    case SDLK_RETURN:
-        return settings::DialogKey::enter;
-    case SDLK_ESCAPE:
-        return settings::DialogKey::escape;
-    case SDLK_UP:
-        return settings::DialogKey::up;
-    case SDLK_DOWN:
-        return settings::DialogKey::down;
-    case SDLK_LEFT:
-        return settings::DialogKey::left;
-    case SDLK_RIGHT:
-        return settings::DialogKey::right;
-    case SDLK_SPACE:
-        return settings::DialogKey::space;
-    case SDLK_TAB:
-        return (modifiers & SDL_KMOD_SHIFT) != 0 ? settings::DialogKey::back_tab
-                                                 : settings::DialogKey::tab;
-    case SDLK_PAGEUP:
-        return settings::DialogKey::page_up;
-    case SDLK_PAGEDOWN:
-        return settings::DialogKey::page_down;
-    case SDLK_HOME:
-        return settings::DialogKey::home;
-    case SDLK_END:
-        return settings::DialogKey::end;
-    case SDLK_Y:
-        return settings::DialogKey::yes;
-    case SDLK_N:
-        return settings::DialogKey::no;
-    default:
-        return std::nullopt;
-    }
 }
 
 void Runtime::release_unsaved_unit_limit() {
@@ -1374,6 +2248,120 @@ void set_unit_limit(Runtime& runtime, int32_t units_per_player, SettingScope sco
     runtime.preferences_dirty_ = true;
     if (const auto failure = Runtime::EngineSettingsState::flush(runtime))
         Runtime::EngineSettingsState::report_failed_save(runtime, *failure);
+}
+
+namespace {
+
+/// Reports whether a mod folder is remembered.
+///
+/// @param values the preferences
+/// @return true when the mod key names a folder
+[[nodiscard]] bool mod_is_remembered(const oa::platform::preferences::Values& values) {
+    const auto found = values.find(std::string(settings::key::mod_directory));
+    return found != values.end() && !found->second.empty();
+}
+
+/// Views of ids owned by `ids`.
+///
+/// @param ids the ids
+/// @return views of them, in the same order
+[[nodiscard]] std::vector<std::string_view> id_views(const std::vector<std::string>& ids) {
+    std::vector<std::string_view> views;
+    views.reserve(ids.size());
+    for (const std::string& id : ids)
+        views.emplace_back(id);
+    return views;
+}
+
+} // namespace
+
+oa::data::content_bundles::ContentChoice Runtime::content_choice() const {
+    const std::vector<std::string> copied = copied_content_bundles(options_.game_dir);
+    const std::vector<std::string_view> copied_ids = id_views(copied);
+    return content_choice_from_preferences(preference_values_, copied_ids, options_.content);
+}
+
+bool Runtime::managed_content_mounted() const noexcept {
+    return options_.managed_content;
+}
+
+Runtime::PresenceAnnouncement Runtime::presence_announcement() const {
+    PresenceAnnouncement played;
+    played.language = std::string(shown_language().english_name);
+    if (!managed_content_mounted())
+        return played;
+    const oa::data::content_bundles::ContentChoice choice = content_choice();
+    if (!choice.error.empty() || choice.base_game.empty())
+        return played;
+    played.announce_bundles = true;
+    played.base_game = choice.base_game;
+    for (const std::string& expansion_id : choice.expansions) {
+        if (expansion_id != oa::netgame::presence_uncompared_expansion)
+            played.expansions.push_back(expansion_id);
+    }
+    const ContentCheck& known = content_check();
+    for (const ContentBundleCheck& bundle : known.bundles) {
+        if (bundle.files_differ == 0 || bundle.id == oa::netgame::presence_uncompared_expansion)
+            continue;
+        if (bundle.id == played.base_game) {
+            played.differs_from_known = true;
+            break;
+        }
+        for (const std::string& expansion_id : played.expansions) {
+            if (expansion_id == bundle.id) {
+                played.differs_from_known = true;
+                break;
+            }
+        }
+        if (played.differs_from_known)
+            break;
+    }
+    return played;
+}
+
+oa::data::content_bundles::ContentChangeResult Runtime::turn_content_expansion(
+    std::string_view bundle_id, bool on, std::span<const std::string_view> required
+) {
+    namespace bundles = oa::data::content_bundles;
+    const std::vector<std::string> copied = copied_content_bundles(options_.game_dir);
+    const std::vector<std::string_view> views = id_views(copied);
+    const bundles::ContentChoice now =
+        content_choice_from_preferences(preference_values_, views, options_.content);
+    const bundles::ContentChangeResult result = bundles::turn_content_expansion(
+        now, bundle_id, on, views, match_running(), mod_is_remembered(preference_values_), required
+    );
+    if (!store_content_change(preference_values_, result))
+        return result;
+    if (result.mod_cleared != bundles::ModClearReason::none && engine_settings_) {
+        engine_settings_->current.mod_folder.clear();
+        engine_settings_->dropped_mod_folder.clear();
+    }
+    preferences_dirty_ = true;
+    if (const auto failure = EngineSettingsState::flush(*this))
+        EngineSettingsState::report_failed_save(*this, *failure);
+    return result;
+}
+
+oa::data::content_bundles::ContentChangeResult
+Runtime::choose_content_base_game(std::string_view bundle_id) {
+    namespace bundles = oa::data::content_bundles;
+    const std::vector<std::string> copied = copied_content_bundles(options_.game_dir);
+    const std::vector<std::string_view> views = id_views(copied);
+    const bundles::ContentChoice now =
+        content_choice_from_preferences(preference_values_, views, options_.content);
+    const bundles::ContentChangeResult result = bundles::choose_content_base_game(
+        now, bundle_id, views, match_running(), mod_is_remembered(preference_values_)
+    );
+    if (!store_content_change(preference_values_, result))
+        return result;
+    if (result.mod_cleared != bundles::ModClearReason::none && engine_settings_) {
+        engine_settings_->current.mod_folder.clear();
+        engine_settings_->dropped_mod_folder.clear();
+    }
+    preferences_dirty_ = true;
+    if (const auto failure = EngineSettingsState::flush(*this))
+        EngineSettingsState::report_failed_save(*this, *failure);
+    return result;
 }
 
 } // namespace oa::app

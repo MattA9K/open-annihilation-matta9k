@@ -6,8 +6,22 @@ starts playing without choosing a folder. Resolution
 ([src/app](../../app/README.md), `resolve_game_directory`) plays the one
 usable folder found and remembers it, and offers several in the in-engine
 folder chooser; `--game-dir` and a usable remembered folder always come
-first. The module also gives a folder browser its starting places: the home
-folder, and the drives that are mounted.
+first. The module also gives the locator its places (`locator_places`,
+`locator_place_facts`): Home, Desktop, Documents, Downloads, Applications
+or Program Files, the volumes, a Steam Deck's microSD cards, and a Steam
+Proton prefix, Heroic, Lutris and Bottles when those folders exist.
+`path_under_home` writes a folder under the home folder as `~/…`.
+
+The setup's game step uses the same module to decide which places are rows.
+`drop_folder_name` names Downloads, Desktop and Documents. `offer_as_installation`
+is false for those, for the home folder, for a folder with no game archive,
+and for a folder that also holds an installer file. `offer_from_folder` lists
+the installer files directly inside a folder and says whether the folder
+itself is a row. `rank_setup_sources` drops a loose folder, then orders the
+rest by how many built-in bundles they hold, then whether they hold the base
+game ahead of only the demo, then how many expansions. An installer and an
+installation rank together, ahead of a loose folder. The first place is the
+one the step selects.
 
 `oa/platform/game_installs.hpp` (namespace `oa::platform::game_installs`):
 
@@ -31,8 +45,11 @@ folder, and the drives that are mounted.
   - each `install_path` of Heroic's `gog_store/installed.json`;
   - each Lutris prefix's `drive_c`, then each Bottles bottle's, searched
     `prefix_search_depth` (4) folders deep, leaving out drive_c's `windows`
-    and `users` folders and every link to a folder, and not below a folder
-    that holds the archive.
+    and `users` folders, every folder `folder_cannot_hold_game` names
+    (Library, caches, picture and film folders, source-control and package
+    folders, and the like), and every link to a folder, and not below a
+    folder that holds the archive. A wrapper such as `Game.app` is still
+    walked, so a game under `drive_c` inside it is found.
 
   Each folder is returned once, by its canonical path, marked removable when
   it lies under a removable drive's mount, and at most `most_candidates` (32)
@@ -79,7 +96,9 @@ manifest), `~/.steam/steam` as a link to the same Steam, a Flatpak Steam with
 no library list, Heroic native and Flatpak (another game's folder, a folder
 also found in Steam, a relative path, a list cut short), a Lutris prefix
 with copies of the archive where the search never looks, and a Bottles
-bottle with the game four folders below `drive_c`. It checks what is found,
+bottle with the game four folders below `drive_c`. A further prefix leaves
+a game inside `Library` unfound and still finds one under `Game.app`. It
+checks what is found,
 in what order, each folder once, the removable mark, `TOTALA1.HPI` in any
 case and the `most_candidates` limit; and it feeds each reader well-formed
 and malformed text (cut short, an extra close, a key with no value, too deep,

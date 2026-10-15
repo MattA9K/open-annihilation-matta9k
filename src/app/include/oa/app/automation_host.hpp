@@ -54,10 +54,14 @@ enum class AutomationControlKind : uint8_t {
 
 /// One control of the screen shown, of a dialog over it, or of a window an extension shows.
 struct AutomationControl {
-    std::string name;             ///< as the GUI file spells it, or as the extension spells it
+    /// As the GUI file spells it, or as the extension spells it; for Open
+    /// Annihilation's own screens, oa. and the UI kit's name.
+    std::string name;
     AutomationControlKind kind{}; ///< what it is
-    std::string
-        dialog; ///< the dialog it belongs to, by its panel's name; empty for the screen's own
+    /// The dialog it belongs to, by its panel's name, or for Open
+    /// Annihilation's own screens oa. and the screen's name; empty for the
+    /// screen's own and for the OA button.
+    std::string dialog;
     /// The extension window it belongs to, as the extension spells it; empty
     /// for the screen's own controls and a dialog's.
     std::string window;
@@ -70,11 +74,30 @@ struct AutomationControl {
     bool focused{};                 ///< it holds the keyboard focus
     bool checked{};                 ///< a check box is checked
     std::string text;               ///< its caption, its label's text or a field's typed text
-    std::vector<std::string> items; ///< a list's rows
-    int32_t first_visible{};        ///< a list's first row shown
-    int32_t rows{};                 ///< the rows a list shows at once
-    int32_t row_height{};           ///< a list's row pitch in canvas pixels
-    int32_t selected{-1};           ///< a list's selected row; -1 for none
+    std::vector<std::string> items; ///< a list's rows, the words it shows
+    /// A list's names, one per `items` entry, when a row's words are not the
+    /// name a choice uses. Empty for every other list.
+    std::vector<std::string> item_keys;
+    int32_t first_visible{}; ///< a list's first row shown
+    int32_t rows{};          ///< the rows a list shows at once
+    int32_t row_height{};    ///< a list's row pitch in canvas pixels
+    int32_t selected{-1};    ///< a list's selected row; -1 for none
+    /// A list's control that scrolls toward its start, one page of the rows
+    /// it shows. Empty when the list has none: every row fits, or it has no
+    /// scroll bar.
+    std::string scroll_up;
+    /// A list's control that scrolls toward its end, one page of the rows it shows.
+    std::string scroll_down;
+    /// The control's place in the window is known exactly, in the window's
+    /// own pixels (window_x to window_height), as for the controls of Open
+    /// Annihilation's own screens, which are drawn in the window's pixels
+    /// rather than on the canvas. Otherwise the endpoint works its window
+    /// rectangle out from the canvas rectangle.
+    bool window_pixels{};
+    int32_t window_x{};      ///< its left column in the window, in the window's pixels
+    int32_t window_y{};      ///< its top row in the window, in the window's pixels
+    int32_t window_width{};  ///< its width, in the window's pixels
+    int32_t window_height{}; ///< its height, in the window's pixels
 };
 
 // What the automation endpoint may read of the running game.
@@ -103,8 +126,12 @@ struct AutomationHost {
     /// Collects the controls of the built-in screen shown and of the dialog
     /// over it, or of the match's panel or dialog: those of the panel that
     /// takes the pointer, the dialog's while one is up, and a stacked
-    /// dialog's (a message box) before them. The screens of the
-    /// screen packages are not among them; their modules report their own.
+    /// dialog's (a message box) before them. Open Annihilation's own screens
+    /// (the OA layer: the OA button, Settings, a notice or a prompt) come
+    /// right after a stacked dialog's, ahead of the rest, and while one of
+    /// them takes every input the controls after them are listed disabled.
+    /// The screens of the screen packages are not among them; their modules
+    /// report their own.
     ///
     /// @param context AutomationHost::context
     /// @param[out] controls replaced by the controls, in the panel's order

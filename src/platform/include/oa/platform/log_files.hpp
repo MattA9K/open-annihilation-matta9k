@@ -87,6 +87,55 @@ void prune(
     const std::filesystem::path& current
 );
 
+/// Holds lines written with write_line until begin() has succeeded.
+///
+/// A launcher reading status lines on standard output must not see the
+/// game's own lines. write_line drops them until the log has the streams.
+void hold_lines_for_log();
+
+/// Tells whether hold_lines_for_log has been called.
+///
+/// @return true after it has
+[[nodiscard]] bool lines_held_for_log() noexcept;
+
+/// Writes one line to the game's standard output, which is the log once
+/// begin() has succeeded.
+///
+/// A newline is added. The line is flushed. After hold_lines_for_log, and
+/// until begin() has succeeded, the line is dropped.
+///
+/// @param text the line, without a newline
+void write_line(std::string_view text);
+
+/// Writes a timing mark to the log.
+///
+/// The line is `open-annihilation: timing: <phase> <milliseconds>`, monotonic
+/// from process start. A mark before the log file is open is kept and written
+/// when begin() succeeds, and is also written to the standard output when
+/// lines are not held for the log.
+///
+/// @param phase what finished or began, such as `preferences` or
+///     `screen main menu begin`
+void note_timing(std::string_view phase);
+
+/// Writes a timing mark for a phase that started at `began_ms`.
+///
+/// The phase text gains ` (span N ms)` before the mark, with N the
+/// milliseconds from `began_ms` to now.
+///
+/// @param phase the phase's name
+/// @param began_ms the mark from note_timing's clock when the phase began
+void note_timing_span(std::string_view phase, uint32_t began_ms);
+
+/// Writes a timing mark at a millisecond count already taken.
+///
+/// The line is the same as note_timing's. Used when the mark was taken before
+/// the log was ready to be written.
+///
+/// @param phase what finished or began
+/// @param milliseconds the mark, monotonic from process start
+void note_timing_at(std::string_view phase, uint32_t milliseconds);
+
 /// Returns whether another program reads the game's output.
 ///
 /// True when standard output or standard error is a pipe or a file, as when a

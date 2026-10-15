@@ -221,13 +221,18 @@ model_render::ModelRef presented_unit(MatchModels& models, uint16_t slot) {
                 motion.current,
                 presentation.fraction,
                 motion.record,
-                motion.instance
+                motion.instance,
+                presentation.batch
             );
         else if (pose && motion.pieces_moved)
             // Placed on its playout, its pieces move between their ticks
             // however far its records moved it.
             blend_unit_pieces(
-                motion.previous, motion.current, presentation.fraction, motion.instance
+                motion.previous,
+                motion.current,
+                presentation.fraction,
+                motion.instance,
+                presentation.batch
             );
         if (pose) {
             motion.record.position = pose->position;
@@ -488,6 +493,24 @@ build_preview_bands(const model_render::ModelRef& model, uint32_t pulse_tick, bo
     return bands;
 }
 
+/// Writes each piece's turn per tick into `turns`, three words a piece in
+/// xy, xz, yz order. A unit with no script leaves them zero. Script axis 0
+/// is the yz word, axis 1 the xz word and axis 2 the xy word.
+void piece_turn_words(oa::sim::match_runtime::UnitInstance& instance, std::vector<int32_t>& turns) {
+    const auto count = instance.model().pieces().size();
+    turns.assign(count * 3, 0);
+    auto* script = instance.script();
+    if (script == nullptr)
+        return;
+    for (std::size_t piece = 0; piece < count; ++piece) {
+        const auto at = piece * 3;
+        const auto index = static_cast<uint32_t>(piece);
+        turns[at] = script->piece_turn_speed(index, 2);
+        turns[at + 1] = script->piece_turn_speed(index, 1);
+        turns[at + 2] = script->piece_turn_speed(index, 0);
+    }
+}
+
 } // namespace
 
 unit_playout::FrameTime
@@ -566,6 +589,7 @@ void observe_match_tick(MatchModels& models, oa::sim::match_runtime::Match& matc
     const uint32_t slots = world.record.unit_slot_count;
     if (presentation.units.size() < slots)
         presentation.units.resize(slots);
+    std::vector<int32_t> turns;
     for (uint32_t slot = 1; slot < slots; ++slot) {
         auto& motion = presentation.units[slot];
         const oa::Unit& record = world.record.units[slot];
@@ -576,8 +600,9 @@ void observe_match_tick(MatchModels& models, oa::sim::match_runtime::Match& matc
                 forget_unit(motion);
             continue;
         }
+        piece_turn_words(*runtime->instance, turns);
         observe_unit(
-            motion, tick, runtime->instance_generation, record, runtime->instance->model()
+            motion, tick, runtime->instance_generation, record, runtime->instance->model(), turns
         );
     }
     observe_shots(presentation.shots, tick, match.projectiles());
@@ -802,10 +827,11 @@ void Runtime::render_match_surface() {
     // the far view: the processor draws it at the zoom in every tier, the
     // terrain from the map's pyramid.
     const bool far = !directed && far_view_frame();
-    // Zoomed out past After zoom with Zoomed out units at Dots, or past the
-    // tier's floor where the models would take too much memory, each unit
-    // is a dot of its owner's colour and no model is drawn at all.
-    const bool dots = !directed && dots_frame();
+    // Zoomed out past After zoom with Zoomed out units at Dots, or at any
+    // zoom where the models would take too much memory, each unit is a dot
+    // of its owner's colour and no model is drawn at all. A director's frame
+    // stays rendered until its picture cannot be allocated.
+    bool dots = !directed && dots_frame();
     // The map the view shows: the fill below draws nothing beyond it. The
     // player's camera is held within the view's limits, which let it go
     // past the map's edges (view_camera), and the limits then hold the next
@@ -915,6 +941,9 @@ void Runtime::render_match_surface() {
         track_match_drag();
     auto viewport = live_viewport(camera_x, camera_y);
     match_use_layers_ = sdl_.renderer != nullptr && !options_.headless_check;
+    // The sweep that has just opened the menu shows the sound page on this
+    // frame, so the HUD drawn below is that page and not the tabs alone.
+    advance_options_lightbar();
     // The HUD is drawn into the memory of the layer the frame before last
     // showed, so that a frame takes none of its own.
     renderer::Surface hud = std::move(spare_match_hud_);
@@ -1316,9 +1345,31 @@ void Runtime::render_match_surface() {
     oa::present::bind_display(&models.display.context);
     draw_match_debug_grid(models.bridge, models.display, rgb_frame, bridge_area, scale);
     mark_profile(OA_PROFILE_RENDER_STATIC);
-    model_render::bridge_begin(
-        models.bridge, rgb_frame, bridge_area, scale, models.display.palette, phase[0], phase[1]
-    );
+    models.bridge.byte_budget = rendered_units_budget();
+    if (!model_render::bridge_begin(
+            models.bridge, rgb_frame, bridge_area, scale, models.display.palette, phase[0], phase[1]
+        )) {
+        // One line for the run: the picture could not be held, so this frame
+        // draws dots. The process carries on.
+        static bool reported = false;
+        if (!reported) {
+            reported = true;
+            std::cerr << "open-annihilation: the units' picture could not be allocated ("
+                      << models.bridge.refused_bytes << " bytes); units are drawn as dots\n";
+        }
+        dots = true;
+        const oa::Rect32 one_pixel{
+            scene_view.destination_x,
+            scene_view.destination_y,
+            scene_view.destination_x,
+            scene_view.destination_y
+        };
+        std::ignore = model_render::bridge_begin(
+            models.bridge, rgb_frame, one_pixel, scale, models.display.palette, phase[0], phase[1]
+        );
+    }
+    // The "+stats" panel says when this frame drew the units as dots.
+    frame_draws_.units_as_dots = dots;
     // Models draw into the bridge and sprites straight into the RGB frame,
     // so the bridge's pixels go back to the frame before a sprite draws over
     // them (a commit), and the next model captures the frame again.
@@ -1765,6 +1816,9 @@ void Runtime::render_match_surface() {
     // A feature off the battlefield is passed over before its fog and its
     // frames are looked at.
     for (auto& feature : match_features_) {
+        // A sinking wreck's record moves after the draw was placed. The
+        // picture follows it, and stays where the record rests.
+        follow_feature_draw(feature, world_record);
         const auto feature_screen = project_match_point(
             viewport,
             {static_cast<uint32_t>(feature.position.x),
@@ -2135,8 +2189,8 @@ void Runtime::render_match_surface() {
     paint_on(PaintLayer::hud);
     blit_match_minimap();
     draw_shared_camera_rectangles();
-    if (selected_match_unit_ == 0 && !match_paused_)
-        fill_source_rect(0, 128, 128, 352, 10);
+    // Nothing selected leaves the side's idle page in the well: its panel
+    // art is the emblem under the minimap, already on the HUD.
     paint_on(PaintLayer::battlefield);
     // The bars shrink as the view zooms out, and keep the game's size at
     // zoom 1 and in.
@@ -2220,6 +2274,7 @@ void Runtime::render_match_surface() {
     draw_chat_entry();
     paint_on(PaintLayer::battlefield);
     draw_whiteboard(painted);
+    draw_middle_pan_marks();
     draw_commander_placement();
     draw_match_kill_board();
     // Then the status strip over the bottom of the battlefield. The panels'

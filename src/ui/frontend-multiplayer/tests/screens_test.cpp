@@ -17,9 +17,12 @@
 #include "oa/formats/hpi.hpp"
 #include "oa/formats/ota.hpp"
 #include "oa/formats/tnt.hpp"
+#include "oa/netgame/presence.hpp"
 #include "oa/netgame/records.hpp"
 #include "oa/present/palette_tables.hpp"
 #include "oa/ui/frontend_renderer.hpp"
+#include "oa/ui/frontend_multiplayer/presence_card.hpp"
+#include "oa/ui/frontend_multiplayer/map_list.hpp"
 #include "oa/ui/frontend_multiplayer/screens.hpp"
 #include "oa/data/unit_definitions.hpp"
 #include "oa/test/game_assets.hpp"
@@ -27,16 +30,19 @@
 #include "oa/platform/files.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <limits>
 #include <map>
 #include <optional>
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -860,9 +866,13 @@ int32_t first_row_knob(const mp::Control& list, const mp::Control& bar) {
     );
 }
 
-constexpr uint32_t kKeyUp = 0x40000052;
+constexpr uint32_t kKeyTab = 0x09;
+constexpr uint32_t kKeyRight = 0x4000004F;
+constexpr uint32_t kKeyLeft = 0x40000050;
 constexpr uint32_t kKeyDown = 0x40000051;
+constexpr uint32_t kKeyUp = 0x40000052;
 constexpr uint32_t kKeyReturn = 0x0d;
+constexpr uint16_t kKeyShift = 0x0001;
 constexpr uint32_t kKeyEscape = 0x1b;
 constexpr uint32_t kKeyN = 'n';
 constexpr uint32_t kKeyY = 'y';
@@ -1492,9 +1502,1378 @@ bool check_player_timeout(Driver& d) {
     return true;
 }
 
+/// One installed pack map the battle room lists beside the base maps.
+struct PackProbe {
+    static constexpr const char* kName = "isle_of_ashes@archipelago";
+    oa::AssetStore* assets = nullptr;
+    std::filesystem::path folder;
+    bool mount = false;
+    bool refuse = false;
+    const char* reason = "too many features";
+    const char* index_title = nullptr;
+    int prepares = 0;
+    int releases = 0;
+
+    mp::LobbyMapSource source() { return {this, count, at, prepare, release}; }
+
+    static int32_t count(void*) { return 1; }
+
+    static bool at(void* context, int32_t index, mp::LobbyPackMap* out) {
+        if (index != 0 || out == nullptr)
+            return false;
+        const auto* self = static_cast<const PackProbe*>(context);
+        *out = {kName, "A ring of cinders", "16x16", 16, self->index_title};
+        return true;
+    }
+
+    static bool prepare(void* context, const char* name, char* reason, std::size_t capacity) {
+        auto* self = static_cast<PackProbe*>(context);
+        ++self->prepares;
+        if (name == nullptr || std::strcmp(name, kName) != 0)
+            return false;
+        if (self->refuse) {
+            if (reason != nullptr && capacity > 0) {
+                const auto count = std::min(std::strlen(self->reason), capacity - 1);
+                std::memcpy(reason, self->reason, count);
+                reason[count] = '\0';
+            }
+            return false;
+        }
+        if (!self->mount || self->assets == nullptr)
+            return true;
+        if (self->assets->pack_layer_mounted())
+            return true;
+        oa::PackLayerSpec spec;
+        spec.kind = oa::PackLayerKind::folder;
+        spec.location = self->folder;
+        spec.label = "archipelago";
+        spec.files.push_back({"maps/isle_of_ashes@archipelago.ota", "maps/isle_of_ashes.ota"});
+        spec.files.push_back({"maps/isle_of_ashes@archipelago.tnt", "maps/isle_of_ashes.tnt"});
+        std::string error;
+        if (!self->assets->mount_pack_layer(std::move(spec), &error)) {
+            std::fprintf(stderr, "pack layer: %s\n", error.c_str());
+            return false;
+        }
+        return true;
+    }
+
+    static void release(void* context) {
+        auto* self = static_cast<PackProbe*>(context);
+        ++self->releases;
+        if (self->assets != nullptr && self->assets->pack_layer_mounted())
+            (void)self->assets->unmount_pack_layer();
+    }
+};
+
+/// Writes the pack map's files into a folder the test mounts.
+bool write_pack_folder(const std::filesystem::path& folder) {
+    std::error_code error;
+    std::filesystem::remove_all(folder, error);
+    if (!std::filesystem::create_directories(folder / "maps", error))
+        return false;
+    const char* ota = "[GlobalHeader]\n"
+                      "{\n"
+                      "missionname=Isle of Ashes;\n"
+                      "missiondescription=A ring of cinders;\n"
+                      "[Schema 0]\n"
+                      "    {\n"
+                      "    Type=Network 1;\n"
+                      "    [specials]\n"
+                      "        {\n"
+                      "        [special0]\n"
+                      "            {\n"
+                      "            specialwhat=StartPos1;\n"
+                      "            }\n"
+                      "        [special1]\n"
+                      "            {\n"
+                      "            specialwhat=StartPos2;\n"
+                      "            }\n"
+                      "        }\n"
+                      "    }\n"
+                      "}\n";
+    {
+        std::ofstream out(folder / "maps" / "isle_of_ashes.ota", std::ios::binary);
+        out << ota;
+        if (!out)
+            return false;
+    }
+    std::vector<uint8_t> terrain(0x44, 0);
+    const auto put = [&](std::size_t offset, uint32_t value) {
+        terrain[offset] = static_cast<uint8_t>(value);
+        terrain[offset + 1] = static_cast<uint8_t>(value >> 8);
+        terrain[offset + 2] = static_cast<uint8_t>(value >> 16);
+        terrain[offset + 3] = static_cast<uint8_t>(value >> 24);
+    };
+    put(0, 0x2000);
+    put(4, 1);
+    put(8, 1);
+    put(0x10, 0x40);
+    terrain[0x40] = 0x11;
+    terrain[0x41] = 0x22;
+    terrain[0x42] = 0x33;
+    terrain[0x43] = 0x44;
+    std::ofstream out(folder / "maps" / "isle_of_ashes.tnt", std::ios::binary);
+    out.write(
+        reinterpret_cast<const char*>(terrain.data()), static_cast<std::streamsize>(terrain.size())
+    );
+    return static_cast<bool>(out);
+}
+
+/// The name a map row chooses: its key when the list has one per row, else its text.
+const std::string& map_row_key(const mp::Control& list, std::size_t row) {
+    if (list.item_keys.size() == list.items.size())
+        return list.item_keys[row];
+    return list.items[row];
+}
+
+/// The words a map list shows, and choosing a row by those words or by its name.
+void check_map_list_words() {
+    const mp::MapListFact rows[] = {
+        {"comet@sample-comet", "Comet Catcher", {}, "Cavedog: Comet Catcher", true},
+        {"Comet Catcher", {}, {}, {}, false},
+        {"ponds@sample-ponds", "A Plethora of Ponds", {}, "Sample Ponds", true},
+        {"ashes@archipelago", {}, "Isle of Ashes", "Archipelago Pack", true},
+        {"bare@archipelago", {}, {}, "Archipelago Pack", true},
+        {"ridge@sample", "Ridge Pond", {}, "Ridge Pack", true, "for ridge"},
+    };
+    const std::vector<std::string> texts = mp::map_list_texts(rows);
+    const std::vector<std::string> keys{
+        "comet@sample-comet",
+        "Comet Catcher",
+        "ponds@sample-ponds",
+        "ashes@archipelago",
+        "bare@archipelago",
+        "ridge@sample",
+    };
+    expect(texts.size() == keys.size(), "every row has words");
+    if (texts.size() != keys.size())
+        return;
+    expect(texts[0] == "Comet Catcher (Cavedog: Comet Catcher)", "a shared title names the pack");
+    expect(texts[1] == "Comet Catcher", "a base map keeps its file name");
+    expect(texts[2] == "A Plethora of Ponds", "a pack map shows its index title");
+    expect(texts[3] == "Isle of Ashes", "a pack map with no index name shows the map file's title");
+    expect(texts[4] == "bare", "a pack map with no title shows its own name");
+    expect(texts[5] == "Ridge Pond  for ridge", "a greyed row shows why");
+    for (std::size_t index = 0; index < texts.size(); ++index) {
+        if (!rows[index].pack)
+            continue;
+        expect(
+            texts[index].find('@') == std::string::npos,
+            ("a pack map's shown name has no '@': " + texts[index]).c_str()
+        );
+    }
+    const int32_t by_words = mp::map_list_row(texts, keys, texts[0]);
+    const int32_t by_name = mp::map_list_row(texts, keys, keys[0]);
+    expect(
+        by_words == 0 && by_name == 0,
+        "the marked words and the pack map's name choose the same map"
+    );
+    expect(mp::map_list_row(texts, keys, "Comet Catcher") == 1, "the base map's words choose it");
+    expect(mp::map_list_row(texts, keys, "") == -1, "an empty choice matches nothing");
+    expect(mp::map_list_row(texts, keys, "Missing") == -1, "an unknown choice matches nothing");
+}
+
+/// The keys `map_list_order` puts first.
+std::vector<std::string> ordered_keys(const mp::MapListFact* rows, std::size_t count) {
+    const std::vector<std::size_t> order = mp::map_list_order({rows, count});
+    std::vector<std::string> keys;
+    keys.reserve(order.size());
+    for (const std::size_t index : order)
+        keys.emplace_back(rows[index].key);
+    return keys;
+}
+
+/// Base maps, a pack map and a downloadable map are one name order. A greyed
+/// map keeps its place. Case, punctuation and equal names follow the game's
+/// own map list.
+void check_map_list_order() {
+    const mp::MapListFact mixed[] = {
+        {"Yerrot Mountains", {}, {}, {}, false},
+        {"Wretched Ridges", {}, {}, {}, false},
+        {"abysmal_lake@downloads", "Abysmal Lake", {}, "Downloads", true},
+        {"ancient_issaquah@downloads", "Ancient Issaquah", {}, "Downloads", true, "doesn't fit"},
+    };
+    expect(
+        ordered_keys(mixed, 4) ==
+            std::vector<std::string>{
+                "abysmal_lake@downloads",
+                "ancient_issaquah@downloads",
+                "Wretched Ridges",
+                "Yerrot Mountains",
+            },
+        "base, pack and downloadable maps are one shown-name order"
+    );
+    const mp::MapListFact grey_first[] = {
+        {"grey@id", "B", {}, "Only", true, "doesn't fit"},
+        {"B ", {}, {}, {}, false},
+    };
+    expect(
+        ordered_keys(grey_first, 2) == std::vector<std::string>{"grey@id", "B "},
+        "a grey reason does not move the row"
+    );
+    const mp::MapListFact letters[] = {
+        {"z", {}, {}, {}, false},
+        {"Alpha", {}, {}, {}, false},
+        {"alpha", {}, {}, {}, false},
+        {"B", {}, {}, {}, false},
+    };
+    expect(
+        ordered_keys(letters, 4) == std::vector<std::string>{"Alpha", "alpha", "B", "z"},
+        "letters fold and equal folds keep their order"
+    );
+    const mp::MapListFact marks[] = {
+        {"Coast_To", {}, {}, {}, false},
+        {"Coast-To", {}, {}, {}, false},
+        {"Coast To Coast", {}, {}, {}, false},
+    };
+    expect(
+        ordered_keys(marks, 3) ==
+            std::vector<std::string>{"Coast To Coast", "Coast-To", "Coast_To"},
+        "punctuation keeps its byte"
+    );
+    const mp::MapListFact same[] = {
+        {"b@one", "Alpha", {}, "Same", true},
+        {"a@two", "Alpha", {}, "Same", true},
+    };
+    expect(
+        ordered_keys(same, 2) == std::vector<std::string>{"b@one", "a@two"},
+        "equal shown names keep the order they were gathered in"
+    );
+    const mp::MapListFact split[] = {
+        {"z", {}, {}, {}, false},
+        {"B", {}, {}, {}, false},
+        {"\\folder", {}, {}, {}, false},
+        {"d", {}, {}, {}, false},
+        {"A", {}, {}, {}, false},
+    };
+    expect(
+        ordered_keys(split, 5) == std::vector<std::string>{"\\folder", "B", "z", "A", "d"},
+        "a name that starts with a backslash splits the list as the game's own list does"
+    );
+    bool caught = false;
+    try {
+        std::vector<mp::MapListFact> too_many(3001, mp::MapListFact{"x", {}, {}, {}, false});
+        (void)mp::map_list_order(too_many);
+    } catch (const std::invalid_argument&) {
+        caught = true;
+    }
+    expect(caught, "a list past the sorting limit is refused");
+}
+
+/// Clicks a map row, scrolling it onto the page first.
+void click_map_row(Driver& d, mp::Control& names, int32_t row, int32_t ox, int32_t oy) {
+    const int32_t visible =
+        names.list_item_height > 0 ? std::max(names.height / names.list_item_height, 1) : 1;
+    if (row < names.list_first || row >= names.list_first + visible)
+        names.list_first = static_cast<int16_t>(std::max(row, int32_t{0}));
+    d.pointer_click(
+        ox + names.x + 20,
+        oy + names.y + 2 + (row - names.list_first) * names.list_item_height +
+            names.list_item_height / 2
+    );
+}
+
+/// Base maps supplied by the bound source, and no scan of the installed maps.
+///
+/// One of them is an installed map, so the battle room can select it. Its
+/// description is not the one in its map file.
+struct BoundBaseMaps {
+    static constexpr const char* kReal = "Coast To Coast";
+    static constexpr const char* kRidge = "ridge";
+    static constexpr const char* kDescription = "Bound by the one start scan.";
+
+    static int32_t count(void*) { return 1; }
+
+    static bool at(void*, int32_t index, mp::LobbyPackMap* out) {
+        if (index != 0 || out == nullptr)
+            return false;
+        *out = {PackProbe::kName, "A ring of cinders", "16x16", 16};
+        return true;
+    }
+
+    static bool prepare(void*, const char*, char*, std::size_t) { return true; }
+
+    static void release(void*) {}
+
+    static int32_t base_count(void*) { return 2; }
+
+    static bool base_at(void*, int32_t index, mp::LobbyPackMap* out) {
+        if (out == nullptr)
+            return false;
+        if (index == 0) {
+            *out = {kReal, kDescription, "12 x 12", 16};
+            return true;
+        }
+        if (index == 1) {
+            *out = {kRidge, "A high ridge", "20 x 20", 24};
+            return true;
+        }
+        return false;
+    }
+
+    mp::LobbyMapSource source() {
+        mp::LobbyMapSource bound{};
+        bound.context = this;
+        bound.count = count;
+        bound.at = at;
+        bound.prepare = prepare;
+        bound.release = release;
+        bound.base_count = base_count;
+        bound.base_at = base_at;
+        return bound;
+    }
+};
+
+/// The battle room's map list is the bound base maps plus the pack map, and
+/// not the installed maps. The binding is cleared when the check ends.
+void check_bound_base_maps(Driver& d) {
+    struct Guard {
+        ~Guard() { mp::multiplayer_bind_map_source({}); }
+    } guard;
+
+    BoundBaseMaps bound;
+    mp::multiplayer_bind_map_source(bound.source());
+    mp::multiplayer_reset();
+    if (!host_battleroom(d, "Ridge", "Host"))
+        return;
+    expect(d.click("MAP"), "MAP opens on the bound base maps");
+    auto* modal = mp::multiplayer_modal();
+    auto* names = modal != nullptr ? mp::panel_control(*modal, "MAPNAMES") : nullptr;
+    expect(names != nullptr, "SELMAP lists the bound maps");
+    if (names == nullptr)
+        return;
+    const std::vector<std::string> listed(names->items.begin(), names->items.end());
+    const std::vector<std::string> keys(names->item_keys.begin(), names->item_keys.end());
+    std::vector<std::string> expected{
+        BoundBaseMaps::kReal, PackProbe::kName, BoundBaseMaps::kRidge
+    };
+    std::sort(expected.begin(), expected.end());
+    const bool other = std::find(listed.begin(), listed.end(), "Two Continents") != listed.end() ||
+                       std::find(listed.begin(), listed.end(), "two continents") != listed.end();
+    // A pack map's row shows its own name; its key keeps the package.
+    std::vector<std::string> shown_names;
+    for (const std::string& key : keys)
+        shown_names.push_back(mp::multiplayer_shown_map_name(key.c_str()));
+    expect(
+        listed == shown_names && keys == expected && !other,
+        "the bound list is the supplied maps and no other installed map"
+    );
+    expect(
+        mp::panel_text(*modal, "DESCRIPTION") == BoundBaseMaps::kDescription,
+        "the selected map's description is the one the source supplied"
+    );
+}
+
+/// Select Map shows a base map and two pack maps, one titled like the base map.
+/// Choosing that pack map by its words or by its name is the same row.
+void check_pack_map_titles(Driver& d) {
+    struct Guard {
+        ~Guard() { mp::multiplayer_bind_map_source({}); }
+    } guard;
+
+    struct TitledMaps {
+        static int32_t count(void*) { return 2; }
+
+        static bool at(void*, int32_t index, mp::LobbyPackMap* out) {
+            if (out == nullptr)
+                return false;
+            if (index == 0) {
+                *out = {
+                    "comet@sample-comet",
+                    "A catch",
+                    "16x16",
+                    8,
+                    "Comet Catcher",
+                    "Cavedog: Comet Catcher"
+                };
+                return true;
+            }
+            if (index == 1) {
+                *out = {
+                    "ponds@sample-ponds",
+                    "Many ponds",
+                    "32x32",
+                    12,
+                    "A Plethora of Ponds",
+                    "Sample Ponds"
+                };
+                return true;
+            }
+            return false;
+        }
+
+        static bool prepare(void*, const char*, char*, std::size_t) { return true; }
+
+        static void release(void*) {}
+
+        static int32_t base_count(void*) { return 2; }
+
+        static bool base_at(void*, int32_t index, mp::LobbyPackMap* out) {
+            if (out == nullptr)
+                return false;
+            if (index == 0) {
+                *out = {"Coast To Coast", "A shore", "12 x 12", 16};
+                return true;
+            }
+            if (index == 1) {
+                *out = {"Comet Catcher", "The original", "16x16", 8};
+                return true;
+            }
+            return false;
+        }
+
+        mp::LobbyMapSource source() {
+            return {this, count, at, prepare, release, base_count, base_at};
+        }
+    };
+
+    TitledMaps titled;
+    mp::multiplayer_bind_map_source(titled.source());
+    mp::multiplayer_reset();
+    if (!host_battleroom(d, "Titles", "Host"))
+        return;
+    expect(d.click("MAP"), "MAP opens on the titled pack maps");
+    auto* modal = mp::multiplayer_modal();
+    auto* names = modal != nullptr ? mp::panel_control(*modal, "MAPNAMES") : nullptr;
+    expect(names != nullptr, "SELMAP lists the titled maps");
+    if (names == nullptr)
+        return;
+    const std::vector<std::string> want_keys{
+        "ponds@sample-ponds", "Coast To Coast", "Comet Catcher", "comet@sample-comet"
+    };
+    const std::vector<std::string> want_text{
+        "A Plethora of Ponds",
+        "Coast To Coast",
+        "Comet Catcher",
+        "Comet Catcher (Cavedog: Comet Catcher)",
+    };
+    const std::vector<std::string> shown(names->items.begin(), names->items.end());
+    const std::vector<std::string> keys(names->item_keys.begin(), names->item_keys.end());
+    expect(
+        shown == want_text && keys == want_keys,
+        "the rows are one name order, and the names stay with their titles"
+    );
+    const int32_t by_text = mp::map_list_row(names->items, names->item_keys, want_text[3]);
+    const int32_t by_key = mp::map_list_row(names->items, names->item_keys, "comet@sample-comet");
+    const int32_t base = mp::map_list_row(names->items, names->item_keys, "Comet Catcher");
+    expect(
+        by_text == by_key && by_text == 3 && base == 2 &&
+            map_row_key(*names, static_cast<std::size_t>(by_key)) == "comet@sample-comet",
+        "the pack map's words and its name choose it, and the base map's words choose the base map"
+    );
+}
+
+/// A pack map past Select Map's first page is reached by paging the down
+/// arrow, then chosen. A player's click on that arrow still steps the knob once.
+void check_pack_map_page(Driver& d) {
+    struct Guard {
+        ~Guard() { mp::multiplayer_bind_map_source({}); }
+    } guard;
+
+    struct PageSource {
+        static int32_t count(void*) { return 1; }
+
+        static bool at(void*, int32_t index, mp::LobbyPackMap* out) {
+            if (index != 0 || out == nullptr)
+                return false;
+            *out = {"isle_one@oa-test-isles", "One isle", "16x16", 16};
+            return true;
+        }
+
+        static bool prepare(void*, const char*, char*, std::size_t) { return true; }
+
+        static void release(void*) {}
+
+        // One real installed map, so the battle room has a map file selected.
+        // Select Map stays closed when the selected map has no file. Its name
+        // sorts ahead of the generated names, and the pack map stays past the
+        // page. The generated names start with d, which sorts after Coast and
+        // before the pack map's own name.
+        static int32_t base_count(void*) { return 37; }
+
+        static bool base_at(void*, int32_t index, mp::LobbyPackMap* out) {
+            if (out == nullptr || index < 0 || index >= 37)
+                return false;
+            if (index == 0) {
+                *out = {BoundBaseMaps::kReal, "A shore", "12 x 12", 16};
+                return true;
+            }
+            static char names[36][4]{};
+            static bool filled = false;
+            if (!filled) {
+                for (int place = 0; place < 36; ++place) {
+                    names[place][0] = 'd';
+                    names[place][1] = static_cast<char>('0' + place / 10);
+                    names[place][2] = static_cast<char>('0' + place % 10);
+                    names[place][3] = '\0';
+                }
+                filled = true;
+            }
+            *out = {names[index - 1], "A plain", "8x8", 8};
+            return true;
+        }
+
+        mp::LobbyMapSource source() {
+            mp::LobbyMapSource bound{};
+            bound.context = this;
+            bound.count = count;
+            bound.at = at;
+            bound.prepare = prepare;
+            bound.release = release;
+            bound.base_count = base_count;
+            bound.base_at = base_at;
+            return bound;
+        }
+    };
+
+    PageSource pages;
+    mp::multiplayer_bind_map_source(pages.source());
+    mp::multiplayer_reset();
+    if (!host_battleroom(d, "Isles", "Host"))
+        return;
+    expect(d.click("MAP"), "MAP opens on a list longer than one page");
+    auto* modal = mp::multiplayer_modal();
+    auto* names = modal != nullptr ? mp::panel_control(*modal, "MAPNAMES") : nullptr;
+    auto* bar = modal != nullptr ? mp::panel_control(*modal, "SLIDER") : nullptr;
+    expect(
+        names != nullptr && bar != nullptr && mp::multiplayer_modal_kind() == mp::ModalKind::selmap,
+        "SELMAP lists the maps and its scroll bar"
+    );
+    if (names == nullptr || bar == nullptr)
+        return;
+    int32_t pack_row = -1;
+    for (int32_t row = 0; row < static_cast<int32_t>(names->items.size()); ++row) {
+        if (map_row_key(*names, static_cast<std::size_t>(row)) == "isle_one@oa-test-isles")
+            pack_row = row;
+    }
+    const int32_t shown =
+        names->list_item_height > 0 ? std::max(names->height / names->list_item_height, 1) : 1;
+    expect(
+        pack_row >= shown && names->list_first == 0,
+        "the pack map is listed and starts off the first page"
+    );
+    if (pack_row < shown)
+        return;
+    const auto& down = bar->scroll.forward_arrow;
+    const auto& up = bar->scroll.back_arrow;
+    expect(down.width > 0 && up.width > 0, "SELMAP's scroll arrows are shown");
+    if (down.width <= 0 || up.width <= 0)
+        return;
+
+    const Art map_art =
+        load_art(d.assets, "guis/selmap.gui", "bitmaps/dselectmap2.pcx", "anims/skirmish.gaf");
+    const auto [ox, oy] = dialog_offset(map_art, modal->controls[0]);
+    const int32_t down_x = ox + down.x + down.width / 2;
+    const int32_t down_y = oy + down.y + down.height / 2;
+    const int32_t up_x = ox + up.x + up.width / 2;
+    const int32_t up_y = oy + up.y + up.height / 2;
+    expect(
+        mp::multiplayer_list_page_arrow(down_x, down_y) &&
+            mp::multiplayer_list_page_arrow(up_x, up_y) &&
+            !mp::multiplayer_list_page_arrow(ox + down.x - 1, down_y),
+        "the arrows page a list, and a point beside one does not"
+    );
+
+    const int32_t knob = bar->scroll.knob;
+    d.pointer_click(down_x, down_y);
+    expect(
+        bar->scroll.knob == knob + 1 && names->list_first == 0,
+        "a player's click on the down arrow steps the knob once"
+    );
+
+    const int32_t before = names->list_first;
+    expect(
+        mp::multiplayer_scroll_list_page(down_x, down_y) && names->list_first == before + shown,
+        "an endpoint click moves one page, the rows the list shows"
+    );
+    int steps = 1;
+    while (pack_row < names->list_first || pack_row >= names->list_first + shown) {
+        if (steps >= 8 || !mp::multiplayer_scroll_list_page(down_x, down_y))
+            break;
+        ++steps;
+    }
+    expect(
+        pack_row >= names->list_first && pack_row < names->list_first + shown,
+        "paging brings the pack map onto the page"
+    );
+    if (pack_row < names->list_first || pack_row >= names->list_first + shown)
+        return;
+    const int32_t paged = names->list_first;
+    expect(
+        mp::multiplayer_scroll_list_page(up_x, up_y) && names->list_first == paged - shown,
+        "the up arrow moves one page toward the start"
+    );
+    int back = 0;
+    while (pack_row < names->list_first || pack_row >= names->list_first + shown) {
+        if (back >= 8 || !mp::multiplayer_scroll_list_page(down_x, down_y))
+            break;
+        ++back;
+    }
+    click_map_row(d, *names, pack_row, ox, oy);
+    expect(
+        names->list_selection == pack_row &&
+            map_row_key(*names, static_cast<std::size_t>(pack_row)) == "isle_one@oa-test-isles" &&
+            names->items[static_cast<std::size_t>(pack_row)] ==
+                mp::multiplayer_shown_map_name("isle_one@oa-test-isles"),
+        "the pack map's row can be chosen once it is on the page"
+    );
+}
+
+/// The battle room lists an installed pack map, mounts it, refuses one, and a
+/// joiner without it sees the name the host sent.
+void check_pack_maps(Driver& d) {
+    const auto folder = std::filesystem::temp_directory_path() / "oa-p13-isle-of-ashes@archipelago";
+
+    struct Guard {
+        std::filesystem::path folder;
+        oa::AssetStore* assets = nullptr;
+
+        ~Guard() {
+            if (assets != nullptr) {
+                assets->observe_lookups({});
+                if (assets->pack_layer_mounted())
+                    (void)assets->unmount_pack_layer();
+            }
+            std::error_code error;
+            std::filesystem::remove_all(folder, error);
+            mp::multiplayer_bind_map_source({});
+        }
+    } guard{folder, &d.assets};
+
+    expect(write_pack_folder(folder), "the pack map's files are written");
+
+    std::vector<std::string> lookups;
+    d.assets.observe_lookups(
+        {&lookups, [](void* context, std::string_view path) {
+             static_cast<std::vector<std::string>*>(context)->emplace_back(path);
+         }}
+    );
+    PackProbe probe;
+    probe.assets = &d.assets;
+    probe.folder = folder;
+    probe.mount = true;
+    mp::multiplayer_bind_map_source(probe.source());
+    mp::multiplayer_reset();
+    if (!host_battleroom(d, "Ashes", "Host"))
+        return;
+    expect(d.click("MAP"), "MAP opens on the pack map's list");
+    auto* modal = mp::multiplayer_modal();
+    auto* names = modal != nullptr ? mp::panel_control(*modal, "MAPNAMES") : nullptr;
+    expect(
+        names != nullptr && mp::multiplayer_modal_kind() == mp::ModalKind::selmap,
+        "SELMAP lists the maps"
+    );
+    if (names == nullptr)
+        return;
+    int32_t listed = 0;
+    int32_t pack_row = -1;
+    int32_t base_row = -1;
+    for (int32_t row = 0; row < static_cast<int32_t>(names->items.size()); ++row) {
+        if (map_row_key(*names, static_cast<std::size_t>(row)) != PackProbe::kName)
+            continue;
+        ++listed;
+        pack_row = row;
+    }
+    for (int32_t row = 0; row < static_cast<int32_t>(names->items.size()); ++row) {
+        if (map_row_key(*names, static_cast<std::size_t>(row)) != PackProbe::kName) {
+            base_row = row;
+            break;
+        }
+    }
+    const bool looked_up = std::any_of(lookups.begin(), lookups.end(), [](const std::string& path) {
+        return path.find(PackProbe::kName) != std::string::npos;
+    });
+    expect(listed == 1 && pack_row >= 0, "MAPNAMES lists the pack map once, among the base maps");
+    expect(
+        pack_row >= 0 && names->items[static_cast<std::size_t>(pack_row)] ==
+                             mp::multiplayer_shown_map_name(PackProbe::kName),
+        "a pack map with no title shows its name"
+    );
+    expect(!looked_up, "the pack map's files are not read while the list is built");
+    if (pack_row < 0 || base_row < 0)
+        return;
+
+    const Art map_art =
+        load_art(d.assets, "guis/selmap.gui", "bitmaps/dselectmap2.pcx", "anims/skirmish.gaf");
+    const auto [ox, oy] = dialog_offset(map_art, modal->controls[0]);
+    probe.prepares = 0;
+    probe.releases = 0;
+    click_map_row(d, *names, pack_row, ox, oy);
+    expect(
+        names->list_selection == pack_row && probe.prepares == 1,
+        "choosing the pack map mounts its files"
+    );
+    const bool read_on_choice =
+        std::any_of(lookups.begin(), lookups.end(), [](const std::string& path) {
+            return path.find(PackProbe::kName) != std::string::npos;
+        });
+    expect(read_on_choice, "the pack map's files are read once it is chosen");
+    click_map_row(d, *names, base_row, ox, oy);
+    expect(
+        names->list_selection == base_row && probe.releases == 1,
+        "choosing a base map unmounts the pack map"
+    );
+    click_map_row(d, *names, pack_row, ox, oy);
+    expect(d.click("LOAD"), "LOAD chooses the pack map");
+    d.frame();
+    expect(
+        mp::panel_text(mp::multiplayer_panel(), "MAPNAME") == "Isle of Ashes",
+        "the battle room names the pack map by the title its OTA gives"
+    );
+    const auto& chosen = mp::local_info(mp::multiplayer_lobby());
+    const auto length = ::strnlen(chosen.map_name, sizeof chosen.map_name);
+    expect(
+        length == std::strlen(PackProbe::kName) &&
+            std::memcmp(chosen.map_name, PackProbe::kName, length) == 0 &&
+            length < sizeof chosen.map_name && chosen.map_name[length] == '\0' &&
+            chosen.map_hash != 0,
+        "LOAD writes the pack map's whole name, terminated, and its hash"
+    );
+
+    // The index's name and the map file's title are different words. The
+    // battle room shows the index's.
+    probe.index_title = "Cinder Atoll";
+    mp::multiplayer_bind_map_source(probe.source());
+    mp::multiplayer_reset();
+    if (!host_battleroom(d, "Atoll", "Host"))
+        return;
+    expect(d.click("MAP"), "MAP opens on the pack map again");
+    modal = mp::multiplayer_modal();
+    names = modal != nullptr ? mp::panel_control(*modal, "MAPNAMES") : nullptr;
+    if (names == nullptr)
+        return;
+    pack_row = -1;
+    for (int32_t row = 0; row < static_cast<int32_t>(names->items.size()); ++row)
+        if (map_row_key(*names, static_cast<std::size_t>(row)) == PackProbe::kName)
+            pack_row = row;
+    if (pack_row < 0)
+        return;
+    expect(
+        names->items[static_cast<std::size_t>(pack_row)] == "Cinder Atoll",
+        "the pack map's row shows the name its index gives"
+    );
+    const auto [ax, ay] = dialog_offset(map_art, modal->controls[0]);
+    click_map_row(d, *names, pack_row, ax, ay);
+    expect(d.click("LOAD"), "LOAD chooses the pack map by its index name");
+    d.frame();
+    expect(
+        mp::panel_text(mp::multiplayer_panel(), "MAPNAME") == "Cinder Atoll",
+        "the battle room names the pack map by the name its index gives, not the map file's title"
+    );
+    probe.index_title = nullptr;
+
+    probe.mount = false;
+    probe.refuse = true;
+    mp::multiplayer_bind_map_source(probe.source());
+    mp::multiplayer_reset();
+    if (!host_battleroom(d, "Refused", "Host"))
+        return;
+    const std::string kept(
+        mp::local_info(mp::multiplayer_lobby()).map_name,
+        ::strnlen(
+            mp::local_info(mp::multiplayer_lobby()).map_name,
+            sizeof mp::local_info(mp::multiplayer_lobby()).map_name
+        )
+    );
+    expect(d.click("MAP"), "MAP opens on a map the game will not play");
+    modal = mp::multiplayer_modal();
+    names = modal != nullptr ? mp::panel_control(*modal, "MAPNAMES") : nullptr;
+    if (names == nullptr)
+        return;
+    pack_row = -1;
+    for (int32_t row = 0; row < static_cast<int32_t>(names->items.size()); ++row)
+        if (map_row_key(*names, static_cast<std::size_t>(row)) == PackProbe::kName)
+            pack_row = row;
+    if (pack_row < 0)
+        return;
+    const auto [rx, ry] = dialog_offset(map_art, modal->controls[0]);
+    click_map_row(d, *names, pack_row, rx, ry);
+    auto* picture = mp::panel_control(*modal, "MAPPIC");
+    expect(
+        names->list_selection == pack_row &&
+            map_row_key(*names, static_cast<std::size_t>(pack_row)) == PackProbe::kName &&
+            names->items[static_cast<std::size_t>(pack_row)] ==
+                mp::multiplayer_shown_map_name(PackProbe::kName) &&
+            mp::panel_text(*modal, "DESCRIPTION") == "Doesn't fit this game: too many features" &&
+            picture != nullptr && picture->active == 0,
+        "a refused map shows its name, why it does not fit, and no picture"
+    );
+    expect(d.click("LOAD"), "LOAD on the refused map");
+    expect(
+        mp::multiplayer_message() == probe.reason &&
+            mp::multiplayer_modal_kind() == mp::ModalKind::selmap &&
+            std::string(
+                mp::local_info(mp::multiplayer_lobby()).map_name,
+                ::strnlen(
+                    mp::local_info(mp::multiplayer_lobby()).map_name,
+                    sizeof mp::local_info(mp::multiplayer_lobby()).map_name
+                )
+            ) == kept,
+        "the refusal is shown and the host's map stays"
+    );
+
+    mp::multiplayer_bind_map_source({});
+    mp::multiplayer_reset();
+    if (!host_battleroom(d, "Missing", "Host"))
+        return;
+    expect(d.click("PREVMENU"), "the host leaves for the joiner");
+    if (!d.follow(mp::kScreenGameList, "the joiner returns to the game list"))
+        return;
+    mp::panel_set_text(mp::multiplayer_panel(), "NICKNAME", "Guest");
+    expect(d.click("JOINGAME"), "the joiner joins");
+    if (!d.follow(mp::kScreenBattleroom, "the joiner opens the battle room"))
+        return;
+    auto& lobby = mp::multiplayer_lobby();
+    d.frame();
+    const std::string own(
+        mp::local_info(lobby).map_name,
+        ::strnlen(mp::local_info(lobby).map_name, sizeof mp::local_info(lobby).map_name)
+    );
+    mp::local_info(lobby).options |= mp::option::ready;
+    const auto& player = mp::local_player(lobby);
+    const std::string who(player.name, ::strnlen(player.name, sizeof player.name));
+    const std::string line = "<" + who + "> does not have this map";
+    const auto said = chat_lines(lobby, line);
+    mp::LobbyEvent joined{};
+    joined.kind = mp::LobbyEventKind::player_joined;
+    joined.player_id = 0x7700;
+    std::snprintf(joined.name, sizeof joined.name, "%s", "Host");
+    mp::PlayerSetupInfo host{};
+    host.role = mp::kRoleHost;
+    host.version_major = 3;
+    host.version_minor = 1;
+    host.state = mp::kInfoStatePlaying;
+    host.map_hash = mp::local_info(lobby).map_hash ^ 0x01010101U;
+    std::snprintf(host.map_name, sizeof host.map_name, "%s", PackProbe::kName);
+    oa::netgame::PlayerInfoRecord record{};
+    std::memcpy(record.info_head, &host, sizeof record.info_head);
+    record.player_id = joined.player_id;
+    std::memcpy(
+        record.info_tail,
+        reinterpret_cast<const uint8_t*>(&host) + oa::netgame::player_info_tail_offset,
+        sizeof record.info_tail
+    );
+    mp::LobbyEvent info{};
+    info.kind = mp::LobbyEventKind::record;
+    info.player_id = joined.player_id;
+    std::size_t written = 0;
+    (void)oa::netgame::encode_record(record, info.data, sizeof info.data, &written);
+    info.size = static_cast<uint16_t>(written);
+    auto& loopback = mp::multiplayer_loopback();
+    expect(
+        mp::loopback_inject(loopback, joined) && mp::loopback_inject(loopback, info),
+        "the host's pack map is queued"
+    );
+    d.frame();
+    expect(
+        mp::panel_text(mp::multiplayer_panel(), "MAPNAME") ==
+                mp::multiplayer_shown_map_name(PackProbe::kName) &&
+            chat_lines(lobby, line) == said + 1,
+        "the line a 3.1c joiner sees names isle_of_ashes@archipelago, since it receives the same "
+        "name"
+    );
+    expect(
+        (mp::local_info(lobby).options & mp::option::ready) == 0 &&
+            std::string(
+                mp::local_info(lobby).map_name,
+                ::strnlen(mp::local_info(lobby).map_name, sizeof mp::local_info(lobby).map_name)
+            ) == own,
+        "the joiner is not ready and still names its own map"
+    );
+    d.frame();
+    expect(chat_lines(lobby, line) == said + 1, "the missing map is said once");
+}
+
+/// A colour of the drawn screen: red, green and blue.
+using Rgb = std::array<uint8_t, 3>;
+
+/// The OA badge's border, #7d6a2c, and its amber, #e2b23d, as the design gives them.
+constexpr Rgb kBadgeBorder{0x7d, 0x6a, 0x2c};
+constexpr Rgb kBadgeAmber{0xe2, 0xb2, 0x3d};
+
+/// A rectangle of the drawn 640x480 screen.
+struct Box {
+    int32_t x{}, y{}, width{}, height{};
+};
+
+/// Returns a control's rectangle on the screen: its own, moved by the panel's offset.
+Box badge_box(const mp::Control& control) {
+    const auto offset = mp::multiplayer_panel_offset();
+    return {control.x + offset.x, control.y + offset.y, control.width, control.height};
+}
+
+/// Tells whether a badge the battle room lists lies at a rectangle.
+bool same_box(const mp::PresenceBadgeSpot& spot, const Box& box) {
+    return spot.x == box.x && spot.y == box.y && spot.width == box.width &&
+           spot.height == box.height;
+}
+
+/// Tells whether a pixel of the drawn screen has a colour.
+bool pixel_is(const Driver& d, int32_t x, int32_t y, const Rgb& color) {
+    if (x < 0 || y < 0 || x >= static_cast<int32_t>(d.surface.width) ||
+        y >= static_cast<int32_t>(d.surface.height))
+        return false;
+    const auto at =
+        (static_cast<std::size_t>(y) * d.surface.width + static_cast<std::size_t>(x)) * 3U;
+    return d.surface.rgb[at] == color[0] && d.surface.rgb[at + 1] == color[1] &&
+           d.surface.rgb[at + 2] == color[2];
+}
+
+/// Tells whether a badge's text shows: some pixel inside its border is amber.
+bool shows_badge_text(const Driver& d, const Box& box) {
+    for (int32_t y = box.y + 1; y < box.y + box.height - 1; ++y)
+        for (int32_t x = box.x + 1; x < box.x + box.width - 1; ++x)
+            if (pixel_is(d, x, y, kBadgeAmber))
+                return true;
+    return false;
+}
+
+/// Returns a presence record with an engine line and a sim hash of 32 equal bytes.
+std::vector<uint8_t> presence_with_hash(uint8_t hash_byte) {
+    oa::netgame::PresenceRecord record;
+    record.engine = oa::netgame::PresenceEngine{"0.8.0", "macOS", "arm64"};
+    record.sim_hash = oa::netgame::PresenceDigest{};
+    record.sim_hash->fill(hash_byte);
+    std::vector<uint8_t> bytes(oa::netgame::presence_record_max_bytes);
+    std::size_t written = 0;
+    expect(
+        oa::netgame::encode_presence(record, bytes.data(), bytes.size(), &written) ==
+            oa::netgame::WireError::ok,
+        "a test presence record encodes"
+    );
+    bytes.resize(written);
+    return bytes;
+}
+
+/// The battle room draws the OA badge on each OA player's row, and the dot on
+/// a guest's whose presence record carries another sim hash than the host's,
+/// and lists both badges where it draws them.
+void check_presence_badges(Driver& d) {
+    struct Guard {
+        ~Guard() { mp::multiplayer_bind_presence_record(nullptr, 0); }
+    } guard;
+
+    mp::multiplayer_reset();
+    const auto host_record = presence_with_hash(0x5a);
+    mp::multiplayer_bind_presence_record(host_record.data(), host_record.size());
+    if (!host_battleroom(d, "Badges", "Host"))
+        return;
+    auto& lobby = mp::multiplayer_lobby();
+    constexpr uint32_t kGuest = 0x4321;
+    expect(mp::lobby_add_player(lobby, kGuest, "Guest"), "an OA guest joins");
+    const auto slot = mp::slot_for_player_id(lobby, kGuest);
+    auto* guest = slot >= 0 ? mp::slot_info(lobby, slot) : nullptr;
+    expect(guest != nullptr, "the guest has a slot");
+    if (guest == nullptr)
+        return;
+    guest->state = mp::kInfoStatePlaying;
+    guest->color = 1;
+    guest->version_major = 3;
+    guest->version_minor = 1;
+    guest->engine_signature[0] = oa::netgame::engine_signature_first;
+    guest->engine_signature[1] = oa::netgame::engine_signature_second;
+    const auto guest_record = presence_with_hash(0x77);
+    mp::LobbyEvent event{};
+    event.kind = mp::LobbyEventKind::record;
+    event.player_id = kGuest;
+    std::copy(guest_record.begin(), guest_record.end(), event.data);
+    event.size = static_cast<uint16_t>(guest_record.size());
+    expect(mp::lobby_apply_event(lobby, event), "the guest's record is kept");
+    d.frame();
+    expect(d.drawn(), "the battle room is drawn with the guest");
+    d.snapshot("battleroom-badges");
+
+    const auto* host_disc = control("CD0");
+    const auto* guest_disc = control("CD" + std::to_string(slot));
+    expect(
+        host_disc != nullptr && guest_disc != nullptr, "the host's and the guest's CD rectangles"
+    );
+    if (host_disc == nullptr || guest_disc == nullptr)
+        return;
+    const auto host_box = badge_box(*host_disc);
+    const auto guest_box = badge_box(*guest_disc);
+    expect(guest_disc->active == 0, "the OA guest's row shows no CD icon");
+    expect(
+        pixel_is(d, guest_box.x, guest_box.y, kBadgeBorder) && shows_badge_text(d, guest_box),
+        "the OA guest's row shows the OA badge"
+    );
+    expect(
+        pixel_is(d, guest_box.x + guest_box.width - 1, guest_box.y, kBadgeAmber),
+        "the guest's badge carries the dot: its rules differ from the host's"
+    );
+    expect(
+        pixel_is(d, host_box.x + host_box.width - 1, host_box.y, kBadgeBorder),
+        "the host's badge still carries no dot"
+    );
+    mp::PresenceBadgeSpot spots[mp::kSlotCount]{};
+    const auto count = mp::multiplayer_presence_badges(spots, mp::kSlotCount);
+    expect(
+        count == 2 && spots[0].slot == 0 && same_box(spots[0], host_box) &&
+            !spots[0].rules_differ && spots[1].slot == slot && same_box(spots[1], guest_box) &&
+            spots[1].rules_differ,
+        "multiplayer_presence_badges lists both badges, the guest's with the dot"
+    );
+    expect(
+        mp::multiplayer_presence_badges(spots, 1) == 1 && spots[0].slot == 0,
+        "a list of one takes the first badge"
+    );
+}
+
+/// Draws the current screen again, without a tick.
+void redraw(Driver& d) {
+    const auto* screen = d.desc(d.current);
+    screen->draw(&d.ctx, screen->state);
+}
+
+/// A colour of one pixel of the drawn screen.
+Rgb pixel_at(const Driver& d, int32_t x, int32_t y) {
+    if (x < 0 || y < 0 || x >= static_cast<int32_t>(d.surface.width) ||
+        y >= static_cast<int32_t>(d.surface.height))
+        return {};
+    const auto at =
+        (static_cast<std::size_t>(y) * d.surface.width + static_cast<std::size_t>(x)) * 3U;
+    return {d.surface.rgb[at], d.surface.rgb[at + 1], d.surface.rgb[at + 2]};
+}
+
+/// One stop Tab reached, and whether that control is a list or a player's row.
+struct FocusStop {
+    std::string name;
+    bool list = false;
+    int32_t slot = -1;
+};
+
+/// The name of the focused control, or empty when nothing is focused.
+std::string focused_name() {
+    const auto& panel = mp::multiplayer_panel();
+    if (panel.focus <= 0 || panel.focus >= panel.count)
+        return {};
+    return std::string(mp::control_name(panel.controls[static_cast<std::size_t>(panel.focus)]));
+}
+
+/// The slot whose OA badge the battle room would hand to the information key.
+///
+/// @return the focused row's slot when that row shows a badge; otherwise none
+int32_t focused_badge_slot() {
+    const int32_t slot = mp::multiplayer_focused_player_slot();
+    if (slot < 0)
+        return mp::presence_card_no_slot;
+    mp::PresenceBadgeSpot spots[mp::kSlotCount]{};
+    const auto count = mp::multiplayer_presence_badges(spots, mp::kSlotCount);
+    for (int32_t index = 0; index < count; ++index)
+        if (spots[index].slot == slot)
+            return slot;
+    return mp::presence_card_no_slot;
+}
+
+/// Seats a remote player and, when a record is given, marks the row as OA.
+///
+/// @param lobby the battle room
+/// @param player_id the player's id
+/// @param name the name the row shows
+/// @param record the presence record; empty leaves a player with no OA badge
+/// @return the slot, or -1 when the player is not seated
+int32_t seat_remote(
+    mp::Lobby& lobby, uint32_t player_id, const char* name, const std::vector<uint8_t>& record
+) {
+    if (!mp::lobby_add_player(lobby, player_id, name))
+        return -1;
+    const auto slot = mp::slot_for_player_id(lobby, player_id);
+    auto* info = slot >= 0 ? mp::slot_info(lobby, slot) : nullptr;
+    if (info == nullptr)
+        return -1;
+    info->state = mp::kInfoStatePlaying;
+    info->color = static_cast<uint8_t>(slot);
+    info->version_major = 3;
+    info->version_minor = 1;
+    if (record.empty())
+        return slot;
+    info->engine_signature[0] = oa::netgame::engine_signature_first;
+    info->engine_signature[1] = oa::netgame::engine_signature_second;
+    mp::LobbyEvent event{};
+    event.kind = mp::LobbyEventKind::record;
+    event.player_id = player_id;
+    std::copy(record.begin(), record.end(), event.data);
+    event.size = static_cast<uint16_t>(record.size());
+    if (!mp::lobby_apply_event(lobby, event))
+        return -1;
+    return slot;
+}
+
+/// Presses Tab until the focused control has a name, or the walk is exhausted.
+///
+/// @param d the screens
+/// @param name the control's name
+/// @return true when that control is focused
+bool tab_until_name(Driver& d, std::string_view name) {
+    for (int guard = 0; guard < 64; ++guard) {
+        if (focused_name() == name)
+            return true;
+        d.key(kKeyTab);
+    }
+    return focused_name() == name;
+}
+
+/// Presses Tab until a player's row is focused, or the walk is exhausted.
+///
+/// @param d the screens
+/// @param slot the row's slot
+/// @return true when that row is focused
+bool tab_until_slot(Driver& d, int32_t slot) {
+    for (int guard = 0; guard < 64; ++guard) {
+        if (mp::multiplayer_focused_player_slot() == slot)
+            return true;
+        d.key(kKeyTab);
+    }
+    return mp::multiplayer_focused_player_slot() == slot;
+}
+
+/// Tab and the arrow keys reach each remote player's row, skip the local
+/// row, and F1 on a focused OA row opens its card.
+void check_player_row_focus(Driver& d) {
+    struct Guard {
+        ~Guard() { mp::multiplayer_bind_presence_record(nullptr, 0); }
+    } guard;
+
+    mp::multiplayer_reset();
+    const auto host_record = presence_with_hash(0x11);
+    mp::multiplayer_bind_presence_record(host_record.data(), host_record.size());
+    if (!host_battleroom(d, "Rows", "Host"))
+        return;
+    auto& lobby = mp::multiplayer_lobby();
+    const auto local = lobby.game->local_player_index;
+    const auto* own = control("PLAYER" + std::to_string(local));
+    expect(own != nullptr && own->type == mp::ControlType::label, "the local row stays a label");
+    const auto first_oa = presence_with_hash(0x21);
+    const auto second_oa = presence_with_hash(0x22);
+    const int32_t kirby = seat_remote(lobby, 0x4321, "Kirby", first_oa);
+    const int32_t mira = seat_remote(lobby, 0x4322, "Mira", second_oa);
+    const int32_t classic = seat_remote(lobby, 0x4323, "OldSchool", {});
+    expect(
+        kirby >= 0 && mira >= 0 && classic >= 0 && kirby != local && mira != local &&
+            classic != local,
+        "two OA players and one without a badge join other rows"
+    );
+    if (kirby < 0 || mira < 0 || classic < 0)
+        return;
+    d.frame();
+    expect(focused_name() == "MESSAGE", "the chat line keeps the focus as the room opens");
+    expect(mp::multiplayer_focused_player_slot() < 0, "no player's row is focused yet");
+
+    const auto* kirby_row = control("PLAYER" + std::to_string(kirby));
+    expect(kirby_row != nullptr, "the first OA player's row is a control");
+    if (kirby_row == nullptr)
+        return;
+    const auto kirby_box = badge_box(*kirby_row);
+    redraw(d);
+    const Rgb ring_before = pixel_at(d, kirby_box.x - 1, kirby_box.y);
+    const auto sent_before = mp::multiplayer_loopback().sent_count;
+
+    std::vector<FocusStop> walked;
+    bool back_at_chat = false;
+    for (int press = 0; press < 64 && !back_at_chat; ++press) {
+        d.key(kKeyTab);
+        FocusStop stop;
+        stop.name = focused_name();
+        const auto& panel = mp::multiplayer_panel();
+        if (panel.focus > 0 && panel.focus < panel.count) {
+            const auto& focused = panel.controls[static_cast<std::size_t>(panel.focus)];
+            stop.list = focused.type == mp::ControlType::list_box;
+        }
+        stop.slot = mp::multiplayer_focused_player_slot();
+        if (stop.name == "MESSAGE")
+            back_at_chat = true;
+        else
+            walked.push_back(stop);
+    }
+    if (!back_at_chat) {
+        std::fprintf(stderr, "focus walk:");
+        for (const auto& stop : walked)
+            std::fprintf(stderr, " %s", stop.name.c_str());
+        std::fprintf(stderr, "\n");
+    }
+    expect(back_at_chat, "Tab returns to the chat line");
+    bool saw_local = false;
+    bool saw_kirby = false;
+    bool saw_mira = false;
+    bool saw_classic = false;
+    bool lists_before_rows = true;
+    bool seen_row = false;
+    for (const auto& stop : walked) {
+        if (stop.slot == local)
+            saw_local = true;
+        if (stop.slot == kirby)
+            saw_kirby = true;
+        if (stop.slot == mira)
+            saw_mira = true;
+        if (stop.slot == classic)
+            saw_classic = true;
+        if (stop.list && seen_row)
+            lists_before_rows = false;
+        if (stop.slot >= 0)
+            seen_row = true;
+    }
+    expect(
+        saw_kirby && saw_mira && saw_classic && !saw_local && lists_before_rows,
+        "Tab reaches each remote row after the lists and skips the local row"
+    );
+    expect(mp::multiplayer_loopback().sent_count == sent_before, "moving the focus sends nothing");
+
+    d.key(kKeyTab, kKeyShift);
+    expect(
+        mp::multiplayer_focused_player_slot() == classic,
+        "Shift+Tab from the chat line focuses the last remote row, and names its slot"
+    );
+    d.key(kKeyDown);
+    expect(focused_name() == "MESSAGE", "Down from the last remote row returns to the chat line");
+    d.key(kKeyLeft);
+    d.key(kKeyRight);
+    expect(focused_name() == "MESSAGE", "Left and Right stay in the chat line");
+    d.key(kKeyUp);
+    expect(
+        mp::multiplayer_focused_player_slot() == classic,
+        "the pad's Up from the chat line focuses the last remote row"
+    );
+    d.key(kKeyLeft);
+    expect(
+        mp::multiplayer_focused_player_slot() == mira,
+        "the pad's Left moves to the remote row above"
+    );
+
+    bool stayed_in_list = true;
+    for (const auto& stop : walked) {
+        if (!stop.list)
+            continue;
+        if (!tab_until_name(d, stop.name))
+            stayed_in_list = false;
+        const auto& panel = mp::multiplayer_panel();
+        const auto* list = panel.focus > 0 && panel.focus < panel.count
+                               ? &panel.controls[static_cast<std::size_t>(panel.focus)]
+                               : nullptr;
+        if (list == nullptr || list->list_item_height == 0)
+            continue;
+        const auto selection = list->list_selection;
+        d.key(kKeyDown);
+        d.key(kKeyUp);
+        if (focused_name() != stop.name || list->list_selection != selection)
+            stayed_in_list = false;
+    }
+    expect(stayed_in_list, "Up and Down stay inside a list and move its selection");
+
+    expect(
+        tab_until_slot(d, kirby) && mp::multiplayer_focused_player_slot() == kirby,
+        "the focused OA row's slot is the one multiplayer_focused_player_slot names"
+    );
+    redraw(d);
+    const Rgb ring_focused = pixel_at(d, kirby_box.x - 1, kirby_box.y);
+    expect(
+        ring_focused != ring_before, "a focused row is drawn with the battle room's focus marker"
+    );
+    mp::PresenceCardTrigger trigger;
+    expect(trigger.key_info(focused_badge_slot()), "F1 on the focused OA row is taken");
+    expect(trigger.open_slot() == kirby, "F1 opens that player's card");
+    expect(
+        tab_until_slot(d, mira) && trigger.focus(focused_badge_slot()),
+        "the card follows the focus to the other OA row"
+    );
+    expect(trigger.open_slot() == mira, "the card is now the other player's");
+    expect(tab_until_slot(d, classic), "Tab reaches the row with no OA badge");
+    mp::PresenceCardTrigger classic_key;
+    expect(
+        focused_badge_slot() == mp::presence_card_no_slot &&
+            !classic_key.key_info(focused_badge_slot()),
+        "F1 on a focused row with no OA badge opens no card"
+    );
+    expect(tab_until_name(d, "MESSAGE"), "Tab returns to the chat line again");
+    redraw(d);
+    expect(
+        pixel_at(d, kirby_box.x - 1, kirby_box.y) == ring_before,
+        "with the focus back on the chat line the row's focus marker is gone"
+    );
+
+    // Return and the pad's A are the information key on a focused row.
+    mp::PresenceCardTrigger row_key;
+
+    struct RowKeyGuard {
+        ~RowKeyGuard() { mp::multiplayer_bind_row_key(nullptr); }
+    } row_key_guard;
+
+    mp::multiplayer_bind_row_key(&row_key);
+    const auto kirby_status = mp::slot_player(lobby, kirby).status;
+    const auto kirby_used = mp::slot_player(lobby, kirby).in_use;
+    const auto kirby_id = mp::slot_player(lobby, kirby).player_id;
+    const auto mira_status = mp::slot_player(lobby, mira).status;
+    const auto classic_status = mp::slot_player(lobby, classic).status;
+    const auto sent_at_keys = mp::multiplayer_loopback().sent_count;
+    expect(tab_until_slot(d, classic), "the row with no badge is focused for Return");
+    d.key(kKeyReturn);
+    expect(
+        row_key.open_slot() == mp::presence_card_no_slot &&
+            mp::multiplayer_modal_kind() == mp::ModalKind::none &&
+            mp::slot_player(lobby, classic).status == classic_status &&
+            mp::multiplayer_loopback().sent_count == sent_at_keys,
+        "Return on a focused row with no OA badge does nothing and sends nothing"
+    );
+    expect(tab_until_slot(d, kirby), "the first OA row is focused for Return");
+    d.key(kKeyReturn);
+    expect(
+        row_key.open_slot() == kirby && mp::multiplayer_modal_kind() == mp::ModalKind::none &&
+            mp::slot_player(lobby, kirby).status == kirby_status &&
+            mp::slot_player(lobby, kirby).in_use == kirby_used &&
+            mp::slot_player(lobby, kirby).player_id == kirby_id &&
+            mp::slot_player(lobby, mira).status == mira_status &&
+            mp::multiplayer_loopback().sent_count == sent_at_keys,
+        "Return on a focused OA row opens its card and does not reject the player"
+    );
+
+    int32_t computer = -1;
+    for (int32_t slot = 0; slot < mp::kSlotCount; ++slot) {
+        if (mp::slot_player(lobby, slot).status == mp::kSlotOpen) {
+            computer = slot;
+            break;
+        }
+    }
+    expect(computer >= 0, "an open slot can hold an AI");
+    if (computer >= 0) {
+        mp::lobby_add_computer(lobby, computer);
+        d.frame();
+        const auto sent_at_ai = mp::multiplayer_loopback().sent_count;
+        const auto ai_status = mp::slot_player(lobby, computer).status;
+        expect(
+            tab_until_slot(d, computer) && ai_status == mp::kSlotComputer,
+            "the AI's row can take the focus"
+        );
+        d.key(kKeyReturn);
+        expect(
+            row_key.open_slot() == kirby &&
+                mp::slot_player(lobby, computer).status == mp::kSlotComputer &&
+                mp::multiplayer_modal_kind() == mp::ModalKind::none &&
+                mp::multiplayer_loopback().sent_count == sent_at_ai,
+            "Return on a focused AI row does not cycle it, close the card or send anything"
+        );
+    }
+
+    const auto rejects_before = rejects_sent();
+    expect(tab_until_slot(d, kirby), "the OA row is focused again before the click");
+    expect(d.click(("PLAYER" + std::to_string(kirby)).c_str()), "the host clicks that row");
+    expect(
+        mp::multiplayer_modal_kind() == mp::ModalKind::confirm &&
+            mp::slot_for_player_id(lobby, kirby_id) == kirby && rejects_sent() == rejects_before,
+        "a click on the row still asks before rejecting, and sends no reject"
+    );
+    expect(d.click("CHOICE2"), "the question is declined");
+    expect(
+        mp::multiplayer_modal_kind() == mp::ModalKind::none &&
+            mp::slot_player(lobby, kirby).player_id == kirby_id &&
+            mp::slot_player(lobby, kirby).status == kirby_status,
+        "declining the question leaves the player in the room"
+    );
+}
+
 } // namespace
 
 int main() {
+    check_map_list_words();
+    check_map_list_order();
     const std::filesystem::path data = oa::test::require_game_directory("the multiplayer screens");
     mp::multiplayer_reset();
     Driver d(data);
@@ -1639,6 +3018,26 @@ int main() {
             !shows_frame(d, art, disc, 0, control("CD0")),
         "the host's row shows no CD icon"
     );
+    // In its place the host's row shows the OA badge, with no dot: the host's
+    // rules are its own.
+    if (const auto* host_disc = control("CD0")) {
+        const auto box = badge_box(*host_disc);
+        expect(
+            pixel_is(d, box.x, box.y, kBadgeBorder),
+            "the host's badge has its border at the top left"
+        );
+        expect(shows_badge_text(d, box), "the host's badge says OA in amber");
+        expect(
+            pixel_is(d, box.x + box.width - 1, box.y, kBadgeBorder),
+            "the host's badge has its border at the top right: no dot"
+        );
+        mp::PresenceBadgeSpot spots[mp::kSlotCount]{};
+        const auto count = mp::multiplayer_presence_badges(spots, mp::kSlotCount);
+        expect(
+            count == 1 && spots[0].slot == 0 && same_box(spots[0], box) && !spots[0].rules_differ,
+            "multiplayer_presence_badges lists the host's badge at CD0's rectangle"
+        );
+    }
     expect(
         control("SIDE0") != nullptr &&
             shows_frame(d, art, sides, control("SIDE0")->stage, control("SIDE0")),
@@ -2841,6 +4240,12 @@ int main() {
     }
     check_launch_exit(d);
     check_engine_banner(d);
+    check_pack_maps(d);
+    check_pack_map_page(d);
+    check_bound_base_maps(d);
+    check_pack_map_titles(d);
+    check_presence_badges(d);
+    check_player_row_focus(d);
 
     if (failures != 0) {
         std::fprintf(stderr, "%d failure(s)\n", failures);

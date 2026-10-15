@@ -210,6 +210,7 @@ std::string_view panel_text(const Panel& panel, std::string_view name) noexcept 
 void panel_set_items(Panel& panel, std::string_view name, std::vector<std::string> items) {
     if (auto* control = panel_control(panel, name)) {
         control->items = std::move(items);
+        control->item_keys.clear();
         if (control->list_selection >= static_cast<int16_t>(control->items.size()))
             control->list_selection = 0;
         panel.dirty = true;
@@ -294,6 +295,8 @@ void panel_fill_list(Panel& panel, std::string_view name, std::vector<std::strin
         return;
     auto& list = at(panel, index);
     list.items = std::move(rows);
+    list.item_keys.clear();
+    list.item_grey.clear();
     auto filled = list_of(list);
     const bool overflow =
         gui_input::scroll_list_fill(filled, static_cast<int32_t>(filled.count), panel.line_height);
@@ -312,6 +315,28 @@ void panel_fill_list(Panel& panel, std::string_view name, std::vector<std::strin
             list_of(at(panel, panel_group_member(panel, bar, ControlType::list_box))),
             panel.line_height
         );
+}
+
+void panel_set_item_keys(Panel& panel, std::string_view name, std::vector<std::string> keys) {
+    auto* control = panel_control(panel, name);
+    if (control == nullptr)
+        return;
+    if (keys.size() == control->items.size())
+        control->item_keys = std::move(keys);
+    else
+        control->item_keys.clear();
+    panel.dirty = true;
+}
+
+void panel_set_item_grey(Panel& panel, std::string_view name, std::vector<uint8_t> grey) {
+    auto* control = panel_control(panel, name);
+    if (control == nullptr)
+        return;
+    if (grey.size() == control->items.size())
+        control->item_grey = std::move(grey);
+    else
+        control->item_grey.clear();
+    panel.dirty = true;
 }
 
 void panel_select_list_row(Panel& panel, std::string_view name, int32_t row) noexcept {
@@ -383,6 +408,14 @@ ListPress panel_press_list(Panel& panel, int32_t index, int32_t y) noexcept {
     }
     panel.dirty = true;
     return press;
+}
+
+int32_t list_shown_rows(const Control& list, int32_t line_height) noexcept {
+    const int32_t pitch = list.list_item_height > 0 ? list.list_item_height : line_height;
+    if (pitch <= 0 || list.height <= 0)
+        return 1;
+    const int32_t rows = static_cast<int32_t>(list.height) / pitch;
+    return rows > 0 ? rows : 1;
 }
 
 bool panel_scroll_list(Panel& panel, int32_t index, int32_t rows) noexcept {

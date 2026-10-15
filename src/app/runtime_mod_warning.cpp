@@ -8,8 +8,9 @@
 // still plays its menus; the main menu shows the warning once from each
 // start, and a start of a skirmish, a shared game, a campaign mission or a
 // saved game that cannot start shows it in place of the game, on the screen
-// the start was asked from. It is the notice of the player's own folder
-// (runtime_user_folder.cpp), whose button shows the mod's folder.
+// the start was asked from. It is a notice of the player's own folder
+// (UserFolderState::show_notice, runtime_user_folder.cpp) on the OA layer,
+// whose button shows the mod's folder.
 
 #include "user_folder_state.hpp"
 
@@ -164,19 +165,21 @@ std::string message_text(const oa::ui::engine_settings::Notice& notice) {
 
 fs::path Runtime::played_mod_folder() const {
     fs::path folder;
-    if (options_.game_folders.size() > 1)
-        folder = options_.game_folders.front();
+    if (!options_.layered_mod_folder.empty())
+        folder = options_.layered_mod_folder;
     else if (!options_.mod_file.empty())
         folder = options_.mod_file.parent_path();
+    else if (!options_.game_folders.empty())
+        folder = options_.game_folders.back();
     else
-        folder = options_.game_folders.empty() ? options_.game_dir : options_.game_folders.front();
+        folder = options_.game_dir;
     std::error_code error;
     const fs::path absolute = fs::absolute(folder, error);
     return (error ? folder : absolute).lexically_normal();
 }
 
 bool Runtime::plays_mod() const noexcept {
-    return mod_profile() != nullptr || options_.game_folders.size() > 1;
+    return mod_profile() != nullptr || !options_.layered_mod_folder.empty();
 }
 
 ModStartGaps Runtime::mod_start_gaps() {
@@ -229,15 +232,12 @@ void Runtime::show_mod_warning(const ModStartGaps& gaps) {
     ++state.mod_warnings_shown;
     // Without the dialog's fonts the warning is the game's message box.
     if (engine_settings_fonts() == nullptr) {
-        state.notice.reset();
         show_frontend_message(
             message_text(notice), kMessageWidth, entry::message_show_ok, entry::message_fit_width
         );
         return;
     }
-    state.notice = std::move(notice);
-    state.notice_folder = folder;
-    state.notice_screen = screen_;
+    UserFolderState::show_notice(*this, std::move(notice), folder, screen_);
 }
 
 bool Runtime::refuse_incomplete_mod_start(bool later) {
@@ -265,8 +265,8 @@ bool Runtime::refuse_incomplete_mod_start(bool later) {
 
 void Runtime::tell_incomplete_mod() {
     // Most frames have nothing to tell, and cost no more than this.
-    if (!plays_mod() || (user_folder_state_ &&
-                         (!user_folder_state_->mod_warning_due || user_folder_state_->notice)))
+    if (!plays_mod() || (user_folder_state_ && (!user_folder_state_->mod_warning_due ||
+                                                UserFolderState::notice_pending(*this))))
         return;
     auto& state = user_folder_state();
     namespace frontend_state = oa::ui::frontend_state;

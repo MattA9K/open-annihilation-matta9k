@@ -4,6 +4,7 @@
 #include "oa/app/command_line.hpp"
 
 #include <cstring>
+#include <span>
 
 namespace oa::app::command_line {
 namespace {
@@ -106,9 +107,12 @@ void copy_text(char (&destination)[kTextBytes], const char* source) noexcept {
     destination[length] = '\0';
 }
 
-// strtok over the private copy, with blank and tab as the only delimiters.
+// The tokens of the private copy: strtok with blank and tab as the only
+// delimiters, or, for whole words, each word ended by a NUL.
 struct Tokens {
     char* next{};
+    char* end{};        // past the last word's NUL, for whole words
+    bool whole_words{}; // the copy holds words ended by NULs, not one line
 
     /// Returns the next token, terminating it in place.
     ///
@@ -118,6 +122,8 @@ struct Tokens {
         char* at = start != nullptr ? start : next;
         if (at == nullptr)
             return nullptr;
+        if (whole_words)
+            return take_word(at);
         while (*at != '\0' && is_delimiter(*at))
             ++at;
         if (*at == '\0') {
@@ -132,6 +138,28 @@ struct Tokens {
         next = at;
         return token;
     }
+
+    /// Returns the next whole word from `at` on, its blanks and tabs at either end dropped.
+    ///
+    /// @param at Start of a word of the copy.
+    /// @return The word, or null past the last one; a word of blanks and tabs alone is skipped.
+    char* take_word(char* at) noexcept {
+        while (at < end) {
+            char* word_end = at + std::strlen(at);
+            char* const following = word_end + 1;
+            while (at < word_end && is_delimiter(*at))
+                ++at;
+            while (word_end > at && is_delimiter(word_end[-1]))
+                *--word_end = '\0';
+            if (at < word_end) {
+                next = following;
+                return at;
+            }
+            at = following;
+        }
+        next = nullptr;
+        return nullptr;
+    }
 };
 
 /// Takes the next token for a switch handler (SwitchArguments::next_token).
@@ -142,6 +170,28 @@ const char* take_next_token(void* tokens) noexcept {
     return static_cast<Tokens*>(tokens)->take(nullptr);
 }
 
+/// Offers a switch to the handler, and applies the effects it asks for when it takes it.
+///
+/// @param handler The handler; null takes nothing.
+/// @param letter Lower-case switch letter.
+/// @param token The switch's token, switch character included.
+/// @param tokens The parse's Tokens, from which the handler may take the next token.
+/// @param[in,out] switches Gains skip_intro when the handler asks for it.
+/// @return Whether the handler took the switch.
+bool offer(
+    const SwitchHandler* handler, char letter, char* token, Tokens& tokens, Switches& switches
+) noexcept {
+    if (handler == nullptr || handler->take == nullptr)
+        return false;
+    const SwitchArguments arguments{token + 2, take_next_token, &tokens};
+    uint32_t effects = 0;
+    if (handler->take(handler->context, letter, &arguments, &effects) == 0)
+        return false;
+    if ((effects & switch_effect_skip_intro) != 0)
+        switches.skip_intro = 1;
+    return true;
+}
+
 /// Tests whether a lower-case switch letter is one of kReservedSwitches.
 ///
 /// @param letter Switch letter.
@@ -150,31 +200,39 @@ bool reserved(char letter) noexcept {
     return letter != '\0' && std::strchr(kReservedSwitches, letter) != nullptr;
 }
 
-} // namespace
-
-Status parse(const char* line, Switches& switches, const SwitchHandler* handler) noexcept {
-    const size_t length = std::strlen(line);
-    if (length >= kMaximumLineBytes)
-        return Status::line_too_long;
-    char copy[kMaximumLineBytes];
-    std::memcpy(copy, line, length + 1);
+/// Applies each switch of the copy's tokens in order (see parse).
+///
+/// @param line The whole line, at the copy's offsets; "-r" takes the rest of it.
+/// @param copy The private copy the tokens are ended in.
+/// @param tokens Reads the copy's tokens.
+/// @param[in,out] switches Receives the switch values.
+/// @param handler Takes the letters the engine does not handle; null offers none.
+/// @return As parse returns, once the line fits.
+Status scan(
+    const char* line, char* copy, Tokens& tokens, Switches& switches, const SwitchHandler* handler
+) noexcept {
     switches.skip_intro = 0;
     if (handler != nullptr && handler->reset != nullptr)
         handler->reset(handler->context);
-    Tokens tokens;
     for (char* token = tokens.take(copy); token != nullptr; token = tokens.take(nullptr)) {
         if (token[0] != '-' && token[0] != '/') {
-            if (std::strlen(token) >= kTextBytes)
-                return Status::argument_too_long;
+            // A longer word than the field holds keeps its first 63 characters.
             copy_text(switches.language, token);
             continue;
         }
-        if (debug_heap_switch(token))
+        if (debug_heap_switch(token)) {
+            if (switches.developer_switches == 0)
+                copy_text(switches.developer_switch, token);
+            ++switches.developer_switches;
             continue;
+        }
         switch (fold(token[1])) {
         case 'b':
-            // Compares the whole token, switch characters included; of the
-            // words compared, only "lock" has an effect.
+            // A handler may give the word after -b its meaning. Without one
+            // the whole token, switch characters included, is compared; of
+            // the words compared, only "lock" has an effect.
+            if (offer(handler, 'b', token, tokens, switches))
+                break;
             if (equal_nocase(token, kLockWord))
                 switches.game_options |= kGameLocked;
             break;
@@ -208,15 +266,8 @@ Status parse(const char* line, Switches& switches, const SwitchHandler* handler)
             const char letter = fold(token[1]);
             if (letter == '\0')
                 break;
-            if (handler != nullptr && handler->take != nullptr) {
-                const SwitchArguments arguments{token + 2, take_next_token, &tokens};
-                uint32_t effects = 0;
-                if (handler->take(handler->context, letter, &arguments, &effects) != 0) {
-                    if ((effects & switch_effect_skip_intro) != 0)
-                        switches.skip_intro = 1;
-                    break;
-                }
-            }
+            if (offer(handler, letter, token, tokens, switches))
+                break;
             if (reserved(letter)) {
                 switches.unavailable_switch = token[1];
                 return Status::unavailable_switch;
@@ -226,6 +277,51 @@ Status parse(const char* line, Switches& switches, const SwitchHandler* handler)
         }
     }
     return Status::run;
+}
+
+} // namespace
+
+Status parse(const char* line, Switches& switches, const SwitchHandler* handler) noexcept {
+    const size_t length = std::strlen(line);
+    if (length >= kMaximumLineBytes)
+        return Status::line_too_long;
+    char copy[kMaximumLineBytes];
+    std::memcpy(copy, line, length + 1);
+    Tokens tokens;
+    return scan(line, copy, tokens, switches, handler);
+}
+
+Status parse(
+    std::span<const char* const> words, Switches& switches, const SwitchHandler* handler
+) noexcept {
+    // The line the words make, with one blank between each word and the next.
+    size_t length = words.empty() ? 0 : words.size() - 1;
+    for (const char* word : words) {
+        length += std::strlen(word);
+        if (length >= kMaximumLineBytes)
+            return Status::line_too_long;
+    }
+    // That line, for "-r", and a copy at the same offsets with a NUL after each word.
+    char line[kMaximumLineBytes];
+    char copy[kMaximumLineBytes];
+    size_t at = 0;
+    for (size_t index = 0; index < words.size(); ++index) {
+        if (index != 0) {
+            line[at] = ' ';
+            copy[at] = '\0';
+            ++at;
+        }
+        const size_t word_length = std::strlen(words[index]);
+        std::memcpy(line + at, words[index], word_length);
+        std::memcpy(copy + at, words[index], word_length);
+        at += word_length;
+    }
+    line[at] = '\0';
+    copy[at] = '\0';
+    Tokens tokens;
+    tokens.end = copy + at + 1;
+    tokens.whole_words = true;
+    return scan(line, copy, tokens, switches, handler);
 }
 
 void set_forced_disc_drive(Switches& switches, uint32_t value) noexcept {

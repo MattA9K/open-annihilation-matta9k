@@ -8,10 +8,12 @@
 // preference round trip.
 // With --install it checks that the installation OA_GAME_DIR names is usable.
 #include "oa/app/game_directory.hpp"
+#include "oa/data/content_bundles/content_choice.hpp"
 #include "oa/formats/hpi.hpp"
 #include "oa/platform/files.hpp"
 #include "oa/platform/preferences.hpp"
 #include "oa/test/game_data.hpp"
+#include "oa/ui/engine_settings.hpp"
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
@@ -1118,40 +1120,40 @@ void check_found_installs() {
         );
     }
     {
+        // Several usable folders on a desktop whose dialog works: the system's
+        // picker asks, after a notice of what to choose.
         auto host = found_host();
+        host.picks = {{FolderPick::chosen, kCd, {}}};
         auto h = host.host();
         GameFilesNeeded needed;
         const auto result = resolve_game_directory(
             found_request(std::nullopt, {from_steam, from_broken, from_heroic}), h, &needed
         );
         expect(
-            !result && needed.needed && needed.chooser && needed.found.size() == 2 &&
-                needed.found[0].folder == steam && needed.found[1].folder == heroic &&
-                needed.stored_folder.empty() && needed.stored_problem.empty() &&
-                needed.dialog_offered && needed.dialog_problem.empty(),
-            "several usable folders found open the chooser with the usable ones, in order"
-        );
-        expect(
-            host.starts.empty() && host.notices.empty(),
-            "the chooser opens without a notice or the dialog"
+            result && result->path == kCd && result->source == GameDirectorySource::chosen &&
+                !needed.chooser && host.starts.size() == 1 && host.notices.size() == 1 &&
+                contains(host.notices[0], "totala1.hpi"),
+            "several usable folders found ask with the system picker, after what to choose"
         );
     }
     {
+        // A remembered folder that has gone, with another usable folder found:
+        // the notice says why, then the system's picker asks.
         auto host = found_host();
+        host.picks = {{FolderPick::chosen, kCd, {}}};
         auto h = host.host();
         GameFilesNeeded needed;
         const auto result =
             resolve_game_directory(found_request(path_to_utf8(kMoved), {from_heroic}), h, &needed);
         expect(
-            !result && needed.needed && needed.chooser && needed.stored_folder == kMoved &&
-                needed.stored_problem == "The folder does not exist." && needed.found.size() == 1 &&
-                needed.found[0].folder == heroic && host.notices.empty() && host.starts.empty(),
-            "a remembered folder that has gone opens the chooser with why, then the list"
+            result && result->path == kCd && result->source == GameDirectorySource::chosen &&
+                !needed.chooser && host.starts.size() == 1 && host.notices.size() == 1 &&
+                contains(host.notices[0], "can no longer be used") &&
+                contains(host.notices[0], path_to_utf8(kMoved)),
+            "a remembered folder that has gone is told about, then the system picker asks"
         );
     }
     {
-        // A remembered folder that has gone, with nothing found and a dialog that works,
-        // resolves as it always has.
         auto host = found_host();
         host.picks = {{FolderPick::chosen, kCd, {}}};
         auto h = host.host();
@@ -1159,26 +1161,63 @@ void check_found_installs() {
         const auto result =
             resolve_game_directory(found_request(path_to_utf8(kMoved), {from_broken}), h, &needed);
         expect(
-            result && result->path == kCd && result->source == GameDirectorySource::chosen &&
-                !needed.needed && host.notices.size() == 1 &&
-                contains(host.notices[0], "chosen earlier") && host.starts.size() == 1 &&
-                host.starts[0] == kMoved,
-            "a remembered folder that has gone with nothing usable found asks with the dialog"
+            result && result->source == GameDirectorySource::chosen && !needed.chooser &&
+                host.starts.size() == 1 && host.notices.size() == 1 &&
+                contains(host.notices[0], "can no longer be used"),
+            "a remembered folder that has gone, with nothing usable found, asks with the picker"
         );
     }
     {
-        // A first start with nothing found on a desktop whose dialog works is unchanged.
         auto host = found_host();
         host.picks = {{FolderPick::chosen, kCd, {}}};
         auto h = host.host();
         GameFilesNeeded needed;
         const auto result = resolve_game_directory(found_request(std::nullopt, {}), h, &needed);
         expect(
-            result && result->source == GameDirectorySource::chosen && !needed.needed &&
-                host.notices.size() == 1 &&
-                contains(host.notices[0], "needs your Total Annihilation installation") &&
-                host.starts.size() == 1,
-            "nothing found on a desktop with a dialog asks with the dialog, as before"
+            result && result->path == kCd && result->source == GameDirectorySource::chosen &&
+                !needed.chooser && host.starts.size() == 1 && host.notices.size() == 1 &&
+                contains(host.notices[0], "totala1.hpi"),
+            "nothing found on a desktop asks with the system picker, after what to choose"
+        );
+    }
+    {
+        // The five-step setup asks where the game is. Several folders, or none,
+        // open no dialog and no Game files screen. One folder is still returned.
+        auto host = found_host();
+        host.picks = {{FolderPick::chosen, kCd, {}}};
+        auto h = host.host();
+        GameFilesNeeded needed;
+        auto request = found_request(std::nullopt, {from_steam, from_heroic});
+        request.defer_dialog = true;
+        request.import_offered = true;
+        const auto result = resolve_game_directory(request, h, &needed);
+        expect(
+            !result && host.starts.empty() && host.notices.empty() && host.asked.empty() &&
+                !needed.needed && !needed.chooser,
+            "while the setup will ask, several folders open no dialog, locator or Game files screen"
+        );
+        auto only = found_host();
+        auto only_host = only.host();
+        GameFilesNeeded only_needed;
+        auto one = found_request(std::nullopt, {from_steam});
+        one.defer_dialog = true;
+        const auto played = resolve_game_directory(one, only_host, &only_needed);
+        expect(
+            played && played->source == GameDirectorySource::found && only.starts.empty() &&
+                only.notices.empty() && !only_needed.needed,
+            "while the setup will ask, the one folder found is still returned"
+        );
+        auto none_host = found_host();
+        none_host.picks = {{FolderPick::chosen, kCd, {}}};
+        auto none = none_host.host();
+        GameFilesNeeded none_needed;
+        auto empty = found_request(std::nullopt, {});
+        empty.defer_dialog = true;
+        const auto waiting = resolve_game_directory(empty, none, &none_needed);
+        expect(
+            !waiting && none_host.starts.empty() && none_host.notices.empty() &&
+                !none_needed.needed,
+            "while the setup will ask, a first start opens no folder dialog"
         );
     }
     {
@@ -1216,9 +1255,9 @@ void check_found_installs() {
         const auto result = resolve_game_directory(found_request(std::nullopt, {}), h, &needed);
         expect(
             !result && needed.needed && needed.chooser && !needed.dialog_offered &&
-                needed.dialog_problem == "no portal" && host.starts.size() == 2 &&
-                host.notices.size() == 1,
-            "a dialog that cannot open hands over to the chooser with its reason"
+                contains(needed.dialog_problem, "no portal") && host.starts.size() == 2 &&
+                host.notices.size() == 1 && contains(host.notices[0], "totala1.hpi"),
+            "a dialog that cannot open is tried, then the locator says why"
         );
     }
     {
@@ -1266,7 +1305,8 @@ void check_found_installs() {
         );
     }
     {
-        // --choose-game-dir elsewhere still opens the dialog, never the one folder found.
+        // --choose-game-dir on a desktop opens the system picker at the stored
+        // folder, and does not play the one folder found.
         auto host = found_host();
         host.picks = {{FolderPick::chosen, kCd, {}}};
         auto h = host.host();
@@ -1275,9 +1315,10 @@ void check_found_installs() {
         request.choose = true;
         const auto result = resolve_game_directory(request, h, &needed);
         expect(
-            result && result->source == GameDirectorySource::chosen && result->path == kCd &&
-                host.starts.size() == 1,
-            "--choose-game-dir opens the dialog over the one folder found"
+            result && result->path == kCd && result->source == GameDirectorySource::chosen &&
+                !needed.chooser && host.starts.size() == 1 && host.starts[0] == kGog &&
+                host.notices.empty(),
+            "--choose-game-dir opens the system picker at the stored folder"
         );
     }
     {
@@ -1795,6 +1836,92 @@ void check_preferences(const fs::path& temporary) {
 
 } // namespace
 
+void check_content_choice(const fs::path& temporary) {
+    namespace bundles = oa::data::content_bundles;
+    namespace settings = oa::ui::engine_settings;
+    oa::platform::preferences::Values values;
+    const std::string_view copied[]{"campaign", "music", "core-contingency"};
+    const bundles::ContentChoice migrated = content_choice_from_preferences(values, copied, {});
+    expect(migrated.migration && migrated.base_game == "totala", "no base game stored is totala");
+    expect(
+        migrated.expansions.size() == 3 && migrated.expansions[0] == "campaign" &&
+            migrated.expansions[1] == "core-contingency" && migrated.expansions[2] == "music",
+        "a missing choice turns on every copied expansion that can be on"
+    );
+    remember_content_choice(values, migrated);
+    expect(
+        values[std::string(settings::key::base_game)] == "totala",
+        "the base game is stored as open-annihilation.base-game"
+    );
+    expect(
+        values[std::string(settings::key::expansions_prefix) + "totala"] ==
+            "campaign,core-contingency,music",
+        "the expansions are stored under open-annihilation.expansions.totala"
+    );
+    const bundles::ContentChoice again = content_choice_from_preferences(values, copied, {});
+    expect(!again.migration && again.expansions.size() == 3, "a stored choice is read back");
+
+    values[std::string(settings::key::mod_directory)] = "/mods/ridge";
+    values[std::string(settings::key::picked_mod_directory)] = "/mods/ridge";
+    bundles::ContentChangeResult cleared;
+    cleared.applied = true;
+    cleared.choice = migrated;
+    cleared.mod_cleared = bundles::ModClearReason::required_expansion_off;
+    expect(store_content_change(values, cleared), "an applied change is stored");
+    expect(
+        values.count(std::string(settings::key::mod_directory)) == 0 &&
+            values.count(std::string(settings::key::picked_mod_directory)) == 0,
+        "a mod whose expansion went off is forgotten"
+    );
+    expect(
+        values[std::string(settings::key::content_note)] ==
+            std::string(bundles::required_expansion_note),
+        "that clear leaves the note token, not a sentence"
+    );
+
+    values[std::string(settings::key::mod_directory)] = "/mods/ridge";
+    bundles::ContentChangeResult chose;
+    chose.applied = true;
+    chose.choice.base_game = "totala-demo";
+    chose.mod_cleared = bundles::ModClearReason::base_game_chosen;
+    expect(store_content_change(values, chose), "choosing a base game is stored");
+    expect(
+        values[std::string(settings::key::base_game)] == "totala-demo" &&
+            values.count(std::string(settings::key::mod_directory)) == 0,
+        "choosing a base game clears the mod"
+    );
+
+    bundles::ContentChangeResult refused;
+    refused.applied = false;
+    refused.choice.base_game = "totala";
+    const std::string kept = values[std::string(settings::key::base_game)];
+    expect(
+        !store_content_change(values, refused) &&
+            values[std::string(settings::key::base_game)] == kept,
+        "a refused change writes nothing"
+    );
+
+    const bundles::ContentChoice run =
+        content_choice_from_preferences(values, copied, "totala:music");
+    expect(
+        run.command_line && run.base_game == "totala" && run.expansions.size() == 1 &&
+            run.expansions[0] == "music",
+        "--content replaces the stored choice for the read"
+    );
+    expect(
+        values[std::string(settings::key::base_game)] == "totala-demo",
+        "--content does not write the preferences"
+    );
+
+    const fs::path empty = temporary / "G04-empty-content";
+    fs::create_directory(empty);
+    expect(copied_content_bundles(empty).empty(), "an empty folder has no copied bundle");
+    std::ofstream(empty / "totala1.hpi") << "short";
+    expect(
+        copied_content_bundles(empty).empty(), "a file of the wrong size is not a copied bundle"
+    );
+}
+
 int main(int argc, char** argv) {
     if (argc == 2 && std::string_view(argv[1]) == "--install") {
         const auto folder = oa::test::require_game_directory("the installation check");
@@ -1819,6 +1946,7 @@ int main(int argc, char** argv) {
         check_skipped_and_overlay(temporary);
         check_mod_folders(temporary);
         check_preferences(temporary);
+        check_content_choice(temporary);
     } catch (const std::exception& error) {
         std::fprintf(stderr, "FAILED: %s\n", error.what());
         ++failures;

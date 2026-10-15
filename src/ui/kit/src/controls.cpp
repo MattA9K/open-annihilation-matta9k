@@ -1,0 +1,1778 @@
+// SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
+// SPDX-License-Identifier: GPL-3.0-only
+
+// List rows, chips, text and search fields, tabs, cards and their grid,
+// hover cards and links, drawn through the canvas's primitives. Every colour
+// is a kit token and every size a member of compact_metrics.
+
+#include "oa/ui/kit/controls.hpp"
+
+#include "oa/ui/kit/canvas.hpp"
+#include "oa/ui/kit/chrome.hpp"
+#include "oa/ui/kit/components.hpp"
+
+#include "oa/ui/frontend_renderer/artless.hpp"
+
+#include <algorithm>
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
+
+namespace oa::ui::kit {
+
+namespace renderer = oa::ui::frontend_renderer;
+
+namespace {
+
+/// The sizes every control here is drawn at.
+constexpr const Metrics& kMetrics = compact_metrics;
+
+/// What a cut text ends with.
+constexpr std::string_view kEllipsis = "...";
+
+/// Tells whether a canvas has a surface to draw on.
+///
+/// @param canvas the canvas
+/// @return true when it has one
+bool drawable(const Canvas& canvas) noexcept {
+    return can_draw(canvas);
+}
+
+/// Returns a text's width on a canvas, 0 when it has no fonts.
+///
+/// @param canvas the canvas
+/// @param role the font
+/// @param text the text, in UTF-8
+/// @return the width, in points
+int32_t measured(const Canvas& canvas, FontRole role, std::string_view text) {
+    return measure_text(canvas, role, text);
+}
+
+/// Fills a rectangle with a token.
+///
+/// @param canvas where it is drawn
+/// @param rect the rectangle
+/// @param ink the colour
+void fill(const Canvas& canvas, const Rect& rect, Colour ink) {
+    fill_rect(canvas, rect, ink);
+}
+
+/// Outlines a rectangle in a token.
+///
+/// @param canvas where it is drawn
+/// @param rect the rectangle
+/// @param ink the colour
+void outline(const Canvas& canvas, const Rect& rect, Colour ink) {
+    outline_rect(canvas, rect, ink);
+}
+
+/// Blends a token over a rectangle.
+///
+/// @param canvas where it is drawn
+/// @param rect the rectangle
+/// @param ink the colour
+/// @param opacity its share of each pixel, in 256ths
+void blend(const Canvas& canvas, const Rect& rect, Colour ink, uint32_t opacity) {
+    blend_rect(canvas, rect, ink, opacity);
+}
+
+/// Draws a text in a box, when the canvas has a surface and fonts.
+///
+/// @param canvas where it is drawn
+/// @param role the font
+/// @param text the text, in UTF-8, as it is drawn
+/// @param box the box
+/// @param align where it sits along the box
+/// @param ink the colour
+/// @param tracking extra columns after each glyph but the last
+void line(
+    const Canvas& canvas,
+    FontRole role,
+    std::string_view text,
+    const Rect& box,
+    Align align,
+    Colour ink,
+    int32_t tracking = 0
+) {
+    if (!drawable(canvas) || canvas.fonts == nullptr || text.empty())
+        return;
+    box_text(canvas, role, text, box, align, ink, tracking);
+}
+
+/// Draws a text cut with "..." to its box's width.
+///
+/// @param canvas where it is drawn
+/// @param role the font
+/// @param text the text, in UTF-8
+/// @param box the box; the text is cut to its width
+/// @param align where it sits along the box
+/// @param ink the colour
+void cut_line(
+    const Canvas& canvas,
+    FontRole role,
+    std::string_view text,
+    const Rect& box,
+    Align align,
+    Colour ink
+) {
+    if (!drawable(canvas) || canvas.fonts == nullptr || text.empty() || box.width <= 0)
+        return;
+    line(canvas, role, cut_to_width(*canvas.fonts, role, text, box.width), box, align, ink);
+}
+
+/// Appends a control.
+///
+/// @param[in,out] list the display list
+/// @param rect where it lies
+/// @param id its number
+/// @param name its automation name
+/// @param kind what it is
+/// @param steps Left and Right act on it
+/// @param checked a chosen one, for automation
+/// @param text its caption or value, for automation
+/// @param enabled a press reaches it
+void add_control(
+    DisplayList& list,
+    const Rect& rect,
+    ControlId id,
+    std::string name,
+    ControlKind kind,
+    bool steps,
+    bool checked,
+    std::string text,
+    bool enabled
+) {
+    Control control;
+    control.id = id;
+    control.rect = rect;
+    control.enabled = enabled;
+    control.name = std::move(name);
+    control.kind = kind;
+    control.steps = steps;
+    control.checked = checked;
+    control.text = std::move(text);
+    list.controls.push_back(std::move(control));
+}
+
+// ---- Chips ----
+
+/// A chip's face, when it has one, its border and its text.
+struct ChipColours {
+    std::optional<Colour> face{}; ///< the face; none leaves what is under the chip
+    Colour border{};              ///< the outline
+    Colour text{};                ///< the words
+};
+
+/// Returns a chip's colours.
+///
+/// @param look the chip
+/// @return its face, border and text
+ChipColours chip_colours(const ChipLook& look) noexcept {
+    if (look.disabled)
+        return {std::nullopt, colour::switch_idle, colour::switch_idle};
+    ChipColours colours;
+    switch (look.state) {
+    case ChipState::get:
+        colours = {std::nullopt, colour::control_hover, colour::hint};
+        break;
+    case ChipState::installed:
+        colours = {std::nullopt, colour::accent, colour::accent};
+        break;
+    case ChipState::update:
+        colours = {std::nullopt, colour::lock, colour::lock};
+        break;
+    case ChipState::playing:
+        colours = {colour::accent, colour::accent, colour::on_accent};
+        break;
+    case ChipState::online:
+        colours = {std::nullopt, colour::online, colour::online};
+        break;
+    case ChipState::problem:
+        colours = {std::nullopt, colour::danger, colour::danger};
+        break;
+    case ChipState::filter:
+        if (look.selected)
+            colours = {colour::list_selected, colour::accent, colour::text};
+        else
+            colours = {
+                std::nullopt,
+                look.hovered ? colour::control_hover : colour::control_border,
+                colour::hint
+            };
+        break;
+    }
+    if (look.hovered && !colours.face.has_value())
+        colours.face = colour::hover;
+    return colours;
+}
+
+/// Returns the colour a chip's state icon is drawn in: while disabled the
+/// hovered border's grey, dimmer than every state's, so that a dimmed GET
+/// stands apart from the hint of one that can act; else the hint for get,
+/// the accent for installed and playing, the lock colour for update, the
+/// online colour, the danger colour, and for a filter the accent while it
+/// is on and the hint while it is off.
+///
+/// @param look the chip
+/// @return the colour
+Colour icon_ink(const ChipLook& look) noexcept {
+    if (look.disabled)
+        return colour::control_hover;
+    switch (look.state) {
+    case ChipState::get:
+        return colour::hint;
+    case ChipState::installed:
+    case ChipState::playing:
+        return colour::accent;
+    case ChipState::update:
+        return colour::lock;
+    case ChipState::online:
+        return colour::online;
+    case ChipState::problem:
+        return colour::danger;
+    case ChipState::filter:
+        return look.selected ? colour::accent : colour::hint;
+    }
+    return colour::hint;
+}
+
+/// Returns a chip's width on a canvas: its state icon's side, or its text,
+/// measured when the canvas has fonts, and chip_padding either side.
+///
+/// @param canvas the canvas
+/// @param look the chip
+/// @return the width, in points
+int32_t chip_width_on(const Canvas& canvas, const ChipLook& look) {
+    if (look.icon.has_value())
+        return kMetrics.state_icon_side;
+    return measured(canvas, FontRole::small, look.text) + 2 * kMetrics.chip_padding;
+}
+
+/// Returns a chip's height: its state icon's side, or chip_height.
+///
+/// @param look the chip
+/// @return the height, in points
+int32_t chip_height_of(const ChipLook& look) noexcept {
+    return look.icon.has_value() ? kMetrics.state_icon_side : kMetrics.chip_height;
+}
+
+/// Returns where a row's chip lies: at the right inset, centred down the row.
+///
+/// @param row the row
+/// @param width the chip's width
+/// @param height the chip's height
+/// @return the chip's rectangle
+Rect chip_in_row(const Rect& row, int32_t width, int32_t height) noexcept {
+    return {
+        row.x + row.width - kMetrics.list_row_inset - width,
+        row.y + (row.height - height) / 2,
+        width,
+        height,
+    };
+}
+
+/// Tells whether a mark is drawn under the row's state icon.
+///
+/// The stack is two icons with no gap, so the row has to be at least that tall.
+///
+/// @param row the row
+/// @param look the row
+/// @return true when both are drawn, one under the other
+bool maker_under_icon(const Rect& row, const ListRowLook& look) noexcept {
+    return look.maker.has_value() && look.chip.has_value() && look.chip->icon.has_value() &&
+           row.height >= 2 * kMetrics.state_icon_side;
+}
+
+/// Returns the upper square of a centred stack of two state icons.
+///
+/// @param row the row, at least two icons tall
+/// @return the upper square, at the row's right inset
+Rect stacked_icon_rect(const Rect& row) noexcept {
+    const int32_t side = kMetrics.state_icon_side;
+    const int32_t offset = (row.height - 2 * side) / 2;
+    return {
+        row.x + row.width - kMetrics.list_row_inset - side,
+        row.y + offset,
+        side,
+        side,
+    };
+}
+
+/// Returns the state icon a maker's mark draws.
+///
+/// @param mark the mark
+/// @return the badge or the bone
+StateIcon maker_icon(MakerMark mark) noexcept {
+    return mark == MakerMark::open_annihilation ? StateIcon::oa : StateIcon::bone;
+}
+
+/// Returns the width a line of text takes in a box both forms of a canvas
+/// draw it whole in: the wider of the canvas's measure and the game's
+/// fonts', which lay the screens out and cut what does not fit.
+///
+/// @param canvas the canvas
+/// @param role the font
+/// @param text the text, in UTF-8
+/// @return the width, in points
+int32_t whole_width(const Canvas& canvas, FontRole role, std::string_view text) {
+    const int32_t game = canvas.fonts != nullptr ? text_width(*canvas.fonts, role, text) : 0;
+    return std::max(measured(canvas, role, text), game);
+}
+
+/// Draws chips left to right from a point, chip_gap apart, as many as end
+/// at or before a column.
+///
+/// @param canvas where they are drawn
+/// @param chips the chips
+/// @param at the first chip's top left
+/// @param right the column no chip may pass
+void draw_chip_line(
+    const Canvas& canvas, const std::vector<ChipLook>& chips, Point at, int32_t right
+) {
+    int32_t left = at.x;
+    for (const ChipLook& chip : chips) {
+        const int32_t width = chip_width_on(canvas, chip);
+        if (left + width > right)
+            break;
+        draw_chip(canvas, {left, at.y, width, chip_height_of(chip)}, chip);
+        left += width + kMetrics.chip_gap;
+    }
+}
+
+// ---- List rows ----
+
+/// Draws a list row's badge: the picture, the letters on their colour, or a
+/// blank dashed square.
+///
+/// @param canvas where it is drawn
+/// @param badge the badge's square
+/// @param look the row
+void draw_row_badge(const Canvas& canvas, const Rect& badge, const ListRowLook& look) {
+    if (badge.width <= 0 || badge.height <= 0)
+        return;
+    if (renderer::picture_drawable(look.badge)) {
+        draw_picture(canvas, badge, look.badge);
+        outline(canvas, badge, colour::control_border);
+        return;
+    }
+    if (!look.badge_text.empty()) {
+        fill(canvas, badge, look.badge_colour);
+        // A badge keeps as many letters as fit its square, from the start,
+        // and drops the rest. No ellipsis: the square has no room for one.
+        std::string_view letters = look.badge_text;
+        while (!letters.empty() && measure_text(canvas, FontRole::small, letters) > badge.width) {
+            std::size_t end = letters.size();
+            do {
+                --end;
+            } while (end > 0 && continuation_byte(letters[end]));
+            letters.remove_suffix(letters.size() - end);
+        }
+        if (!letters.empty())
+            line(
+                clipped(canvas, badge),
+                FontRole::small,
+                letters,
+                badge,
+                Align::centre,
+                colour::on_accent
+            );
+        return;
+    }
+    const int32_t hairline = kMetrics.hairline;
+    const int32_t period = kMetrics.badge_dash + kMetrics.badge_dash_gap;
+    for (int32_t along = 0; along < badge.width; along += period) {
+        const int32_t dash = std::min(kMetrics.badge_dash, badge.width - along);
+        fill(canvas, {badge.x + along, badge.y, dash, hairline}, colour::control_border);
+        fill(
+            canvas,
+            {badge.x + along, badge.y + badge.height - hairline, dash, hairline},
+            colour::control_border
+        );
+    }
+    for (int32_t along = 0; along < badge.height; along += period) {
+        const int32_t dash = std::min(kMetrics.badge_dash, badge.height - along);
+        fill(canvas, {badge.x, badge.y + along, hairline, dash}, colour::control_border);
+        fill(
+            canvas,
+            {badge.x + badge.width - hairline, badge.y + along, hairline, dash},
+            colour::control_border
+        );
+    }
+}
+
+// ---- Text and search fields ----
+
+/// Returns the width of a field's text before its caret, in the regular
+/// font. A caret past the text counts as at its end, and one inside a
+/// character as at that character's start.
+///
+/// @param fonts the fonts
+/// @param field the text and its caret
+/// @return the width, in points
+int32_t before_caret(const Fonts& fonts, const TextField& field) {
+    const std::string_view text = field.text;
+    std::size_t caret = std::min(field.caret, text.size());
+    while (caret > 0 && caret < text.size() && continuation_byte(text[caret]))
+        --caret;
+    return text_width(fonts, FontRole::regular, text.substr(0, caret));
+}
+
+// ---- Tabs ----
+
+/// Returns a tab's count, 0 when the look gives none.
+///
+/// @param look the tabs
+/// @param index the tab
+/// @return the count
+int32_t count_of(const TabsLook& look, std::size_t index) noexcept {
+    return index < look.counts.size() ? look.counts[index] : 0;
+}
+
+/// Returns the width of a tab's count: its digits and tab_count_padding
+/// either side, and never narrower than it is high.
+///
+/// @param fonts the fonts, or null to count the digits as no columns
+/// @param count the count
+/// @return the width, in points
+int32_t count_width(const Fonts* fonts, int32_t count) {
+    const int32_t digits =
+        fonts == nullptr ? 0 : text_width(*fonts, FontRole::small, std::to_string(count));
+    return std::max(kMetrics.tab_count_height, digits + 2 * kMetrics.tab_count_padding);
+}
+
+/// Returns a tab caption's width in the small font with tab_tracking.
+///
+/// @param fonts the fonts, or null for no columns
+/// @param caption the caption
+/// @return the width, in points
+int32_t caption_width(const Fonts* fonts, std::string_view caption) {
+    if (fonts == nullptr || caption.empty())
+        return 0;
+    return tracked_width(*fonts, FontRole::small, caption, kMetrics.tab_tracking);
+}
+
+// ---- Cards ----
+
+/// Returns a card's preview: the largest square that leaves room for the
+/// card's two lines and three insets, centred across the card, card_inset
+/// under its top.
+///
+/// @param rect the card
+/// @return the preview's square
+Rect card_preview(const Rect& rect) noexcept {
+    const int32_t lines = kMetrics.regular_line + kMetrics.small_line + 3 * kMetrics.card_inset;
+    const int32_t side =
+        std::max(std::min(rect.width - 2 * kMetrics.card_inset, rect.height - lines), int32_t{0});
+    return {rect.x + (rect.width - side) / 2, rect.y + kMetrics.card_inset, side, side};
+}
+
+// ---- Hover cards ----
+
+/// Tells whether a hover card has a header line.
+///
+/// @param look the card
+/// @return true when it shows the mark, a title or an aside
+bool has_header(const HoverCardLook& look) noexcept {
+    return look.mark || !look.title.empty() || !look.aside.empty();
+}
+
+/// Returns the column a hover card's values start at, from its text's left:
+/// the widest label and hover_card_padding, or 0 when no row has a label.
+///
+/// @param fonts the fonts, or null to measure nothing
+/// @param look the card
+/// @return the column, in points
+int32_t label_column(const Fonts* fonts, const HoverCardLook& look) {
+    bool labelled = false;
+    int32_t widest = 0;
+    for (const HoverCardRow& row : look.rows) {
+        if (row.label.empty())
+            continue;
+        labelled = true;
+        if (fonts != nullptr)
+            widest = std::max(widest, text_width(*fonts, FontRole::small, row.label));
+    }
+    return labelled ? widest + kMetrics.hover_card_padding : 0;
+}
+
+/// Draws a hover card's arrow: a triangle reaching hover_card_arrow out of
+/// one edge, its point arrow_at along that edge, drawn as nested bars.
+///
+/// @param canvas where it is drawn
+/// @param rect the card
+/// @param look the card's arrow
+void draw_arrow(const Canvas& canvas, const Rect& rect, const HoverCardLook& look) {
+    const int32_t depth = kMetrics.hover_card_arrow;
+    for (int32_t half = 0; half < depth; ++half) {
+        const int32_t reach = depth - half;
+        const int32_t across = 2 * half + 1;
+        Rect bar{};
+        switch (look.arrow) {
+        case Side::none:
+            return;
+        case Side::top:
+            bar = {rect.x + look.arrow_at - half, rect.y - reach, across, reach};
+            break;
+        case Side::bottom:
+            bar = {rect.x + look.arrow_at - half, rect.y + rect.height, across, reach};
+            break;
+        case Side::left:
+            bar = {rect.x - reach, rect.y + look.arrow_at - half, reach, across};
+            break;
+        case Side::right:
+            bar = {rect.x + rect.width, rect.y + look.arrow_at - half, reach, across};
+            break;
+        }
+        fill(canvas, bar, colour::lock);
+    }
+}
+
+/// Tells whether a byte is white space a shown name sheds at either end.
+///
+/// ASCII only, so a name trims the same way on every machine.
+///
+/// @param byte the byte
+/// @return true for space, tab or a line break
+bool ascii_space(unsigned char byte) noexcept {
+    return byte == ' ' || byte == '\t' || byte == '\n' || byte == '\r' || byte == '\f' ||
+           byte == '\v';
+}
+
+/// Returns a text with white space taken off both ends.
+///
+/// @param text the text
+/// @return the text inside that white space; empty when it was only white space
+std::string_view trimmed_ends(std::string_view text) noexcept {
+    while (!text.empty() && ascii_space(static_cast<unsigned char>(text.front())))
+        text.remove_prefix(1);
+    while (!text.empty() && ascii_space(static_cast<unsigned char>(text.back())))
+        text.remove_suffix(1);
+    return text;
+}
+
+} // namespace
+
+std::string cut_to_width(const Fonts& fonts, FontRole role, std::string_view text, int32_t width) {
+    if (text_width(fonts, role, text) <= width)
+        return std::string(text);
+    std::string best(kEllipsis);
+    for (std::size_t end = 0; end < text.size();) {
+        end += character_bytes(text.substr(end));
+        std::string shown(text.substr(0, end));
+        shown += kEllipsis;
+        if (text_width(fonts, role, shown) > width)
+            break;
+        best = std::move(shown);
+    }
+    return best;
+}
+
+// ---- List rows ----
+
+Rect list_row_chip_rect(const Fonts& fonts, const Rect& row, const ChipLook& chip) {
+    return chip_in_row(row, chip_width(fonts, chip), chip_height_of(chip));
+}
+
+Rect list_row_icon_rect(const Fonts& fonts, const Rect& row, const ListRowLook& look) {
+    if (!look.chip.has_value())
+        return {};
+    if (maker_under_icon(row, look))
+        return stacked_icon_rect(row);
+    return list_row_chip_rect(fonts, row, *look.chip);
+}
+
+Rect list_row_maker_rect(const Rect& row, const ListRowLook& look) {
+    if (!look.maker.has_value())
+        return {};
+    const int32_t side = kMetrics.state_icon_side;
+    if (look.chip.has_value() && look.chip->icon.has_value()) {
+        if (!maker_under_icon(row, look))
+            return {};
+        const Rect icon = stacked_icon_rect(row);
+        return {icon.x, icon.y + side, side, side};
+    }
+    return {
+        row.x + row.width - kMetrics.list_row_inset - side,
+        row.y + (row.height - side) / 2,
+        side,
+        side,
+    };
+}
+
+void draw_list_row(const Canvas& canvas, const Rect& rect, const ListRowLook& look) {
+    if (!drawable(canvas))
+        return;
+    if (look.hovered)
+        fill(canvas, rect, colour::hover);
+    if (look.selected) {
+        blend(canvas, rect, colour::accent, selected_tint);
+        outline(canvas, rect, colour::accent);
+    }
+
+    const int32_t inset = kMetrics.list_row_inset;
+    const int32_t side =
+        std::max(std::min(rect.height - 2 * inset, kMetrics.list_row_badge), int32_t{0});
+    const Rect badge{rect.x + inset, rect.y + (rect.height - side) / 2, side, side};
+    draw_row_badge(canvas, badge, look);
+
+    int32_t right = rect.x + rect.width - inset;
+    if (look.chip.has_value()) {
+        const Rect chip =
+            maker_under_icon(rect, look)
+                ? stacked_icon_rect(rect)
+                : chip_in_row(rect, chip_width_on(canvas, *look.chip), chip_height_of(*look.chip));
+        draw_chip(canvas, chip, *look.chip);
+        right = chip.x - kMetrics.list_row_gap;
+    }
+    const Rect mark = list_row_maker_rect(rect, look);
+    if (mark.width > 0 && mark.height > 0) {
+        draw_state_icon(canvas, mark, maker_icon(*look.maker), colour::text);
+        if (!look.chip.has_value())
+            right = mark.x - kMetrics.list_row_gap;
+    }
+
+    // The text: the title's line, then each line, then the tags' line,
+    // centred down the row. A short row's text fills it from its top.
+    const int32_t text_left = badge.x + side + inset;
+    const auto line_count = static_cast<int32_t>(look.lines.size()) + (look.tags.empty() ? 0 : 1);
+    const int32_t text_height = std::max(
+                                    kMetrics.list_row_title_top + kMetrics.regular_line,
+                                    kMetrics.list_row_line_top + line_count * kMetrics.small_line
+                                ) +
+                                kMetrics.list_row_title_top;
+    const int32_t top = rect.y + std::max((rect.height - text_height) / 2, int32_t{0});
+    const int32_t title_row = top + kMetrics.list_row_title_top;
+    // The aside's lines are the small font's, the first centred on the title's line.
+    const int32_t aside_row = title_row + (kMetrics.regular_line - kMetrics.small_line) / 2;
+
+    int32_t text_right = right;
+    if (!look.aside.empty()) {
+        // As wide as its widest entry in either measure, so that no entry,
+        // a version such as "1 · rev 3" among them, is cut on either form.
+        int32_t aside_width = 0;
+        for (const std::string& entry : look.aside)
+            aside_width = std::max(aside_width, whole_width(canvas, FontRole::small, entry));
+        aside_width = std::min(aside_width, std::max(right - text_left, int32_t{0}));
+        const int32_t aside_left = right - aside_width;
+        for (std::size_t index = 0; index < look.aside.size(); ++index) {
+            const Rect box{
+                aside_left,
+                aside_row + static_cast<int32_t>(index) * kMetrics.small_line,
+                aside_width,
+                kMetrics.small_line,
+            };
+            cut_line(canvas, FontRole::small, look.aside[index], box, Align::right, colour::hint);
+        }
+        text_right = aside_left - kMetrics.list_row_gap;
+    }
+
+    const int32_t room = std::max(text_right - text_left, int32_t{0});
+    const Rect title_box{text_left, title_row, room, kMetrics.regular_line};
+    // Trim only what the row shows. The maker is placed from the width the
+    // title is drawn at (bold on the smooth form), plus list_row_gap, so a
+    // wider drawn face cannot eat the space before "by".
+    const std::string_view trimmed = trimmed_ends(look.title);
+    if (canvas.fonts != nullptr && !trimmed.empty()) {
+        const std::string title = cut_to_width(*canvas.fonts, FontRole::regular, trimmed, room);
+        const int32_t drawn = measure_text(canvas, FontRole::regular, title);
+        const int32_t title_width = std::min(drawn, room);
+        const Rect fitted{text_left, title_row, title_width, kMetrics.regular_line};
+        line(canvas, FontRole::regular, title, fitted, Align::left, colour::text);
+        const int32_t by_left = text_left + title_width + kMetrics.list_row_gap;
+        if (!look.by.empty() && by_left < text_right) {
+            const Rect by_box{by_left, title_row, text_right - by_left, kMetrics.regular_line};
+            cut_line(canvas, FontRole::small, look.by, by_box, Align::left, colour::hint);
+        }
+    } else if (canvas.fonts != nullptr && !look.by.empty()) {
+        cut_line(canvas, FontRole::small, look.by, title_box, Align::left, colour::hint);
+    }
+
+    int32_t line_row = top + kMetrics.list_row_line_top;
+    for (const std::string& text : look.lines) {
+        cut_line(
+            canvas,
+            FontRole::small,
+            text,
+            {text_left, line_row, room, kMetrics.small_line},
+            Align::left,
+            colour::list_text
+        );
+        line_row += kMetrics.small_line;
+    }
+    draw_chip_line(canvas, look.tags, {text_left, line_row}, text_right);
+}
+
+void add_list_row(
+    DisplayList& list, const Rect& rect, const ListRowLook& look, ControlId id, std::string name
+) {
+    Item item;
+    item.role = Role::list_row;
+    item.rect = rect;
+    item.control = id;
+    item.text = look.title;
+    item.state.hovered = look.hovered;
+    item.state.selected = look.selected;
+    item.look = look;
+    list.items.push_back(std::move(item));
+    add_control(
+        list,
+        rect,
+        id,
+        std::move(name),
+        ControlKind::list_item,
+        false,
+        look.selected,
+        look.title,
+        true
+    );
+}
+
+// ---- Chips ----
+
+int32_t chip_width(const Fonts& fonts, const ChipLook& look) {
+    if (look.icon.has_value())
+        return kMetrics.state_icon_side;
+    return text_width(fonts, FontRole::small, look.text) + 2 * kMetrics.chip_padding;
+}
+
+void draw_chip(const Canvas& canvas, const Rect& rect, const ChipLook& look) {
+    if (!drawable(canvas))
+        return;
+    if (look.icon.has_value()) {
+        if (look.hovered && !look.disabled)
+            fill(canvas, rect, colour::hover);
+        draw_state_icon(clipped(canvas, rect), rect, *look.icon, icon_ink(look));
+        return;
+    }
+    const ChipColours colours = chip_colours(look);
+    if (colours.face.has_value())
+        fill(canvas, rect, *colours.face);
+    outline(canvas, rect, colours.border);
+    line(clipped(canvas, rect), FontRole::small, look.text, rect, Align::centre, colours.text);
+}
+
+// ---- Pills ----
+
+namespace {
+
+/// A pill's ground, its text, and its outline when the state draws one.
+struct PillColours {
+    Colour ground{};                 ///< the rounded ground
+    Colour text{};                   ///< the words
+    std::optional<Colour> outline{}; ///< the outline; none when the ground is the whole pill
+};
+
+/// Returns a pill's colours from its state alone. Playing and active are
+/// the accent filled, with on_accent text and no separate outline. Neutral
+/// and inactive are the muted ground under the text colour. Installed,
+/// update and problem use that ground with an outline and text in the
+/// colour a chip of that state uses.
+///
+/// @param state the state
+/// @return its colours
+PillColours colours_for(PillState state) noexcept {
+    switch (state) {
+    case PillState::playing:
+    case PillState::active:
+        return {colour::accent, colour::on_accent, std::nullopt};
+    case PillState::neutral:
+    case PillState::inactive:
+        return {colour::control_hover, colour::text, std::nullopt};
+    case PillState::installed:
+        return {colour::control_hover, colour::accent, colour::accent};
+    case PillState::update:
+        return {colour::control_hover, colour::lock, colour::lock};
+    case PillState::problem:
+        return {colour::control_hover, colour::danger, colour::danger};
+    }
+    return {colour::control_hover, colour::text, std::nullopt};
+}
+
+/// Returns a pill's colours, including hover, focus and disabled.
+///
+/// Hover lightens an accent ground and outlines a muted one. Focus outlines
+/// the pill in the text colour, over a hover outline. Disabled is the muted
+/// ground under the idle colour and ignores the other two.
+///
+/// @param look the pill
+/// @return its colours
+PillColours pill_colours(const PillLook& look) noexcept {
+    if (look.disabled)
+        return {colour::control_hover, colour::switch_idle, std::nullopt};
+    PillColours colours = colours_for(look.state);
+    const bool accent_ground = look.state == PillState::playing || look.state == PillState::active;
+    const bool muted = look.state == PillState::neutral || look.state == PillState::inactive;
+    if (look.hovered && accent_ground)
+        colours.ground = colour::accent_light;
+    if (look.hovered && muted)
+        colours.outline = colour::accent;
+    if (look.focused)
+        colours.outline = colour::text;
+    return colours;
+}
+
+/// Returns the padding either side of a pill's word, in points.
+///
+/// Each end is a semicircle of half the pill's height. A word then keeps
+/// chip_padding clear of that curve, 4 points at 1x, and the points scale
+/// with the interface. An empty pill has no word, so the padding is only
+/// the semicircle and the pill stays a circle.
+///
+/// @param look the pill
+/// @return the padding, in points
+int32_t pill_padding(const PillLook& look) noexcept {
+    const int32_t curve = kMetrics.chip_height / 2;
+    if (look.text.empty())
+        return curve;
+    return curve + kMetrics.chip_padding;
+}
+
+/// The gap between a pill's text and an icon inside it.
+constexpr int32_t kPillIconGap = 2;
+
+/// Returns the side of an icon drawn inside a pill: two points short of the
+/// pill's height, so the icon sits inside the capsule.
+///
+/// @return the side, in points
+int32_t pill_icon_side() noexcept {
+    return std::max(kMetrics.chip_height - 2, int32_t{0});
+}
+
+/// Returns the extra width an icon adds to a pill.
+///
+/// @param look the pill
+/// @return the gap and the icon; 0 when the pill has no icon
+int32_t pill_icon_extra(const PillLook& look) noexcept {
+    if (!look.icon.has_value())
+        return 0;
+    return kPillIconGap + pill_icon_side();
+}
+
+} // namespace
+
+int32_t pill_width(const Fonts& fonts, const PillLook& look) {
+    return std::max(
+        text_width(fonts, FontRole::small, look.text) + 2 * pill_padding(look) +
+            pill_icon_extra(look),
+        kMetrics.chip_height
+    );
+}
+
+int32_t pill_width_of(const Canvas& canvas, const PillLook& look) {
+    int32_t words = measure_text(canvas, FontRole::small, look.text);
+    if (words <= 0 && canvas.fonts != nullptr)
+        words = text_width(*canvas.fonts, FontRole::small, look.text);
+    if (words < 0)
+        words = 0;
+    return std::max(words + 2 * pill_padding(look) + pill_icon_extra(look), kMetrics.chip_height);
+}
+
+void draw_pill(const Canvas& canvas, const Rect& rect, const PillLook& look) {
+    if (!drawable(canvas) || rect.width <= 0 || rect.height <= 0)
+        return;
+    const int32_t radius = std::min(rect.width, rect.height) / 2;
+    const PillColours colours = pill_colours(look);
+    if (colours.outline.has_value()) {
+        // The outline is the whole capsule, and the ground is the capsule
+        // one point in, so a partial pixel is one colour or the other.
+        fill_round_rect(canvas, rect, radius, *colours.outline);
+        if (rect.width > 2 && rect.height > 2) {
+            const Rect inner{rect.x + 1, rect.y + 1, rect.width - 2, rect.height - 2};
+            fill_round_rect(canvas, inner, std::max(radius - 1, int32_t{0}), colours.ground);
+        }
+    } else {
+        fill_round_rect(canvas, rect, radius, colours.ground);
+    }
+    Rect words = rect;
+    if (look.icon.has_value()) {
+        const int32_t side = std::min(pill_icon_side(), std::max(rect.height - 2, int32_t{0}));
+        const int32_t icon_x = rect.x + rect.width - 1 - side;
+        const Rect icon{icon_x, rect.y + (rect.height - side) / 2, side, side};
+        words.width = std::max(icon_x - kPillIconGap - rect.x, int32_t{0});
+        draw_state_icon(clipped(canvas, rect), icon, *look.icon, colours.text);
+    }
+    // box_text, not line: line draws nothing on the smooth form when the
+    // game's fonts are absent, and a pill's words are part of the shape.
+    box_text(clipped(canvas, rect), FontRole::small, look.text, words, Align::centre, colours.text);
+}
+
+void add_pill(
+    DisplayList& list, const Rect& rect, const PillLook& look, ControlId id, std::string name
+) {
+    Item item;
+    item.role = Role::pill;
+    item.rect = rect;
+    item.control = id;
+    item.text = look.text;
+    item.state.hovered = look.hovered;
+    item.state.focused = look.focused;
+    item.state.selected = look.state == PillState::active;
+    item.state.disabled = look.disabled;
+    item.look = look;
+    list.items.push_back(std::move(item));
+    if (id == no_control)
+        return;
+    add_control(
+        list,
+        rect,
+        id,
+        std::move(name),
+        ControlKind::button,
+        false,
+        look.state == PillState::active,
+        look.text,
+        !look.disabled
+    );
+}
+
+void add_chip(
+    DisplayList& list, const Rect& rect, const ChipLook& look, ControlId id, std::string name
+) {
+    Item item;
+    item.role = Role::chip;
+    item.rect = rect;
+    item.control = id;
+    item.text = look.text;
+    item.state.hovered = look.hovered;
+    item.state.selected = look.selected;
+    item.state.disabled = look.disabled;
+    item.look = look;
+    list.items.push_back(std::move(item));
+    if (id == no_control)
+        return;
+    add_control(
+        list,
+        rect,
+        id,
+        std::move(name),
+        ControlKind::button,
+        false,
+        look.selected,
+        look.text,
+        !look.disabled
+    );
+}
+
+// ---- Text and search fields ----
+
+Rect field_text_rect(const Rect& rect, const SearchLook& look) noexcept {
+    int32_t left = rect.x + kMetrics.field_inset;
+    if (look.magnifier)
+        left += kMetrics.magnifier_side + kMetrics.field_inset;
+    const int32_t right = rect.x + rect.width - kMetrics.field_inset;
+    return {left, rect.y, std::max(right - left, int32_t{0}), rect.height};
+}
+
+int32_t field_scroll(const Fonts& fonts, const Rect& rect, const SearchLook& look) {
+    const int32_t room = field_text_rect(rect, look).width - kMetrics.caret_width;
+    return std::max(before_caret(fonts, look.field) - room, int32_t{0});
+}
+
+void draw_search(const Canvas& canvas, const Rect& rect, const SearchLook& look) {
+    if (!drawable(canvas))
+        return;
+    fill(canvas, rect, colour::well);
+    Colour border = colour::control_border;
+    if (look.focused)
+        border = colour::accent;
+    else if (look.hovered)
+        border = colour::control_hover;
+    outline(canvas, rect, border);
+    if (look.magnifier)
+        draw_mark(
+            canvas,
+            Mark::magnifier,
+            {rect.x + kMetrics.field_inset, rect.y + (rect.height - kMetrics.magnifier_side) / 2},
+            colour::hint
+        );
+
+    const Rect box = field_text_rect(rect, look);
+    const Canvas inside = clipped(canvas, box);
+    if (look.field.text.empty()) {
+        cut_line(inside, FontRole::regular, look.placeholder, box, Align::left, colour::hint);
+    } else if (canvas.fonts != nullptr) {
+        const int32_t scroll = field_scroll(*canvas.fonts, rect, look);
+        line(
+            inside,
+            FontRole::regular,
+            look.field.text,
+            {box.x - scroll, box.y, box.width + scroll, box.height},
+            Align::left,
+            colour::text
+        );
+    }
+    if (!look.focused || canvas.fonts == nullptr)
+        return;
+    const int32_t before = before_caret(*canvas.fonts, look.field);
+    const int32_t scroll = field_scroll(*canvas.fonts, rect, look);
+    const int32_t rows = std::min(capitals(*canvas.fonts, FontRole::regular), box.height);
+    fill(
+        inside,
+        {box.x + before - scroll, box.y + (box.height - rows) / 2, kMetrics.caret_width, rows},
+        colour::text
+    );
+}
+
+void add_search(
+    DisplayList& list, const Rect& rect, const SearchLook& look, ControlId id, std::string name
+) {
+    Item item;
+    item.role = Role::field;
+    item.rect = rect;
+    item.control = id;
+    item.text = look.field.text;
+    item.state.hovered = look.hovered;
+    item.state.focused = look.focused;
+    item.look = look;
+    list.items.push_back(std::move(item));
+    add_control(
+        list, rect, id, std::move(name), ControlKind::text_field, true, false, look.field.text, true
+    );
+}
+
+// ---- Tabs ----
+
+/// Tells whether a tab draws its count.
+///
+/// @param look the tabs
+/// @param count the tab's count
+/// @return true when the count is drawn
+bool count_shown(const TabsLook& look, int32_t count) noexcept {
+    if (look.count_style == TabCountStyle::words)
+        return count >= 0;
+    return count > 0;
+}
+
+/// Returns the columns a drawn count takes after the caption.
+///
+/// @param fonts the fonts, or null to count a word-style count as no columns
+/// @param look the tabs
+/// @param count the count
+/// @return the width, in points; 0 when the count is not drawn
+int32_t shown_count_width(const Fonts* fonts, const TabsLook& look, int32_t count) {
+    if (!count_shown(look, count))
+        return 0;
+    if (look.count_style == TabCountStyle::words) {
+        if (fonts == nullptr)
+            return 0;
+        return text_width(*fonts, FontRole::small, std::to_string(count));
+    }
+    return count_width(fonts, count);
+}
+
+std::vector<Rect> tab_rects(const Fonts& fonts, const Rect& strip, const TabsLook& look) {
+    std::vector<Rect> rects;
+    rects.reserve(look.captions.size());
+    int32_t left = strip.x;
+    for (std::size_t index = 0; index < look.captions.size(); ++index) {
+        int32_t width = 2 * kMetrics.tab_padding + caption_width(&fonts, look.captions[index]);
+        const int32_t count = count_of(look, index);
+        const int32_t digits = shown_count_width(&fonts, look, count);
+        if (digits > 0)
+            width += kMetrics.tab_count_gap + digits;
+        rects.push_back({left, strip.y, width, strip.height});
+        left += width;
+    }
+    return rects;
+}
+
+namespace {
+
+/// How wide a tab-strip arrow is, in points.
+constexpr int32_t kTabArrow = 12;
+
+/// A chevron's side, in points. The right one is Mark::arrow_closed.
+constexpr int32_t kChevron = 5;
+
+/// A left chevron, 5 by 5, the right one mirrored.
+constexpr std::array<uint8_t, 5 * 5> kTabArrowLeftBits{
+    0, 0, 0, 1, 0, //
+    0, 0, 1, 1, 0, //
+    0, 1, 1, 1, 0, //
+    0, 0, 1, 1, 0, //
+    0, 0, 0, 1, 0, //
+};
+
+/// The left chevron.
+constexpr renderer::Mark kTabArrowLeft{kChevron, kChevron, kTabArrowLeftBits};
+
+/// How a scroll sits in a strip: which arrows show, and how much is visible.
+struct TabMeasure {
+    bool left{};          ///< an arrow shows at the left
+    bool right{};         ///< an arrow shows at the right
+    int32_t visible{};    ///< the caption area's width, in points
+    int32_t max_scroll{}; ///< the furthest scroll, in points
+};
+
+/// Measures a strip at one scroll. A row that fits has no arrows. The right
+/// arrow is kept only when the tabs still run past the view it leaves.
+///
+/// @param total the tabs' width, in points
+/// @param strip_width the strip's width, in points
+/// @param scroll the scroll asked for, in points
+/// @param arrow an arrow's width, in points
+/// @return the measure
+TabMeasure measure_strip(int32_t total, int32_t strip_width, int32_t scroll, int32_t arrow) {
+    TabMeasure measured;
+    if (arrow < 1)
+        arrow = 1;
+    if (strip_width <= arrow * 2 || total <= strip_width) {
+        measured.visible = std::max(strip_width, int32_t{0});
+        return measured;
+    }
+    measured.left = scroll > 0;
+    int32_t visible = strip_width - (measured.left ? arrow : 0);
+    if (total > scroll + visible) {
+        const int32_t narrower = visible - arrow;
+        if (narrower > 0 && total > scroll + narrower) {
+            visible = narrower;
+            measured.right = true;
+        }
+    }
+    if (visible < 1)
+        visible = 1;
+    measured.visible = visible;
+    measured.max_scroll = std::max(total - visible, int32_t{0});
+    return measured;
+}
+
+/// Clamps a scroll so the open tab lies wholly in the view. The rectangles'
+/// x is each tab's left in the unshifted content, from 0.
+///
+/// @param asked the scroll asked for, in points
+/// @param total the tabs' width, in points
+/// @param strip_width the strip's width, in points
+/// @param arrow an arrow's width, in points
+/// @param content each tab, from the content's left
+/// @param selected the open tab's index
+/// @return the clamped scroll, in points
+int32_t fit_tab_scroll(
+    int32_t asked,
+    int32_t total,
+    int32_t strip_width,
+    int32_t arrow,
+    const std::vector<Rect>& content,
+    std::size_t selected
+) {
+    int32_t scroll = std::max(asked, int32_t{0});
+    for (int32_t pass = 0; pass < 8; ++pass) {
+        const TabMeasure measured = measure_strip(total, strip_width, scroll, arrow);
+        int32_t next = std::clamp(scroll, int32_t{0}, measured.max_scroll);
+        if (selected < content.size()) {
+            const Rect& tab = content[selected];
+            int32_t low = tab.x + tab.width - measured.visible;
+            if (tab.width > measured.visible)
+                low = tab.x;
+            const int32_t high = tab.x;
+            if (low > high)
+                low = high;
+            const int32_t floor = std::max(low, int32_t{0});
+            const int32_t ceiling = std::min(high, measured.max_scroll);
+            if (floor <= ceiling)
+                next = std::clamp(scroll, floor, ceiling);
+            else
+                next = std::clamp(tab.x, int32_t{0}, measured.max_scroll);
+        }
+        if (next == scroll)
+            break;
+        scroll = next;
+    }
+    return scroll;
+}
+
+/// Draws one chevron, centred in an arrow above the strip's rule.
+///
+/// @param canvas where it is drawn
+/// @param rect the arrow
+/// @param pointing_left a left chevron; a right one otherwise
+/// @param ink the colour
+void draw_tab_arrow(const Canvas& canvas, const Rect& rect, bool pointing_left, Colour ink) {
+    if (rect.width <= 0 || rect.height <= 0)
+        return;
+    const int32_t x = rect.x + (rect.width - kChevron) / 2;
+    const int32_t y = rect.y + (rect.height - kMetrics.tab_rule - kChevron) / 2;
+    const Point at{x, y};
+    if (pointing_left)
+        draw_mark(canvas, kTabArrowLeft, at, ink);
+    else
+        draw_mark(canvas, Mark::arrow_closed, at, ink);
+}
+
+/// Moves one step and clamps it. A positive direction reveals the next tab
+/// whose right lies past the view; a negative one the last whose left lies
+/// before the scroll.
+///
+/// @param scroll the scroll now, in points
+/// @param total the tabs' width, in points
+/// @param strip_width the strip's width, in points
+/// @param arrow an arrow's width, in points
+/// @param content each tab, from the content's left
+/// @param selected the open tab's index
+/// @param direction positive toward the right, negative toward the left
+/// @return the scroll after the step, in points
+int32_t step_tab_scroll(
+    int32_t scroll,
+    int32_t total,
+    int32_t strip_width,
+    int32_t arrow,
+    const std::vector<Rect>& content,
+    std::size_t selected,
+    int32_t direction
+) {
+    const TabMeasure measured = measure_strip(total, strip_width, scroll, arrow);
+    int32_t asked = scroll;
+    if (direction > 0) {
+        const int32_t edge = scroll + measured.visible;
+        for (const Rect& tab : content) {
+            if (tab.x + tab.width > edge) {
+                asked = tab.x + tab.width - measured.visible;
+                break;
+            }
+        }
+    } else if (direction < 0) {
+        for (const Rect& tab : content)
+            if (tab.x < scroll)
+                asked = tab.x;
+    }
+    return fit_tab_scroll(asked, total, strip_width, arrow, content, selected);
+}
+
+} // namespace
+
+TabStrip place_tabs(const Fonts& fonts, const Rect& strip, const TabsLook& look) {
+    TabStrip placed;
+    placed.strip = strip;
+    placed.tabs = tab_rects(fonts, strip, look);
+    placed.selected = look.selected < look.captions.size() ? look.selected : 0;
+    int32_t total = 0;
+    if (!placed.tabs.empty()) {
+        const Rect& last = placed.tabs.back();
+        total = last.x + last.width - strip.x;
+    }
+    std::vector<Rect> content = placed.tabs;
+    for (Rect& tab : content)
+        tab.x -= strip.x;
+    placed.scroll =
+        fit_tab_scroll(look.scroll, total, strip.width, kTabArrow, content, placed.selected);
+    const TabMeasure measured = measure_strip(total, strip.width, placed.scroll, kTabArrow);
+    placed.overflows = total > strip.width && strip.width > kTabArrow * 2;
+    placed.limit = measured.max_scroll;
+    const int32_t inset = measured.left ? kTabArrow : 0;
+    placed.view = {strip.x + inset, strip.y, measured.visible, strip.height};
+    if (measured.left)
+        placed.left_arrow = {strip.x, strip.y, kTabArrow, strip.height};
+    if (measured.right)
+        placed.right_arrow = {strip.x + strip.width - kTabArrow, strip.y, kTabArrow, strip.height};
+    // Content at `scroll` is the view's left, past a left arrow.
+    for (Rect& tab : placed.tabs)
+        tab.x += inset - placed.scroll;
+    return placed;
+}
+
+void draw_tabs(const Canvas& canvas, const Rect& strip, const TabsLook& look) {
+    if (!drawable(canvas))
+        return;
+    draw_rule(canvas, strip.x, strip.y + strip.height - kMetrics.hairline, strip.width);
+    if (canvas.fonts == nullptr)
+        return;
+    const TabStrip placed = place_tabs(*canvas.fonts, strip, look);
+    if (placed.left_arrow.width > 0)
+        draw_tab_arrow(
+            canvas, placed.left_arrow, true, look.left_arrow_hovered ? colour::text : colour::hint
+        );
+    if (placed.right_arrow.width > 0)
+        draw_tab_arrow(
+            canvas,
+            placed.right_arrow,
+            false,
+            look.right_arrow_hovered ? colour::text : colour::hint
+        );
+    const Canvas room = clipped(canvas, placed.view);
+    for (std::size_t index = 0; index < placed.tabs.size() && index < look.captions.size();
+         ++index) {
+        const Rect& tab = placed.tabs[index];
+        const bool selected = index == look.selected;
+        const bool hovered = look.hovered.has_value() && *look.hovered == index;
+        const std::string& caption = look.captions[index];
+        const int32_t caption_columns = caption_width(canvas.fonts, caption);
+        const int32_t above_rule = tab.height - kMetrics.tab_rule;
+        line(
+            room,
+            FontRole::small,
+            caption,
+            {tab.x + kMetrics.tab_padding, tab.y, caption_columns, above_rule},
+            Align::left,
+            selected || hovered ? colour::text : colour::hint,
+            kMetrics.tab_tracking
+        );
+        const int32_t count = count_of(look, index);
+        if (look.count_style == TabCountStyle::words) {
+            if (count >= 0) {
+                const std::string digits = std::to_string(count);
+                const int32_t digits_width = text_width(*canvas.fonts, FontRole::small, digits);
+                const Rect digits_box{
+                    tab.x + kMetrics.tab_padding + caption_columns + kMetrics.tab_count_gap,
+                    tab.y,
+                    digits_width,
+                    above_rule,
+                };
+                const bool amber =
+                    index < look.count_amber.size() && look.count_amber[index] != 0 && count > 0;
+                Colour ink = selected || hovered ? colour::text : colour::hint;
+                if (amber)
+                    ink = colour::lock;
+                line(room, FontRole::small, digits, digits_box, Align::left, ink);
+            }
+        } else if (count > 0) {
+            const Rect pill{
+                tab.x + kMetrics.tab_padding + caption_columns + kMetrics.tab_count_gap,
+                tab.y + (above_rule - kMetrics.tab_count_height) / 2,
+                count_width(canvas.fonts, count),
+                kMetrics.tab_count_height,
+            };
+            fill(room, pill, colour::lock);
+            line(
+                room, FontRole::small, std::to_string(count), pill, Align::centre, colour::on_accent
+            );
+        }
+        if (selected)
+            fill(room, {tab.x, tab.y + above_rule, tab.width, kMetrics.tab_rule}, colour::accent);
+    }
+}
+
+void add_tabs(
+    DisplayList& list,
+    const Fonts& fonts,
+    const Rect& strip,
+    const TabsLook& look,
+    std::span<const ControlId> ids,
+    std::span<const std::string> names,
+    ControlId left_id,
+    std::string left_name,
+    ControlId right_id,
+    std::string right_name
+) {
+    const TabStrip placed = place_tabs(fonts, strip, look);
+    TabsLook stored = look;
+    stored.scroll = placed.scroll;
+    stored.view_x = placed.view.x;
+    stored.view_width = placed.view.width;
+
+    Item item;
+    item.role = Role::tabs;
+    item.rect = strip;
+    if (look.selected < look.captions.size())
+        item.text = look.captions[look.selected];
+    item.look = std::move(stored);
+    list.items.push_back(std::move(item));
+
+    for (std::size_t index = 0; index < placed.tabs.size(); ++index) {
+        std::string text;
+        if (index < look.readings.size() && !look.readings[index].empty()) {
+            text = look.readings[index];
+        } else if (index < look.captions.size()) {
+            text = look.captions[index];
+            const int32_t count = count_of(look, index);
+            if (count > 0)
+                text += " " + std::to_string(count);
+        }
+        add_control(
+            list,
+            placed.tabs[index],
+            index < ids.size() ? ids[index] : no_control,
+            index < names.size() ? names[index] : std::string{},
+            ControlKind::tab,
+            false,
+            index == look.selected,
+            std::move(text),
+            true
+        );
+        if (!wholly_in(placed.tabs[index], placed.view))
+            list.controls.back().clip = placed.view;
+    }
+    const auto add_arrow = [&](const Rect& rect, ControlId id, std::string name, std::string text) {
+        if (rect.width <= 0 || id == no_control)
+            return;
+        add_control(
+            list,
+            rect,
+            id,
+            std::move(name),
+            ControlKind::button,
+            false,
+            false,
+            std::move(text),
+            true
+        );
+        list.controls.back().focusable = false;
+    };
+    add_arrow(placed.left_arrow, left_id, std::move(left_name), "scroll left");
+    add_arrow(placed.right_arrow, right_id, std::move(right_name), "scroll right");
+}
+
+int32_t tab_scroll_step(const DisplayList& list, int32_t steps) {
+    const Item* tabs_item = nullptr;
+    for (const Item& item : list.items) {
+        if (item.role == Role::tabs) {
+            tabs_item = &item;
+            break;
+        }
+    }
+    if (tabs_item == nullptr)
+        return 0;
+    const auto* look = std::get_if<TabsLook>(&tabs_item->look);
+    if (look == nullptr || look->view_width <= 0)
+        return look == nullptr ? 0 : look->scroll;
+
+    const Rect& strip = tabs_item->rect;
+    std::vector<const Control*> tabs;
+    for (const Control& control : list.controls) {
+        if (control.kind != ControlKind::tab)
+            continue;
+        if (control.rect.y != strip.y || control.rect.height != strip.height)
+            continue;
+        tabs.push_back(&control);
+    }
+    if (tabs.empty())
+        return look->scroll;
+
+    std::vector<Rect> content;
+    content.reserve(tabs.size());
+    for (const Control* control : tabs) {
+        const int32_t left = control->rect.x - look->view_x + look->scroll;
+        content.push_back(Rect{left, 0, control->rect.width, control->rect.height});
+    }
+    std::sort(content.begin(), content.end(), [](const Rect& ahead, const Rect& behind) {
+        return ahead.x < behind.x;
+    });
+    const int32_t total = content.back().x + content.back().width;
+    const int32_t left_inset = look->view_x - strip.x;
+    const int32_t right_inset = strip.x + strip.width - (look->view_x + look->view_width);
+    int32_t arrow = kTabArrow;
+    if (left_inset > 0)
+        arrow = left_inset;
+    else if (right_inset > 0)
+        arrow = right_inset;
+
+    const std::size_t selected = look->selected < content.size() ? look->selected : 0;
+    int32_t scroll = look->scroll;
+    int32_t remaining = steps;
+    while (remaining > 0) {
+        scroll = step_tab_scroll(scroll, total, strip.width, arrow, content, selected, 1);
+        --remaining;
+    }
+    while (remaining < 0) {
+        scroll = step_tab_scroll(scroll, total, strip.width, arrow, content, selected, -1);
+        ++remaining;
+    }
+    return scroll;
+}
+
+// ---- Cards ----
+
+int32_t card_height(int32_t width) noexcept {
+    const int32_t side = std::max(width - 2 * kMetrics.card_inset, int32_t{0});
+    return side + kMetrics.regular_line + kMetrics.small_line + 3 * kMetrics.card_inset;
+}
+
+std::vector<Rect> card_cells(const Rect& area, std::size_t count, std::size_t columns) {
+    std::vector<Rect> cells;
+    if (count == 0)
+        return cells;
+    const int64_t gap = kMetrics.card_gap;
+    // No more columns than the area has points, so a column is never empty.
+    const int64_t most = std::max<int64_t>(area.width, 1);
+    int64_t wanted =
+        columns > static_cast<std::size_t>(most) ? most : static_cast<int64_t>(columns);
+    if (wanted == 0)
+        wanted = std::max<int64_t>((area.width + gap) / (kMetrics.card_least_width + gap), 1);
+    // The least width at which exactly the wanted columns fit the area.
+    const auto least = static_cast<int32_t>((area.width + gap) / wanted - gap);
+    const std::vector<Rect> first_row =
+        grid(area, least, 0, kMetrics.card_gap, static_cast<std::size_t>(wanted));
+    if (first_row.empty())
+        return cells;
+    // The left columns are the widest, so the first cell's height spaces the rows.
+    const int32_t row_step = card_height(first_row.front().width) + kMetrics.card_gap;
+    cells.reserve(count);
+    for (std::size_t index = 0; index < count; ++index) {
+        Rect cell = first_row[index % first_row.size()];
+        cell.y = area.y + static_cast<int32_t>(index / first_row.size()) * row_step;
+        cell.height = card_height(cell.width);
+        cells.push_back(cell);
+    }
+    return cells;
+}
+
+void draw_card(const Canvas& canvas, const Rect& rect, const CardLook& look) {
+    if (!drawable(canvas))
+        return;
+    fill(canvas, rect, colour::list_selected);
+    Colour border = colour::control_border;
+    if (look.selected)
+        border = colour::accent;
+    else if (look.hovered)
+        border = colour::control_hover;
+    outline(canvas, rect, border);
+
+    const Rect preview = card_preview(rect);
+    if (renderer::picture_drawable(look.picture)) {
+        draw_picture(canvas, preview, look.picture);
+    } else if (preview.width > 0) {
+        fill(canvas, preview, colour::well);
+        cut_line(
+            clipped(canvas, preview),
+            FontRole::small,
+            look.placeholder,
+            preview,
+            Align::centre,
+            colour::hint
+        );
+    }
+    draw_chip_line(
+        canvas,
+        look.chips,
+        {preview.x + kMetrics.card_inset,
+         preview.y + preview.height - kMetrics.card_inset - kMetrics.chip_height},
+        preview.x + preview.width - kMetrics.card_inset
+    );
+
+    const int32_t text_width_room = std::max(rect.width - 2 * kMetrics.card_inset, int32_t{0});
+    const Rect title{
+        rect.x + kMetrics.card_inset,
+        preview.y + preview.height + kMetrics.card_inset,
+        text_width_room,
+        kMetrics.regular_line,
+    };
+    cut_line(canvas, FontRole::regular, look.title, title, Align::left, colour::text);
+    const Rect subtitle{title.x, title.y + title.height, text_width_room, kMetrics.small_line};
+    cut_line(canvas, FontRole::small, look.subtitle, subtitle, Align::left, colour::hint);
+
+    if (look.greyed)
+        blend(canvas, rect, colour::panel, locked_fade);
+}
+
+void add_card(
+    DisplayList& list, const Rect& rect, const CardLook& look, ControlId id, std::string name
+) {
+    Item item;
+    item.role = Role::card;
+    item.rect = rect;
+    item.control = id;
+    item.text = look.title;
+    item.state.hovered = look.hovered;
+    item.state.selected = look.selected;
+    item.look = look;
+    list.items.push_back(std::move(item));
+    add_control(
+        list,
+        rect,
+        id,
+        std::move(name),
+        ControlKind::list_item,
+        false,
+        look.selected,
+        look.title,
+        true
+    );
+}
+
+// ---- Hover cards ----
+
+Point hover_card_size(const Fonts& fonts, const HoverCardLook& look) {
+    const int32_t padding = kMetrics.hover_card_padding;
+    int32_t widest = 0;
+    int32_t lines = 0;
+    if (has_header(look)) {
+        int32_t header = 0;
+        const auto join = [&](int32_t part) { header += (header > 0 ? padding : 0) + part; };
+        if (look.mark)
+            join(mark_size(Mark::oa_small).x);
+        if (!look.title.empty())
+            join(text_width(fonts, FontRole::small, look.title));
+        if (!look.aside.empty())
+            join(text_width(fonts, FontRole::small, look.aside));
+        widest = header;
+        ++lines;
+    }
+    const int32_t values = label_column(&fonts, look);
+    for (const HoverCardRow& row : look.rows) {
+        const int32_t from = row.label.empty() ? 0 : values;
+        widest = std::max(widest, from + text_width(fonts, FontRole::small, row.value));
+        ++lines;
+    }
+    for (const std::string& text : look.block) {
+        widest = std::max(widest, text_width(fonts, FontRole::small, text));
+        ++lines;
+    }
+    const int32_t width = look.width > 0 ? look.width : widest + 2 * padding;
+    return {width, lines * kMetrics.small_line + 2 * padding};
+}
+
+Rect hover_card_rect(const Rect& anchor, const Rect& frame, Point size) noexcept {
+    const int32_t frame_right = frame.x + frame.width;
+    const int32_t frame_bottom = frame.y + frame.height;
+    const int32_t x = std::max(std::min(anchor.x, frame_right - size.x), frame.x);
+    const int32_t below = anchor.y + anchor.height + kMetrics.hover_card_arrow;
+    const int32_t above = anchor.y - kMetrics.hover_card_arrow - size.y;
+    int32_t y = below;
+    if (below + size.y > frame_bottom)
+        y = above >= frame.y ? above : frame_bottom - size.y;
+    y = std::max(std::min(y, frame_bottom - size.y), frame.y);
+    return {x, y, size.x, size.y};
+}
+
+void draw_hover_card(const Canvas& canvas, const Rect& rect, const HoverCardLook& look) {
+    if (!drawable(canvas))
+        return;
+    fill(canvas, rect, colour::band);
+    outline(canvas, rect, colour::lock);
+    draw_arrow(canvas, rect, look);
+
+    const int32_t padding = kMetrics.hover_card_padding;
+    const int32_t row_height = kMetrics.small_line;
+    const int32_t left = rect.x + padding;
+    const int32_t right = rect.x + rect.width - padding;
+    const int32_t room = std::max(right - left, int32_t{0});
+    int32_t row = rect.y + padding;
+
+    if (has_header(look)) {
+        int32_t pen = left;
+        if (look.mark) {
+            const Point mark = mark_size(Mark::oa_small);
+            // The logo, when the canvas carries it, in a square as wide as the
+            // one-bit mark, so the header keeps that mark's width. Otherwise
+            // the one-bit mark.
+            if (renderer::picture_drawable(canvas.icon)) {
+                const int32_t side = std::max(mark.x, mark.y);
+                draw_picture(canvas, {pen, row + (row_height - side) / 2, side, side}, canvas.icon);
+            } else {
+                draw_mark(
+                    canvas, Mark::oa_small, {pen, row + (row_height - mark.y) / 2}, colour::accent
+                );
+            }
+            pen += mark.x + padding;
+        }
+        int32_t aside_width = 0;
+        if (!look.aside.empty()) {
+            // The wider of the two measures, as a list row's aside is, so
+            // "built in" is not cut when the canvas's measure is the narrower.
+            aside_width = std::min(
+                whole_width(canvas, FontRole::small, look.aside), std::max(right - pen, int32_t{0})
+            );
+            cut_line(
+                canvas,
+                FontRole::small,
+                look.aside,
+                {right - aside_width, row, aside_width, row_height},
+                Align::right,
+                colour::hint
+            );
+        }
+        const int32_t title_right = aside_width > 0 ? right - aside_width - padding : right;
+        cut_line(
+            canvas,
+            FontRole::small,
+            look.title,
+            {pen, row, std::max(title_right - pen, int32_t{0}), row_height},
+            Align::left,
+            colour::text
+        );
+        row += row_height;
+    }
+
+    const int32_t values = label_column(canvas.fonts, look);
+    for (const HoverCardRow& entry : look.rows) {
+        int32_t value_left = left;
+        if (!entry.label.empty()) {
+            cut_line(
+                canvas,
+                FontRole::small,
+                entry.label,
+                {left, row, std::max(values - padding, int32_t{0}), row_height},
+                Align::left,
+                colour::hint
+            );
+            value_left = left + values;
+        }
+        cut_line(
+            canvas,
+            FontRole::small,
+            entry.value,
+            {value_left, row, std::max(right - value_left, int32_t{0}), row_height},
+            Align::left,
+            entry.value_colour
+        );
+        row += row_height;
+    }
+
+    for (const std::string& text : look.block) {
+        cut_line(
+            canvas, FontRole::small, text, {left, row, room, row_height}, Align::left, colour::quiet
+        );
+        row += row_height;
+    }
+}
+
+void add_hover_card(DisplayList& list, const Rect& rect, const HoverCardLook& look) {
+    Item item;
+    item.role = Role::hover_card;
+    item.rect = rect;
+    item.text = look.title;
+    item.look = look;
+    list.items.push_back(std::move(item));
+}
+
+bool hover_card_due(HoverTimer& timer, ControlId hovered, uint64_t now_ms) noexcept {
+    if (hovered == no_control) {
+        timer = {};
+        return false;
+    }
+    if (hovered != timer.over) {
+        timer.over = hovered;
+        timer.since_ms = now_ms;
+        return false;
+    }
+    return now_ms >= timer.since_ms && now_ms - timer.since_ms >= hover_card_delay_ms;
+}
+
+// ---- Links ----
+
+int32_t link_width(const Fonts& fonts, const LinkLook& look) {
+    return text_width(fonts, FontRole::small, look.caption);
+}
+
+void draw_link(const Canvas& canvas, const Rect& rect, const LinkLook& look) {
+    if (!drawable(canvas))
+        return;
+    Colour ink = colour::accent;
+    if (!look.enabled)
+        ink = colour::switch_idle;
+    else if (look.hovered)
+        ink = colour::accent_light;
+    line(canvas, FontRole::small, look.caption, rect, Align::left, ink);
+}
+
+void add_link(
+    DisplayList& list, const Rect& rect, const LinkLook& look, ControlId id, std::string name
+) {
+    Item item;
+    item.role = Role::link;
+    item.rect = rect;
+    item.control = id;
+    item.text = look.caption;
+    item.state.hovered = look.hovered;
+    item.state.disabled = !look.enabled;
+    item.look = look;
+    list.items.push_back(std::move(item));
+    add_control(
+        list, rect, id, std::move(name), ControlKind::link, false, false, look.caption, look.enabled
+    );
+}
+
+} // namespace oa::ui::kit

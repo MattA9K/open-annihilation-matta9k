@@ -101,10 +101,17 @@ cd open-annihilation-<version>-linux-x86_64
 - **On a desktop:** the first time, it looks for Total Annihilation where
   Steam, Heroic and Lutris put it. When it finds exactly one usable copy, it
   plays it without asking and says on the main menu where it found it.
-  Otherwise it asks for your Total Annihilation folder, with your desktop's
-  file chooser, or with its own folder chooser when it found several copies
-  or the file chooser cannot open. Choose the folder from step 4. It
-  remembers your choice. To choose another folder later, start it with
+  Otherwise it opens your desktop's folder chooser, with a title that says
+  to choose the folder that holds `totala1.hpi`. That chooser is the
+  desktop portal's when one is there. When the portal is not there, the
+  game asks in its own locator: a title and a line saying what qualifies,
+  then Home, Desktop, Documents, Downloads and the other places, each file
+  or folder on its own row with an icon, a name and a size. Typing filters
+  the names. Choose the folder from step 4. It remembers your choice.
+
+  ![The locator, when the desktop's folder chooser cannot open](../images/folder-chooser/desktop.png)
+
+  To choose another folder later, start it with
   `--choose-game-dir`; a folder named with `--game-dir`, or one you chose
   before, always wins over the copies it finds.
 - **From the text console** (for example Raspberry Pi OS Lite, or a Pi with
@@ -117,18 +124,36 @@ cd open-annihilation-<version>-linux-x86_64
 
   The game draws straight to the screen.
 
+A later start on a desktop opens as you left it: full screen, or the
+window at the same size and place, on the same display when that display
+is still connected. The first start opens a window. From the text console
+the game still draws straight to the screen.
+
 If the shell says `Permission denied`, the unzip tool lost the program's
 permission: run `chmod +x open-annihilation` once.
 
-Open Annihilation's own settings open from the **OA** button at the bottom
-right of the main menu, or with **Ctrl+,**. See
-[Settings](../settings.md).
+Every option the game takes, and every way to start a network game from a
+terminal or a launcher, is in
+[Command Line and Game Launching](../command-line.md).
 
-Each start on a desktop makes this copy of the game the opener of `.oamod`
-files for your account, with the game's icon on them: open one from the
-file manager to install the mod it holds
+Open Annihilation's own settings open with **Ctrl+,**, or from
+**SETTINGS…** at the foot of the Library, which the **OA** button at the
+bottom right of the main menu opens. See [Settings](../settings.md), and
+[the Library](../library.md) for mods, maps and languages to download.
+
+Each start on a desktop registers this copy of the game, for your account,
+as the opener of the file types left on in [Settings › System](../settings.md#system):
+mod packages (`.oamod`), map packs (`.oamap`), language packs (`.oalang`),
+registry files (`.oareg`) and launch files (`.oalaunch`). All five are on
+until you turn one off. Turning one off and pressing OK withdraws that type
+at once; turning one on registers it at once. With all five off, the
+desktop entries and the MIME package are removed. Neither waits for a restart. The game's icon is put
+on the types it opens. Open a `.oamod` file from the file manager to
+install the mod it holds
 ([mods](../mods/README.md#installing-a-oamod-file)). Opened while the game
-runs, the file goes to the running game.
+runs, the file goes to the running game. A `.oalaunch` file starts the
+network game it describes
+([opening a launch file](../command-line.md#opening-a-launch-file)).
 
 For multiplayer, a firewall on the computer must let through UDP port
 47624, which other computers use to find a hosted game, TCP ports 2300 to
@@ -179,10 +204,10 @@ Your saved games, screenshots, films, recordings and mods are in the
 | `Screenshots` | screenshots (Ctrl+F9) and posters (`MakePoster`), in a folder for each mod as in `Saves` |
 | `Films` | films (Ctrl+F10), a `MOVIEnnn` folder each, in a folder for each mod as in `Saves` |
 | `Recordings` | recordings of network games, which `--play-demo` plays back, in a folder for each mod as in `Saves` |
-| `Mods` | mods you add, each in a folder of its own, which the settings' Mods page lists besides the game folder's `mods` folder ([mods](../mods/README.md#installing-a-mod)) |
+| `Mods` | mods you add, each in a folder of its own, which the Library lists besides the game folder's `mods` folder ([mods](../mods/README.md#installing-a-mod)) |
 
-The game makes each folder the first time it needs it. In the settings (the
-**OA** button on the main menu), **Common Tweaks** shows the folder under
+The game makes each folder the first time it needs it. In the settings
+(**Ctrl+,**), **System** shows the folder under
 **Your files**, whose buttons open Saves, Screenshots and Mods in your file
 manager.
 
@@ -229,10 +254,15 @@ command, still takes the screenshots and films.
 - **To remove:** delete the game's folder. To remove your settings and logs
   too, delete the two folders above; your saved games, screenshots, films,
   recordings and mods are in the Open Annihilation folder in Documents. To make your
-  desktop forget the game as the opener of `.oamod` files, delete
+  desktop forget the game as the opener of `.oamod`, `.oalang`, `.oamap`,
+  `.oareg` and `.oalaunch` files, delete
   `~/.local/share/mime/packages/net.coreprime.open-annihilation.xml`,
   `~/.local/share/applications/net.coreprime.open-annihilation.desktop`,
-  the two `net.coreprime.open-annihilation.png` and `application-x-oamod.png`
-  icons under `~/.local/share/icons/hicolor/256x256`, and the hidden empty
+  `~/.local/share/applications/net.coreprime.open-annihilation.launch.desktop`,
+  the six icon files `apps/net.coreprime.open-annihilation.png`,
+  `mimetypes/application-x-oamod.png`, `mimetypes/application-x-oalang.png`,
+  `mimetypes/application-x-oamap.png`, `mimetypes/application-x-oareg.png`
+  and `mimetypes/application-x-oalaunch.png`
+  under `~/.local/share/icons/hicolor/256x256`, and the hidden empty
   `.net.coreprime.open-annihilation.updated` files in the `mime`,
   `applications` and `icons/hicolor` folders there.

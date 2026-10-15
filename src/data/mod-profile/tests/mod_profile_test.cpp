@@ -17,6 +17,10 @@
 #include "oa/platform/system.hpp"
 #include "oa/test/check.hpp"
 
+#ifndef OA_ENGINE_VERSION
+#error "OA_ENGINE_VERSION names this build's version, which an unmet requirement is checked against"
+#endif
+
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
@@ -1255,6 +1259,151 @@ void test_override_text_and_states() {
     OA_CHECK(overridden_state(*hacks[*delay], states[*delay], nullptr).on);
 }
 
+/// Replaces the head's requires line, so a profile does not name requires twice.
+///
+/// @param id the profile's id
+/// @param requires_line the whole requires line, including its newline
+/// @return the profile
+std::string with_requires(std::string_view id, std::string_view requires_line) {
+    std::string text = profile_text(id);
+    constexpr std::string_view line = "requires: {base: ta-3.1c, catalogue: 1}\n";
+    const size_t at = text.find(line);
+    OA_CHECK(at != std::string::npos);
+    if (at != std::string::npos)
+        text.replace(at, line.size(), requires_line);
+    return text;
+}
+
+/// homepage, tags and requires.engine are kept, change the full hash only,
+/// and an unmet or ill-formed one is refused.
+void test_package_keys() {
+    const std::string body = "homepage: \"https://example.org/mod\"\n"
+                             "tags: [balance, ai]\n";
+    std::string held_text = profile_text("keys", body);
+    constexpr std::string_view line = "requires: {base: ta-3.1c, catalogue: 1}\n";
+    const size_t at = held_text.find(line);
+    OA_CHECK(at != std::string::npos);
+    if (at != std::string::npos)
+        held_text.replace(
+            at, line.size(), "requires: {base: ta-3.1c, catalogue: 1, engine: \">= 0.0.1\"}\n"
+        );
+    const ResolveResult held = resolve(held_text);
+    const ResolveResult plain = resolve(profile_text("keys"));
+    OA_CHECK(held.resolution.has_value() && plain.resolution.has_value());
+    if (held.resolution && plain.resolution) {
+        const ModProfile& profile = held.resolution->profile;
+        OA_CHECK(profile.homepage == "https://example.org/mod");
+        OA_CHECK(profile.tags == std::vector<std::string>({"balance", "ai"}));
+        OA_CHECK(profile.requires_engine == ">= 0.0.1");
+        OA_CHECK(profile.sim_hash == plain.resolution->profile.sim_hash);
+        OA_CHECK(profile.full_hash != plain.resolution->profile.full_hash);
+    }
+
+    OA_CHECK(refused_with(profile_text("home", "homepage: \"javascript:no\"\n"), "homepage:"));
+    OA_CHECK(refused_with(profile_text("tag", "tags: [Not-Kebab]\n"), "tags[0]:"));
+    OA_CHECK(
+        refused_with(profile_text("many", "tags: [a, b, c, d, e, f, g, h, i]\n"), "tags lists 9")
+    );
+    OA_CHECK(refused_with(profile_text("dup", "tags: [balance, balance]\n"), "repeats"));
+    OA_CHECK(refused_with(profile_text("empty-tags", "tags: []\n"), "leave the key out"));
+    OA_CHECK(refused_with(
+        with_requires("syntax", "requires: {base: ta-3.1c, catalogue: 1, engine: \">= 1.2\"}\n"),
+        "requires.engine:"
+    ));
+    OA_CHECK(refused_with(
+        with_requires("foo", "requires: {foo: 1}\n"), "requires takes base, catalogue and engine"
+    ));
+    const std::string unmet = with_requires("unmet", "requires: {engine: \">= 9999.0.0\"}\n");
+    OA_CHECK(refused_with(unmet, "9999.0.0 or later"));
+    OA_CHECK(refused_with(unmet, std::string{"this is Open Annihilation "} + OA_ENGINE_VERSION));
+    const ResolveResult met = resolve(with_requires("met", "requires: {engine: \">= 0.0.1\"}\n"));
+    OA_CHECK(met.resolution.has_value());
+    OA_CHECK(met.resolution && met.resolution->profile.requires_engine == ">= 0.0.1");
+}
+
+/// supportedGames and requiredExpansions are read, and they change the full hash only.
+void test_content_needs() {
+    const ResolveResult omitted = resolve(with_requires("omit", ""));
+    OA_CHECK(omitted.resolution.has_value() && omitted.warnings.empty());
+    if (omitted.resolution) {
+        OA_CHECK(omitted.resolution->profile.supported_games == std::vector<std::string>{"totala"});
+        OA_CHECK(omitted.resolution->profile.required_expansions.empty());
+        OA_CHECK(omitted.resolution->canonical.find("supportedGames") == std::string::npos);
+        OA_CHECK(omitted.resolution->canonical.find("requiredExpansions") == std::string::npos);
+    }
+
+    const ResolveResult legacy = resolve(profile_text("legacy"));
+    OA_CHECK(legacy.resolution.has_value() && legacy.warnings.empty());
+    if (legacy.resolution) {
+        OA_CHECK(legacy.resolution->profile.supported_games == std::vector<std::string>{"totala"});
+        OA_CHECK(legacy.resolution->profile.required_expansions.empty());
+    }
+
+    const ResolveResult named = resolve(profile_text(
+        "named",
+        "supportedGames: [\"totala-demo\", \"totala\"]\n"
+        "requiredExpansions: [\"music\"]\n"
+    ));
+    const ResolveResult plain = resolve(profile_text("named"));
+    OA_CHECK(named.resolution.has_value() && named.warnings.empty());
+    if (named.resolution && plain.resolution) {
+        OA_CHECK(
+            named.resolution->profile.supported_games ==
+            (std::vector<std::string>{"totala-demo", "totala"})
+        );
+        OA_CHECK(
+            named.resolution->profile.required_expansions == std::vector<std::string>{"music"}
+        );
+        OA_CHECK(named.resolution->profile.sim_hash == plain.resolution->profile.sim_hash);
+        OA_CHECK(named.resolution->profile.full_hash != plain.resolution->profile.full_hash);
+        OA_CHECK(named.resolution->canonical.find("\"supportedGames\"") != std::string::npos);
+        OA_CHECK(named.resolution->canonical.find("\"requiredExpansions\"") != std::string::npos);
+    }
+
+    const ResolveResult none = resolve(profile_text("none", "requiredExpansions: []\n"));
+    OA_CHECK(none.resolution.has_value() && none.warnings.empty());
+    if (none.resolution)
+        OA_CHECK(none.resolution->profile.required_expansions.empty());
+
+    OA_CHECK(refused_with(profile_text("unknown", "supportedGames: [\"no-such\"]\n"), "'no-such'"));
+    OA_CHECK(refused_with(
+        profile_text("unknown", "supportedGames: [\"no-such\"]\n"), "is not a base game"
+    ));
+    OA_CHECK(refused_with(
+        profile_text("kind", "supportedGames: [\"core-contingency\"]\n"), "is not a base game"
+    ));
+    OA_CHECK(refused_with(
+        profile_text("expansion", "requiredExpansions: [\"totala\"]\n"), "is not an expansion"
+    ));
+    OA_CHECK(refused_with(
+        profile_text(
+            "extends",
+            "supportedGames: [\"totala-demo\"]\n"
+            "requiredExpansions: [\"core-contingency\"]\n"
+        ),
+        "extends none of the supported games"
+    ));
+    OA_CHECK(refused_with(
+        profile_text("empty", "supportedGames: []\n"),
+        "supportedGames must list at least one base game"
+    ));
+    OA_CHECK(refused_with(
+        profile_text("repeat", "supportedGames: [\"totala\", \"totala\"]\n"), "'totala' is repeated"
+    ));
+    OA_CHECK(
+        refused_with(profile_text("scalar", "supportedGames: totala\n"), "must be a list of ids")
+    );
+    OA_CHECK(refused_with(profile_text("number", "supportedGames: [1]\n"), "must be an id"));
+    std::string many = "supportedGames: [";
+    for (int index = 0; index < 17; ++index) {
+        if (index != 0)
+            many += ", ";
+        many += "\"g" + std::to_string(index) + "\"";
+    }
+    many += "]\n";
+    OA_CHECK(refused_with(profile_text("many-games", many), "at most 16"));
+}
+
 int main(int argc, char** argv) {
     if (argc > 1 && std::string_view{argv[1]} == "--references")
         return test_references();
@@ -1271,5 +1420,7 @@ int main(int argc, char** argv) {
     test_overrides();
     test_override_text_and_states();
     test_description();
+    test_package_keys();
+    test_content_needs();
     return oa::test::check_exit_status();
 }

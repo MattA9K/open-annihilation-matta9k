@@ -22,6 +22,13 @@
 #include "oa/ui/hud/resource_bar.hpp"
 #include "oa/ui/hud/unit_panel.hpp"
 #include "oa/ui/console/game_fields.hpp"
+#include "oa/ui/kit/canvas.hpp"
+#include "oa/ui/kit/components_more.hpp"
+#include "oa/ui/kit/controls.hpp"
+#include "oa/ui/kit/layout.hpp"
+#include "oa/ui/kit/looks.hpp"
+#include "oa/ui/kit/text.hpp"
+#include "oa/ui/kit/theme.hpp"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -42,6 +49,93 @@
 namespace oa::app {
 
 namespace {
+
+namespace kit = oa::ui::kit;
+
+/// MatchOverlay::draw_progress's whole, in thousandths.
+constexpr int32_t kOverlayProgressWhole = 1000;
+/// MatchOverlay::draw_progress's busy bar.
+constexpr int32_t kOverlayProgressBusy = -1;
+/// A busy bar's stripes: one every this many points, this many points wide,
+/// the accent laid over the well at this share, in 256ths (two fifths), as
+/// the Game files screen's busy bar.
+constexpr int32_t kBusyStripeSpacing = 12;
+constexpr int32_t kBusyStripeWidth = 5;
+constexpr uint32_t kBusyStripeOpacity = 102;
+
+/// Divides, rounding towards negative infinity.
+///
+/// @param value the dividend
+/// @param divisor the divisor, positive
+/// @return the quotient, rounded down
+int divide_down(int value, int divisor) noexcept {
+    const int quotient = value / divisor;
+    return value % divisor != 0 && value < 0 ? quotient - 1 : quotient;
+}
+
+/// Divides, rounding towards positive infinity.
+///
+/// @param value the dividend
+/// @param divisor the divisor, positive
+/// @return the quotient, rounded up
+int divide_up(int value, int divisor) noexcept {
+    return -divide_down(-value, divisor);
+}
+
+/// Returns the OA UI kit's crisp canvas over a match overlay's painter: its
+/// point (0, 0) at a pixel of the painter, `scale` pixels to a point, in the
+/// game's fonts, clipped to the battlefield. The battlefield is taken in
+/// whole points, rounded in, so nothing lands outside it; where no whole
+/// point of it is left, the canvas draws nothing.
+///
+/// @param target the painter's surface
+/// @param fonts the kit's fonts; null draws no text
+/// @param at the painter pixel of the canvas's point (0, 0)
+/// @param scale painter pixels to a point, at least 1
+/// @param field the battlefield, in the painter's pixels
+/// @return the canvas
+kit::Canvas overlay_kit_canvas(
+    renderer::Surface& target,
+    const kit::Fonts* fonts,
+    oa::ui::display_layout::Point at,
+    int scale,
+    const oa::ui::display_layout::Rect& field
+) {
+    kit::Canvas canvas;
+    const int left = divide_up(field.x - at.x, scale);
+    const int top = divide_up(field.y - at.y, scale);
+    const int right = divide_down(field.x + field.width - at.x, scale);
+    const int bottom = divide_down(field.y + field.height - at.y, scale);
+    if (right <= left || bottom <= top)
+        return canvas;
+    canvas.surface = &target;
+    canvas.placement.x = at.x;
+    canvas.placement.y = at.y;
+    canvas.placement.scale = scale;
+    canvas.placement.clip = {left, top, right - left, bottom - top};
+    canvas.fonts = fonts;
+    return canvas;
+}
+
+/// Draws a busy progress bar: the kit's bar with nothing done, striped
+/// across its well in the accent.
+///
+/// @param canvas where it is drawn
+/// @param bar the bar, in points
+void draw_busy_progress(const kit::Canvas& canvas, const kit::Rect& bar) {
+    kit::draw_progress(canvas, bar, 0, 0);
+    const kit::Rect well{bar.x + 1, bar.y + 1, bar.width - 2, bar.height - 2};
+    if (well.width <= 0 || well.height <= 0)
+        return;
+    const kit::Canvas inside = kit::clipped(canvas, well);
+    for (int32_t stripe = 0; stripe < well.width; stripe += kBusyStripeSpacing)
+        kit::blend_rect(
+            inside,
+            {well.x + stripe, well.y, kBusyStripeWidth, well.height},
+            kit::colour::accent,
+            kBusyStripeOpacity
+        );
+}
 
 /// Gives the rows a line's letters rise above its baseline.
 ///
@@ -609,6 +703,7 @@ void Runtime::load_side_hud() {
         side_hud_.unit_metal_use = rect(layout.unit_metal_use);
         side_hud_.unit_energy_make = rect(layout.unit_energy_make);
         side_hud_.unit_energy_use = rect(layout.unit_energy_use);
+        side_hud_.logo = rect(layout.logo);
         side_hud_.logo2 = rect(layout.logo2);
         side_hud_.mission_text = rect(layout.mission_text);
         side_hud_.unit_name2 = rect(layout.unit_name2);
@@ -711,6 +806,79 @@ void Runtime::draw_extension_overlay() {
         [](void* painter, int x, int y, int width, int height, uint8_t palette_index) {
             static_cast<Runtime*>(painter)->fill_hud_rect(x, y, width, height, palette_index);
         };
+    // The OA UI kit's components, crisp at the HUD's scale in the game fonts,
+    // on the same painter, each clipped to the battlefield.
+    static constexpr auto kit_canvas_at = [](Runtime& runtime, int x, int y) {
+        const auto area = runtime.overlay_area();
+        const auto corner = runtime.canvas_paint(area.x, area.y);
+        return overlay_kit_canvas(
+            runtime.paint_target(),
+            runtime.engine_settings_fonts(),
+            {x, y},
+            runtime.hud_text_scale(),
+            {corner.x, corner.y, area.width, area.height}
+        );
+    };
+    overlay.kit_text_width = [](void* painter, kit::FontRole font, const char* text) -> int {
+        auto& runtime = *static_cast<Runtime*>(painter);
+        const kit::Fonts* fonts = runtime.engine_settings_fonts();
+        if (fonts == nullptr || text == nullptr)
+            return 0;
+        return kit::text_width(*fonts, font, text) * runtime.hud_text_scale();
+    };
+    overlay.draw_kit_text = [](void* painter, kit::FontRole font, int x, int y, const char* text) {
+        if (text == nullptr)
+            return;
+        const kit::Canvas canvas = kit_canvas_at(*static_cast<Runtime*>(painter), x, y);
+        if (canvas.fonts == nullptr)
+            return;
+        const int32_t line = font == kit::FontRole::regular ? kit::compact_metrics.regular_line
+                                                            : kit::compact_metrics.small_line;
+        kit::box_text(
+            canvas,
+            font,
+            text,
+            {0, 0, kit::text_width(*canvas.fonts, font, text), line},
+            kit::Align::left,
+            kit::colour::text
+        );
+    };
+    overlay.draw_chip = [](void* painter, int x, int y, const kit::ChipLook* chip) {
+        if (chip == nullptr)
+            return;
+        const kit::Canvas canvas = kit_canvas_at(*static_cast<Runtime*>(painter), x, y);
+        const int32_t width = canvas.fonts != nullptr ? kit::chip_width(*canvas.fonts, *chip)
+                                                      : 2 * kit::compact_metrics.chip_padding;
+        kit::draw_chip(canvas, {0, 0, width, kit::compact_metrics.chip_height}, *chip);
+    };
+    overlay.draw_progress =
+        [](void* painter, int x, int y, int width, int height, int32_t thousandths) {
+            auto& runtime = *static_cast<Runtime*>(painter);
+            const int scale = runtime.hud_text_scale();
+            const kit::Rect bar{0, 0, width / scale, height / scale};
+            if (bar.width <= 0 || bar.height <= 0)
+                return;
+            const kit::Canvas canvas = kit_canvas_at(runtime, x, y);
+            if (thousandths == kOverlayProgressBusy) {
+                draw_busy_progress(canvas, bar);
+                return;
+            }
+            kit::draw_progress(
+                canvas,
+                bar,
+                std::clamp(thousandths, int32_t{0}, kOverlayProgressWhole),
+                kOverlayProgressWhole
+            );
+        };
+    overlay.draw_hover_card = [](void* painter, int x, int y, const kit::HoverCardLook* card) {
+        if (card == nullptr)
+            return;
+        const kit::Canvas canvas = kit_canvas_at(*static_cast<Runtime*>(painter), x, y);
+        if (canvas.fonts == nullptr)
+            return;
+        const kit::Point size = kit::hover_card_size(*canvas.fonts, *card);
+        kit::draw_hover_card(canvas, {0, 0, size.x, size.y}, *card);
+    };
     call_hook_or_report<&Extension::draw_match_overlay>(
         extension_, hook_error_report(), *this, overlay
     );
@@ -761,6 +929,26 @@ void Runtime::fill_source_rect(int x, int y, int width, int height, uint8_t pale
     );
 }
 
+void Runtime::draw_player_mark(const oa::Player& player, const HudRect& at) {
+    if (at.width <= 0 || at.height <= 0)
+        return;
+    const auto logo = player_logo_frame(player);
+    if (!logo || logo->width == 0 || logo->height == 0)
+        return;
+    const auto width = std::max(1, at.width);
+    const auto height = std::max(1, at.height);
+    for (int row = 0; row < height; ++row) {
+        for (int column = 0; column < width; ++column) {
+            const auto source =
+                static_cast<std::size_t>(row * static_cast<int>(logo->height) / height) *
+                    logo->width +
+                static_cast<std::size_t>(column * static_cast<int>(logo->width) / width);
+            if (source < logo->coverage.size() && logo->coverage[source] != 0)
+                fill_source_rect(at.x + column, at.y + row, 1, 1, logo->pixels[source]);
+        }
+    }
+}
+
 void Runtime::draw_sidedata_bar(
     const HudRect& bar, float shown, float capacity, float threshold, float store, uint8_t color
 ) {
@@ -792,7 +980,9 @@ void Runtime::draw_resource_readout() {
     for (uint32_t ease = take_readout_eases(); ease != 0; --ease)
         oa::ui::hud::update_resource_readout(readout, player, game.tick);
     // PANELTOP already contains the METAL/ENERGY chrome; SIDEDATA.TDF names the
-    // fill troughs, stored/capacity numbers, and produced/consumed readouts.
+    // colour block, the fill troughs, the stored and capacity numbers, and
+    // the produced and consumed readouts.
+    draw_player_mark(player, side_hud_.logo);
     const auto text_color = oa::ui::hud::readout_color(game, oa::ui::hud::kReadoutTextColor);
     const auto whole = [](float value) { return std::to_string(static_cast<int>(value)); };
     const auto label = [this](int x, int y, const oa::ui::hud::RateText& rate) {
@@ -1049,24 +1239,8 @@ void Runtime::draw_unit_panel() {
         return;
     if (panel.show_damage)
         meter(side_hud_.damage_bar, unit->health, static_cast<int32_t>(def->max_damage));
-    if (panel.logo_player < OA_PLAYER_COUNT) {
-        if (const auto logo = player_logo_frame(world.game.players[panel.logo_player]);
-            logo && logo->width > 0 && logo->height > 0) {
-            // The logo is fitted to the LOGO2 rectangle.
-            const auto& at = side_hud_.logo2;
-            const auto width = std::max(1, at.width);
-            const auto height = std::max(1, at.height);
-            for (int row = 0; row < height; ++row)
-                for (int column = 0; column < width; ++column) {
-                    const auto source =
-                        static_cast<std::size_t>(row * static_cast<int>(logo->height) / height) *
-                            logo->width +
-                        static_cast<std::size_t>(column * static_cast<int>(logo->width) / width);
-                    if (source < logo->coverage.size() && logo->coverage[source] != 0)
-                        fill_source_rect(at.x + column, at.y + row, 1, 1, logo->pixels[source]);
-                }
-        }
-    }
+    if (panel.logo_player < OA_PLAYER_COUNT)
+        draw_player_mark(world.game.players[panel.logo_player], side_hud_.logo2);
     // The status line, lowered to keep within the bar, takes the rate
     // figures under it down as far and one outline further, so that its
     // outline and shadow fall clear of their letters.

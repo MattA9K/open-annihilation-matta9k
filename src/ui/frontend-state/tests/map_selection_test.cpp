@@ -2,11 +2,18 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "oa/ui/frontend_state/map_selection.hpp"
+#include "oa/ui/frontend_multiplayer/map_list.hpp"
 #include <algorithm>
 #include <iostream>
+#include <map>
+#include <optional>
 #include <stdexcept>
+#include <string>
+#include <string_view>
+#include <vector>
 using namespace oa::ui::frontend_state;
 namespace map = oa::ui::frontend_state::map_selection;
+namespace mp = oa::ui::frontend_multiplayer;
 
 namespace {
 void check(bool v, const char* text) {
@@ -14,7 +21,7 @@ void check(bool v, const char* text) {
         throw std::runtime_error(text);
 }
 
-struct TestHost final : map::Host {
+struct TestHost : map::Host {
     std::vector<std::string> calls, names{"Zulu", "alpha", "Beta"};
     std::array<uint32_t, 3> buttons{};
     int16_t selected{};
@@ -22,6 +29,8 @@ struct TestHost final : map::Host {
     int32_t count_override = -1;
     bool have_title = true, load_success = true;
     map::PictureHandle image{7};
+    // Maps that cannot be chosen, and why; select_map answers 0 for them.
+    std::map<std::string, std::string, std::less<>> refusals;
 
     int32_t map_count() override {
         calls.push_back("count");
@@ -40,8 +49,15 @@ struct TestHost final : map::Host {
 
     void
     show_frontend_message(std::string_view text, int32_t width, int32_t a, int32_t b) override {
-        check(text == map::no_maps_message && width == 320 && a == 1 && b == 1, "no-maps message");
-        calls.push_back("message");
+        if (refusals.empty()) {
+            check(
+                text == map::no_maps_message && width == 320 && a == 1 && b == 1, "no-maps message"
+            );
+            calls.push_back("message");
+            return;
+        }
+        check(width == map::refusal_message_width && a == 1 && b == 1, "refusal message");
+        calls.push_back("message:" + std::string(text));
     }
 
     map::MenuHandle load_modal(std::string_view name, uint32_t flags) override {
@@ -110,7 +126,18 @@ struct TestHost final : map::Host {
 
     int32_t select_map(std::string_view s) override {
         calls.push_back("map:" + std::string(s));
-        return select_result;
+        return refusals.contains(s) ? 0 : select_result;
+    }
+
+    std::optional<std::string> map_refusal(std::string_view s) override {
+        const auto found = refusals.find(s);
+        if (found == refusals.end())
+            return std::nullopt;
+        return found->second;
+    }
+
+    void show_refused_map(std::string_view s, std::string_view reason) override {
+        calls.push_back("refused:" + std::string(s) + ":" + std::string(reason));
     }
 
     void set_parent_map_name(map::MenuHandle m, std::string_view s) override {
@@ -314,12 +341,195 @@ void modal_tests() {
     }
     check(caught, "invalid selection rejected");
 }
+
+void pack_map_tests() {
+    constexpr std::string_view reason = "New names: the feature 'rock' is defined already";
+    game_entry::SkirmishSettings settings;
+    settings.map_name = "Beta";
+    map::ModalState modal;
+    TestHost h;
+    h.names = {"isle@isles", "Zulu", "alpha", "Aa@archipelago", "Beta", "shoals@isles"};
+    h.refusals.emplace("shoals@isles", reason);
+    // One list by name: a pack map sorts among the base maps, not after them.
+    check(map::open(modal, settings, h), "modal with pack maps opens");
+    check(
+        modal.names ==
+                std::vector<std::string>{
+                    "Aa@archipelago", "alpha", "Beta", "isle@isles", "shoals@isles", "Zulu"
+                } &&
+            h.selected == 2,
+        "pack maps sort in the one name order"
+    );
+    check(h.saw("text:SIZE:16 mb  Players: 2,4"), "a base map previews as before");
+    // A pack map that fits previews as a base map does.
+    h.calls.clear();
+    h.selected = 3;
+    map::preview_selection(modal, h);
+    check(
+        h.saw("map:isle@isles") && h.saw("load-picture") && h.saw("text:DESCRIPTION:Description"),
+        "a pack map that fits previews"
+    );
+    // A refused row shows its reason and none of the preview's updates.
+    h.calls.clear();
+    h.selected = 4;
+    map::preview_selection(modal, h);
+    check(
+        h.calls ==
+            std::vector<std::string>{
+                "index", "map:shoals@isles", "refused:shoals@isles:" + std::string(reason)
+            },
+        "a refused row shows its reason"
+    );
+    // LOAD on it says why and keeps the earlier map.
+    h.calls.clear();
+    h.buttons = {0, 0x100, 0};
+    map::handle_event(modal, settings, {{12}, 0}, h);
+    check(
+        settings.map_name == "Beta" && h.calls ==
+                                           std::vector<std::string>{
+                                               "button:MAPNAMES",
+                                               "button:LOAD",
+                                               "button:LOAD",
+                                               "sound:SmallButton",
+                                               "index",
+                                               "message:" + std::string(reason)
+                                           },
+        "LOAD on a refused row keeps the earlier map"
+    );
+    // So does a click on its row.
+    h.calls.clear();
+    h.buttons = {1, 0, 0};
+    map::handle_event(modal, settings, {{12}, 0}, h);
+    check(
+        settings.map_name == "Beta" && !h.saw("parent:shoals@isles") &&
+            h.saw("message:" + std::string(reason)),
+        "a click on a refused row keeps the earlier map"
+    );
+    // The pack map that fits is chosen as a base map is.
+    h.calls.clear();
+    h.selected = 3;
+    map::handle_event(modal, settings, {{12}, 0}, h);
+    check(
+        settings.map_name == "isle@isles" &&
+            h.calls ==
+                std::vector<std::string>{
+                    "button:MAPNAMES", "button:LOAD", "index", "map:isle@isles", "parent:isle@isles"
+                },
+        "a pack map that fits is chosen"
+    );
+    // A base map's flow is as before.
+    h.calls.clear();
+    h.buttons = {0, 0x100, 0};
+    h.selected = 1;
+    map::handle_event(modal, settings, {{12}, 0}, h);
+    check(
+        settings.map_name == "alpha" && h.calls ==
+                                            std::vector<std::string>{
+                                                "button:MAPNAMES",
+                                                "button:LOAD",
+                                                "button:LOAD",
+                                                "sound:SmallButton",
+                                                "index",
+                                                "map:alpha",
+                                                "parent:alpha"
+                                            },
+        "a base map is chosen as before"
+    );
+    // A map that does not load and gives no reason keeps the earlier preview.
+    h.calls.clear();
+    h.select_result = 0;
+    h.selected = 5;
+    map::preview_selection(modal, h);
+    check(
+        h.calls == std::vector<std::string>{"index", "map:Zulu"},
+        "a map without a reason keeps the earlier preview"
+    );
+}
+
+/// The names a row shows, and whether that row is greyed.
+struct ShownMap {
+    std::string key;
+    std::string title;
+    std::string reason;
+    bool pack = false;
+};
+
+/// Orders the skirmish list by the shown name, through the same order the
+/// battle room uses. A grey reason is stored and is not part of the name.
+struct ShownHost final : TestHost {
+    std::vector<ShownMap> rows;
+
+    void order_map_names(std::vector<std::string>& listed) override {
+        std::vector<ShownMap> held;
+        held.reserve(listed.size());
+        for (const std::string& name : listed) {
+            ShownMap row;
+            row.key = name;
+            for (const ShownMap& known : rows) {
+                if (known.key != name)
+                    continue;
+                row = known;
+                row.key = name;
+                break;
+            }
+            held.push_back(std::move(row));
+        }
+        std::vector<mp::MapListFact> facts;
+        facts.reserve(held.size());
+        for (const ShownMap& row : held)
+            facts.push_back(mp::MapListFact{row.key, row.title, {}, {}, row.pack, row.reason});
+        const std::vector<std::size_t> order = mp::map_list_order(facts);
+        std::vector<std::string> next;
+        next.reserve(order.size());
+        for (const std::size_t index : order)
+            next.push_back(held.at(index).key);
+        listed = std::move(next);
+    }
+};
+
+/// Base maps, an installed pack map and a downloadable map are one list.
+/// The greyed map keeps the place its name has.
+void shown_name_tests() {
+    game_entry::SkirmishSettings settings;
+    settings.map_name = "Wretched Ridges";
+    map::ModalState modal;
+    ShownHost host;
+    host.rows = {
+        {"Yerrot Mountains", {}, {}, false},
+        {"Wretched Ridges", {}, {}, false},
+        {"abysmal_lake@downloads", "Abysmal Lake", {}, true},
+        {"ancient_issaquah@downloads", "Ancient Issaquah", "doesn't fit", true},
+        {"ancient_issaquah@other", "Ancient Issaquah", {}, true},
+    };
+    host.names.clear();
+    for (const ShownMap& row : host.rows)
+        host.names.push_back(row.key);
+    check(map::open(modal, settings, host), "modal with shown names opens");
+    check(
+        modal.names ==
+                std::vector<std::string>{
+                    "abysmal_lake@downloads",
+                    "ancient_issaquah@downloads",
+                    "ancient_issaquah@other",
+                    "Wretched Ridges",
+                    "Yerrot Mountains",
+                } &&
+            host.selected == 3,
+        "base, pack and downloadable maps are one shown-name order"
+    );
+    check(
+        modal.names[1] == "ancient_issaquah@downloads",
+        "a greyed map keeps its place in the name order"
+    );
+}
 } // namespace
 
 int main() {
     try {
         sort_tests();
         modal_tests();
+        pack_map_tests();
+        shown_name_tests();
         std::cout << "map selection passed\n";
         return 0;
     } catch (const std::exception& e) {

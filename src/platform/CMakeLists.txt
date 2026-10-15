@@ -4,7 +4,8 @@
 # Host services: token locks, clock, threads, heap, performance counters,
 # file/log streams, the log folder, the machine the game runs on and the
 # system's memory.
-add_library(oa-platform-shims src/allocator.cpp src/crash.cpp src/files.cpp src/lock.cpp src/log_files.cpp
+add_library(oa-platform-shims src/allocator.cpp src/crash.cpp src/files.cpp src/file_clone.cpp
+  src/lock.cpp src/log_files.cpp
   src/machine.cpp src/memory_status.cpp src/perf.cpp src/system.cpp src/system_memory.cpp)
 add_library(oa::platform::shims ALIAS oa-platform-shims)
 target_include_directories(oa-platform-shims PUBLIC include)
@@ -18,6 +19,13 @@ if(BUILD_TESTING)
   add_executable(oa-platform-shims-test tests/platform_test.cpp)
   target_link_libraries(oa-platform-shims-test PRIVATE oa-platform-shims oa-test-support)
   add_test(NAME platform-shims COMMAND oa-platform-shims-test)
+  # Replacing a file by a temporary file beside it: a new file, a replaced
+  # file, a name outside ASCII, and a folder left untouched when the replace
+  # is refused.
+  add_executable(oa-platform-replace-file-test tests/replace_file_test.cpp)
+  target_link_libraries(oa-platform-replace-file-test PRIVATE oa-platform-shims oa-test-support)
+  add_test(NAME platform-replace-file COMMAND oa-platform-replace-file-test)
+  set_tests_properties(platform-replace-file PROPERTIES TIMEOUT 30)
   add_executable(oa-platform-log-files-test tests/log_files_test.cpp)
   target_link_libraries(oa-platform-log-files-test PRIVATE oa-platform-shims oa-test-support)
   add_test(NAME platform-log-files COMMAND oa-platform-log-files-test)

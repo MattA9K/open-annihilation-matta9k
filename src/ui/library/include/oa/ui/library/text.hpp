@@ -1,0 +1,746 @@
+// SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
+// SPDX-License-Identifier: GPL-3.0-only
+
+// Every word the Library shows, in English, and the functions that write its
+// sizes, ages, versions, rules hashes and engine requirements. A pattern's
+// places are written {name}; a translation keeps them and may move them.
+// The texts are looked up whole through TextHooks before their places are
+// filled, so a translator finds every one of them here.
+#pragma once
+
+#include "oa/base/sha256.hpp"
+#include "oa/formats/oamod/package_keys.hpp"
+#include "oa/ui/library/library.hpp"
+
+#include <cstdint>
+#include <initializer_list>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
+
+namespace oa::ui::library {
+
+namespace words {
+
+// Tabs and filters.
+inline constexpr std::string_view tab_active = "Active";
+inline constexpr std::string_view tab_mods = "Mods";
+inline constexpr std::string_view tab_maps = "Maps";
+inline constexpr std::string_view tab_languages = "Languages";
+inline constexpr std::string_view tab_languages_short = "Lang";
+inline constexpr std::string_view tab_updates = "Updates";
+inline constexpr std::string_view tab_updates_short = "Upd";
+inline constexpr std::string_view tab_registries = "Registries";
+/// Compact's short name, as Languages and Updates have.
+inline constexpr std::string_view tab_registries_short = "Reg";
+/// A tab and how many it lists under All, as the tab reads: "Mods (11)".
+inline constexpr std::string_view tab_with_count = "{tab} ({count})";
+inline constexpr std::string_view filter_all = "All";
+inline constexpr std::string_view filter_new = "New";
+inline constexpr std::string_view filter_installed = "Installed";
+inline constexpr std::string_view filter_updates = "Updates";
+/// A filter and how many entries it keeps on the tab shown, before the tag
+/// and the search: "Installed (4)". The filter column, the chips and
+/// Compact's drop-down all show it.
+inline constexpr std::string_view filter_with_count = "{filter} ({count})";
+
+// A row's state.
+inline constexpr std::string_view state_get = "GET";
+inline constexpr std::string_view state_installed = "INSTALLED";
+inline constexpr std::string_view state_update = "UPDATE";
+inline constexpr std::string_view state_playing = "PLAYING";
+/// The chip on the language the game is showing, in place of USE NOW.
+inline constexpr std::string_view chip_in_use = "In use";
+
+// Buttons.
+inline constexpr std::string_view action_get = "GET";
+inline constexpr std::string_view action_update = "UPDATE";
+inline constexpr std::string_view action_update_all = "UPDATE ALL";
+inline constexpr std::string_view action_cancel = "CANCEL";
+inline constexpr std::string_view action_retry = "RETRY";
+inline constexpr std::string_view action_roll_back = "ROLL BACK";
+inline constexpr std::string_view action_play_now = "PLAY NOW";
+/// On a built-in language, or an installed language pack, that is not the
+/// one the game shows. It switches as Settings › Language does.
+inline constexpr std::string_view action_use_now = "USE NOW";
+inline constexpr std::string_view action_switch_off = "SWITCH OFF";
+/// UNLOAD MOD on the Active tab. It asks what SWITCH OFF asks.
+inline constexpr std::string_view action_unload_mod = "UNLOAD MOD";
+inline constexpr std::string_view action_open_folder = "OPEN FOLDER";
+inline constexpr std::string_view action_homepage = "HOMEPAGE";
+inline constexpr std::string_view action_details = "DETAILS";
+/// BACK on Compact's details page. It returns to the list, which keeps its place.
+inline constexpr std::string_view action_back = "BACK";
+/// The header's refresh icon, and the same words while it is turning.
+inline constexpr std::string_view action_refresh = "Refresh";
+inline constexpr std::string_view action_refreshing = "Refreshing";
+inline constexpr std::string_view action_settings = "SETTINGS…";
+inline constexpr std::string_view action_close = "CLOSE";
+/// The header's close mark. The footer's CLOSE keeps its own word.
+inline constexpr std::string_view action_close_x = "Close";
+inline constexpr std::string_view action_uninstall = "UNINSTALL";
+
+// The Registries tab. The words are the ones Downloads' Registries part used.
+inline constexpr std::string_view registry_built_in = "Built in";
+inline constexpr std::string_view registry_add = "ADD REGISTRY…";
+inline constexpr std::string_view registry_add_mirror = "ADD MIRROR…";
+inline constexpr std::string_view registry_remove = "REMOVE";
+inline constexpr std::string_view registry_game_lock = "Choose from the main menu.";
+inline constexpr std::string_view registry_off = "OFF";
+inline constexpr std::string_view registry_on = "ON";
+inline constexpr std::string_view registry_unreachable = "couldn't reach";
+inline constexpr std::string_view registry_not_reviewed = "not reviewed";
+/// REFRESH on a registry's card. The header's icon keeps action_refresh.
+inline constexpr std::string_view registry_refresh = "REFRESH";
+/// When a refresh last read the registry, with the age in its place.
+inline constexpr std::string_view registry_refreshed = "refreshed {age}";
+/// A registry no refresh has read yet.
+inline constexpr std::string_view registry_never = "never refreshed";
+/// The key tooltip's title for one signing key, and for more than one.
+/// These are not the key bindings' "Keys".
+inline constexpr std::string_view registry_key_one = "Signing key";
+inline constexpr std::string_view registry_key_many = "Signing keys";
+/// The key tooltip's aside for a registry that ships with the game.
+inline constexpr std::string_view registry_key_built_in = "built in";
+/// The key tooltip's aside for a registry the player added.
+inline constexpr std::string_view registry_key_added = "added by you";
+/// The key tooltip when the registry names no signing key.
+inline constexpr std::string_view registry_no_key = "No signing key";
+inline constexpr std::string_view registry_one_day = "1 day ago";
+inline constexpr std::string_view registry_package_one = "{n} package";
+inline constexpr std::string_view registry_package_many = "{n} packages";
+inline constexpr std::string_view registry_mirror_one = "{n} mirror";
+inline constexpr std::string_view registry_mirror_many = "{n} mirrors";
+inline constexpr std::string_view registry_note =
+    "Content from registries other than {names} isn't reviewed by the OA team. OA still checks "
+    "every package before using it.";
+inline constexpr std::string_view registry_note_unnamed =
+    "Content from these registries isn't reviewed by the OA team. OA still checks "
+    "every package before using it.";
+
+// Why GET or UPDATE is off.
+inline constexpr std::string_view blocked_in_match = "Not during a game";
+inline constexpr std::string_view blocked_downloads_off =
+    "Downloads from {registry} are off (Settings › Downloads)";
+inline constexpr std::string_view blocked_engine = "Needs Open Annihilation {range}";
+inline constexpr std::string_view blocked_base = "Needs the base game {base}";
+inline constexpr std::string_view blocked_hacks = "Needs hacks this OA lacks: {hacks}";
+/// The missing hacks named, then how many more are not.
+inline constexpr std::string_view hacks_and_more = "{hacks} · {count} more";
+/// The comma between two names of a list. Callers write the joining space
+/// after the lookup, so the looked-up text can be a catalogue section.
+inline constexpr std::string_view list_separator = ",";
+
+// UNINSTALL (uninstall.hpp): why it is off, its question and its notices.
+/// Why UNINSTALL is off for a map pack while a game is played.
+inline constexpr std::string_view uninstall_off_in_game =
+    "Map packs can't be uninstalled during a game.";
+/// Why UNINSTALL is off while the package is in the download queue.
+inline constexpr std::string_view uninstall_off_queued =
+    "It is in the download queue: CANCEL it before you uninstall it.";
+/// The question's title, and the notices'.
+inline constexpr std::string_view uninstall_title = "Uninstall {name}";
+/// What the question asks, with the folder under the player's folder, as
+/// "Mods/ridge"; the second for a package that keeps a copy to roll back to.
+inline constexpr std::string_view uninstall_ask =
+    "Uninstall {name}? Its folder, {folder}, is removed.";
+inline constexpr std::string_view uninstall_ask_kept =
+    "Uninstall {name}? Its folder, {folder}, is removed, and with it the copy ROLL BACK keeps.";
+/// After the question: for a package a registry lists, and for the player's own.
+inline constexpr std::string_view uninstall_listed = "GET installs it again.";
+inline constexpr std::string_view uninstall_own =
+    "No registry lists it, so the Library cannot get it again.";
+/// The notice for the mod being played.
+inline constexpr std::string_view uninstall_playing =
+    "You are playing {name}. Switch it off first with SWITCH OFF, then uninstall it.";
+/// The notice for the language pack in use.
+inline constexpr std::string_view uninstall_language =
+    "The game is shown in {name}. Choose another language in Settings › Language first, then "
+    "uninstall it.";
+/// The notice when an uninstall removed nothing, then one of the reasons below.
+inline constexpr std::string_view uninstall_failed = "{name} was not uninstalled. {reason}";
+inline constexpr std::string_view uninstall_failed_busy =
+    "Open Annihilation, or another copy of it, is still changing its folder. Try again in a "
+    "moment.";
+inline constexpr std::string_view uninstall_failed_changed =
+    "Its folder changed since the Library listed it. Try again.";
+inline constexpr std::string_view uninstall_failed_link =
+    "Its folder is a link, and OA never removes what a link leads to. OPEN FOLDER shows it.";
+inline constexpr std::string_view uninstall_failed_outside =
+    "Its folder is not in your own Open Annihilation folder, and OA removes nothing outside it.";
+inline constexpr std::string_view uninstall_failed_not_moved =
+    "Its folder could not be moved; another program may be using it. Close it, then try again.";
+/// The notices' one button.
+inline constexpr std::string_view uninstall_ok = "OK";
+
+// Sizes, binary units.
+/// A number with one decimal.
+inline constexpr std::string_view one_decimal = "{whole}.{tenth}";
+inline constexpr std::string_view size_kb = "{size} KB";
+inline constexpr std::string_view size_mb = "{size} MB";
+inline constexpr std::string_view size_gb = "{size} GB";
+/// A download's progress: the bytes so far as a number, the whole size with its unit.
+inline constexpr std::string_view progress = "{done} of {total}";
+
+// Ages.
+inline constexpr std::string_view age_just_now = "just now";
+inline constexpr std::string_view age_minutes = "{count} min ago";
+inline constexpr std::string_view age_hours = "{count} h ago";
+inline constexpr std::string_view age_days = "{count} days ago";
+
+// Versions.
+inline constexpr std::string_view version_with_revision = "{version} · rev {revision}";
+inline constexpr std::string_view version_with_maps = "{version} · {maps}";
+inline constexpr std::string_view revision_long = "revision {revision}";
+inline constexpr std::string_view revision_short = "rev {revision}";
+/// A version and its revision in the details' Installed and Latest facts.
+inline constexpr std::string_view version_revision_fact = "{version} (rev {revision})";
+/// What an update changes from and to where no version or revision above 0
+/// names a side: the copy installed now, and the release it is updated to.
+inline constexpr std::string_view change_old_copy = "the old copy";
+inline constexpr std::string_view change_new_copy = "the new copy";
+inline constexpr std::string_view change_old_copy_short = "old";
+inline constexpr std::string_view change_new_copy_short = "new";
+inline constexpr std::string_view map_count_one = "{count} map";
+inline constexpr std::string_view map_count = "{count} maps";
+
+// Engine requirements, one comparison each, joined with list_separator.
+inline constexpr std::string_view engine_at_least = "{version} or later";
+inline constexpr std::string_view engine_above = "later than {version}";
+inline constexpr std::string_view engine_at_most = "{version} or earlier";
+inline constexpr std::string_view engine_below = "before {version}";
+inline constexpr std::string_view engine_exactly = "exactly {version}";
+inline constexpr std::string_view engine_at_least_short = "{version}+";
+inline constexpr std::string_view engine_above_short = "after {version}";
+inline constexpr std::string_view engine_at_most_short = "up to {version}";
+inline constexpr std::string_view engine_below_short = "before {version}";
+inline constexpr std::string_view engine_exactly_short = "{version} only";
+
+// The facts of an entry's details: labels, then values.
+inline constexpr std::string_view fact_installed = "Installed";
+inline constexpr std::string_view fact_latest = "Latest";
+inline constexpr std::string_view fact_author = "Author";
+inline constexpr std::string_view fact_size = "Size";
+inline constexpr std::string_view fact_base = "Base";
+inline constexpr std::string_view fact_needs = "Needs";
+inline constexpr std::string_view fact_hacks = "Hacks";
+inline constexpr std::string_view fact_rules = "Rules";
+inline constexpr std::string_view fact_maps = "Maps";
+inline constexpr std::string_view fact_coverage = "Coverage";
+inline constexpr std::string_view fact_from = "From";
+inline constexpr std::string_view size_with_download = "{size} · {download} to download";
+inline constexpr std::string_view size_download_short = "{download} to download";
+inline constexpr std::string_view base_supported = "Total Annihilation 3.1c";
+inline constexpr std::string_view base_supported_short = "TA 3.1c";
+inline constexpr std::string_view needs_engine = "Open Annihilation {range}";
+inline constexpr std::string_view needs_engine_short = "OA {range}";
+inline constexpr std::string_view hacks_counts = "{game} change the game · {view} view only";
+inline constexpr std::string_view hacks_counts_short = "{game} game · {view} view";
+inline constexpr std::string_view hacks_none = "none";
+/// The hack counts, then the missing hacks in blocked_hacks' words.
+inline constexpr std::string_view hacks_with_missing = "{counts} · {missing}";
+inline constexpr std::string_view hacks_with_missing_short = "{counts} · {count} missing";
+inline constexpr std::string_view rules_same = "{from} → {to} same";
+inline constexpr std::string_view rules_same_short = "unchanged";
+inline constexpr std::string_view rules_changes =
+    "{from} → {to} · changes the game's rules; saved games from {old} won't load under {new}";
+inline constexpr std::string_view rules_changes_short = "changes · {old} saves won't load";
+inline constexpr std::string_view rules_unknown =
+    "unknown · saved games from {old} may not load under {new}";
+inline constexpr std::string_view rules_unknown_short = "unknown · saves may not load";
+inline constexpr std::string_view coverage_percent = "{percent}%";
+inline constexpr std::string_view not_reviewed = "Not reviewed by the OA team";
+inline constexpr std::string_view from_not_reviewed = "{registry} · Not reviewed by the OA team";
+inline constexpr std::string_view from_own = "Your own copy";
+
+// The line under an entry's name.
+/// An update to a revision above 0 of the version installed.
+inline constexpr std::string_view status_revision_available =
+    "Revision {revision} available · {size} to download";
+inline constexpr std::string_view status_version_available =
+    "Version {version} available · {size} to download";
+/// An update that keeps the version and names no revision above 0.
+inline constexpr std::string_view status_update_available = "Update available · {size} to download";
+inline constexpr std::string_view status_installed = "Installed";
+inline constexpr std::string_view status_playing = "Playing";
+/// The status of a mod folder with no oamod.yaml, installed or played.
+inline constexpr std::string_view status_without_manifest = "No oamod.yaml present";
+inline constexpr std::string_view status_not_installed = "Not installed · {size}";
+inline constexpr std::string_view status_waiting = "Waiting to download";
+inline constexpr std::string_view status_downloading = "Downloading · {progress}";
+inline constexpr std::string_view status_downloading_unsized = "Downloading";
+inline constexpr std::string_view status_verifying = "Verifying";
+inline constexpr std::string_view status_checking = "Checking";
+inline constexpr std::string_view status_installing = "Installing";
+inline constexpr std::string_view status_failed = "Failed";
+inline constexpr std::string_view byline = "by {author}";
+
+// The note on updating while a mod is played.
+inline constexpr std::string_view note_finishes = "Finishes when you leave {name}.";
+inline constexpr std::string_view note_playing_other =
+    "You are playing {playing}. Updating {name} doesn't restart the game.";
+/// Why PLAY NOW and SWITCH OFF are off: --mod-dir or --base-game.
+inline constexpr std::string_view note_command_line = "The command line chose this run's mod.";
+
+// The download queue in the footer.
+inline constexpr std::string_view queue_package = "{name} {version}";
+inline constexpr std::string_view queue_downloading = "Downloading {package} · {progress}";
+inline constexpr std::string_view queue_downloading_unsized = "Downloading {package}";
+inline constexpr std::string_view queue_waiting = "Waiting to download {package}";
+inline constexpr std::string_view queue_verifying = "Verifying {name}";
+inline constexpr std::string_view queue_checking = "Checking {name}";
+inline constexpr std::string_view queue_installing = "Installing {name}";
+inline constexpr std::string_view queue_held = "Waiting · finishes when you leave {name}";
+inline constexpr std::string_view queue_installed = "Installed {name}";
+inline constexpr std::string_view queue_updated_changes =
+    "Updated {name} · {new} changes the game's rules · ROLL BACK restores {old}";
+inline constexpr std::string_view queue_updated_unknown =
+    "Updated {name} · {new} may change the game's rules · ROLL BACK restores {old}";
+inline constexpr std::string_view queue_failed_retry = "{problem} · RETRY";
+inline constexpr std::string_view queue_then = "Then {package} · {phase}";
+inline constexpr std::string_view queue_more = "{line} · {count} more";
+inline constexpr std::string_view queue_percent = "{name} {percent}%";
+inline constexpr std::string_view queue_rules_changed = "{name} · rules changed";
+inline constexpr std::string_view queue_phase = "{name} · {phase}";
+inline constexpr std::string_view phase_waiting = "waiting";
+inline constexpr std::string_view phase_downloading = "downloading";
+inline constexpr std::string_view phase_verifying = "verifying";
+inline constexpr std::string_view phase_checking = "checking";
+inline constexpr std::string_view phase_installing = "installing";
+inline constexpr std::string_view phase_held = "after you leave it";
+inline constexpr std::string_view phase_failed = "failed";
+inline constexpr std::string_view phase_installed = "installed";
+
+// The screens (screen.hpp): the header.
+/// The title at Compact.
+inline constexpr std::string_view title_library = "Library";
+/// The title's first words at Regular and Large; title_library follows them.
+inline constexpr std::string_view title_open_annihilation = "Open Annihilation";
+/// Beside the header's refresh icon when the last refresh could not reach a registry.
+inline constexpr std::string_view offline_mark = "offline";
+
+// The search and the filters.
+inline constexpr std::string_view search_mods = "Search mods, authors, tags";
+inline constexpr std::string_view search_maps = "Search maps, authors, tags";
+inline constexpr std::string_view search_languages = "Search languages";
+/// The Active tab's maps field, above the maps pane.
+inline constexpr std::string_view search_active_maps = "Search maps";
+inline constexpr std::string_view search_updates = "Search updates";
+/// A tag in Compact's filter drop-down.
+inline constexpr std::string_view filter_tag = "Tag: {tag} ({count})";
+/// A tag in the filter pane, with how many entries have it.
+inline constexpr std::string_view tag_with_count = "{tag} ({count})";
+/// The drop-down holding the tags that do not fit, and the filter pane's heading over them.
+inline constexpr std::string_view tags_menu = "TAGS";
+/// The Compact details page's drop-down holding the actions after the first three.
+inline constexpr std::string_view more_menu = "MORE";
+/// How many updates the Updates tab shows.
+inline constexpr std::string_view update_count_one = "{count} update";
+inline constexpr std::string_view update_count_many = "{count} updates";
+/// How many packages the player has added, as the main menu's Library button says.
+/// A package is a mod, a map pack, a language pack or a downloaded expansion.
+inline constexpr std::string_view package_count_one = "{count} package";
+inline constexpr std::string_view package_count_many = "{count} packages";
+
+// The Active tab: the base game, its expansions, the mod being played, the
+// language in use and the installed maps, under one heading each.
+inline constexpr std::string_view active_heading_base = "BASE GAME";
+inline constexpr std::string_view active_heading_mod = "MOD";
+inline constexpr std::string_view active_heading_language = "LANGUAGE";
+inline constexpr std::string_view active_heading_expansions = "EXPANSIONS";
+inline constexpr std::string_view active_expansions_count = "EXPANSIONS · {on} OF {count} ON";
+inline constexpr std::string_view active_heading_maps = "MAPS";
+inline constexpr std::string_view active_change = "CHANGE…";
+inline constexpr std::string_view active_add_from = "{name} · ADD FROM…";
+inline constexpr std::string_view active_files_match = "All files match";
+inline constexpr std::string_view active_file_differs = "{count} file differs";
+inline constexpr std::string_view active_files_differ = "{count} files differ";
+/// Music the source did not finish. `{held}` and `{total}` are counts.
+inline constexpr std::string_view music_tracks = "{held} of {total} tracks";
+inline constexpr std::string_view active_version_source = "{version} · {source}";
+inline constexpr std::string_view active_turns_off = "{name} turns off when the Library closes.";
+inline constexpr std::string_view active_turns_on = "{name} turns on when the Library closes.";
+inline constexpr std::string_view active_needs = "{name} needs {need}.";
+inline constexpr std::string_view active_as_made = "{game} as it was made";
+inline constexpr std::string_view active_no_expansions = "This game has no expansions.";
+inline constexpr std::string_view active_game_name = "Total Annihilation";
+inline constexpr std::string_view active_version = "3.1c";
+inline constexpr std::string_view active_version_demo = "Demo";
+
+// The base game chooser, over the Library. CANCEL and "In use" are the
+// words the rest of the Library already uses.
+/// The chooser's title.
+inline constexpr std::string_view base_title = "Base game";
+/// The line under the title.
+inline constexpr std::string_view base_lead =
+    "The game OA plays. Mods, maps and languages say which base games they work with.";
+/// A base game that is not copied.
+inline constexpr std::string_view base_not_added = "Not added";
+/// A copied base game that is not the one in use.
+inline constexpr std::string_view base_copied = "Copied";
+/// The demo, as the chooser names it.
+inline constexpr std::string_view base_demo_name = "Total Annihilation demo";
+/// The demo's version on the chooser.
+inline constexpr std::string_view base_demo_version = "1997";
+/// The demo while it is not copied.
+inline constexpr std::string_view base_demo_detail =
+    "Choosing it asks for the demo installer, then copies it. It takes no expansions.";
+/// A base game that is not the demo, while it is not copied.
+inline constexpr std::string_view base_ask_game = "Choosing it asks for the game, then copies it.";
+/// Where a copied base game came from.
+inline constexpr std::string_view base_copied_from = "Copied from {source}";
+/// Shown when another base game is marked and a mod is being played.
+inline constexpr std::string_view base_note_mod =
+    "Choosing another base game turns on all of its expansions and unloads the mod you are playing "
+    "({mod}). The change applies when the Library closes.";
+/// Shown when another base game is marked and no mod is being played.
+inline constexpr std::string_view base_note_plain =
+    "Choosing another base game turns on all of its expansions. The change applies when the "
+    "Library closes.";
+/// The chooser's accent button.
+inline constexpr std::string_view base_use = "USE THIS GAME";
+/// The Active tab, after another base game was chosen.
+inline constexpr std::string_view base_applies = "This base game is used when the Library closes.";
+/// A copy the host could not finish.
+inline constexpr std::string_view base_copy_failed = "The game could not be copied.";
+/// Beside MAPS while the maps search holds text: how many tiles show, of every installed map.
+inline constexpr std::string_view active_maps_count = "{shown} of {all}";
+/// The mod being played, or the language pack in use: its name, then its version.
+inline constexpr std::string_view active_package = "{name} {version}";
+/// A language no pack holds, which the game shows from its own words.
+inline constexpr std::string_view active_language_built_in = "{language} · built in";
+/// A language pack's coverage, as its tile states it.
+inline constexpr std::string_view active_coverage = "Coverage {percent}%";
+/// The language the game shows with no language chosen.
+inline constexpr std::string_view language_english = "English";
+/// A built-in language's details, under its name: it is not a package.
+inline constexpr std::string_view status_built_in_language = "Built into the game";
+/// How many players a map is for: one, and every other count.
+inline constexpr std::string_view active_players_one = "{count} player";
+inline constexpr std::string_view active_players_many = "{count} players";
+/// One map of an installed map pack, as automation reads its line.
+inline constexpr std::string_view active_map = "{map} · {players} · {size}";
+/// A map's players and size under its title: "4 players · 16x16".
+inline constexpr std::string_view map_players_size = "{players} · {size}";
+/// The link on an Active map's tile that opens its pack on the Maps tab.
+inline constexpr std::string_view active_from_pack = "From {pack}";
+inline constexpr std::string_view active_no_maps = "No map packs are installed.";
+/// The maps pane while a search matches none of the maps that are installed.
+inline constexpr std::string_view active_no_map_match = "No installed map matches.";
+
+// A row: the version and size under the name at Compact.
+inline constexpr std::string_view row_version_size = "{version} · {size}";
+/// The line above, from a registry the player added.
+inline constexpr std::string_view row_from_registry = "{line} · {registry}";
+
+// An empty list, and a list the last fetch could not bring up to date.
+inline constexpr std::string_view empty_matches = "Nothing matches \"{query}\".";
+inline constexpr std::string_view empty_updates = "No updates.";
+inline constexpr std::string_view empty_no_registries =
+    "Nothing here yet. Turn a registry on in Settings › Downloads.";
+inline constexpr std::string_view empty_tab = "Nothing to show.";
+inline constexpr std::string_view offline_list =
+    "Showing the list from {age}. OA couldn't reach the registries.";
+
+// The details.
+/// After a fact's value that is met.
+inline constexpr std::string_view fact_met = "✓";
+
+// The question asked before an update that may stop saved games loading
+// (update_question.hpp).
+inline constexpr std::string_view question_title = "Update {name}";
+inline constexpr std::string_view question_title_all = "Update all";
+/// The heading of an update to a new revision of the same version.
+inline constexpr std::string_view question_heading_revision =
+    "{name} {version} · revision {from} → {to}";
+/// The heading of an update to a new version.
+inline constexpr std::string_view question_heading_version = "{name} {from} → {to}";
+/// The heading of an update that keeps the version and names no revision
+/// above 0 on one side.
+inline constexpr std::string_view question_heading_same = "{name} {version}";
+/// `{to}` and `{from}` are change_texts' ("revision 4", or the version
+/// "4.9"); `{To}` and `{From}` are the same with a capital first letter.
+inline constexpr std::string_view question_changes =
+    "{To} changes the game's rules. Saved games from {from} won't load under {to}. {From} is "
+    "kept, and ROLL BACK brings it back.";
+inline constexpr std::string_view question_unknown =
+    "OA can't tell whether {to} changes the game's rules. If it does, saved games from {from} "
+    "won't load under it. {From} is kept, and ROLL BACK brings it back.";
+/// After the body, for the mod being played.
+inline constexpr std::string_view question_finishes = "It finishes when you leave {name}.";
+/// UPDATE ALL's body for one update whose rules change, and for several.
+inline constexpr std::string_view question_all_one =
+    "1 update changes the game's rules: {names}. Saved games from its current version won't "
+    "load under the new one. It is kept, and ROLL BACK brings it back.";
+inline constexpr std::string_view question_all_many =
+    "{count} updates change the game's rules: {names}. Saved games from their current versions "
+    "won't load under the new ones. Each is kept, and ROLL BACK brings it back.";
+/// The names UPDATE ALL's body lists, then how many more it does not.
+inline constexpr std::string_view question_names_more = "{names} and {count} more";
+/// The question's Rules fact: the rules hashes before and after.
+inline constexpr std::string_view question_rules = "{from} → {to}";
+inline constexpr std::string_view question_rules_unknown = "unknown";
+inline constexpr std::string_view fact_download = "Download";
+/// One fact of the question, as a line of its text.
+inline constexpr std::string_view question_fact = "{label}: {value}";
+inline constexpr std::string_view action_not_now = "NOT NOW";
+
+// The questions about the mod played (mod_questions.hpp): SWITCH OFF's
+// Switch Mod question, the note that PLAY NOW could not switch, and ROLL
+// BACK's Roll Back Mod question.
+inline constexpr std::string_view switch_title = "SWITCH MOD";
+/// What the Switch Mod question asks, with the mod's title in its place.
+inline constexpr std::string_view switch_ask =
+    "Switch to {title} now? The game reloads its data for the new mod and returns to the main "
+    "menu. Your other settings are kept.";
+/// The title the Switch Mod question gives the game played with no mod.
+inline constexpr std::string_view no_mod = "No Mod";
+inline constexpr std::string_view expansion_off_title = "Turn off {name}?";
+inline constexpr std::string_view expansion_off_too = "{name} turns off too: it needs {need}.";
+inline constexpr std::string_view expansion_off_mod =
+    "{mod} needs {name}, so it is unloaded and the game plays with No Mod.";
+inline constexpr std::string_view expansion_off_maps =
+    "{name}'s maps and campaigns leave the lists until you turn it on again. Nothing is deleted.";
+inline constexpr std::string_view action_turn_off = "TURN OFF";
+inline constexpr std::string_view action_switch = "SWITCH";
+inline constexpr std::string_view action_ok = "OK";
+inline constexpr std::string_view roll_back_title = "ROLL BACK MOD";
+/// What the Roll Back Mod question asks, with the mod's title and the versions.
+inline constexpr std::string_view roll_back_ask =
+    "Roll back {title} to {to}? {from} is kept in its place, and ROLL BACK again brings it back.";
+/// What the Roll Back Mod question adds for the mod the game plays.
+inline constexpr std::string_view roll_back_reload =
+    "The game reloads its data for the mod and returns to the main menu.";
+
+// What a package needs, on its row and in its details, against the choice
+// the Active tab is holding. Product names stay in the values filled in.
+inline constexpr std::string_view fact_games = "Games";
+inline constexpr std::string_view names_and = "{left} and {right}";
+inline constexpr std::string_view names_comma = "{left}, {right}";
+inline constexpr std::string_view fact_join = "{left} · {right}";
+inline constexpr std::string_view name_met = "{name} ✓";
+inline constexpr std::string_view name_off = "{name} off";
+inline constexpr std::string_view needs_which_off = "Needs {name}, which is off";
+inline constexpr std::string_view needs_which_are_off = "Needs {names}, which are off";
+inline constexpr std::string_view needs_which_on = "Needs {name} · on";
+inline constexpr std::string_view needs_which_are_on = "Needs {names} · on";
+inline constexpr std::string_view for_demo_only = "For the Total Annihilation demo only";
+inline constexpr std::string_view for_game_only = "For {name} only";
+inline constexpr std::string_view action_turn_on = "TURN ON {name}";
+inline constexpr std::string_view turn_on_then_play =
+    "Turning it on applies when the Library closes, and then PLAY NOW works.";
+inline constexpr std::string_view turn_on_then_use =
+    "Turning it on applies when the Library closes, and then USE NOW works.";
+inline constexpr std::string_view turn_on_several_play =
+    "Turning them on applies when the Library closes, and then PLAY NOW works.";
+inline constexpr std::string_view turn_on_several_use =
+    "Turning them on applies when the Library closes, and then USE NOW works.";
+inline constexpr std::string_view turn_on_applies =
+    "Turning it on applies when the Library closes.";
+inline constexpr std::string_view turn_on_several_applies =
+    "Turning them on applies when the Library closes.";
+inline constexpr std::string_view mod_unloaded_because =
+    "{mod} was unloaded because {name} is off. The game plays with No Mod.";
+inline constexpr std::string_view mod_unloaded_note =
+    "The mod was unloaded because an expansion it needs is off. The game plays with No Mod.";
+/// Under the expansion pills, after the padlock, while the command line chose
+/// the mod being played: the expansions it needs, whose pills are locked.
+inline constexpr std::string_view active_command_line_needs =
+    "The command line chose this run's mod, which needs {names}.";
+
+} // namespace words
+
+/// One place of a pattern and its value.
+using Place = std::pair<std::string_view, std::string_view>;
+
+/// Looks a text up in the language shown.
+///
+/// @param text how texts are looked up
+/// @param english the text, in English as text.hpp writes it
+/// @return the text to show; the English when the hooks give no lookup
+[[nodiscard]] std::string_view shown(const TextHooks& text, std::string_view english);
+
+/// Looks a pattern up whole and fills its places.
+///
+/// A place no value names stays as it is written. Values are not looked up.
+///
+/// @param text how texts are looked up
+/// @param pattern the pattern, in English, with places written {name}
+/// @param places each place's name and value
+/// @return the text
+[[nodiscard]] std::string
+filled(const TextHooks& text, std::string_view pattern, std::initializer_list<Place> places);
+
+/// Writes a size in binary units.
+///
+/// Below 1 MiB in whole KB, at least 1; below 100 MiB in MB to one decimal;
+/// below 1 GiB in whole MB; above in GB to one decimal. Halves round up:
+/// 43,011,223 bytes is "41.0 MB", and 197,132,288 is "188 MB".
+///
+/// @param bytes the size
+/// @param text how texts are looked up
+/// @return the size
+[[nodiscard]] std::string size_text(uint64_t bytes, const TextHooks& text = {});
+
+/// Writes a download's progress, both numbers in the unit and precision of the whole size.
+///
+/// @param done the bytes downloaded
+/// @param total the whole size, in bytes
+/// @param text how texts are looked up
+/// @return the progress, such as "18.2 of 64.0 MB"
+[[nodiscard]] std::string progress_text(uint64_t done, uint64_t total, const TextHooks& text = {});
+
+/// Writes how long ago something happened.
+///
+/// Below a minute, or a negative age, "just now"; below an hour in whole
+/// minutes; below 48 hours in whole hours; else in whole days.
+///
+/// @param seconds the age
+/// @param text how texts are looked up
+/// @return the age, such as "4 min ago"
+[[nodiscard]] std::string age_text(int64_t seconds, const TextHooks& text = {});
+
+/// Writes a rules hash's first four bytes as two groups of hexadecimal digits.
+///
+/// @param digest the hash
+/// @return the text, such as "9c1f 4e0b"
+[[nodiscard]] std::string rules_text(const base::sha256::Digest& digest);
+
+/// Writes a listing's version, its revision above 1, and a map pack's number of maps.
+///
+/// @param listing the listing
+/// @param text how texts are looked up
+/// @return the text, such as "4.8 · rev 3" or "1.2 · 2 maps"
+[[nodiscard]] std::string version_text(const Listing& listing, const TextHooks& text = {});
+
+/// Writes an installed package's version and its revision above 1.
+///
+/// @param installed the package
+/// @param text how texts are looked up
+/// @return the text, such as "4.8 · rev 3"
+[[nodiscard]] std::string version_text(const Installed& installed, const TextHooks& text = {});
+
+/// Writes a version and its revision as the details' Installed and Latest
+/// facts give them. A revision of 0, which a catalogue or manifest that
+/// names none leaves, is left out.
+///
+/// @param version the version, as written; empty when it has none
+/// @param revision the packaging revision; 0 when it names none
+/// @param text how texts are looked up
+/// @return "4.8 (rev 3)", "4.8" for revision 0, "rev 3" without a version;
+///         empty with neither
+[[nodiscard]] std::string
+release_text(std::string_view version, int64_t revision, const TextHooks& text = {});
+
+/// What an update changes from and to, as the Rules fact, the queue and the update question name them.
+struct ChangeTexts {
+    std::string from{};       ///< "revision 3", the version "4.8", or "the old copy"
+    std::string to{};         ///< "revision 4", the version "4.9", or "the new copy"
+    std::string from_short{}; ///< "rev 3", the version "4.8", or "old"
+    std::string to_short{};   ///< "rev 4", the version "4.9", or "new"
+};
+
+/// Names both sides of an update: by revision when it keeps the version
+/// text, else by version. A side whose revision is 0 where its revision
+/// would name it, or whose version is empty where its version would, is
+/// named by its revision above 0 if it has one, else as the old or the new
+/// copy, so that no side reads "revision 0".
+///
+/// @param installed the installed package
+/// @param update its update
+/// @param text how texts are looked up
+/// @return the names
+[[nodiscard]] ChangeTexts
+change_texts(const Installed& installed, const UpdateNote& update, const TextHooks& text = {});
+
+/// Describes an engine requirement in words.
+///
+/// @param range the requirement
+/// @param text how texts are looked up
+/// @return the words, such as "0.8.0 or later"
+[[nodiscard]] std::string
+engine_text(const formats::oamod::EngineRange& range, const TextHooks& text = {});
+
+/// Describes an engine requirement in a few characters.
+///
+/// @param range the requirement
+/// @param text how texts are looked up
+/// @return the words, such as "0.8.0+"
+[[nodiscard]] std::string
+engine_short_text(const formats::oamod::EngineRange& range, const TextHooks& text = {});
+
+/// Names a tab.
+///
+/// @param tab the tab
+/// @param compact the short name, for a small screen
+/// @param text how texts are looked up
+/// @return the name
+[[nodiscard]] std::string_view tab_text(Tab tab, bool compact, const TextHooks& text = {});
+
+/// Names a filter.
+///
+/// @param filter the filter
+/// @param text how texts are looked up
+/// @return the name
+[[nodiscard]] std::string_view filter_text(Filter filter, const TextHooks& text = {});
+
+/// Names a row's state, as its chip shows it.
+///
+/// @param state the state
+/// @param text how texts are looked up
+/// @return the name
+[[nodiscard]] std::string_view state_text(State state, const TextHooks& text = {});
+
+/// Names a button.
+///
+/// @param action what the button asks for
+/// @param text how texts are looked up
+/// @return the button's words
+[[nodiscard]] std::string_view action_text(Action action, const TextHooks& text = {});
+
+/// Returns a registry's avatar: the first letters of its first three words
+/// when its name has two or more, or the first two letters of its one word,
+/// in upper case.
+///
+/// @param name the registry's name, in UTF-8
+/// @return at most three characters
+[[nodiscard]] std::string registry_initials(std::string_view name);
+
+/// Returns how long ago a registry was checked, as its subtitle says it:
+/// "just now" under a minute, then whole minutes, hours and days, and
+/// "1 day ago" through the second day.
+///
+/// @param seconds how long ago, in seconds
+/// @param text how texts are looked up
+/// @return such as "4 min ago", "2 h ago" or "3 days ago"
+[[nodiscard]] std::string registry_age_text(int64_t seconds, const TextHooks& text = {});
+
+/// Returns when a registry was last read: "refreshed 5 min ago", "never
+/// refreshed", or "couldn't reach · 2 h ago" when the last refresh found
+/// nothing usable.
+///
+/// @param registry the registry
+/// @param text how texts are looked up
+/// @return the line
+[[nodiscard]] std::string
+registry_refresh_line(const Registry& registry, const TextHooks& text = {});
+
+/// Returns a registry's subtitle: how many packages it lists, "not reviewed"
+/// when the player added it, and how many mirrors the player added.
+///
+/// @param registry the registry
+/// @param text how texts are looked up
+/// @return the subtitle
+[[nodiscard]] std::string registry_subtitle(const Registry& registry, const TextHooks& text = {});
+
+/// Returns the note under the Registries list: content from registries other
+/// than the built-in ones, named, is not reviewed by the OA team.
+///
+/// @param registries the registries, in the order they are listed
+/// @param text how texts are looked up
+/// @return the note
+[[nodiscard]] std::string
+registry_note(const std::vector<Registry>& registries, const TextHooks& text = {});
+
+} // namespace oa::ui::library

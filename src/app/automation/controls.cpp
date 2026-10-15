@@ -16,6 +16,7 @@
 #include <cstddef>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace oa::app::automation {
 namespace {
@@ -77,6 +78,24 @@ std::optional<AutomationControlKind> multiplayer_kind(const mp::Control& control
     return std::nullopt;
 }
 
+/// Names a list's scroll arrows and adds them as controls a program can click.
+///
+/// The bar's own rectangle lies between its arrows, so a click at its centre
+/// is not a click on an arrow. The arrows are `<bar>.up` and `<bar>.down`.
+/// A list with no row pitch, a hidden bar or a bar with no arrows is left
+/// with none: every row fits, or the bar is not a list's.
+///
+/// @param panel the panel shown
+/// @param offset where the panel lies on the canvas
+/// @param dialog the dialog's name; empty for the screen's own panel
+/// @param[in,out] controls the panel's controls, which gain the arrows
+void name_list_scroll(
+    const mp::Panel& panel,
+    mp::PanelOffset offset,
+    const std::string& dialog,
+    std::vector<AutomationControl>& controls
+);
+
 /// Collects the controls of the multiplayer screen shown, or of the dialog
 /// over it: those of the panel that takes the pointer.
 ///
@@ -113,10 +132,12 @@ void multiplayer_controls(std::vector<AutomationControl>& controls) {
                 : std::string(text);
         if (*kind == AutomationControlKind::list) {
             control.items = source.items;
+            if (source.item_keys.size() == source.items.size())
+                control.item_keys = source.item_keys;
             control.first_visible = std::max<int32_t>(0, source.list_first);
             control.row_height =
                 source.list_item_height > 0 ? source.list_item_height : panel.line_height;
-            control.rows = control.row_height > 0 ? control.height / control.row_height : 0;
+            control.rows = mp::list_shown_rows(source, panel.line_height);
             control.selected =
                 source.list_selection >= 0 &&
                         static_cast<size_t>(source.list_selection) < source.items.size()
@@ -124,6 +145,66 @@ void multiplayer_controls(std::vector<AutomationControl>& controls) {
                     : -1;
         }
         controls.push_back(std::move(control));
+    }
+    name_list_scroll(panel, offset, dialog, controls);
+}
+
+void name_list_scroll(
+    const mp::Panel& panel,
+    mp::PanelOffset offset,
+    const std::string& dialog,
+    std::vector<AutomationControl>& controls
+) {
+    std::vector<std::string> added;
+    for (int32_t index = 1; index < panel.count; ++index) {
+        const mp::Control& source = panel.controls[static_cast<size_t>(index)];
+        if (source.type != mp::ControlType::list_box || source.list_item_height <= 0)
+            continue;
+        const int32_t bar = mp::panel_group_member(panel, index, mp::ControlType::slider);
+        if (bar == mp::kNoControl)
+            continue;
+        const mp::Control& slider = panel.controls[static_cast<size_t>(bar)];
+        if (slider.active == 0 || slider.scroll.art == oa::ui::gui_input::ScrollArt::unbound)
+            continue;
+        const auto& back = slider.scroll.back_arrow;
+        const auto& forward = slider.scroll.forward_arrow;
+        if (back.width <= 0 || back.height <= 0 || forward.width <= 0 || forward.height <= 0)
+            continue;
+        const std::string bar_name(mp::control_name(slider));
+        if (bar_name.empty())
+            continue;
+        const std::string up = bar_name + ".up";
+        const std::string down = bar_name + ".down";
+        const std::string list_name(mp::control_name(source));
+        for (AutomationControl& listed : controls) {
+            if (listed.kind == AutomationControlKind::list && listed.name == list_name) {
+                listed.scroll_up = up;
+                listed.scroll_down = down;
+                break;
+            }
+        }
+        const auto add = [&](const std::string& name,
+                             int32_t arrow_x,
+                             int32_t arrow_y,
+                             int32_t arrow_width,
+                             int32_t arrow_height) {
+            if (std::find(added.begin(), added.end(), name) != added.end())
+                return;
+            added.push_back(name);
+            AutomationControl arrow;
+            arrow.name = name;
+            arrow.kind = AutomationControlKind::button;
+            arrow.dialog = dialog;
+            arrow.x = arrow_x + offset.x;
+            arrow.y = arrow_y + offset.y;
+            arrow.width = arrow_width;
+            arrow.height = arrow_height;
+            arrow.visible = true;
+            arrow.enabled = true;
+            controls.push_back(std::move(arrow));
+        };
+        add(up, back.x, back.y, back.width, back.height);
+        add(down, forward.x, forward.y, forward.width, forward.height);
     }
 }
 
@@ -143,7 +224,8 @@ void write_rect(JsonWriter& json, int32_t x, int32_t y, int32_t width, int32_t h
     json.end_array();
 }
 
-/// Writes a control's rectangle in the window's own pixels.
+/// Writes a control's rectangle in the window's own pixels: the one the
+/// host gives, else the canvas rectangle placed through the window.
 ///
 /// @param[in,out] json the JSON being written
 /// @param placement where the window shows the canvas
@@ -151,6 +233,12 @@ void write_rect(JsonWriter& json, int32_t x, int32_t y, int32_t width, int32_t h
 void write_window_rect(
     JsonWriter& json, const WindowPlacement& placement, const AutomationControl& control
 ) {
+    if (control.window_pixels) {
+        write_rect(
+            json, control.window_x, control.window_y, control.window_width, control.window_height
+        );
+        return;
+    }
     float left = 0.0F;
     float top = 0.0F;
     float right = 0.0F;
@@ -178,39 +266,53 @@ void write_window_rect(
 
 /// Collects the controls of the windows extensions show over the screen.
 ///
-/// @param endpoint the endpoint, served
+/// @param host the automation host
 /// @param[out] controls replaced by those controls
-void extension_windows(const Endpoint& endpoint, std::vector<AutomationControl>& controls) {
+void extension_windows(
+    const oa::app::AutomationHost& host, std::vector<AutomationControl>& controls
+) {
     controls.clear();
-    const AutomationHost& host = endpoint.automation_host();
     if (host.windows != nullptr)
         host.windows(host.context, &controls);
 }
 
 } // namespace
 
-void collect_controls(const Endpoint& endpoint, std::vector<AutomationControl>& controls) {
+void collect_controls(
+    const CheckHost& check, const AutomationHost& host, std::vector<AutomationControl>& controls
+) {
     controls.clear();
-    const CheckHost& check = endpoint.check_host();
-    const AutomationHost& host = endpoint.automation_host();
     if (multiplayer_screen(check.screen(check.context))) {
         if (mp::multiplayer_showing())
             multiplayer_controls(controls);
+        // Open Annihilation's own screens over these, such as GET MAP in the
+        // battle room, take the pointer first; the host lists them in the
+        // window's pixels.
+        std::vector<AutomationControl> own;
+        if (host.controls != nullptr)
+            host.controls(host.context, &own);
+        controls.insert(controls.begin(), own.begin(), own.end());
     } else {
         host.controls(host.context, &controls);
         // A dialog's controls come first among the screen's: they take the
-        // pointer over it.
+        // pointer over it. So do Open Annihilation's own screens' and the OA
+        // button's, which the host places in the window's pixels and lists
+        // where they belong.
         std::stable_partition(
             controls.begin(), controls.end(), [](const AutomationControl& control) {
-                return !control.dialog.empty();
+                return !control.dialog.empty() || control.window_pixels;
             }
         );
     }
     // An extension's windows take the pointer over the screen and its dialogs.
     std::vector<AutomationControl> windows;
-    extension_windows(endpoint, windows);
+    extension_windows(host, windows);
     if (!windows.empty())
         controls.insert(controls.begin(), windows.begin(), windows.end());
+}
+
+void collect_controls(const Endpoint& endpoint, std::vector<AutomationControl>& controls) {
+    collect_controls(endpoint.check_host(), endpoint.automation_host(), controls);
 }
 
 std::string_view control_kind_name(AutomationControlKind kind) noexcept {
@@ -323,6 +425,13 @@ void answer_controls(Endpoint& endpoint, const Request& request, Answer& answer)
             for (const std::string& item : control.items)
                 json.string(item);
             json.end_array();
+            if (!control.item_keys.empty() && control.item_keys.size() == control.items.size()) {
+                json.key("item_keys");
+                json.begin_array();
+                for (const std::string& key : control.item_keys)
+                    json.string(key);
+                json.end_array();
+            }
             json.key("first_visible");
             json.integer(control.first_visible);
             json.key("rows");
@@ -331,12 +440,18 @@ void answer_controls(Endpoint& endpoint, const Request& request, Answer& answer)
             json.integer(control.row_height);
             json.key("selected");
             json.integer(control.selected);
-            // The lists' scroll bars carry their own arrows; no control of
-            // its own scrolls a list.
+            // Empty when every row fits, or the list has no scroll bar.
+            // A multiplayer list names its bar's arrows.
             json.key("scroll_up");
-            json.null();
+            if (control.scroll_up.empty())
+                json.null();
+            else
+                json.string(control.scroll_up);
             json.key("scroll_down");
-            json.null();
+            if (control.scroll_down.empty())
+                json.null();
+            else
+                json.string(control.scroll_down);
         }
         json.end_object();
     }

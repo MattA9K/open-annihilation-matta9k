@@ -13,6 +13,7 @@
 // program through them. An extension built on network play reaches it
 // through oa/app/netgame/extension_api.hpp, whose hooks this extension calls.
 #include "oa/app/runtime.hpp"
+#include "oa/platform/log_files.hpp"
 #include "oa/app/game_directory.hpp"
 #include "battle_lines.hpp"
 #include "close_handlers.hpp"
@@ -25,12 +26,15 @@
 #include "traffic_overlay.hpp"
 
 #include "oa/app/check_host.hpp"
+#include "oa/app/netgame/opened_launch.hpp"
+#include "oa/data/languages/interface_text.hpp"
 #include "oa/netgame/frontend/multiplayer_states.hpp"
 #include "oa/netgame/messages/departures.hpp"
 #include "oa/session/demo.hpp"
 #include "oa/sim/messages.hpp"
 #include "oa/formats/tad.hpp"
 #include "oa/ui/hud/team_panels.hpp"
+#include "oa/ui/frontend_dialogs.hpp"
 #include "oa/ui/frontend_multiplayer/connect.hpp"
 #include "oa/ui/frontend_multiplayer/lobby.hpp"
 #include "oa/ui/frontend_multiplayer/screens.hpp"
@@ -49,14 +53,17 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <tuple>
+#include <utility>
 #include <vector>
 
 // The version of the engine's extension table these hooks follow. A build
 // against a table of another version stops here until the engine's change
 // has been read and the hooks follow it. Version 14 adds functions an
 // extension calls rather than hooks (extension.hpp lists them).
-// These hooks call none of them.
-constexpr uint32_t kExtensionApiVersionFollowed = 14;
+// These hooks call none of them. Version 15 adds the OA UI kit, which these
+// hooks do not use.
+constexpr uint32_t kExtensionApiVersionFollowed = 15;
 static_assert(
     oa::app::extension_api_version == kExtensionApiVersionFollowed,
     "the engine's extension table changed: follow its change, then raise "
@@ -72,10 +79,13 @@ namespace report_event = oa::app::netgame::extension_api::report_event;
 namespace demo = oa::session::demo;
 
 // ScreenContext::host and ::services, kept from the overlay registered for
-// them; null until the runtime creates its overlays.
+// them; null until the runtime creates its overlays. The screen shown, and
+// whether a match's world is bound, as the overlay last ticked.
 struct KeptServices {
     void* host{};
     const ScreenServices* services{};
+    ScreenId screen{};
+    bool world{};
 };
 
 KeptServices g_services;
@@ -149,6 +159,7 @@ struct DirectGameReport {
     bool shown{};
     uint32_t frames{}; // frames run before a multiplayer screen first showed
     std::string players;
+    std::string seats; // under a launch: each seat's side, team and colour as last listed
 };
 
 // The most frames that ask for a frontend pass while no multiplayer screen
@@ -157,6 +168,14 @@ struct DirectGameReport {
 constexpr uint32_t kDirectGameOpeningFrames = 300;
 
 DirectGameReport g_direct_report;
+
+/// How far the transport a launch names has taken the main menu to multiplayer (transport_frame).
+struct TransportOpening {
+    bool settled{};    ///< the screens showed, or there was nothing to open
+    uint32_t frames{}; ///< frames that asked for a frontend pass
+};
+
+TransportOpening g_transport_opening;
 
 /// Names the players seated in the battle room, in slot order.
 ///
@@ -178,15 +197,123 @@ std::string battle_room_players(mp::Lobby& lobby) {
     return names;
 }
 
+/// Describes each player the battle room seats: side, team, colour, and a computer player's difficulty.
+///
+/// @param lobby the multiplayer screens' lobby
+/// @return the seats in slot order, such as "Commander arm team 1 colour 1"; empty without a game
+std::string battle_room_seats(mp::Lobby& lobby) {
+    std::string seats;
+    if (lobby.game == nullptr)
+        return seats;
+    for (int32_t slot = 0; slot < mp::kSlotCount; ++slot) {
+        auto& player = mp::slot_player(lobby, slot);
+        const std::string name(player.name, ::strnlen(player.name, sizeof player.name));
+        const auto* info = mp::slot_info(lobby, slot);
+        if (player.in_use == 0 || name.empty() || info == nullptr)
+            continue;
+        std::string seat = name + " ";
+        if ((info->options & mp::option::watcher) != 0)
+            seat += "watcher";
+        else if (info->side <= 1)
+            seat += info->side == 0 ? "arm" : "core";
+        else
+            seat += "side " + std::to_string(info->side + 1);
+        const uint8_t team = mp::lobby_player_team(player);
+        seat += team == mp::kNoTeam ? " no team" : " team " + std::to_string(team + 1);
+        seat += info->color == mp::kNoColor ? " no colour"
+                                            : " colour " + std::to_string(info->color + 1);
+        if (player.status == mp::kSlotComputer) {
+            static constexpr const char* difficulties[] = {"easy", "medium", "hard"};
+            const uint8_t difficulty =
+                lobby.computer_difficulty_set[slot] ? lobby.computer_difficulty[slot] : 2;
+            seat += std::string(" ") + difficulties[difficulty < 3 ? difficulty : 2];
+        }
+        if (!seats.empty())
+            seats += ", ";
+        seats += seat;
+    }
+    return seats;
+}
+
+/// Writes the battle room's map and rules when a launch opened it.
+///
+/// The password is not written. Each line is flushed.
+///
+/// @param lobby the battle room
+void report_launch_battle_room(mp::Lobby& lobby) {
+    if (lobby.game == nullptr)
+        return;
+    const auto& info = mp::local_info(lobby);
+    const std::string map(info.map_name, ::strnlen(info.map_name, sizeof info.map_name));
+    oa::platform::log_files::write_line("multiplayer: battle room map: " + map);
+    const auto commander = (info.options & mp::option::commander_mask) >> 11;
+    const char* commander_name = "continues";
+    if (commander == 1)
+        commander_name = "ends";
+    else if (commander == 2)
+        commander_name = "deathmatch";
+    const char* sight = "permanent";
+    if ((info.options & mp::option::los_limited) != 0 && (info.options & mp::option::los_true) != 0)
+        sight = "true";
+    else if ((info.options & mp::option::los_limited) != 0)
+        sight = "circular";
+    const char* mapping_name = (info.options & mp::option::unmapped) != 0 ? "unmapped" : "mapped";
+    const char* starts = (info.options & mp::option::fixed_locations) != 0 ? "fixed" : "random";
+    const char* cheats = (info.options & mp::option::cheats_allowed) != 0 ? "on" : "off";
+    const char* watchers = (info.options & mp::option::watching_allowed) != 0 ? "on" : "off";
+    const int32_t players = mp::lobby_session_players(*lobby.game);
+    std::string rules = "multiplayer: battle room rules: commander " + std::string(commander_name) +
+                        ", metal " + std::to_string(static_cast<int>(info.metal_hundreds) * 100) +
+                        ", energy " + std::to_string(static_cast<int>(info.energy_hundreds) * 100);
+    if (net_launch_switches().block.max_units != 0)
+        rules += ", units " + std::to_string(net_launch_switches().block.max_units);
+    rules += ", los " + std::string(sight) + ", mapping " + mapping_name + ", starts " + starts +
+             ", cheats " + cheats + ", watchers " + watchers + ", player limit " +
+             std::to_string(players);
+    oa::platform::log_files::write_line(rules);
+}
+
+/// Takes the main menu to the multiplayer screens without input when the start names a transport and no game.
+///
+/// "-n", or the connect key of TA Forever's file, names the transport. The
+/// main menu then goes to multiplayer at once, as in 3.1c, whose frontend
+/// runs every frame; this game's frontend runs a pass when asked, so until a
+/// multiplayer screen first shows, each frame asks for one, for
+/// kDirectGameOpeningFrames frames at most. The screens then take the
+/// transport as 3.1c's do: with TCP/IP and an address the address step
+/// completes by itself and the game list shows the games there for the
+/// player to choose; without an address it waits for one; a transport this
+/// game does not have leaves the provider list up. A game to host or join
+/// is direct_game_frame's, and --check-host-not-found asks for its own
+/// passes.
+void transport_frame() {
+    auto& opening = g_transport_opening;
+    if (opening.settled)
+        return;
+    const NetOptions& options = net_options();
+    if (options.direct_game.kind != mp::DirectGame::Kind::none || options.check_host_not_found ||
+        mp::multiplayer_showing() || opening.frames >= kDirectGameOpeningFrames ||
+        (opening.frames == 0 && launch_connection_type(nullptr) == 0)) {
+        opening.settled = true;
+        return;
+    }
+    if (g_services.services == nullptr || g_services.services->run_frontend == nullptr)
+        return;
+    ++opening.frames;
+    g_services.services->run_frontend(g_services.host);
+}
+
 /// Runs the part of a frame that follows the game --host or --join asked for.
 ///
 /// Until a multiplayer screen first shows, each frame asks for a frontend
 /// pass, so multiplayer opens without input, for kDirectGameOpeningFrames
-/// frames at most. Standard output reports, each
-/// line once and flushed at once: the battle room opening, with the game's
-/// name and the local player's; the players the battle room lists, whenever
-/// they change while it shows; and a join or a game the screens refused,
-/// with the notice they showed.
+/// frames at most. Each of these is reported once, as its own flushed line,
+/// through the log so it is not mixed into a launcher's status stream: the
+/// battle room opening, with the game's name and the local player's; when a
+/// launch opened the room, the map and the rules; the players the battle
+/// room lists, whenever they change while it shows, and under a launch each
+/// seat's side, team and colour as they change; and a join or a game the
+/// screens refused, with the notice they showed. The password is not written.
 void direct_game_frame() {
     const auto& game = net_options().direct_game;
     if (game.kind == mp::DirectGame::Kind::none)
@@ -202,17 +329,24 @@ void direct_game_frame() {
     const auto& progress = mp::multiplayer_direct_game_progress();
     if (progress.reached != report.reported) {
         report.reported = progress.reached;
-        if (progress.reached == mp::DirectGameStep::battle_room)
-            std::cout << "multiplayer: in the battle room of \"" << progress.game_name << "\" as "
-                      << progress.player_name << std::endl;
-        else if (
+        if (progress.reached == mp::DirectGameStep::battle_room) {
+            oa::platform::log_files::write_line(
+                "multiplayer: in the battle room of \"" + progress.game_name + "\" as " +
+                progress.player_name
+            );
+            if (net_options().launch_planned)
+                report_launch_battle_room(mp::multiplayer_lobby());
+        } else if (
             progress.reached == mp::DirectGameStep::failed &&
             game.kind == mp::DirectGame::Kind::join
         )
-            std::cout << "multiplayer: could not join " << game.address << ": " << progress.notice
-                      << std::endl;
+            oa::platform::log_files::write_line(
+                "multiplayer: could not join " + game.address + ": " + progress.notice
+            );
         else if (progress.reached == mp::DirectGameStep::failed)
-            std::cout << "multiplayer: could not host the game: " << progress.notice << std::endl;
+            oa::platform::log_files::write_line(
+                "multiplayer: could not host the game: " + progress.notice
+            );
     }
     // A local player the host refused is on its way out, and lists no one.
     auto& lobby = mp::multiplayer_lobby();
@@ -220,10 +354,213 @@ void direct_game_frame() {
         lobby.game == nullptr || mp::local_player(lobby).reject_reason != 0)
         return;
     auto players = battle_room_players(lobby);
-    if (players.empty() || players == report.players)
+    if (!players.empty() && players != report.players) {
+        report.players = std::move(players);
+        oa::platform::log_files::write_line("multiplayer: battle room players: " + report.players);
+    }
+    if (!net_options().launch_planned)
         return;
-    report.players = std::move(players);
-    std::cout << "multiplayer: battle room players: " << report.players << std::endl;
+    auto seats = battle_room_seats(lobby);
+    if (seats.empty() || seats == report.seats)
+        return;
+    report.seats = std::move(seats);
+    oa::platform::log_files::write_line("multiplayer: battle room seats: " + report.seats);
+}
+
+// --check-opened-launch menu has opened its file in the game.
+bool g_opened_launch_check_sent = false;
+// Frames in a row the main menu has shown settled, for an opened launch file.
+uint32_t g_launch_menu_frames = 0;
+
+/// Returns where the game stands for a launch file the system opened.
+///
+/// In a match while one runs, on its own screen or beneath its menu, the
+/// network match included; on the main menu once it has shown for
+/// netgame::kOpenedLaunchMenuFrames frames in a row with no dialog over it;
+/// on the single-player menu; passing on a loading screen; and elsewhere on
+/// any other screen, the end of a match among them. The screen is the one
+/// the services overlay last ticked on. Run every frame while a file waits.
+///
+/// @param runtime the running app
+/// @param play network play's state for it
+/// @return where it stands
+oa::app::netgame::GameStanding launch_standing(const Runtime& runtime, const NetworkPlay& play) {
+    using oa::app::netgame::GameStanding;
+    if (runtime.match_running() || play.net_match_active()) {
+        g_launch_menu_frames = 0;
+        return GameStanding::match;
+    }
+    if (g_services.screen == screen_id(Screen::main_menu) && !g_services.world) {
+        if (oa::ui::frontend_dialogs::dialog_count() != 0) {
+            g_launch_menu_frames = 0;
+            return GameStanding::passing;
+        }
+        if (g_launch_menu_frames < oa::app::netgame::kOpenedLaunchMenuFrames)
+            ++g_launch_menu_frames;
+        return g_launch_menu_frames >= oa::app::netgame::kOpenedLaunchMenuFrames
+                   ? GameStanding::main_menu
+                   : GameStanding::passing;
+    }
+    g_launch_menu_frames = 0;
+    if (g_services.screen == screen_id(Screen::single_player))
+        return GameStanding::single_player;
+    if (g_services.screen == screen_id(Screen::loading))
+        return GameStanding::passing;
+    return GameStanding::elsewhere;
+}
+
+/// Tells the player that the game did not open a launch file, and the log.
+///
+/// In a match the line goes to its message log; elsewhere, or when no match
+/// takes it, a notice on the OA layer shows it over the menus.
+///
+/// @param play network play's state for the running app
+/// @param why the line, already in the language shown
+/// @param in_match the game stands in a match
+void tell_launch_not_opened(NetworkPlay& play, std::string_view why, bool in_match) {
+    oa::platform::log_files::write_line("multiplayer: launch file not opened: " + std::string(why));
+    if (in_match && play.post_match_line(why))
+        return;
+    if (g_services.services == nullptr || g_services.services->show_notice == nullptr)
+        return;
+    const std::string title(oa::data::languages::interface_text("LAUNCH FILE NOT OPENED"));
+    const std::string paragraph(why);
+    const char* const paragraphs[] = {paragraph.c_str()};
+    NoticeRequest request{};
+    request.title = title.c_str();
+    request.paragraphs = paragraphs;
+    request.paragraph_count = 1;
+    static_cast<void>(g_services.services->show_notice(g_services.host, &request));
+}
+
+/// Opens a file in the game as the system opens one, double-clicked or dropped on the window:
+/// as SDL's drop event, which the engine's watch on SDL's events takes as it is queued.
+///
+/// @param file the file, UTF-8
+void open_as_the_system_does(const std::string& file) {
+    // SDL keeps the pointer: the text lives until the next file is opened so.
+    static std::string dropped;
+    dropped = file;
+    SDL_Event drop{};
+    drop.type = SDL_EVENT_DROP_FILE;
+    drop.drop.data = dropped.c_str();
+    if (!SDL_PushEvent(&drop))
+        oa::platform::log_files::write_line(
+            std::string("opened-launch check: the file could not be opened: ") + SDL_GetError()
+        );
+}
+
+/// Opens the battle room of a launch put in place while the game shows the main menu.
+///
+/// As a launch named on the command line does from the start, the launch is active and the
+/// multiplayer screens host or join its game as they are next entered; the main menu then
+/// leaves for them, as it does when -n names a connection, and each frame asks for a pass of
+/// the frontend until a multiplayer screen shows (direct_game_frame).
+void open_launched_battle_room() {
+    set_launch_active(true);
+    mp::multiplayer_bind_direct_game(net_options().direct_game);
+    g_direct_report = DirectGameReport{};
+    if (g_services.services == nullptr)
+        return;
+    if (g_services.services->set_frontend_signal != nullptr)
+        g_services.services->set_frontend_signal(
+            g_services.host, oa::ui::frontend_state::signal_id::multiplayer
+        );
+    if (g_services.services->run_frontend != nullptr)
+        g_services.services->run_frontend(g_services.host);
+}
+
+/// Takes, steers or refuses a launch file the system opened while the game runs.
+///
+/// From the main menu the file becomes the launch and the game goes to its battle room; the
+/// single-player menu goes back to the main menu first. During a match, a game being set up,
+/// on any other screen, or while a launch is already under way, the file is taken and the
+/// player is told it was not opened. A file the battle room cannot use, or that plays other
+/// content than the game plays now, is told the same way. In the intro, a loading screen or a
+/// change of screen the file waits. --check-opened-launch menu opens its file once the main
+/// menu has settled. Run every frame.
+///
+/// @param runtime the running app
+/// @param play network play's state for it
+void follow_opened_launches(const Runtime& runtime, NetworkPlay& play) {
+    namespace net = oa::app::netgame;
+    const NetOptions& options = net_options();
+    const bool check_due =
+        options.opened_launch_check == OpenedLaunchCheck::menu && !g_opened_launch_check_sent;
+    if (!check_due && !net::opened_launch_waiting())
+        return;
+    const net::GameStanding standing = launch_standing(runtime, play);
+    if (check_due) {
+        if (standing == net::GameStanding::main_menu) {
+            g_opened_launch_check_sent = true;
+            oa::platform::log_files::write_line(
+                "opened-launch check: the main menu shows; the file is opened in the game"
+            );
+            open_as_the_system_does(options.opened_launch_check_file);
+        }
+        return;
+    }
+    namespace languages = oa::data::languages;
+    const bool under_way = options.launch_planned || launch_active(nullptr);
+    switch (net::opened_launch_step(standing, under_way)) {
+    case net::OpenedLaunchStep::wait:
+        return;
+    case net::OpenedLaunchStep::back_to_main_menu:
+        if (g_services.services != nullptr && g_services.services->request_screen != nullptr)
+            g_services.services->request_screen(g_services.host, screen_id(Screen::main_menu));
+        return;
+    case net::OpenedLaunchStep::refuse_in_match:
+        std::ignore = net::take_opened_launch();
+        tell_launch_not_opened(
+            play,
+            languages::interface_text("Launch file not opened: finish or leave this game first."),
+            true
+        );
+        return;
+    case net::OpenedLaunchStep::refuse:
+        std::ignore = net::take_opened_launch();
+        tell_launch_not_opened(
+            play,
+            under_way ? languages::interface_text(
+                            "A launch is already open. Quit Open Annihilation, then open the file "
+                            "again."
+                        )
+                      : languages::interface_text(
+                            "Open Annihilation opens a launch file's battle room from the main "
+                            "menu. Go back to the main menu, then open the file again."
+                        ),
+            false
+        );
+        return;
+    case net::OpenedLaunchStep::go_to_battle_room:
+        break;
+    }
+    const std::optional<net::OpenedLaunch> opened = net::take_opened_launch();
+    if (!opened)
+        return;
+    try {
+        net::LaunchPlan plan = net::read_opened_launch_plan(*opened);
+        if (net::launch_content_differs(plan.content, play.running_content())) {
+            tell_launch_not_opened(
+                play,
+                languages::interface_text(
+                    "This launch plays other content than the game plays now. Quit Open "
+                    "Annihilation, then open the file again."
+                ),
+                false
+            );
+            return;
+        }
+        put_launch_in_place(netgame_context(), std::move(plan));
+    } catch (const net::LaunchRefusal& refusal) {
+        tell_launch_not_opened(play, refusal.what(), false);
+        return;
+    }
+    oa::platform::log_files::write_line(
+        "multiplayer: a launch file opened at the main menu goes to its battle room: " +
+        opened->source
+    );
+    open_launched_battle_room();
 }
 
 /// Keeps the screen host and services an overlay's create is given.
@@ -233,6 +570,15 @@ void direct_game_frame() {
 void keep_services(ScreenContext* ctx, void* /*state*/) {
     g_services.host = ctx->host;
     g_services.services = ctx->services;
+}
+
+/// Keeps the screen shown, and whether a match's world is bound, as the overlay ticks.
+///
+/// @param ctx the overlay's context
+/// @param state unused
+void note_screen(ScreenContext* ctx, void* /*state*/) {
+    g_services.screen = ctx->screen;
+    g_services.world = ctx->world != nullptr;
 }
 
 /// Ends the run through the kept screen services (ScreenServices::quit).
@@ -292,13 +638,13 @@ LaunchBinding netgame_launch_binding() {
 /// Registers network play's screens, dispatcher steps and queries (Extension::register_screens).
 ///
 /// The multiplayer screens register first, then the overlay that keeps the
-/// screen services, the steps that reload the unit overrides and open the
+/// screen services and the screen shown, the steps that reload the unit overrides and open the
 /// setup's provider list, and the answers to the frontend's questions about
 /// joining and leaving a session. A launch lands in the launch block
 /// the switches write, which the multiplayer screens, the frontend states and
-/// the frontend's entry read. With --check-host-not-found the "-n1" launch
-/// counts as active from here until the game list begins to wait for the
-/// host.
+/// the frontend's entry read. A launch file, and --check-host-not-found, count
+/// as active from here. The host-not-found launch stays active until the game
+/// list begins to wait for the host.
 ///
 /// @param context Extension context (unused).
 /// @param[in,out] registry Screen registry of the app.
@@ -308,10 +654,11 @@ void register_screens(void* /*context*/, ScreenRegistry* registry) {
     services.name = "netgame-screen-services";
     services.screen = kScreenAny;
     services.create = keep_services;
+    services.tick = note_screen;
     (void)overlay_register(registry, &services);
     auto& netgame = netgame_context();
     bind_launch(netgame_launch_binding());
-    if (net_options().check_host_not_found)
+    if (net_options().check_host_not_found || net_options().launch_planned)
         set_launch_active(true);
     mp::multiplayer_bind_launch_link(launch_link());
     mp::multiplayer_bind_direct_game(net_options().direct_game);
@@ -907,7 +1254,12 @@ struct RuntimeExtension {
     /// @param runtime The running app.
     /// @return False without --play-demo, leaving the start to the menu music.
     static bool start_scene(void* /*context*/, Runtime& runtime) {
+        if (net_options().play_demo.empty() && !runtime.pending_demo_path().empty())
+            netgame_context().options.play_demo = path_from_utf8(runtime.pending_demo_path());
         if (net_options().play_demo.empty())
+            return false;
+        const auto& demo = net_options().play_demo;
+        if (runtime.offer_content_switch(demo, path_to_utf8(demo.filename()), true))
             return false;
         NetworkPlay::of(runtime).start_demo_playback();
         return true;
@@ -960,7 +1312,9 @@ struct RuntimeExtension {
     /// @param context Extension context (unused).
     /// @param runtime The running app.
     /// @param stage pump follows the game into its close handler (and runs
-    ///              --check-host-not-found's part of the frame and the part
+    ///              --check-host-not-found's part of the frame, takes or
+    ///              refuses a launch file the system opened, takes the main
+    ///              menu to the transport "-n" names, and runs the part
     ///              that follows --host's and --join's game), binds the
     ///              profile's rules again once Developer Mode changes them
     ///              and Unicode chat as it is now, then runs the network
@@ -971,11 +1325,14 @@ struct RuntimeExtension {
             observe_close_handlers(runtime);
             if (net_options().check_host_not_found)
                 host_not_found_frame();
+            follow_opened_launches(runtime, NetworkPlay::of(runtime));
+            transport_frame();
             direct_game_frame();
             // The rules Developer Mode lays over the profile reach the
             // multiplayer screens and the session.
             NetworkPlay::of(runtime).follow_profile_rules();
             NetworkPlay::of(runtime).follow_unicode_chat();
+            NetworkPlay::of(runtime).follow_presence();
             NetworkPlay::of(runtime).net_frame();
         } else if (stage == FrameStage::after_pump) {
             NetworkPlay::of(runtime).demo_frame();

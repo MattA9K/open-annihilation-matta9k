@@ -41,6 +41,13 @@ inline constexpr std::string_view max_zoom_in = "open-annihilation.max-zoom-in";
 /// "off", or the share of the battlefield in percent: "25" or "50"
 /// (EngineSettings::view_past_map_edge).
 inline constexpr std::string_view view_past_map_edge = "open-annihilation.view-past-map-edge";
+/// "capture", "sticky" or "free" (EngineSettings::window_edge).
+inline constexpr std::string_view window_edge = "open-annihilation.window-edge";
+/// How firmly Sticky holds, a decimal from "0.0" to "5.0" in tenths
+/// (EngineSettings::edge_stickiness).
+inline constexpr std::string_view edge_stickiness = "open-annihilation.window-edge-stickiness";
+/// 1 or 0 (EngineSettings::middle_click_pan).
+inline constexpr std::string_view middle_click_pan = "open-annihilation.middle-click-pan";
 /// 1 or 0 (EngineSettings::escape_opens_menu).
 inline constexpr std::string_view escape_opens_menu = "open-annihilation.escape-opens-menu";
 /// Units per player, decimal (EngineSettings::unit_limit).
@@ -59,9 +66,22 @@ inline constexpr std::string_view screen_size = "open-annihilation.screen-size";
 inline constexpr std::string_view mod_directory = "open-annihilation.mod-directory";
 /// The folder the player picked with an earlier version's Pick Folder...,
 /// as a UTF-8 path, kept only while key::mod_directory names the same
-/// folder; the Mods page lists it while it is still a folder. Absent for
+/// folder; the Library lists it while it is still a folder. Absent for
 /// none (EngineSettings::picked_mod_folder).
 inline constexpr std::string_view picked_mod_directory = "open-annihilation.picked-mod-directory";
+/// The base game the player plays: "totala" or "totala-demo"
+/// (the content choice). Absent, or any other text, the choice is totala
+/// with every copied expansion of it on.
+inline constexpr std::string_view base_game = "open-annihilation.base-game";
+/// The expansions that are on for one base game. The base game's id completes
+/// it, as "open-annihilation.expansions.totala": their ids separated by
+/// commas, in the built-in order. Empty means none are on. Absent, every
+/// copied expansion of that game is on.
+inline constexpr std::string_view expansions_prefix = "open-annihilation.expansions.";
+/// "required-expansion" when a mod was cleared because an expansion it needs
+/// went off (the content choice). Absent, no such note is waiting. The
+/// sentence is chosen from this token.
+inline constexpr std::string_view content_note = "open-annihilation.content-note";
 /// "off", "basic" or "full" (EngineSettings::hardware_acceleration). A
 /// whole number reads as the On and Off switch the setting was before: 1
 /// or any number above 0 is "full", 0 or below "off".
@@ -84,6 +104,9 @@ inline constexpr std::string_view zoomed_out_after = "open-annihilation.zoomed-o
 inline constexpr std::string_view window_frame = "open-annihilation.window-frame";
 /// 1 or 0 (EngineSettings::hud_scaling).
 inline constexpr std::string_view hud_scaling = "open-annihilation.hud-scaling";
+/// "automatic", or the percent "100", "200", "300" or "400"
+/// (EngineSettings::interface_size).
+inline constexpr std::string_view interface_size = "open-annihilation.interface-size";
 /// 1 or 0 (EngineSettings::modern_fonts).
 inline constexpr std::string_view modern_fonts = "open-annihilation.modern-fonts";
 /// 1 or 0 (EngineSettings::text_outline).
@@ -99,6 +122,11 @@ inline constexpr std::string_view text_size = "open-annihilation.text-size";
 /// "system" for the operating system's choice, or a language's BCP-47 tag,
 /// as "de" (EngineSettings::language).
 inline constexpr std::string_view language = "open-annihilation.language";
+/// Tags the player answered with Use English when the game asked, at the
+/// start, about a language the operating system wanted that was not
+/// installed. Comma-separated. Absent, none have been answered.
+inline constexpr std::string_view language_notice_dismissed =
+    "open-annihilation.language-notice-dismissed";
 /// 1 or 0 (EngineSettings::developer_mode).
 inline constexpr std::string_view developer_mode = "open-annihilation.developer-mode";
 /// "automatic", "box" or "scroll" (EngineSettings::touch_drag).
@@ -146,7 +174,115 @@ inline constexpr std::string_view game_files_backed_up = "open-annihilation.game
 /// oa::data::mod_profile::overrides_text writes it
 /// (EngineSettings::hack_overrides).
 inline constexpr std::string_view hack_overrides = "open-annihilation.hack-overrides.";
+/// "automatically", "library" or "never" (EngineSettings::content_check).
+/// When Open Annihilation looks for new content and updates.
+inline constexpr std::string_view content_check = "open-annihilation.content-updates";
+/// "on" or "off" (EngineSettings::file_type_oamod). Absent, or any text
+/// other than off, the game opens mod packages.
+inline constexpr std::string_view file_type_oamod = "open-annihilation.file-types.oamod";
+/// "on" or "off" (EngineSettings::file_type_oamap). Absent, or any text
+/// other than off, the game opens map packs.
+inline constexpr std::string_view file_type_oamap = "open-annihilation.file-types.oamap";
+/// "on" or "off" (EngineSettings::file_type_oalang). Absent, or any text
+/// other than off, the game opens language packs.
+inline constexpr std::string_view file_type_oalang = "open-annihilation.file-types.oalang";
+/// "on" or "off" (EngineSettings::file_type_oareg). Absent, or any text
+/// other than off, the game opens registry files.
+inline constexpr std::string_view file_type_oareg = "open-annihilation.file-types.oareg";
+/// "on" or "off" (EngineSettings::file_type_oalaunch). Absent, or any text
+/// other than off, the game opens launch files.
+inline constexpr std::string_view file_type_oalaunch = "open-annihilation.file-types.oalaunch";
+static_assert(base_game.find('|') == std::string_view::npos);
+static_assert(base_game.find('\\') == std::string_view::npos);
+static_assert(expansions_prefix.find('|') == std::string_view::npos);
+static_assert(expansions_prefix.back() == '.');
+static_assert(content_note.find('|') == std::string_view::npos);
 } // namespace key
+
+/// Tells whether two tags are the same, ignoring ASCII case and reading '_' as '-'.
+///
+/// @param left a tag
+/// @param right a tag
+/// @return true when they match
+[[nodiscard]] inline bool
+language_notice_same_tag(std::string_view left, std::string_view right) noexcept {
+    if (left.size() != right.size())
+        return false;
+    for (std::size_t index = 0; index < left.size(); ++index) {
+        const auto fold = [](char letter) noexcept {
+            if (letter == '_')
+                return '-';
+            if (letter >= 'A' && letter <= 'Z')
+                return static_cast<char>(letter - 'A' + 'a');
+            return letter;
+        };
+        if (fold(left[index]) != fold(right[index]))
+            return false;
+    }
+    return true;
+}
+
+/// Drops spaces and tabs from both ends of a tag list's piece.
+///
+/// @param text the piece
+/// @return the piece
+[[nodiscard]] inline std::string_view language_notice_trim(std::string_view text) noexcept {
+    while (!text.empty() && (text.front() == ' ' || text.front() == '\t'))
+        text.remove_prefix(1);
+    while (!text.empty() && (text.back() == ' ' || text.back() == '\t'))
+        text.remove_suffix(1);
+    return text;
+}
+
+/// Tells whether a dismissed-language list holds a tag.
+///
+/// The list is comma-separated. Each piece is trimmed. The match ignores
+/// the case of ASCII letters and reads '_' as '-'.
+///
+/// @param stored the preference's value; empty when the key is absent
+/// @param tag the language's tag
+/// @return true when the list holds it
+[[nodiscard]] inline bool
+language_notice_dismissed_has(std::string_view stored, std::string_view tag) noexcept {
+    const std::string_view wanted = language_notice_trim(tag);
+    if (wanted.empty())
+        return false;
+    std::size_t start = 0;
+    while (start <= stored.size()) {
+        const auto comma = stored.find(',', start);
+        const auto end = comma == std::string_view::npos ? stored.size() : comma;
+        if (language_notice_same_tag(
+                language_notice_trim(stored.substr(start, end - start)), wanted
+            ))
+            return true;
+        if (comma == std::string_view::npos)
+            break;
+        start = comma + 1;
+    }
+    return false;
+}
+
+/// Returns the dismissed-language list with a tag added, when it is not there.
+///
+/// A tag already in the list leaves the stored text unchanged. An empty tag
+/// leaves it unchanged. Otherwise the tag is appended after a comma.
+///
+/// @param stored the preference's value; empty when the key is absent
+/// @param tag the language's tag
+/// @return the value to store
+[[nodiscard]] inline std::string
+language_notice_dismiss_tag(std::string_view stored, std::string_view tag) {
+    const std::string_view wanted = language_notice_trim(tag);
+    if (wanted.empty() || language_notice_dismissed_has(stored, wanted))
+        return std::string(stored);
+    const std::string_view kept = language_notice_trim(stored);
+    if (kept.empty())
+        return std::string(wanted);
+    std::string next(kept);
+    next += ", ";
+    next.append(wanted);
+    return next;
+}
 
 /// Path nodes the path search may visit in a game tick, all players
 /// together, at 1x: the credit every match starts with.
@@ -169,6 +305,13 @@ inline constexpr uint16_t default_unit_limit = 250;
 /// The lowest unit limit the preferences keep, in units per player: the
 /// lowest an installation's totala.ini can set, below the setting's stops.
 inline constexpr uint16_t lowest_stored_unit_limit = 20;
+
+/// The fewest skirmish player rows the Engine Limits slider offers.
+inline constexpr int32_t lowest_skirmish_players = 2;
+/// The most skirmish player rows the slider offers: every stored slot but the spare.
+inline constexpr int32_t highest_skirmish_players = 10;
+/// Skirmish player rows when none are stored. The setup reads the same count.
+inline constexpr int32_t default_skirmish_players = 10;
 
 /// The lowest maximum frame rate the setting offers, in frames a second:
 /// the simulation's ticks a second, a frame for each tick.
@@ -352,6 +495,74 @@ inline constexpr std::array<MenuScaling, 3> menu_scaling_choices{
     MenuScaling::unfiltered,
 };
 
+/// Interface size: how large Open Annihilation's own screens (Settings, its
+/// notices and its prompts) are drawn outside a match. A size the window
+/// cannot hold the smallest layout at is drawn at the largest whole step
+/// that holds it.
+enum class InterfaceSize : uint8_t {
+    /// The window's own size: its height over 720, the nearest step, and
+    /// never below the display's density. While the modern fonts are on and
+    /// opened the steps include 150% (1x below 900 lines, 150% from 900, 2x
+    /// from 1260); otherwise they are whole steps (1x below 1080, 2x from
+    /// 1080). The OA layer passes that to the kit as 0 or
+    /// kit::auto_with_fraction_percent (interface_size_percent is 0 either way)
+    automatic,
+    size_100, ///< one window pixel a point
+    /// One and a half window pixels a point, drawn in the modern fonts: it
+    /// is offered, and kept, only while Use modern fonts for game text is On
+    /// (interface_size_with_fonts), as the game's own fonts take whole steps
+    size_150,
+    size_200, ///< two window pixels a point
+    size_300, ///< three window pixels a point
+    size_400, ///< four window pixels a point
+};
+
+/// The Interface sizes, in the order the dialog offers them; it offers
+/// size_150 only while it shows Use modern fonts for game text On.
+inline constexpr std::array<InterfaceSize, 6> interface_size_choices{
+    InterfaceSize::automatic,
+    InterfaceSize::size_100,
+    InterfaceSize::size_150,
+    InterfaceSize::size_200,
+    InterfaceSize::size_300,
+    InterfaceSize::size_400,
+};
+
+/// Returns the Interface size a choice is while Use modern fonts for game
+/// text is On or Off: 150% is drawn in the modern fonts, so with them Off it
+/// is 100%; every other size is itself.
+///
+/// @param size the Interface size chosen
+/// @param modern_fonts Use modern fonts for game text is On
+/// @return the size
+[[nodiscard]] constexpr InterfaceSize
+interface_size_with_fonts(InterfaceSize size, bool modern_fonts) noexcept {
+    return size == InterfaceSize::size_150 && !modern_fonts ? InterfaceSize::size_100 : size;
+}
+
+/// Returns the scale an Interface size chooses, as the OA layer takes it
+/// (oa::ui::kit::layer_viewport).
+///
+/// @param size the Interface size
+/// @return the scale in percent: 100, 150, 200, 300 or 400; 0 for Auto
+[[nodiscard]] constexpr int32_t interface_size_percent(InterfaceSize size) noexcept {
+    switch (size) {
+    case InterfaceSize::size_100:
+        return 100;
+    case InterfaceSize::size_150:
+        return 150;
+    case InterfaceSize::size_200:
+        return 200;
+    case InterfaceSize::size_300:
+        return 300;
+    case InterfaceSize::size_400:
+        return 400;
+    case InterfaceSize::automatic:
+        break;
+    }
+    return 0;
+}
+
 /// Explosion flash: how strongly the flash of each explosion lights the
 /// battlefield under it.
 enum class ExplosionFlash : uint8_t {
@@ -385,6 +596,58 @@ inline constexpr std::array<ZoomedOutUnits, 3> zoomed_out_units_choices{
 /// The ways of Zoomed out units a player may choose, from the strip's left:
 /// Icons is shown, but cannot be chosen yet.
 inline constexpr std::size_t offered_zoomed_out_units = 2;
+
+/// Window edge: whether a window keeps the pointer while a match's
+/// battlefield shows, so the view edge-scrolls. Full screen holds the
+/// pointer either way.
+enum class WindowEdge : uint8_t {
+    /// the pointer cannot leave the window while the battlefield shows and
+    /// the window has the focus
+    capture,
+    sticky, ///< the pointer rests on the edge until a firm push lets it go
+    free,   ///< the pointer leaves a window's edge, as before
+};
+
+/// The ways of Window edge, in the order the dialog offers them.
+inline constexpr std::array<WindowEdge, 3> window_edge_choices{
+    WindowEdge::capture,
+    WindowEdge::sticky,
+    WindowEdge::free,
+};
+
+/// Edge stickiness's lowest value, in tenths: 0.0, a sticky edge that never
+/// holds.
+inline constexpr uint32_t lowest_edge_stickiness = 0;
+/// Edge stickiness's highest value, in tenths: 5.0, five times as firm as
+/// 1.0.
+inline constexpr uint32_t highest_edge_stickiness = 50;
+/// Edge stickiness's slider steps, in tenths: 0.1.
+inline constexpr uint32_t edge_stickiness_step = 1;
+/// Edge stickiness's default, in tenths: 1.0.
+inline constexpr uint32_t default_edge_stickiness = 10;
+/// Tenths in one whole level of Edge stickiness.
+inline constexpr uint32_t edge_stickiness_per_level = 10;
+static_assert(
+    default_edge_stickiness >= lowest_edge_stickiness &&
+        default_edge_stickiness <= highest_edge_stickiness,
+    "Edge stickiness's default lies on its slider"
+);
+
+/// Returns Edge stickiness as the slider and the preferences show it: one
+/// decimal, as "1.0" or "2.5".
+///
+/// @param tenths the level in tenths
+/// @return the text
+[[nodiscard]] std::string edge_stickiness_text(uint32_t tenths);
+
+/// Reads Edge stickiness from its stored text: a decimal number with at
+/// most one sign, digits and a point, as "1.0", "2.5", "3" or "0.25".
+///
+/// @param text the stored text
+/// @return the level in tenths, rounded to the nearest tenth (a half rounds
+///     up) and held to lowest_edge_stickiness to highest_edge_stickiness;
+///     nothing for any other text
+[[nodiscard]] std::optional<uint32_t> edge_stickiness_from_text(std::string_view text) noexcept;
 
 /// Window frame: when the game's window shows its title bar and borders.
 /// Full screen has none either way.
@@ -636,6 +899,14 @@ inline constexpr ControlSize steam_deck_control_size = ControlSize::larger;
     return static_cast<uint32_t>(lowest + (held - lowest + step / 2) / step * step);
 }
 
+/// When Open Annihilation looks for new content and updates. It never
+/// installs anything until the player says so.
+enum class ContentCheck : uint8_t {
+    automatically,      ///< at start and when the Library opens
+    when_library_opens, ///< only when the Library opens
+    never,              ///< only when the player asks
+};
+
 /// The settings, as the dialog shows them and the game puts them in effect.
 struct EngineSettings {
     /// Path nodes the path search may visit in a game tick, all players
@@ -649,8 +920,16 @@ struct EngineSettings {
     ZoomInLimit max_zoom_in{ZoomInLimit::four_times};
     /// How much of the battlefield the view may show past the map's edges.
     ViewPastMapEdge view_past_map_edge{ViewPastMapEdge::one_half};
+    /// A middle click pans the view towards the pointer until another press.
+    bool middle_click_pan{true};
     bool escape_opens_menu{}; ///< Escape with nothing to cancel opens the game menu
     bool switch_alt{};        ///< 3.1c's SwitchAlt: a number key alone selects its group
+    /// Whether a window keeps the pointer while a match's battlefield
+    /// shows. Full screen holds the pointer either way.
+    WindowEdge window_edge{WindowEdge::capture};
+    /// How firmly Sticky holds the pointer at a window's edges, in tenths:
+    /// 10 is 1.0. Kept whatever Window edge is.
+    uint32_t edge_stickiness{default_edge_stickiness};
     uint16_t unit_limit{default_unit_limit};       ///< units per player, from the next game
     uint32_t max_frame_rate{highest_frame_rate};   ///< frames a second
     AntiAliasing anti_aliasing{AntiAliasing::off}; ///< enhanced anti-aliasing of units
@@ -719,6 +998,12 @@ struct EngineSettings {
     /// original game's size on every window. The touch controls' layouts
     /// keep their own sizes either way.
     bool hud_scaling{true};
+    /// How large Open Annihilation's own screens are drawn outside a match:
+    /// the window's Auto scale, or a step the OA layer holds to what fits
+    /// the smallest layout in the window; 150% only with modern_fonts On. It
+    /// takes effect when the dialog's OK is pressed, and changes no game
+    /// text, HUD or menu.
+    InterfaceSize interface_size{InterfaceSize::automatic};
     /// Game text is drawn in the modern fonts, which hold the letters of
     /// many languages, rather than the game's own 8-bit fonts. On by default
     /// with the player's own preferences file (default_settings).
@@ -750,7 +1035,7 @@ struct EngineSettings {
     std::string mod_folder;
     /// The folder the player picked with an earlier version's Pick
     /// Folder..., as an absolute UTF-8 path, while it is the mod
-    /// (mod_folder); the Mods page lists it while it is still a folder.
+    /// (mod_folder); the Library lists it while it is still a folder.
     /// Empty for none.
     std::string picked_mod_folder;
     /// Developer Mode: the player's overrides of the standard hacks
@@ -766,6 +1051,24 @@ struct EngineSettings {
     /// The mod's own options, which only a dialog opened for them changes;
     /// read_settings and write_settings leave them out.
     ModOptions mod_options{};
+    /// When Open Annihilation looks for new content and updates. It takes
+    /// effect when OK is pressed; Cancel and Restore defaults apply.
+    ContentCheck content_check{ContentCheck::automatically};
+    /// The game opens mod packages (.oamod). On unless the preference is the
+    /// word off. Windows and Linux register it when OK is pressed. On macOS
+    /// the switch shows whether this copy is the default opener, and OK
+    /// changes that only when the switch moved. iOS takes the type from the app.
+    bool file_type_oamod{true};
+    bool file_type_oamap{true};  ///< the game opens map packs (.oamap)
+    bool file_type_oalang{true}; ///< the game opens language packs (.oalang)
+    bool file_type_oareg{true};  ///< the game opens registry files (.oareg)
+    /// The game opens launch files (.oalaunch), which start it in their
+    /// battle room, as -c does.
+    bool file_type_oalaunch{true};
+    /// How many player rows the skirmish setup shows. The dialog's working
+    /// copy of NumSkirmishPlayers: read_settings and write_settings leave it
+    /// out, and OK stores it as that one count.
+    int32_t skirmish_players{default_skirmish_players};
 
     friend bool operator==(const EngineSettings&, const EngineSettings&) = default;
 };
@@ -837,7 +1140,7 @@ highest_offered_unit_limit(const oa::data::limits::UnitsPerPlayer& units) noexce
 /// Off, but On where the platform opens every window at native density.
 /// Explosion flash is Full everywhere, as 3.1c draws it. Zoomed out units
 /// are Rendered and After zoom 1/6 everywhere. Window frame is Hidden in
-/// play and HUD scaling On everywhere. Modern
+/// play, HUD scaling On and Interface size Auto everywhere. Modern
 /// fonts for game text are On with the player's own file and Off with a
 /// named one; their outline and shadow are On, their background Off and
 /// their size default_text_size everywhere. The language is the operating
@@ -877,8 +1180,8 @@ highest_offered_unit_limit(const oa::data::limits::UnitsPerPlayer& units) noexce
 /// was before: Full above 0, else Off; any other value gives the default.
 /// The mod is the stored folder, and the picked folder the one
 /// remembered_picked_folder gives; a mod folder the game folder does not
-/// offer is the picked folder whatever that key holds, so that the Mods
-/// page lists it. The Language switches
+/// offer is the picked folder whatever that key holds, so that the
+/// Library lists it. The Language switches
 /// (modern fonts, text outline, shadow and background) and Developer Mode
 /// read as every
 /// switch does, and the text size as every number, lowest_text_size to
@@ -912,7 +1215,11 @@ highest_offered_unit_limit(const oa::data::limits::UnitsPerPlayer& units) noexce
 /// "1/2", "1/3", "1/4", "1/6", "1/8", "1/12" or "1/16"; any other value,
 /// "icons" among them, gives the default. Window frame reads
 /// "hidden-in-play" or "always-shown", and any other value gives the
-/// default. A stored value always wins over a Steam Deck's defaults.
+/// default. Interface size reads the words interface_size_text writes, and
+/// any other value, "0" and an empty one among them, gives Auto; "150" read
+/// while Use modern fonts for game text reads Off gives 100%
+/// (interface_size_with_fonts). A stored value always wins over a Steam
+/// Deck's defaults.
 ///
 /// @param values the preferences
 /// @param inputs the platform, the preferences file and the installation
@@ -924,7 +1231,8 @@ highest_offered_unit_limit(const oa::data::limits::UnitsPerPlayer& units) noexce
 
 /// Writes the settings a player chose into the preferences.
 ///
-/// For each setting but switch_alt: after Restore defaults (`restored`), a
+/// For each setting but switch_alt and skirmish_players (the setup stores
+/// that count as NumSkirmishPlayers): after Restore defaults (`restored`), a
 /// setting at its default has its key erased; otherwise a setting that
 /// differs from `opened` has its key written, in decimal, a switch as 1 or
 /// 0, the screen size as "desktop" or "WIDTHxHEIGHT", hardware
@@ -932,8 +1240,9 @@ highest_offered_unit_limit(const oa::data::limits::UnitsPerPlayer& units) noexce
 /// and QUEUE and ADD as their words (menu_scaling_text, touch_drag_text,
 /// touch_latches_text), Explosion flash as "off", "reduced" or "full", the
 /// hold delay in milliseconds, Maximum zoom out, Maximum zoom in, View past
-/// the map's edge, Zoomed out units, After zoom, Window frame, Control size
-/// and the Controller section's choices as the words read_settings reads,
+/// the map's edge, Zoomed out units, After zoom, Window frame, Interface
+/// size (interface_size_text), Control size and the Controller section's
+/// choices as the words read_settings reads,
 /// Pointer speed and Gyro speed in percent, the mod and the picked folder as their
 /// paths, or erased
 /// for none; Restore defaults leaves the picked folder as it is. The picked
@@ -975,8 +1284,10 @@ void write_settings(
 
 /// Returns the language the preferences choose: the language key's value
 /// when it is oa::data::languages::system_choice or the tag of a language
-/// this build draws, matched without regard to case; else, a file without
-/// the key or with any other value, the default.
+/// this build draws, matched without regard to case. A language that is
+/// not installed yet is kept too, when this build can draw it, so a choice
+/// of one stays until the pack is there. Anything else, a file without the
+/// key included, is the default. "pt" is not the tag "pt-BR".
 ///
 /// @param values the preferences
 /// @param players_own_profile the preferences file is the player's own
@@ -1042,6 +1353,18 @@ hardware_acceleration_from_text(std::string_view text) noexcept;
 /// @param text the word, in lower case as menu_scaling_text gives it
 /// @return the way; nothing for any other text
 [[nodiscard]] std::optional<MenuScaling> menu_scaling_from_text(std::string_view text) noexcept;
+
+/// Returns the word the preferences keep an Interface size as.
+///
+/// @param size the Interface size
+/// @return "automatic", "100", "150", "200", "300" or "400"
+[[nodiscard]] std::string_view interface_size_text(InterfaceSize size) noexcept;
+
+/// Returns the Interface size a word names.
+///
+/// @param text the word, as interface_size_text gives it
+/// @return the size; nothing for any other text, "0" among them
+[[nodiscard]] std::optional<InterfaceSize> interface_size_from_text(std::string_view text) noexcept;
 
 /// Returns the word the preferences keep a way of One-finger drag as.
 ///
@@ -1115,10 +1438,9 @@ enum class Lock : uint8_t {
     none,        ///< it can be changed
     in_game,     ///< a game is running; it can be changed outside a game
     set_by_host, ///< a shared game or a replay decides it
-    /// --max-fps decides the frame rate, --hardware-acceleration, in any of
-    /// its forms, or --no-hardware-acceleration decides hardware
-    /// acceleration, or --mod-dir or --base-game decides the mod, for this
-    /// run
+    /// --max-fps decides the frame rate, or --hardware-acceleration, in any
+    /// of its forms, or --no-hardware-acceleration decides hardware
+    /// acceleration, for this run
     command_line,
     unavailable, ///< nothing in the game could make the setting help this run
     set_by_mod,  ///< the mod allows no other value
@@ -1134,6 +1456,10 @@ enum class Lock : uint8_t {
     /// Zoomed out units is Rendered: units are drawn the same at every
     /// zoom, so After zoom changes nothing.
     needs_dots,
+    /// Window edge is Capture or Free: only a sticky edge has a firmness.
+    needs_sticky,
+    /// The welcome setup is walked through again only from the main menu.
+    main_menu,
 };
 
 /// The game the dialog opens over.
@@ -1155,9 +1481,6 @@ struct GameState {
     /// 3.1c's command line names the language, which then decides it for the
     /// run.
     bool language_from_command_line{};
-    /// --mod-dir or --base-game was given, which decides the mod the run
-    /// plays.
-    bool mod_from_command_line{};
     /// The platform opens every window at the display's own pixel density
     /// (Inputs::native_density_windows).
     bool native_density_windows{};
@@ -1170,6 +1493,7 @@ struct GameState {
 struct Locks {
     Lock path_search{};           ///< Pathfinding cycles
     Lock unit_limit{};            ///< Unit limit
+    Lock skirmish_players{};      ///< Skirmish players
     Lock max_frame_rate{};        ///< Maximum frame rate
     bool shared_game{};           ///< the header says the shared game is still running
     Lock hardware_acceleration{}; ///< Hardware acceleration
@@ -1186,22 +1510,24 @@ struct Locks {
     /// Enable Unicode Multiplayer Chat: the dialog itself locks it
     /// set_by_language while a pack of the language it shows asks for it.
     Lock unicode_chat{};
-    /// Mod: locked command_line, the stored choice stays shown and plays
-    /// from a start without the flag that set it aside; locked in_game, the
-    /// row shows the mod the game plays, and the main menu chooses another.
-    Lock mod{};
     /// Native pixel density: locked command_line, the stored choice stays
     /// shown and takes effect from a start without the flag.
     Lock native_density{};
     /// After zoom: the dialog itself locks it needs_dots while it shows
     /// Zoomed out units Rendered.
     Lock zoomed_out_after{};
+    /// Edge stickiness: the dialog itself locks it needs_sticky while it
+    /// shows Window edge Capture or Free.
+    Lock edge_stickiness{};
+    /// Welcome setup: locked while a game is running. SHOW AGAIN is chosen
+    /// from the main menu.
+    Lock welcome_setup{};
 };
 
 /// Returns the locks a game state puts on the settings.
 ///
-/// Pathfinding cycles and Unit limit are locked during any game, as
-/// set_by_host in a shared game or a replay; the maximum frame rate is
+/// Pathfinding cycles, Unit limit and Skirmish players are locked during any
+/// game, as set_by_host in a shared game or a replay; the maximum frame rate is
 /// locked while --max-fps decides it. Hardware acceleration is locked
 /// command_line while a flag decides it, else unavailable when nothing in
 /// the game could help, and never by a game, so that it can always be set
@@ -1209,12 +1535,10 @@ struct Locks {
 /// cannot wait for the display, else in_game in a shared game or a replay,
 /// where its value holds until the match ends. The language is locked
 /// command_line while 3.1c's command line names one, and never by a game:
-/// it changes only what players read. The mod is locked command_line while
-/// --mod-dir or --base-game decides it, else in_game during any game: it is
-/// chosen from the main menu. Native pixel density is locked always_on where
+/// it changes only what players read. Native pixel density is locked always_on where
 /// the platform opens every window at native density, else command_line
 /// while --native-density decides it, and never by a game: it takes effect
-/// from the next start. No game locks Menu scaling.
+/// from the next start. No game locks Menu scaling or Interface size.
 ///
 /// @param state the game the dialog opens over
 /// @return the locks

@@ -8,6 +8,7 @@
 #include "oa/data/defs/layout.hpp"
 #include "oa/data/mod_profile.hpp"
 #include "engine_settings_state.hpp"
+#include "oa_layer.hpp"
 #include "oa/app/hook_call.hpp"
 #include "oa/ui/frontend_dialogs.hpp"
 #include "oa/ui/frontend/main_menu.hpp"
@@ -17,6 +18,7 @@
 #include <cstdio>
 #include <cstring>
 #include <iostream>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <tuple>
@@ -68,11 +70,22 @@ struct BuiltinScreens {
         static_cast<Runtime*>(host)->write_number(section, key, value);
     }
 
+    // A null section reads the key as a whole, as a Settings page's row
+    // stores it.
     static int
     read_string(void* host, const char* section, const char* key, char* out, std::size_t capacity) {
-        if (capacity == 0)
+        if (capacity == 0 || key == nullptr || out == nullptr)
             return 0;
-        const auto found = static_cast<Runtime*>(host)->read_string(section, key, capacity);
+        auto& runtime = *static_cast<Runtime*>(host);
+        std::optional<std::string> found;
+        if (section != nullptr) {
+            found = runtime.read_string(section, key, capacity);
+        } else if (
+            const auto stored = runtime.preference_values_.find(key);
+            stored != runtime.preference_values_.end() && stored->second.size() < capacity
+        ) {
+            found = stored->second;
+        }
         if (!found)
             return 0;
         std::memcpy(out, found->c_str(), found->size() + 1U);
@@ -168,6 +181,23 @@ struct BuiltinScreens {
     // The pass runs from apply_screen_request, never inside a callback.
     static void run_frontend(void* host) {
         static_cast<Runtime*>(host)->frontend_pass_requested_ = true;
+    }
+
+    // Kit screens, notices and prompts: the OA layer hosts them.
+    static int open_kit_screen(void* host, const char* name) {
+        if (name == nullptr)
+            return 0;
+        return static_cast<Runtime*>(host)->oa_layer().open_registered_screen(name) ? 1 : 0;
+    }
+
+    static uint32_t show_notice(void* host, const NoticeRequest* request) {
+        return request != nullptr ? static_cast<Runtime*>(host)->oa_layer().queue_notice(*request)
+                                  : 0;
+    }
+
+    static uint32_t ask_prompt(void* host, const PromptRequest* request) {
+        return request != nullptr ? static_cast<Runtime*>(host)->oa_layer().queue_prompt(*request)
+                                  : 0;
     }
 
     static renderer::MainMenuResources load_main_menu(Runtime& runtime) {
@@ -327,12 +357,16 @@ struct BuiltinScreens {
             return static_cast<Runtime*>(context)->offers_movies();
         };
         // A mod shows its own version where the profile names one, whether
-        // or not its game data names a revision.
+        // or not its game data names a revision. Otherwise the label is the
+        // program's name and this build's version, and game data that does
+        // not name its revision (the demo) keeps the label hidden.
+        const std::string program_line = ui::frontend::main_menu_version_text();
         if (const auto* profile = runtime.options_.mod_profile.get();
             profile != nullptr &&
             profile->identity.display_version != oa::data::mod_profile::Identity{}.display_version)
             menu.version_text = profile->identity.display_version.c_str();
-        else
+        else {
+            menu.version_text = program_line.c_str();
             menu.revision_named = [](void* context) {
                 return static_cast<Runtime*>(context)->assets_.file_size(
                            oa::data::defs::data_path(
@@ -340,6 +374,7 @@ struct BuiltinScreens {
                            )
                        ) != 0;
             };
+        }
         static ui::frontend::Panel panel;
         ui::frontend::panel_load_layout(panel, runtime.resources_.layout);
         ui::frontend::main_menu_setup(panel, checks, menu);
@@ -428,12 +463,11 @@ struct BuiltinScreens {
 
     static void step_load_preferences(ScreenContext* ctx, void*) {
         auto& runtime = host(ctx);
-        // The player's own skirmish setup comes back from a saved, recorded
-        // or network game before the preferences are read over it.
-        if (runtime.player_skirmish_settings_) {
-            runtime.skirmish_settings_ = std::move(*runtime.player_skirmish_settings_);
-            runtime.player_skirmish_settings_.reset();
-        }
+        // The player's own skirmish setup comes back from a saved, recorded,
+        // network or campaign game before the preferences are read over it.
+        init::restore_player_skirmish_settings(
+            runtime.skirmish_settings_, runtime.player_skirmish_settings_
+        );
         init::load_preferences(
             runtime.state_,
             runtime.skirmish_settings_,
@@ -614,7 +648,10 @@ constexpr ScreenServices kRuntimeServices{
     BuiltinScreens::quit,
     BuiltinScreens::stop_sounds,
     BuiltinScreens::play_sound_alternate,
-    BuiltinScreens::run_frontend
+    BuiltinScreens::run_frontend,
+    BuiltinScreens::open_kit_screen,
+    BuiltinScreens::show_notice,
+    BuiltinScreens::ask_prompt
 };
 
 bool overlay_applies(const OverlayDesc& overlay, ScreenId screen) {
@@ -703,16 +740,23 @@ void Runtime::register_screens() {
         screens_.overlays, screens_.overlays + screens_.overlay_count
     );
     call_hook_or_raise<&Extension::register_screens>(extension_, &screens_);
+    // Then the extensions' Settings pages, which Settings lists after the
+    // engine's own sections. A page the registry refused stops the start.
+    SettingsRegistry& pages = oa_layer().registered_settings();
+    call_hook_or_raise<&Extension::register_settings_pages>(extension_, &pages);
+    if (pages.rejected != nullptr)
+        throw std::runtime_error(
+            std::string("settings page registration rejected: ") + pages.rejected
+        );
     extension_overlays_.clear();
     for (uint32_t index = 0; index < screens_.overlay_count; ++index)
         if (!holds_overlay(built_in, screens_.overlays[index]))
             extension_overlays_.push_back(screens_.overlays[index]);
-    // The OA button and the settings dialog, on the main menu and in a match.
-    register_engine_settings_overlays();
-    register_engine_settings_match_overlay();
-    // The notice of the saved games' move, over the main menu.
-    register_saves_notice_overlay();
-    register_mod_install_overlay();
+    // The main menu's OA button, and the OA layer, which hosts the settings
+    // on the main menu and in a match with the in-game menu's OA button, and
+    // the notices and the installs' prompts over the front end.
+    register_engine_settings_button();
+    register_oa_layer();
     // Without screens of the extension's for them, the multiplayer unit
     // headers and a main-menu overlay's steps have nothing to do. The registry
     // refuses a second handler, so these fill only the steps nobody took.

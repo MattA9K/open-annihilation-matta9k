@@ -42,7 +42,10 @@ SPDX-License-Identifier = "GPL-3.0-only"
 
 # Data that cannot hold a comment: the checks' baselines and tables, JSON
 # anywhere in the engine's directories, the macOS bundle's Info.plist
-# template and the Windows program's manifest.
+# template and the Windows program's manifest. The settings picture pin is
+# a table of hashes the pixel gate requires left unchanged, and the Game
+# files screen's and the folder chooser's layout digests tables of hashes of
+# their layouts.
 [[annotations]]
 path = [
     "*.json",
@@ -50,6 +53,9 @@ path = [
     "src/**.json",
     "src/app/Info.plist.in",
     "src/app/open-annihilation.manifest",
+    "src/ui/engine-settings/tests/pixels.txt",
+    "src/ui/folder-chooser/tests/layout-digests.txt",
+    "src/ui/game-files/tests/layout-digests.txt",
     "tests/**.json",
     "tools/**.json",
     "tools/**.txt",
@@ -57,13 +63,13 @@ path = [
 SPDX-FileCopyrightText = "The Open Annihilation Authors; see COPYRIGHT"
 SPDX-License-Identifier = "GPL-3.0-only"
 
-# The whole files of the language packs, which the game shows as they are
-# and so cannot hold a comment: briefings and the like in the game data's
-# language folders, under each pack's files/ folder.
+# The whole files of the language-pack tests, which the game shows as they
+# are and so cannot hold a comment: briefings and the like under each pack's
+# files/ folder, and the warm-up lists.
 [[annotations]]
 path = [
-    "languages/*/files/**",
     "src/data/languages/tests/pseudo-pack/files/**",
+    "src/data/languages/tests/**/warmup.txt",
 ]
 SPDX-FileCopyrightText = "The Open Annihilation Authors; see COPYRIGHT"
 SPDX-License-Identifier = "GPL-3.0-only"
@@ -122,19 +128,57 @@ precedence = "override"
 SPDX-FileCopyrightText = "Contributor Covenant contributors <https://www.contributor-covenant.org>"
 SPDX-License-Identifier = "CC-BY-4.0"
 
-# The Open Annihilation branding: the icon, from the Open Annihilation
-# branding repository, and the icons tools/make_icons.py makes from it,
-# which the builds put in the game. All rights reserved: no licence to use,
-# copy, modify or distribute them is granted, under the project's licence
-# or otherwise, without the holder's prior written permission
+# The Open Annihilation branding: the icon, the settings icon and the mods
+# icon, from the Open Annihilation branding repository, the icons
+# tools/make_icons.py makes from the icon, which the builds put in the game,
+# and the settings and mods icons at 256 pixels, which the game embeds for
+# its settings and Library buttons, and the same icons at 512 pixels, which
+# a large window draws. All
+# rights reserved: no licence to use, copy, modify or distribute them is
+# granted, under the project's licence or otherwise, without the holder's
+# prior written permission
 # (licenses/LicenseRef-OpenAnnihilation-Branding.txt).
 [[annotations]]
 path = [
     "branding/open-annihilation-256.png",
+    "branding/open-annihilation-512.png",
     "branding/open-annihilation-icon.png",
+    "branding/open-annihilation-mods-256.png",
+    "branding/open-annihilation-mods-512.png",
+    "branding/open-annihilation-mods-icon.png",
+    "branding/open-annihilation-settings-256.png",
+    "branding/open-annihilation-settings-512.png",
+    "branding/open-annihilation-settings-icon.png",
     "branding/open-annihilation.icns",
     "branding/open-annihilation.ico",
 ]
 precedence = "override"
 SPDX-FileCopyrightText = "Steve Gray"
 SPDX-License-Identifier = "LicenseRef-OpenAnnihilation-Branding"
+
+# The LZMA SDK decoder, public domain, kept unchanged (see ATTRIBUTIONS.md).
+# These files sit under a vendor directory, which the header check leaves to
+# its authors, so the annotation is the record of their terms.
+[[annotations]]
+path = "src/formats/lzma/vendor/**"
+SPDX-FileCopyrightText = "Igor Pavlov"
+SPDX-License-Identifier = "LZMA-SDK-9.22"
+
+# The small streams the LZMA tests decode, written by xz.
+[[annotations]]
+path = "src/formats/lzma/tests/data/**"
+SPDX-FileCopyrightText = "The Open Annihilation Authors; see COPYRIGHT"
+SPDX-License-Identifier = "GPL-3.0-only"
+
+# The small UDIF image the disk-image tests open. It is a volume made for
+# the tests, not a published installer.
+[[annotations]]
+path = "src/formats/udif/tests/data/**"
+SPDX-FileCopyrightText = "The Open Annihilation Authors; see COPYRIGHT"
+SPDX-License-Identifier = "GPL-3.0-only"
+
+# The small setup body the Windows-installer test reads. It holds no game data.
+[[annotations]]
+path = "src/formats/inno-setup/tests/data/**"
+SPDX-FileCopyrightText = "The Open Annihilation Authors; see COPYRIGHT"
+SPDX-License-Identifier = "GPL-3.0-only"

@@ -8,7 +8,10 @@ password or signing identity is kept in the repository or on GitHub. The
 other platforms' packages are not built by a script in this repository yet;
 the Steam Deck package, the Linux x86_64 package with the Deck's own files
 added, is described at the end ([The Steam Deck
-package](#the-steam-deck-package)).
+package](#the-steam-deck-package)). The Windows installers are built from
+those packages with
+[packaging/windows/open-annihilation.nsi](../../packaging/windows/open-annihilation.nsi)
+([The Windows installers](#the-windows-installers)).
 
 ## What it makes
 
@@ -53,8 +56,9 @@ expanded and checked, and the notary service's logs.
 2. **Checks the build:** both architectures, macOS 11.0 as the oldest
    release in each and in `Info.plist`, only the system's libraries linked,
    the source's notices in `Contents/Resources`, the text fonts in its
-   `fonts` folder, each the bootstrap's byte for byte, and nothing else in
-   the bundle. The notices are `LICENSE`, `ATTRIBUTIONS.md` and the files of
+   `fonts` folder, each the bootstrap's byte for byte, the built-in
+   registries in `registries/` (Core Prime's descriptor the same bytes as
+   the source), and nothing else in the bundle. The notices are `LICENSE`, `ATTRIBUTIONS.md` and the files of
    `licenses/` that Git tracks; a file Git does not track there, a
    `.DS_Store` for one, stops the script, since the build would put it in
    the application.
@@ -273,7 +277,7 @@ Steam Deck package is the Linux x86_64 package with one folder more,
 
 | File | What it holds |
 |---|---|
-| `open-annihilation-vX.Y.Z-steam-deck.zip` | the folder `open-annihilation-vX.Y.Z-steam-deck`, holding the Linux x86_64 package's files (`open-annihilation`, `oa-intro`, `oa-tool`, `LICENSE`, `ATTRIBUTIONS.md`, `licenses/`, `fonts/` and `languages/`) and the `steam-deck` folder |
+| `open-annihilation-vX.Y.Z-steam-deck.zip` | the folder `open-annihilation-vX.Y.Z-steam-deck`, holding the Linux x86_64 package's files (`open-annihilation`, `oa-intro`, `oa-tool`, `LICENSE`, `ATTRIBUTIONS.md`, `licenses/`, `fonts/` and `registries/`) and the `steam-deck` folder |
 
 The `steam-deck` folder holds the Steam Input templates and the library
 artwork that the Steam Deck guide
@@ -317,3 +321,87 @@ pinned release with the patches in
 `tools/bootstrap_sdl.py` applies when it unpacks the release;
 [ATTRIBUTIONS.md](../../ATTRIBUTIONS.md) says so. One of them lets the
 game play its light ticks on the Steam Deck's trackpads.
+
+## The Windows installers
+
+The four Windows packages are `windows-x64`, `windows-x86`, `windows-arm64`
+and `windows-95`. The suite lays each one out as a folder named
+`open-annihilation-<version>-<package>` and zips that folder. The same
+folder is what the installer packs. It holds `open-annihilation.exe`,
+`oa-intro.exe`, `oa-tool.exe`, `LICENSE`, `ATTRIBUTIONS.md`, `licenses/`,
+`fonts/`, `languages/interface.tdf` and `registries/`.
+
+`packaging/windows/open-annihilation.nsi` is the one NSIS 3 script. Build
+it with `makensis`, which is the `nsis` package on Debian and Nix and
+`brew install makensis` on macOS (the program is `makensis`). The defines
+come before the script name, the package folder is absolute and has no
+trailing slash, and the version is the one the package carries:
+
+```sh
+makensis -WX \
+  -DOA_PACKAGE=windows-x64 \
+  -DOA_PACKAGE_DIR="$PWD/open-annihilation-0.8.0-windows-x64" \
+  -DOA_VERSION=0.8.0 \
+  packaging/windows/open-annihilation.nsi
+```
+
+`OA_PACKAGE` is `windows-x64`, `windows-x86`, `windows-arm64` or
+`windows-95`. The installer is written beside the folder, as
+`open-annihilation-<version>-<package>-setup.exe`, next to the package
+zip. The icon is `branding/open-annihilation.ico`, the one the game's
+executable embeds, unless `-DOA_ICON` names another. Leave out `-NOCD`,
+or the default icon path is read from the wrong directory.
+
+`windows-95` is built ANSI (`Unicode false`). The other three are Unicode.
+The 64-bit and ARM installers use `$PROGRAMFILES64` and the 64-bit
+registry view. The 32-bit and Windows 95 installers use `$PROGRAMFILES`
+and the ordinary registry view. A desktop shortcut is a component, on by
+default, so a silent install adds it. Silent install is `/S`, and
+`/D=C:\Games\Open Annihilation` chooses the folder when it is the last
+argument and is not quoted. Silent uninstall is `Uninstall.exe /S` in the
+install folder.
+
+`packaging/windows/build-installers.sh` lays out four folders in that
+shape, using the tree's notices, catalogue and registries and stand-in
+executables, and builds all four with Homebrew's `makensis`. It also
+checks that an unknown package name and a folder missing `LICENSE` are
+refused.
+
+NSIS 3's ANSI installer is what the Windows 95 package ships. A run on a
+Windows 95 machine is what shows that it starts there. If that run fails,
+build the Windows 95 installer with NSIS 2.46 instead. Two things differ.
+NSIS 2.46 is ANSI already and has no `Unicode` instruction; this script
+emits `Unicode` only when `NSIS_CHAR_SIZE` is defined, which NSIS 3 does
+and 2.46 does not. The icon's images are PNG, which NSIS 3 accepts and
+2.46 does not, so a 2.46 build needs `-DOA_ICON` pointing at an icon whose
+images are BMP. NSIS 2.46 also reads both sides of a `!if`, so it would
+open the NSIS 3 headers this script includes for the other packages
+(`x64.nsh` and `WinVer.nsh`) and stop. NSIS 3 skips the side it does not
+take.
+
+## The Windows 95 package
+
+`nix build .#win95` builds the Windows 95 package. The flake's systems are
+`x86_64-linux` and `aarch64-linux`. `tools/nix/windows.nix` installs the
+package into `$out/bin`, which is the package root the suite copies:
+
+| File | What it is |
+|---|---|
+| `open-annihilation.exe`, `oa-tool.exe` | the game and the tool, stripped, from a Release build with the self-checks left out |
+| `oa-intro.exe` | the intro player the game already links, built with the same Windows 95 toolchain and stripped the same way |
+| `LICENSE`, `ATTRIBUTIONS.md`, `licenses/` | the notices the other Windows packages carry; not the Linux-only SDL notice |
+| `fonts/` | the text fonts |
+| `languages/interface.tdf` | the interface catalogue |
+| `registries/` | the registries the game ships with |
+
+`$out/symbols` holds those three programs as the build linked them, symbol
+table included, and nothing else. The suite's symbols zip is made from that
+directory. What remains different from the 32-bit Windows package is the
+toolchain: no SSE, floats on the processor's floating-point unit, the C library Windows 95 ships,
+and executables stamped for Windows 95. The code generation is otherwise
+the release build's.
+
+The other Windows outputs of the flake (`windows`, `windows-i686`) still
+install only the executables, the fonts and the registries, unstripped. The
+suite lays those packages out and strips them. A start of `oa-intro.exe` on
+a Windows 95 machine is not part of building the package.

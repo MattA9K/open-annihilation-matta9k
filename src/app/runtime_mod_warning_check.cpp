@@ -8,7 +8,8 @@
 // the player's own Mods folder, and two folders without a profile: one
 // whose second side's intgaf and font name files no folder holds, and one
 // whose second side lacks its LOGO section, whose start would end and whose
-// switch is refused; it switches to the first of those folders. The second
+// switch is refused, a note over the Library saying why; it switches to the
+// first of those folders. Every switch is the Library's PLAY NOW. The second
 // sees its warning of both files once over the main menu, then plays a
 // skirmish on that side, its HUD without those panels and in COMIX; it
 // switches to a profile whose SIDEDATA names the same files, and the third
@@ -22,7 +23,11 @@
 // missing, and no other, and that GAF. The sixth plays the profile that
 // plays whole: it sees no warning and starts a skirmish.
 
+#include "engine_settings_menu_host.hpp"
 #include "engine_settings_state.hpp"
+#include "library_host.hpp"
+#include "oa_layer.hpp"
+#include "oa_layer_check.hpp"
 #include "touch_state.hpp"
 #include "user_folder_state.hpp"
 
@@ -33,6 +38,9 @@
 #include "oa/data/languages/interface_text.hpp"
 #include "oa/ui/engine_settings/dialog.hpp"
 #include "oa/ui/engine_settings/notice.hpp"
+#include "oa/ui/kit/input.hpp"
+#include "oa/ui/kit/layout.hpp"
+#include "oa/ui/library/library.hpp"
 
 #include <SDL3/SDL.h>
 
@@ -44,6 +52,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -54,6 +63,7 @@
 namespace oa::app {
 
 namespace settings = oa::ui::engine_settings;
+namespace library = oa::ui::library;
 
 namespace {
 
@@ -110,10 +120,6 @@ constexpr std::string_view kSideArtProfile =
     "packaging: {revision: 1, date: 2026-10-04, packager: Open Annihilation}\n";
 /// Match ticks a skirmish over the side art folders plays.
 constexpr uint32_t kSideArtTicks = 300;
-/// Source pixels Mods is scrolled by at a time to bring a row into view.
-constexpr int32_t kScrollStep = 4;
-/// The most times it is scrolled.
-constexpr int32_t kScrollSteps = 256;
 /// A folder without a profile: the game's own SIDEDATA without the second
 /// side's LOGO section.
 constexpr std::string_view kLogolessFolder = "warning-check-logoless";
@@ -249,6 +255,14 @@ void Runtime::check_mod_warning() {
     auto& state = user_folder_state();
     // The notices show although nobody watches the check.
     state.check_shows_notice = true;
+    // The warning on the OA layer, and where the layer shows it.
+    const auto shown_warning = [this]() -> const NoticeScreen& {
+        const auto* shown =
+            dynamic_cast<const NoticeScreen*>(oa_layer().find(NoticeScreen::screen_name));
+        require(shown != nullptr, "no warning is on the OA layer");
+        return *shown;
+    };
+    const auto warning_place = [&]() { return shown_warning().placement(oa_layer().view()); };
 
     // The window's frame of a step, when --snapshot names a file.
     if (!options_.snapshot.empty() &&
@@ -289,41 +303,30 @@ void Runtime::check_mod_warning() {
     // A finger's tap through the touch dispatcher just under the warning's
     // OK, within a finger's reach of it, which closes the warning.
     const auto tap_under_ok = [&](Screen screen, std::string_view where) {
-        const auto& shown = *state.notice;
         const auto* fonts = engine_settings_fonts();
-        const int32_t height = settings::notice_height(shown, fonts);
-        const auto placement = UserFolderState::notice_placement(height);
-        const int32_t reach = EngineSettingsState::finger_reach(*this, 1.0);
-        float x = 0.0F;
-        float y = 0.0F;
+        const auto placed = warning_place();
+        const auto& shown = shown_warning().notice();
+        // A finger's reach, in the warning's points as the layer shows it:
+        // the pick distance in the picture's pixels, over the picture's
+        // pixels a point takes.
+        const LayerView seen = oa_layer().view();
+        const int32_t reach = EngineSettingsState::finger_reach(
+            *this,
+            static_cast<double>(placed.shown.width) / static_cast<double>(placed.points_width) *
+                static_cast<double>(seen.picture_size.x) / static_cast<double>(seen.picture.width)
+        );
+        oa::ui::display_layout::Point pixel{};
         for (const auto& part : settings::notice_layout(shown, fonts))
-            if (part.control == settings::notice_ok_control) {
-                x = static_cast<float>(placement.x + part.rect.x + part.rect.width / 2);
-                y = static_cast<float>(
-                    placement.y + part.rect.y + part.rect.height - 1 + std::max(1, reach * 2 / 3)
+            if (part.control == settings::notice_ok_control)
+                pixel = layer_window_pixel(
+                    placed,
+                    {part.rect.x + part.rect.width / 2,
+                     part.rect.y + part.rect.height - 1 + std::max(1, reach * 2 / 3)}
                 );
-            }
-        require(
-            frame_to_window(sdl_.renderer, x, y, &x, &y),
-            "a finger could not be placed on the window"
-        );
-        int width = 0;
-        int window_height = 0;
-        require(
-            SDL_GetWindowSize(sdl_.window, &width, &window_height) && width > 0 &&
-                window_height > 0,
-            "the window has no size"
-        );
         touch_state().dispatch.accept_unregistered_touch = true;
         for (const SDL_EventType type : {SDL_EVENT_FINGER_DOWN, SDL_EVENT_FINGER_UP}) {
-            SDL_Event event{};
-            event.type = type;
-            event.tfinger.touchID = kCheckTouchDevice;
-            event.tfinger.fingerID = 1;
-            event.tfinger.x = x / static_cast<float>(width);
-            event.tfinger.y = y / static_cast<float>(window_height);
-            event.tfinger.pressure = type == SDL_EVENT_FINGER_UP ? 0.0F : 1.0F;
-            event.tfinger.windowID = SDL_GetWindowID(sdl_.window);
+            SDL_Event event =
+                window_finger_event(sdl_.window, sdl_.renderer, type, pixel, kCheckTouchDevice, 1);
             bool running = true;
             dispatch_event(event, running);
             require(running, "a finger on the warning ended the run");
@@ -331,45 +334,38 @@ void Runtime::check_mod_warning() {
         require(!saves_notice_shown(), "a finger just under OK did not close the warning");
         require(screen_ == screen, std::string("closing the warning left ") + std::string(where));
     };
-    // SWITCH on a mod's row of the Mods page.
+    // PLAY NOW on a mod folder's entry in the Library, as the run's own
+    // feed lists it. A folder without an oamod.yaml is marked so, which its
+    // status line says.
     const auto press_switch = [&](const std::string& folder) {
         list_offered_mods();
-        auto& dialog = open_engine_settings_dialog(settings::DialogKind::engine);
-        dialog.page = settings::Page::mods;
-        int32_t wanted = settings::no_question;
-        for (std::size_t index = 0; index < dialog.mod_folders.size(); ++index)
-            if (dialog.mod_folders[index] == folder)
-                wanted = static_cast<int32_t>(index);
-        require(wanted != settings::no_question, "Mods does not list the test profile");
-        const auto rows = settings::mod_rows(dialog);
-        int32_t control = settings::no_question;
-        for (std::size_t index = 0; index < rows.size(); ++index)
-            if (rows[index].offered == wanted)
-                control = settings::first_row_control + static_cast<int32_t>(index);
-        // A row below the section's view is scrolled to, a few pixels at a
-        // time, until it lies wholly in the view.
-        bool clicked = false;
-        auto& scrolled = dialog.scroll[static_cast<std::size_t>(dialog.page)];
-        for (int32_t step = 0; step < kScrollSteps && !clicked; ++step, scrolled += kScrollStep)
-            for (const auto& part : settings::dialog_layout(dialog)) {
-                if (part.control != control)
-                    continue;
-                const int32_t x = part.rect.x + part.rect.width / 2;
-                const int32_t y = part.rect.y + part.rect.height / 2;
-                std::ignore = settings::dialog_pointer_move(dialog, x, y);
-                std::ignore = settings::dialog_pointer_down(dialog, x, y);
-                std::ignore = settings::dialog_pointer_up(dialog, x, y);
-                clicked = true;
-            }
-        require(clicked && dialog.switch_question == wanted, "a click did not ask to switch");
-        const auto action = settings::dialog_key(dialog, settings::DialogKey::enter);
-        require(action == settings::DialogAction::switch_mod, "SWITCH did not ask for the switch");
-        std::ignore = take_engine_settings_action(action);
+        LibraryHost& host = library_host();
+        host.rebuild(*this);
+        std::optional<library::EntryId> wanted;
+        bool offered = false;
+        bool marked = false;
+        for (const library::Entry& each : host.model.entries) {
+            if (each.id.kind != library::Kind::mod || each.installed == nullptr ||
+                kept_path(each.installed->folder) != folder)
+                continue;
+            wanted = each.id;
+            marked = each.installed->without_manifest;
+            for (const library::ActionButton& button : library::entry_actions(host.model, each))
+                offered = offered || (button.action == library::Action::play_now && button.enabled);
+        }
+        require(wanted.has_value(), "the Library does not list the test profile");
+        require(offered, "the test profile's entry offers no PLAY NOW");
+        std::error_code missing;
+        require(
+            marked == !fs::exists(path_from_utf8(folder) / "oamod.yaml", missing),
+            "the Library does not mark whether a mod folder has an oamod.yaml"
+        );
+        library_entry_action(library::Action::play_now, *wanted);
     };
-    // SWITCH, which ends the run.
+    // PLAY NOW, which ends the run.
     const auto switch_to = [&](const std::string& folder) {
         press_switch(folder);
-        require(soft_restart_requested(), "SWITCH did not end the run");
+        require(soft_restart_requested(), "PLAY NOW did not end the run");
     };
 
     // The second side's name and the files the side art folders' second side
@@ -409,10 +405,10 @@ void Runtime::check_mod_warning() {
             tell_incomplete_mod();
         require(
             saves_notice_shown() && state.mod_warnings_shown == 1 &&
-                state.notice_screen == Screen::main_menu,
+                shown_warning().over() == Screen::main_menu,
             "the side files' warning did not show over the main menu"
         );
-        const auto& notice = *state.notice;
+        const auto& notice = shown_warning().notice();
         require(
             notice.title == "MOD FILES MISSING" && notice.open_caption == "OPEN MOD FOLDER" &&
                 notice.paragraphs.size() == 5 &&
@@ -456,6 +452,8 @@ void Runtime::check_mod_warning() {
             "the skirmish did not play its ticks"
         );
         leave_match();
+        // Back on the main menu, where the Library's PLAY NOW can be pressed.
+        load(Screen::main_menu);
         fake_frontend_tick_ = previous_tick;
         std::cout << "mod warning check: " << name
                   << " warned once of the second side's panels and font, and its skirmish on "
@@ -505,24 +503,35 @@ void Runtime::check_mod_warning() {
         require(mod_profile() == nullptr && !plays_mod(), "the first run plays a mod");
         require(!mod_start_gaps().any(), "the game played without a mod warns");
         // The folder without a profile whose start would end on its second
-        // side's missing LOGO is refused: the page says why and the dialog
-        // stays open on the mod played. It is listed alone, and goes once
-        // refused, so that the page shows its row.
+        // side's missing LOGO is refused: a note over the Library says why,
+        // and the mod played stays chosen. It is listed alone, and goes once
+        // refused, so that the Library lists it.
         write_sidedata(kLogolessFolder, drop_second_side_logo(sidedata));
+        const std::string played_before = settings_state.current.mod_folder;
         press_switch(kept_path(mods / std::string(kLogolessFolder)));
+        {
+            const auto* told = dynamic_cast<const QuestionScreen*>(oa_layer().top());
+            require(
+                !soft_restart_requested() && settings_state.current.mod_folder == played_before &&
+                    told != nullptr && told->question().paragraphs.size() == 1 &&
+                    told->question().paragraphs[0].text ==
+                        oa::data::languages::interface_text(
+                            "That folder cannot be played; the log says why."
+                        ),
+                "the switch to " + std::string(kLogolessFolder) + " was not refused"
+            );
+        }
+        {
+            LayerScreen* told = oa_layer().top();
+            oa_layer().take_answer(
+                *told, told->key(oa::ui::kit::Key::enter, SDLK_RETURN), SDLK_RETURN
+            );
+            oa_layer().forget_latched_key();
+        }
         require(
-            !soft_restart_requested() && settings_state.dialog &&
-                settings_state.dialog->chosen.mod_folder == settings_state.current.mod_folder &&
-                settings_state.dialog->folder_notice ==
-                    oa::data::languages::interface_text(
-                        "That folder cannot be played; the log says why."
-                    ),
-            "the switch to " + std::string(kLogolessFolder) + " was not refused"
+            dynamic_cast<const QuestionScreen*>(oa_layer().top()) == nullptr,
+            "OK did not close the refused switch's note"
         );
-        std::ignore = take_engine_settings_action(
-            settings::dialog_key(*settings_state.dialog, settings::DialogKey::escape)
-        );
-        require(!settings_state.dialog, "Escape did not close the refused switch's dialog");
         fs::remove_all(mods / std::string(kLogolessFolder));
         // The one whose side files alone are missing is not.
         switch_to(sideless);
@@ -574,14 +583,44 @@ void Runtime::check_mod_warning() {
         require(screen_ == Screen::main_menu, "the main menu did not open");
         require(engine_settings_fonts() != nullptr, "the dialog's fonts did not load");
         send_check_pointer(SDL_EVENT_MOUSE_MOTION, kRestingPointer, 0);
+        // The main menu at each larger window, read back whole and drawn
+        // from the same sparks, with no OA screen open: what the warning's
+        // backdrop darkens there.
+        int run_width = 0;
+        int run_height = 0;
+        SDL_GetWindowSize(sdl_.window, &run_width, &run_height);
+        const auto window_of = [this](int width, int height) {
+            require(
+                SDL_SetWindowSize(sdl_.window, width, height) && SDL_SyncWindow(sdl_.window),
+                "the window did not take " + std::to_string(width) + 'x' + std::to_string(height)
+            );
+            apply_output_mode();
+        };
+        const auto sparks = menu_sparks_;
+        const auto window_frame = [&] {
+            renderer::Surface presented;
+            menu_sparks_ = sparks;
+            capture_frame_ = &presented;
+            render();
+            capture_frame_ = nullptr;
+            return presented;
+        };
+        std::vector<renderer::Surface> closed_windows;
+        oa_layer().read_whole_window(true);
+        for (const LayerWindow& larger : larger_layer_windows) {
+            window_of(larger.width, larger.height);
+            closed_windows.push_back(window_frame());
+        }
+        oa_layer().read_whole_window(false);
+        window_of(run_width, run_height);
         for (int pass = 0; pass < 4; ++pass)
             tell_incomplete_mod();
         require(
             saves_notice_shown() && state.mod_warnings_shown == 1 &&
-                state.notice_screen == Screen::main_menu,
+                shown_warning().over() == Screen::main_menu,
             "the warning did not show over the main menu"
         );
-        const auto& notice = *state.notice;
+        const auto& notice = shown_warning().notice();
         require(
             notice.title == "MOD FILES MISSING" && notice.open_caption == "OPEN MOD FOLDER" &&
                 notice.paragraphs.front().text == "Warning Check Hollow is missing files." &&
@@ -589,22 +628,96 @@ void Runtime::check_mod_warning() {
                 notice.paragraphs.back().text == hollow,
             "the warning does not name the mod, its first side's commander and its folder"
         );
+        // At 1280x720 and 1920x1080 the warning is laid out at the window's
+        // class and drawn at its scale, centred over the main menu darkened
+        // over the whole window.
+        oa_layer().read_whole_window(true);
+        for (std::size_t index = 0; index < larger_layer_windows.size(); ++index) {
+            const LayerWindow& larger = larger_layer_windows[index];
+            const std::string size =
+                std::to_string(larger.width) + 'x' + std::to_string(larger.height);
+            window_of(larger.width, larger.height);
+            const auto presented = window_frame();
+            require(
+                oa_layer().screen_class() == larger.size_class &&
+                    oa_layer().screen_scale() == larger.scale,
+                "the warning is not laid out at " +
+                    std::string(size_class_name(larger.size_class)) + ", " +
+                    std::to_string(larger.scale) + "x on the " + size + " window"
+            );
+            settings::Notice sized = shown_warning().notice();
+            sized.size_class = larger.size_class;
+            const auto* fonts = engine_settings_fonts();
+            const int32_t sized_height = settings::notice_height(sized, fonts);
+            const auto at = warning_place();
+            const int32_t shown_width =
+                oa::ui::kit::metrics_of(larger.size_class).notice_width * larger.scale;
+            require(
+                at.shown.width == shown_width && at.shown.height == sized_height * larger.scale &&
+                    at.shown.x == (larger.width - shown_width) / 2 &&
+                    at.shown.y == (larger.height - at.shown.height) / 2,
+                "the warning is not centred in the " + size + " window at its class's size"
+            );
+            renderer::Surface drawing;
+            drawing.width = static_cast<uint32_t>(at.shown.width);
+            drawing.height = static_cast<uint32_t>(at.shown.height);
+            drawing.rgb.assign(static_cast<std::size_t>(drawing.width) * drawing.height * 3U, 0);
+            settings::draw_notice(
+                drawing, {0, 0, larger.scale}, sized, *fonts, engine_settings_icon()
+            );
+            apply_gamma_rgb(drawing.rgb.data(), drawing.rgb.size() / 3U, 3);
+            auto expected = expected_layer_frame(closed_windows[index], drawing, at);
+            // The closed frame holds the larger icons. Darkening that frame
+            // is not what the window draws: each icon is darkened and blended
+            // on its own, over its window rectangle. Those squares are taken
+            // from the window. The warning covers its own place.
+            EngineSettingsMenuHost::copy_presented_menu_buttons(
+                *this,
+                presented,
+                expected,
+                {at.shown.x, at.shown.y, at.shown.width, at.shown.height}
+            );
+            const auto differing = layer_differences(
+                presented, expected, window_pointer(oa_layer().view(), kRestingPointer)
+            );
+            require(
+                differing == 0,
+                "the " + size + " window does not show the warning over the darkened main menu: " +
+                    std::to_string(differing) + " pixels differ"
+            );
+            std::cout << "mod warning check: the warning at " << size_class_name(larger.size_class)
+                      << ", " << larger.scale << "x, on the " << size << " window\n";
+        }
+        oa_layer().read_whole_window(false);
+        window_of(run_width, run_height);
+        // A frame lays the warning out for the window again.
+        menu_sparks_ = sparks;
+        static_cast<void>(frame_without_cursor());
         snapshot("main-menu");
-        // OPEN MOD FOLDER shows the mod's folder and the warning stays.
+        // OPEN MOD FOLDER, where the OA layer shows it, shows the mod's
+        // folder and the warning stays.
         const auto* fonts = engine_settings_fonts();
-        const int32_t height = settings::notice_height(notice, fonts);
-        const auto placement = UserFolderState::notice_placement(height);
-        oa::ui::display_layout::Point open_point{};
+        const auto placed = warning_place();
+        oa::ui::display_layout::Point open_pixel{};
         for (const auto& part : settings::notice_layout(notice, fonts))
             if (part.control == settings::notice_open_control)
-                open_point = {
-                    placement.x + part.rect.x + part.rect.width / 2,
-                    placement.y + part.rect.y + part.rect.height / 2
-                };
+                open_pixel = layer_window_pixel(
+                    placed, {part.rect.x + part.rect.width / 2, part.rect.y + part.rect.height / 2}
+                );
         state.opened.clear();
-        send_check_pointer(SDL_EVENT_MOUSE_MOTION, open_point, 0);
-        send_check_pointer(SDL_EVENT_MOUSE_BUTTON_DOWN, open_point, SDL_BUTTON_LEFT);
-        send_check_pointer(SDL_EVENT_MOUSE_BUTTON_UP, open_point, SDL_BUTTON_LEFT);
+        for (const SDL_EventType type :
+             {SDL_EVENT_MOUSE_MOTION, SDL_EVENT_MOUSE_BUTTON_DOWN, SDL_EVENT_MOUSE_BUTTON_UP}) {
+            SDL_Event event = window_pointer_event(
+                sdl_.window,
+                sdl_.renderer,
+                type,
+                open_pixel,
+                type == SDL_EVENT_MOUSE_MOTION ? 0 : SDL_BUTTON_LEFT
+            );
+            bool running = true;
+            dispatch_event(event, running);
+            require(running, "a click on the warning ended the run");
+        }
         require(
             saves_notice_shown() && state.opened == std::vector<fs::path>{path_from_utf8(hollow)},
             "OPEN MOD FOLDER did not show the mod's folder, or closed the warning"
@@ -625,7 +738,7 @@ void Runtime::check_mod_warning() {
         exercise_click(skirmish::resource_name(skirmish::Button::start));
         require(
             screen_ == Screen::skirmish && !match_ && saves_notice_shown() &&
-                state.notice_screen == Screen::skirmish && state.mod_warnings_shown == 2,
+                shown_warning().over() == Screen::skirmish && state.mod_warnings_shown == 2,
             "Start did not warn and stay on the skirmish setup"
         );
         snapshot("skirmish");
@@ -686,10 +799,10 @@ void Runtime::check_mod_warning() {
             tell_incomplete_mod();
         require(
             saves_notice_shown() && state.mod_warnings_shown == 1 &&
-                state.notice->paragraphs.size() > 2 &&
-                state.notice->paragraphs[1].text == commander_line() &&
-                state.notice->paragraphs[2].text == side_file_line(panels) &&
-                state.notice->paragraphs[3].text ==
+                shown_warning().notice().paragraphs.size() > 2 &&
+                shown_warning().notice().paragraphs[1].text == commander_line() &&
+                shown_warning().notice().paragraphs[2].text == side_file_line(panels) &&
+                shown_warning().notice().paragraphs[3].text ==
                     "Its games can't start until the mod's files are added to its folder:",
             "the warning of the dropped commander and the missing panels did not show over the "
             "main menu"

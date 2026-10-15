@@ -3,10 +3,14 @@
 
 // Multiplayer screens: resources, input routing, dialogs and drawing.
 #include "oa/ui/frontend_multiplayer/screens.hpp"
+#include "oa/ui/frontend_multiplayer/get_map.hpp"
+#include "oa/ui/frontend_multiplayer/map_list.hpp"
+#include "oa/ui/frontend_multiplayer/presence_card.hpp"
 #include "oa/ui/decoded.hpp"
 
 #include "oa/base/game_loop.hpp"
 #include "oa/data/campaign/campaign_assets.hpp"
+#include "oa/data/map_pack/map_name.hpp"
 #include "oa/data/defs/layout.hpp"
 #include "oa/data/defs/unit_header.hpp"
 #include "oa/data/languages/unit_texts.hpp"
@@ -31,6 +35,7 @@
 #include "oa/platform/system.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <chrono>
 #include <cstdint>
@@ -84,8 +89,13 @@ constexpr uint16_t kMachineMemoryMb = 256; // stand-in for the physical memory p
 constexpr uint32_t kSdlKeyReturn = 0x0d;
 constexpr uint32_t kSdlKeyEscape = 0x1b;
 constexpr uint32_t kSdlKeyBackspace = 0x08;
-constexpr uint32_t kSdlKeyUp = 0x40000052;
+constexpr uint32_t kSdlKeyTab = 0x09;
+constexpr uint32_t kSdlKeyRight = 0x4000004F;
+constexpr uint32_t kSdlKeyLeft = 0x40000050;
 constexpr uint32_t kSdlKeyDown = 0x40000051;
+constexpr uint32_t kSdlKeyUp = 0x40000052;
+/// Either Shift key, as the platform reports it on a key.
+constexpr uint16_t kSdlModifierShift = 0x0003;
 constexpr uint8_t kSdlRightButton = 3;
 constexpr uint8_t kMenuTickFlag = 1;
 // The frontend signal a state starts with.
@@ -104,11 +114,20 @@ struct Resources {
     oa::ui::gui_input::ScrollHold hold;
     /// The game palette's gray table, built the first time a grayed control is drawn.
     std::vector<uint8_t> gray_table;
+    /// The dialog names no picture, so its face is the common panel tiles and
+    /// its text fields and lists take the common list-box frame.
+    bool plain_panel = false;
 };
 
 struct MapInfo {
     std::string name, description, size;
     int32_t memory = 0;
+    std::string title;      ///< the pack index's name; empty for a base map
+    std::string file_title; ///< the map file's title, when the source held one
+    std::string pack_name;  ///< the pack's name; empty for a base map
+    bool pack = false;
+    /// The short English reason the row is greyed with; empty when it can be played.
+    std::string blocked_reason;
 };
 
 struct UnitStore {
@@ -159,12 +178,26 @@ struct Ui {
     netgame::WireRules wire_rules{};
     /// This machine sends and reads chat as UTF-8; off until bound.
     bool unicode_chat{};
+    /// The presence record this machine sends, without a map pack; empty
+    /// until one is bound. It survives multiplayer_reset.
+    std::vector<uint8_t> presence_record;
+    /// The map packs' answer to which pack the selected map comes from
+    /// (LobbyMaps::pack), and its context; null until bound. It survives
+    /// multiplayer_reset.
+    void* pack_context = nullptr;
+    bool (*pack)(void* context, netgame::PresenceMapPack* out) = nullptr;
     /// The line this machine's recorder answers .report with.
     std::string program_line;
     std::string message;
     std::vector<MapInfo> maps;
     int32_t map = -1;
     bool maps_loaded = false;
+    // The pack map whose choice was refused, and why. Empty when the last
+    // choice was accepted.
+    std::string pack_refused_name;
+    std::string pack_refusal;
+    // A pack map's files are mounted for the battle room.
+    bool pack_prepared = false;
     // The map context (Game.game_options) the content hash is computed from.
     data::campaign::CampaignFile map_context{};
     data::campaign::MapList map_list{};
@@ -176,6 +209,15 @@ struct Ui {
     data::campaign::CampaignFiles picture_files{};
     std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
     ScreenContext* ctx = nullptr;
+    /// The install the last live screen context named. The context does not
+    /// outlive its callback; a map installed while the battle room shows is
+    /// listed after that callback returns, and the list reads this install.
+    const oa::AssetStore* assets = nullptr;
+    /// The host and services the last live screen context named. Like the
+    /// install, they live on with the runtime; a sound played or a setting
+    /// read after the callback returns uses these, never the context.
+    void* host = nullptr;
+    const app::ScreenServices* services = nullptr;
     uint32_t last_click_ms = 0;
     int32_t last_click_index = kNoControl;
     bool in_lobby = false;
@@ -214,6 +256,21 @@ Ui& ui() {
     return *state;
 }
 
+/// Remembers the screen for this callback, and the install it names.
+///
+/// The context belongs to the caller and does not outlive the callback. A
+/// map got while the battle room shows is listed once the callback has
+/// returned, so the list keeps the install, which lives on with the runtime.
+///
+/// @param state the screens
+/// @param ctx the callback's context; null clears the remembered install
+void remember_screen(Ui& state, ScreenContext* ctx) {
+    state.ctx = ctx;
+    state.assets = ctx != nullptr ? ctx->assets : nullptr;
+    state.host = ctx != nullptr ? ctx->host : nullptr;
+    state.services = ctx != nullptr ? ctx->services : nullptr;
+}
+
 // The clock multiplayer_bind_clock bound; it survives multiplayer_reset.
 LobbyClock g_clock{};
 
@@ -241,6 +298,94 @@ struct DirectGameState {
 
 DirectGameState g_direct{};
 
+// The pack maps the battle room lists beside the base maps. A null member
+// does nothing. The binding survives multiplayer_reset.
+LobbyMapSource g_map_source{};
+
+// The OA layer's answer for whether it draws the badges at the window's own
+// pixels this frame. A null answer keeps the frame's pixel badge. The
+// binding survives multiplayer_reset.
+void* g_layer_badge_context = nullptr;
+bool (*g_layer_draws_badges)(void*) = nullptr;
+
+/// Tells whether the bound source lists a map by this exact name.
+///
+/// @param name the map's name
+/// @return true when the source lists it
+bool source_lists(const char* name) {
+    if (name == nullptr || g_map_source.count == nullptr || g_map_source.at == nullptr)
+        return false;
+    const int32_t count = g_map_source.count(g_map_source.context);
+    for (int32_t index = 0; index < count; ++index) {
+        LobbyPackMap pack{};
+        if (!g_map_source.at(g_map_source.context, index, &pack) || pack.name == nullptr)
+            continue;
+        if (std::strcmp(pack.name, name) == 0)
+            return true;
+    }
+    return false;
+}
+
+/// Forgets the last refused pack map.
+void clear_pack_refusal() {
+    auto& state = ui();
+    state.pack_refused_name.clear();
+    state.pack_refusal.clear();
+}
+
+/// Remembers why a pack map was refused.
+///
+/// @param name the map's name
+/// @param reason the reason; null is an empty reason
+void remember_pack_refusal(const std::string& name, const char* reason) {
+    auto& state = ui();
+    state.pack_refused_name = name;
+    state.pack_refusal = reason != nullptr ? reason : "";
+}
+
+/// Unmounts the pack map whose files are mounted. A second call does nothing.
+void release_pack_source() {
+    auto& state = ui();
+    if (!state.pack_prepared)
+        return;
+    state.pack_prepared = false;
+    if (g_map_source.release != nullptr)
+        g_map_source.release(g_map_source.context);
+}
+
+/// Mounts a listed pack map's files.
+///
+/// A source with no prepare leaves the files as they are and accepts the map.
+/// A refusal keeps the reason and mounts nothing.
+///
+/// @param name the map's name
+/// @return true when the map may be chosen
+bool prepare_listed(const std::string& name) {
+    auto& state = ui();
+    if (g_map_source.prepare == nullptr) {
+        clear_pack_refusal();
+        state.pack_prepared = false;
+        return true;
+    }
+    char reason[1024]{};
+    if (!g_map_source.prepare(g_map_source.context, name.c_str(), reason, sizeof reason)) {
+        state.pack_prepared = false;
+        remember_pack_refusal(name, reason);
+        return false;
+    }
+    clear_pack_refusal();
+    // Mounted again after it was not: the files may be another release's
+    // now, as after GET MAP installs the host's. A map context bound to the
+    // map by this name reads them again, its hashes among them.
+    if (!state.pack_prepared &&
+        oa::formats::tdf::compare_nocase(
+            data::campaign::campaign_mission_name(&state.map_context), name.c_str()
+        ) == 0)
+        state.map_context.mission_name[0] = '\0';
+    state.pack_prepared = true;
+    return true;
+}
+
 uint32_t elapsed_ms() {
     if (g_clock.now_ms != nullptr)
         return g_clock.now_ms(g_clock.context);
@@ -254,9 +399,11 @@ uint32_t elapsed_ms() {
 // Boundaries bound to the application
 
 void service_play_sound(void*, const char* name) {
-    if (ui().ctx != nullptr && ui().ctx->services != nullptr &&
-        ui().ctx->services->play_sound != nullptr)
-        app::screen_play_sound(ui().ctx, name);
+    auto& state = ui();
+    // The host and services, not the callback's context, which may be gone
+    // by the time the battle room plays a sound.
+    if (state.services != nullptr && state.services->play_sound != nullptr)
+        state.services->play_sound(state.host, name);
 }
 
 void service_message(void*, const char* text) {
@@ -300,12 +447,12 @@ uint32_t service_random_below(void*, uint32_t bound) {
 
 oa_ref32 service_load_picture(void*, const char* path, int32_t* width, int32_t* height) {
     auto& state = ui();
-    if (state.ctx == nullptr || state.ctx->assets == nullptr)
+    if (state.assets == nullptr)
         return 0;
     std::unique_ptr<Image> image;
     try {
         image = std::make_unique<Image>(
-            ui::decoded::require(decode_pcx(state.ctx->assets->read(path).bytes), path)
+            ui::decoded::require(decode_pcx(state.assets->read(path).bytes), path)
         );
     } catch (const std::exception&) {
         return 0;
@@ -326,70 +473,181 @@ void service_free_picture(void*, oa_ref32 picture) {
 }
 
 int32_t service_display_modes(void*, DisplayMode* out, int32_t capacity) {
-    if (g_display_modes.modes != nullptr && capacity > 0) {
-        const int32_t written =
-            std::clamp(g_display_modes.modes(g_display_modes.context, out, capacity), 0, capacity);
-        if (written > 0)
-            return written;
-    }
-    constexpr DisplayMode kModes[] = {
-        {640, 480, 8},
-        {800, 600, 8},
-        {1024, 768, 8},
-        {1152, 864, 8},
-        {1280, 1024, 8},
-        {1600, 1200, 8}
-    };
-    const auto count = std::min<int32_t>(capacity, static_cast<int32_t>(std::size(kModes)));
-    for (int32_t index = 0; index < count; ++index)
-        out[index] = kModes[index];
-    return count;
+    if (g_display_modes.modes == nullptr || out == nullptr || capacity <= 0)
+        return 0;
+    return std::clamp(g_display_modes.modes(g_display_modes.context, out, capacity), 0, capacity);
 }
 
 data::campaign::CampaignFiles map_files() {
-    return data::campaign::campaign_asset_files(*ui().ctx->assets);
+    if (ui().assets == nullptr)
+        return {};
+    return data::campaign::campaign_asset_files(*ui().assets);
+}
+
+/// The row the battle room starts on: a map it can read, else one that can
+/// be played, else the first row.
+///
+/// @return that row; 0 when the list is empty
+int32_t starting_map_index();
+
+/// Orders the battle room's maps by the name each row shows.
+///
+/// A list past the sorting limits stays in the order it was gathered.
+///
+/// @param[in,out] maps the maps
+void order_listed_maps(std::vector<MapInfo>& maps) {
+    std::vector<MapListFact> facts;
+    facts.reserve(maps.size());
+    for (const MapInfo& map : maps) {
+        MapListFact fact;
+        fact.key = map.name;
+        fact.title = map.title;
+        fact.file_title = map.file_title;
+        fact.pack_name = map.pack_name;
+        fact.pack = map.pack;
+        fact.blocked_reason = map.blocked_reason;
+        facts.push_back(fact);
+    }
+    std::vector<std::size_t> order;
+    try {
+        order = map_list_order(facts);
+    } catch (const std::exception&) {
+        return;
+    }
+    if (order.size() != maps.size())
+        return;
+    for (const std::size_t index : order) {
+        if (index >= maps.size())
+            return;
+    }
+    std::vector<MapInfo> sorted;
+    sorted.reserve(maps.size());
+    for (const std::size_t index : order)
+        sorted.push_back(std::move(maps[index]));
+    maps = std::move(sorted);
 }
 
 void load_maps() {
     auto& state = ui();
-    if (state.maps_loaded || state.ctx == nullptr || state.ctx->assets == nullptr)
+    if (state.maps_loaded)
+        return;
+    // A source that supplies both the base maps and the pack maps can build
+    // the list before a multiplayer screen has an install. The fallback scan
+    // of the installed maps still needs that install.
+    const bool sourced = g_map_source.base_count != nullptr && g_map_source.base_at != nullptr &&
+                         g_map_source.count != nullptr && g_map_source.at != nullptr;
+    if (!sourced && state.assets == nullptr)
         return;
     state.maps_loaded = true;
-    auto& assets = *state.ctx->assets;
-    char* names = nullptr;
-    // The list keeps the maps' file names, which the screens find the maps
-    // by; a chosen map shows its translated name (campaign_localized_name).
-    auto files = map_files();
-    files.translate = nullptr;
-    const auto count =
-        data::campaign::map_build_multiplayer_list(state.map_list, files, {}, &names, false, false);
-    const char* name = names;
-    for (int32_t index = 0; name != nullptr && index < count;
-         ++index, name += std::strlen(name) + 1) {
-        try {
-            const auto bytes = assets.read(std::string("maps/") + name + ".ota").bytes;
-            const auto parsed = oa::formats::ota::parse(
-                std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size())
-            );
-            if (!parsed.ok())
-                continue;
-            MapInfo info;
-            info.name = name;
-            info.description = parsed.metadata->mission_description;
-            info.size = parsed.metadata->map_size;
-            info.memory = map_memory_mb(
-                static_cast<int32_t>(assets.file_size(std::string("maps/") + name + ".tnt"))
-            );
-            state.maps.push_back(std::move(info));
-        } catch (const std::exception&) {
+
+    // Pointers are copied before this returns. A base map keeps an empty
+    // title, so its row stays the file name.
+    struct Listed {
+        const char* name{};
+        const char* description{};
+        const char* size{};
+        int32_t memory = 0;
+        const char* title{};
+        const char* file_title{};
+        const char* pack_name{};
+        const char* blocked_reason{};
+        bool pack = false;
+    };
+
+    const auto append = [&](const Listed& map) {
+        if (map.name == nullptr || map.name[0] == '\0')
+            return;
+        const bool listed =
+            std::any_of(state.maps.begin(), state.maps.end(), [&](const MapInfo& info) {
+                return info.name == map.name;
+            });
+        if (listed)
+            return;
+        MapInfo info;
+        info.name = map.name;
+        info.description = map.description != nullptr ? map.description : "";
+        info.size = map.size != nullptr ? map.size : "";
+        info.memory = map.memory;
+        if (map.pack) {
+            info.title = map.title != nullptr ? map.title : "";
+            info.file_title = map.file_title != nullptr ? map.file_title : "";
+            info.pack_name = map.pack_name != nullptr ? map.pack_name : "";
+            info.blocked_reason = map.blocked_reason != nullptr ? map.blocked_reason : "";
+            info.pack = true;
+        }
+        state.maps.push_back(std::move(info));
+    };
+    // A bound source already gathered the base maps in the one start scan.
+    // With no binding, the list scans the installed maps as before.
+    if (g_map_source.base_count != nullptr && g_map_source.base_at != nullptr) {
+        const int32_t base = g_map_source.base_count(g_map_source.context);
+        for (int32_t index = 0; index < base; ++index) {
+            LobbyPackMap map{};
+            if (g_map_source.base_at(g_map_source.context, index, &map))
+                append({map.name, map.description, map.size, map.memory_mb});
+        }
+    } else {
+        auto& assets = *state.assets;
+        char* names = nullptr;
+        // The list keeps the maps' file names, which the screens find the maps
+        // by; a chosen map shows its translated name (campaign_localized_name).
+        auto files = map_files();
+        files.translate = nullptr;
+        const auto count = data::campaign::map_build_multiplayer_list(
+            state.map_list, files, {}, &names, false, false
+        );
+        const char* name = names;
+        for (int32_t index = 0; name != nullptr && index < count;
+             ++index, name += std::strlen(name) + 1) {
+            try {
+                const auto bytes = assets.read(std::string("maps/") + name + ".ota").bytes;
+                const auto parsed = oa::formats::ota::parse(
+                    std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size())
+                );
+                if (!parsed.ok())
+                    continue;
+                append(
+                    {name,
+                     parsed.metadata->mission_description.c_str(),
+                     parsed.metadata->map_size.c_str(),
+                     map_memory_mb(
+                         static_cast<int32_t>(
+                             assets.file_size(std::string("maps/") + name + ".tnt")
+                         )
+                     )}
+                );
+            } catch (const std::exception&) {
+            }
+        }
+        std::free(names);
+    }
+    // Installed pack maps join the list from the source's own fields. Their
+    // map files are read when one is chosen, not while the list is built.
+    if (g_map_source.count != nullptr && g_map_source.at != nullptr) {
+        const int32_t extra = g_map_source.count(g_map_source.context);
+        for (int32_t index = 0; index < extra; ++index) {
+            LobbyPackMap pack{};
+            if (g_map_source.at(g_map_source.context, index, &pack))
+                append(
+                    {pack.name,
+                     pack.description,
+                     pack.size,
+                     pack.memory_mb,
+                     pack.title,
+                     pack.file_title,
+                     pack.pack_name,
+                     pack.blocked_reason,
+                     true}
+                );
         }
     }
-    std::free(names);
-    std::sort(state.maps.begin(), state.maps.end(), [](const MapInfo& a, const MapInfo& b) {
-        return a.name < b.name;
-    });
+    order_listed_maps(state.maps);
+    // The room starts on a map it can read, so Select Map can open. A pack
+    // map that sorts first and has no file yet is not that map. A grey map
+    // is not either. When none can be read, the first map that can be played
+    // stays selected, and a list of only grey maps stays on the first row.
     if (!state.maps.empty() && state.map < 0)
-        state.map = 0;
+        state.map = starting_map_index();
 }
 
 const MapInfo* current_map() {
@@ -409,7 +667,22 @@ data::campaign::CampaignFile* bound_map_context() {
     const char* bound = data::campaign::campaign_mission_name(&state.map_context);
     if (oa::formats::tdf::compare_nocase(bound, map->name.c_str()) != 0) {
         const auto files = map_files();
-        const data::campaign::CampaignEnv env{&files, nullptr, 0, 0};
+        data::campaign::CampaignEnv env{&files, nullptr, 0, 0};
+        // The list's row carries the pack index's name. A base map's row
+        // has none, and a map the source does not list has none.
+        env.pack_index_name = [](void*, const char* name) -> const char* {
+            if (name == nullptr || g_map_source.count == nullptr || g_map_source.at == nullptr)
+                return nullptr;
+            const int32_t count = g_map_source.count(g_map_source.context);
+            for (int32_t row = 0; row < count; ++row) {
+                LobbyPackMap pack{};
+                if (!g_map_source.at(g_map_source.context, row, &pack) || pack.name == nullptr)
+                    continue;
+                if (std::strcmp(pack.name, name) == 0)
+                    return pack.title;
+            }
+            return nullptr;
+        };
         data::campaign::campaign_select_mission(&state.map_context, &env, map->name.c_str());
     }
     return &state.map_context;
@@ -421,20 +694,104 @@ bool maps_selected(void*) {
     return context != nullptr && data::campaign::campaign_mission_file_size(context) != 0;
 }
 
+int32_t starting_map_index() {
+    auto& state = ui();
+    const bool can_read = state.assets != nullptr;
+    int32_t playable = -1;
+    for (std::size_t index = 0; index < state.maps.size(); ++index) {
+        if (!state.maps[index].blocked_reason.empty())
+            continue;
+        if (playable < 0)
+            playable = static_cast<int32_t>(index);
+        if (!can_read)
+            return playable;
+        state.map = static_cast<int32_t>(index);
+        const auto* held = bound_map_context();
+        if (held != nullptr && data::campaign::campaign_mission_file_size(held) != 0)
+            return state.map;
+    }
+    if (playable >= 0)
+        return playable;
+    return 0;
+}
+
 const char* maps_name(void*) {
     const auto* map = current_map();
     return map != nullptr ? map->name.c_str() : "";
 }
 
+/// Lists a pack map the source lists now and the battle room's list does not
+/// yet: one installed since the list was read, as GET MAP installs the host's.
+///
+/// @param name the map's name
+void list_new_pack_map(const char* name) {
+    auto& state = ui();
+    const bool listed = std::any_of(state.maps.begin(), state.maps.end(), [&](const MapInfo& info) {
+        return info.name == name;
+    });
+    if (listed || g_map_source.count == nullptr || g_map_source.at == nullptr)
+        return;
+    const int32_t count = g_map_source.count(g_map_source.context);
+    for (int32_t index = 0; index < count; ++index) {
+        LobbyPackMap pack{};
+        if (!g_map_source.at(g_map_source.context, index, &pack) || pack.name == nullptr ||
+            std::strcmp(pack.name, name) != 0)
+            continue;
+        // The selected map keeps its place by name as the list is sorted again.
+        const std::string selected =
+            state.map >= 0 && static_cast<std::size_t>(state.map) < state.maps.size()
+                ? state.maps[static_cast<std::size_t>(state.map)].name
+                : std::string();
+        MapInfo info;
+        info.name = pack.name;
+        info.description = pack.description != nullptr ? pack.description : "";
+        info.size = pack.size != nullptr ? pack.size : "";
+        info.memory = pack.memory_mb;
+        info.title = pack.title != nullptr ? pack.title : "";
+        info.file_title = pack.file_title != nullptr ? pack.file_title : "";
+        info.pack_name = pack.pack_name != nullptr ? pack.pack_name : "";
+        info.blocked_reason = pack.blocked_reason != nullptr ? pack.blocked_reason : "";
+        info.pack = true;
+        state.maps.push_back(std::move(info));
+        order_listed_maps(state.maps);
+        for (std::size_t at = 0; at < state.maps.size() && !selected.empty(); ++at)
+            if (state.maps[at].name == selected)
+                state.map = static_cast<int32_t>(at);
+        return;
+    }
+}
+
 bool maps_select(void*, const char* name) {
     auto& state = ui();
     load_maps();
-    for (std::size_t index = 0; index < state.maps.size(); ++index)
-        if (name != nullptr && state.maps[index].name == name) {
-            state.map = static_cast<int32_t>(index);
-            return true;
+    if (name == nullptr)
+        return false;
+    list_new_pack_map(name);
+    for (std::size_t index = 0; index < state.maps.size(); ++index) {
+        if (state.maps[index].name != name)
+            continue;
+        if (source_lists(name)) {
+            if (!prepare_listed(state.maps[index].name))
+                return false;
+        } else if (state.pack_prepared) {
+            release_pack_source();
+            clear_pack_refusal();
         }
+        state.map = static_cast<int32_t>(index);
+        return true;
+    }
     return false;
+}
+
+/// Returns why the named map was refused the last time it was chosen.
+///
+/// @param name the map's name
+/// @return the reason, valid until the next choice; null when there is none
+const char* maps_refusal(void*, const char* name) {
+    const auto& state = ui();
+    if (name == nullptr || state.pack_refusal.empty() || state.pack_refused_name != name)
+        return nullptr;
+    return state.pack_refusal.c_str();
 }
 
 uint32_t maps_hash(void*) {
@@ -473,11 +830,10 @@ const char* maps_at(void*, int32_t index) {
 }
 
 bool maps_read(void*, const char* path, uint32_t offset, void* out, uint32_t size) {
-    auto* ctx = ui().ctx;
-    if (ctx == nullptr || ctx->assets == nullptr)
+    if (ui().assets == nullptr)
         return false;
     try {
-        return ctx->assets->read_chunk(path, offset, std::span(static_cast<uint8_t*>(out), size));
+        return ui().assets->read_chunk(path, offset, std::span(static_cast<uint8_t*>(out), size));
     } catch (const std::exception&) {
         return false;
     }
@@ -605,9 +961,8 @@ class UnitFileReader final : public oa::data::unit_definitions::CatalogAssetRead
 };
 
 void load_units() {
-    auto* ctx = ui().ctx;
-    if (ctx != nullptr && ctx->assets != nullptr)
-        load_units(*ctx->assets);
+    if (ui().assets != nullptr)
+        load_units(*ui().assets);
 }
 
 uint32_t service_unit_checksum(void*, const LobbyUnit& unit) {
@@ -622,16 +977,16 @@ uint32_t service_unit_checksum(void*, const LobbyUnit& unit) {
 }
 
 bool settings_read(void*, char* out, std::size_t capacity) {
-    auto* ctx = ui().ctx;
-    if (ctx == nullptr || ctx->services == nullptr || ctx->services->read_string == nullptr)
+    const auto& state = ui();
+    if (state.services == nullptr || state.services->read_string == nullptr)
         return false;
-    return ctx->services->read_string(ctx->host, "multiplayer", "tcpaddr", out, capacity) != 0;
+    return state.services->read_string(state.host, "multiplayer", "tcpaddr", out, capacity) != 0;
 }
 
 void settings_write(void*, const char* address) {
-    auto* ctx = ui().ctx;
-    if (ctx != nullptr && ctx->services != nullptr && ctx->services->write_string != nullptr)
-        ctx->services->write_string(ctx->host, "multiplayer", "tcpaddr", address);
+    const auto& state = ui();
+    if (state.services != nullptr && state.services->write_string != nullptr)
+        state.services->write_string(state.host, "multiplayer", "tcpaddr", address);
 }
 
 bool settings_user(void*, char* out, std::size_t capacity) {
@@ -666,13 +1021,25 @@ bool service_read_file(void*, const char* name, std::size_t limit, std::string* 
         return !file.bad();
     }
     const auto& state = ui();
-    if (state.ctx == nullptr || state.ctx->assets == nullptr)
+    if (state.assets == nullptr)
         return false;
-    const auto bytes = state.ctx->assets->load_file_contents(name);
+    const auto bytes = state.assets->load_file_contents(name);
     if (!bytes || bytes->size() > limit)
         return false;
     contents->assign(bytes->begin(), bytes->end());
     return true;
+}
+
+/// Copies the bound presence record into a lobby's source (PresenceRecords::source).
+///
+/// @param[in,out] lobby the lobby
+/// @param record the record; empty for none
+void take_presence_record(Lobby& lobby, const std::vector<uint8_t>& record) noexcept {
+    auto& records = lobby.presence_records;
+    const auto size = std::min(record.size(), sizeof records.source);
+    if (size != 0)
+        std::memcpy(records.source, record.data(), size);
+    records.source_size = static_cast<uint16_t>(size);
 }
 
 /// Binds the lobby to the screens' transport, services, map list and units.
@@ -687,8 +1054,8 @@ void bind_boundaries() {
         lobby_reset(lobby, *state.game);
     }
     lobby.net = state.custom_net ? state.bound_net : loopback_lobby_net(state.loopback);
-    if (state.ctx != nullptr && state.ctx->assets != nullptr)
-        state.picture_files = data::campaign::campaign_asset_files(*state.ctx->assets);
+    if (state.assets != nullptr)
+        state.picture_files = data::campaign::campaign_asset_files(*state.assets);
     lobby.services = {
         nullptr,
         service_play_sound,
@@ -719,6 +1086,14 @@ void bind_boundaries() {
         [](void*) -> const data::campaign::CampaignFile* { return bound_map_context(); },
         maps_read
     };
+    // Set by name. LobbyMaps gains members at its end, and a positional
+    // list would assign the next one to refusal.
+    lobby.maps.refusal = maps_refusal;
+    // The map packs' answer, bound by name; the battle room asks it again.
+    lobby.maps.pack_context = state.pack_context;
+    lobby.maps.pack = state.pack;
+    lobby.presence_records.pack_rebound = true;
+    take_presence_record(lobby, state.presence_record);
     lobby.wire_rules = state.wire_rules;
     lobby.unicode_chat = state.unicode_chat;
     lobby.local_version_major = state.wire_rules.version_major;
@@ -729,7 +1104,10 @@ void bind_boundaries() {
     lobby.launch_link = state.launch_link;
     lobby.rules = state.rules;
     lobby.lobby_buttons = state.lobby_buttons;
-    lobby.option_4 = state.launch_link.block != nullptr && state.launch_link.block->tournament != 0;
+    // A tournament lock is the host's. A joiner takes a seat, not the host's rules.
+    const auto* linked_block = state.launch_link.block;
+    lobby.option_4 =
+        linked_block != nullptr && linked_block->hosting != 0 && linked_block->tournament != 0;
     if (state.units.loaded) {
         lobby.units = state.units.units.data();
         lobby.unit_count = static_cast<int32_t>(state.units.units.size());
@@ -798,8 +1176,16 @@ bool load(
     return true;
 }
 
-// Places a stacked panel: its own background image when given, otherwise a
-// darkened copy of the screen below, with the panel rectangle filled.
+// A dialog that names no picture. paint_plain_panel lays the common panel
+// tiles in its rectangle. paint_plain_list_frames lays the common list-box
+// tiles around each list, under the rows the screen draws later.
+bool paint_plain_panel(const Resources& modal, Image& image);
+void paint_plain_list_frames(const Resources& modal, Image& image);
+
+// Places a stacked panel. One with its own picture is centred over the screen
+// below. One that names no picture lays the common panel tiles in its
+// rectangle over that screen, and darkens the rectangle when those tiles
+// cannot be drawn.
 bool load_modal(
     ScreenContext* ctx,
     ModalKind kind,
@@ -823,21 +1209,26 @@ bool load_modal(
     if (full_screen || !state.base.loaded)
         return true;
     if (background == nullptr) {
-        // Dialog without its own art: dim the rectangle it covers.
+        // No picture of its own. The face is the common panel tiles. The
+        // rectangle is darkened only when those tiles cannot be drawn.
         image = state.base.screen.background;
-        for (int32_t y = std::max(0, static_cast<int32_t>(root.y));
-             y < root.y + height && y < static_cast<int32_t>(image.height);
-             ++y)
-            for (int32_t x = std::max(0, static_cast<int32_t>(root.x));
-                 x < root.x + width && x < static_cast<int32_t>(image.width);
-                 ++x) {
-                auto* pixel = &image.rgb
-                                   [(static_cast<std::size_t>(y) * image.width +
-                                     static_cast<std::size_t>(x)) *
-                                    3U];
-                for (int channel = 0; channel < 3; ++channel)
-                    pixel[channel] = static_cast<uint8_t>(pixel[channel] / 4);
-            }
+        state.modal.plain_panel = true;
+        if (!paint_plain_panel(state.modal, image)) {
+            for (int32_t y = std::max(0, static_cast<int32_t>(root.y));
+                 y < root.y + height && y < static_cast<int32_t>(image.height);
+                 ++y)
+                for (int32_t x = std::max(0, static_cast<int32_t>(root.x));
+                     x < root.x + width && x < static_cast<int32_t>(image.width);
+                     ++x) {
+                    auto* pixel = &image.rgb
+                                       [(static_cast<std::size_t>(y) * image.width +
+                                         static_cast<std::size_t>(x)) *
+                                        3U];
+                    for (int channel = 0; channel < 3; ++channel)
+                        pixel[channel] = static_cast<uint8_t>(pixel[channel] / 4);
+                }
+        }
+        paint_plain_list_frames(state.modal, image);
         return true;
     }
     // Own art: the panel occupies the top-left root-sized corner of the
@@ -953,6 +1344,255 @@ std::string_view template_name(const Resources& res, const Control& control) {
     if (control.source < 0 || static_cast<std::size_t>(control.source) >= res.source.gadgets.size())
         return {};
     return res.source.gadgets[static_cast<std::size_t>(control.source)].common.name;
+}
+
+// The common panel tiles, used when a dialog names no picture and no panel
+// sequence of its own. The common list-box tiles frame a text field that is
+// not drawn as a solid field, and a list, grown this far past each edge.
+constexpr const char* kPanelTiles = "BackTile";
+constexpr const char* kTextBoxTiles = "Listbox";
+constexpr int32_t kTextBoxFrameMargin = 3;
+
+const formats::gaf::Sequence*
+find_sequence(const formats::gaf::Archive& archive, std::string_view name);
+
+const PaletteBytes& screen_palette(const renderer::ScreenResources& screen) {
+    return screen.background.palette.has_value() ? *screen.background.palette : screen.gui_palette;
+}
+
+/// Copies a frame's covered pixels into an RGB image through a palette.
+///
+/// A pixel the frame does not cover keeps what is already there. The frame's
+/// origin is not applied: the common panel tiles are drawn with theirs
+/// cleared, and these screens draw every other frame at the position given.
+///
+/// @param rgb the image, three bytes a pixel
+/// @param image_width the image width
+/// @param image_height the image height
+/// @param frame the rendered frame
+/// @param x the frame's left column
+/// @param y the frame's top row
+/// @param palette the palette the frame's indices select from
+void blit_covered(
+    std::span<uint8_t> rgb,
+    uint32_t image_width,
+    uint32_t image_height,
+    const formats::gaf::RenderedFrame& frame,
+    int32_t x,
+    int32_t y,
+    const PaletteBytes& palette
+) {
+    const auto pixel_count = static_cast<std::size_t>(frame.width) * frame.height;
+    const auto image_bytes = static_cast<uint64_t>(image_width) * image_height * 3U;
+    if (frame.pixels.size() != pixel_count || frame.coverage.size() != pixel_count ||
+        image_width == 0 || image_height == 0 || image_bytes > rgb.size())
+        return;
+    const auto frame_w = static_cast<int64_t>(frame.width);
+    const auto frame_h = static_cast<int64_t>(frame.height);
+    const auto first_column = std::max<int64_t>(0, -static_cast<int64_t>(x));
+    const auto first_row = std::max<int64_t>(0, -static_cast<int64_t>(y));
+    const auto end_column = std::min<int64_t>(frame_w, static_cast<int64_t>(image_width) - x);
+    const auto end_row = std::min<int64_t>(frame_h, static_cast<int64_t>(image_height) - y);
+    if (first_column >= end_column || first_row >= end_row)
+        return;
+    constexpr std::size_t entry_bytes = 4;
+    for (auto row = first_row; row < end_row; ++row) {
+        const auto source = static_cast<std::size_t>(row * frame_w);
+        auto* out = rgb.data() + (static_cast<std::size_t>(y + row) * image_width +
+                                  static_cast<std::size_t>(x + first_column)) *
+                                     3U;
+        for (auto column = first_column; column < end_column; ++column, out += 3) {
+            const auto offset = source + static_cast<std::size_t>(column);
+            if (frame.coverage[offset] == 0)
+                continue;
+            const auto* color =
+                palette.data() + static_cast<std::size_t>(frame.pixels[offset]) * entry_bytes;
+            std::memcpy(out, color, 3);
+        }
+    }
+}
+
+/// Lays a skin's tiles over a rectangle, in the order the tiles are drawn.
+///
+/// Fewer than two frames draws the first at the rectangle's top-left. Two or
+/// more are tiled from the skin's first frame, the far column and row ending
+/// flush with the rectangle.
+///
+/// @param rgb the image, three bytes a pixel
+/// @param image_width the image width
+/// @param image_height the image height
+/// @param skin the skin, with its frames
+/// @param origin_x the rectangle's left column
+/// @param origin_y the rectangle's top row
+/// @param width the rectangle's width
+/// @param height the rectangle's height
+/// @param palette the palette the frames' indices select from
+/// @return false when a frame the skin needs cannot be drawn
+bool paint_skin(
+    std::span<uint8_t> rgb,
+    uint32_t image_width,
+    uint32_t image_height,
+    const formats::gaf::Sequence& skin,
+    int32_t origin_x,
+    int32_t origin_y,
+    int32_t width,
+    int32_t height,
+    const PaletteBytes& palette
+) {
+    if (skin.frames.empty() || width < 1 || height < 1)
+        return false;
+    std::vector<std::optional<formats::gaf::RenderedFrame>> rendered(skin.frames.size());
+    std::vector<char> tried(skin.frames.size(), 0);
+    const auto frame_at = [&](std::size_t index) -> const formats::gaf::RenderedFrame* {
+        if (index >= skin.frames.size())
+            return nullptr;
+        if (tried[index] == 0) {
+            tried[index] = 1;
+            auto result = formats::gaf::render_normal(skin.frames[index]);
+            if (result.ok())
+                rendered[index] = std::move(result.frame);
+        }
+        return rendered[index] ? &*rendered[index] : nullptr;
+    };
+
+    struct Spot {
+        const formats::gaf::RenderedFrame* frame = nullptr;
+        int32_t x = 0;
+        int32_t y = 0;
+    };
+
+    std::vector<Spot> spots;
+    if (skin.frames.size() < 2) {
+        const auto* frame = frame_at(0);
+        if (frame == nullptr)
+            return false;
+        spots.push_back({frame, origin_x, origin_y});
+    } else {
+        const auto tiles = oa::ui::gui_layout::skin_tiles(
+            width, height, skin.frames[0].width, skin.frames[0].height
+        );
+        if (tiles.empty())
+            return false;
+        spots.reserve(tiles.size());
+        for (const auto& tile : tiles) {
+            const auto* frame = frame_at(tile.frame);
+            if (frame == nullptr)
+                return false;
+            spots.push_back({frame, origin_x + tile.x, origin_y + tile.y});
+        }
+    }
+    for (const auto& spot : spots)
+        blit_covered(rgb, image_width, image_height, *spot.frame, spot.x, spot.y, palette);
+    return true;
+}
+
+/// The sequence a dialog that names no picture is drawn with.
+///
+/// A sequence the layout names is taken from the shared GUI art. With none
+/// named, or none there, the common panel tiles are used.
+///
+/// @param modal the dialog's resources
+/// @return the sequence, or null when the shared art has neither
+const formats::gaf::Sequence* plain_panel_skin(const Resources& modal) {
+    const auto& shared = modal.screen.shared_sprites;
+    if (!modal.source.gadgets.empty()) {
+        const auto* fields =
+            std::get_if<ui::gui_layout::PanelFields>(&modal.source.gadgets.front().fields);
+        if (fields != nullptr && !fields->panel.empty()) {
+            if (const auto* named = find_sequence(shared, fields->panel))
+                return named;
+        }
+    }
+    return find_sequence(shared, kPanelTiles);
+}
+
+bool paint_plain_panel(const Resources& modal, Image& image) {
+    if (modal.panel.count < 1)
+        return false;
+    const auto* skin = plain_panel_skin(modal);
+    if (skin == nullptr)
+        return false;
+    const auto& root = modal.panel.controls[0];
+    return paint_skin(
+        image.rgb,
+        image.width,
+        image.height,
+        *skin,
+        root.x,
+        root.y,
+        root.width,
+        root.height,
+        image.palette.has_value() ? *image.palette : modal.screen.gui_palette
+    );
+}
+
+/// Draws the list-box frame around one control.
+///
+/// The frame is the common list-box tiles, grown past the control on every
+/// side. A text field marked as a solid field is not framed.
+///
+/// @param rgb the image, three bytes a pixel
+/// @param image_width the image width
+/// @param image_height the image height
+/// @param res the dialog's resources
+/// @param control the text field or list
+/// @param palette the palette the tiles' indices select from
+/// @param solid_field_unframed true to skip a text field marked as a solid field
+void paint_list_box_frame(
+    std::span<uint8_t> rgb,
+    uint32_t image_width,
+    uint32_t image_height,
+    const Resources& res,
+    const Control& control,
+    const PaletteBytes& palette,
+    bool solid_field_unframed
+) {
+    if (solid_field_unframed && (control.attributes & ui::gui_layout::attribute::horizontal) != 0)
+        return;
+    const auto* skin = find_sequence(res.screen.shared_sprites, kTextBoxTiles);
+    if (skin == nullptr)
+        return;
+    (void)paint_skin(
+        rgb,
+        image_width,
+        image_height,
+        *skin,
+        control.x + res.offset_x - kTextBoxFrameMargin,
+        control.y + res.offset_y - kTextBoxFrameMargin,
+        control.width + kTextBoxFrameMargin * 2,
+        control.height + kTextBoxFrameMargin * 2,
+        palette
+    );
+}
+
+void paint_plain_list_frames(const Resources& modal, Image& image) {
+    if (!modal.plain_panel)
+        return;
+    const auto& palette = image.palette.has_value() ? *image.palette : modal.screen.gui_palette;
+    for (int32_t index = 1; index < modal.panel.count; ++index) {
+        const auto& control = modal.panel.controls[static_cast<std::size_t>(index)];
+        if (control.type != ControlType::list_box || control.active == 0)
+            continue;
+        paint_list_box_frame(image.rgb, image.width, image.height, modal, control, palette, false);
+    }
+}
+
+/// Draws the list-box frame around a plain dialog's text field.
+///
+/// The frame sits under the letters and the cursor. A field marked as a
+/// solid field is left unframed.
+///
+/// @param[in,out] surface the drawn screen
+/// @param res the dialog's resources
+/// @param control the text field
+void paint_plain_text_box(
+    renderer::Surface& surface, const Resources& res, const Control& control
+) {
+    if (!res.plain_panel)
+        return;
+    paint_list_box_frame(
+        surface.rgb, surface.width, surface.height, res, control, screen_palette(res.screen), true
+    );
 }
 
 const formats::gaf::Sequence*
@@ -1375,6 +2015,9 @@ renderer::ButtonPresentation button_presentation(
     const auto& control = res.panel.controls[static_cast<std::size_t>(index)];
     renderer::ButtonPresentation presentation;
     presentation.name = gadget.common.name;
+    // The screen's own focus marker, lit round a focused button. A label, a
+    // list and the chat line show none, so a room with no focused row is unchanged.
+    presentation.focused = index == res.panel.focus;
     // A button shows itself held only while the pointer that pressed it is over it.
     const bool held = index == res.pressed && res.pressed == res.hovered;
     if (control.grayed)
@@ -1533,13 +2176,17 @@ void compose_layout(
             (control.type == ControlType::hot_surface || control.type == ControlType::image))
             if (auto picture = picture_presentation(res, control, gadget))
                 buttons.push_back(std::move(*picture));
-        if (control.type == ControlType::list_box && !control.items.empty())
-            lists.push_back(
-                {gadget.common.name,
-                 std::span<const std::string>(control.items),
-                 static_cast<std::size_t>(std::max<int16_t>(0, control.list_first)),
-                 static_cast<std::size_t>(std::max<int16_t>(0, control.list_selection))}
-            );
+        if (control.type == ControlType::list_box && !control.items.empty()) {
+            renderer::ListPresentation presented{
+                gadget.common.name,
+                std::span<const std::string>(control.items),
+                static_cast<std::size_t>(std::max<int16_t>(0, control.list_first)),
+                static_cast<std::size_t>(std::max<int16_t>(0, control.list_selection))
+            };
+            if (control.item_grey.size() == control.items.size())
+                presented.grey = control.item_grey;
+            lists.push_back(presented);
+        }
         layout.gadgets.push_back(std::move(gadget));
     }
 }
@@ -1620,6 +2267,102 @@ void draw_text_in(
             out[0] = palette[index];
             out[1] = palette[index + 1];
             out[2] = palette[index + 2];
+        }
+}
+
+/// A colour of the drawn screen.
+struct ScreenColor {
+    uint8_t r{}; ///< red, 0 to 255
+    uint8_t g{}; ///< green, 0 to 255
+    uint8_t b{}; ///< blue, 0 to 255
+};
+
+/// A rectangle of the drawn screen, its edges included.
+struct ScreenBox {
+    int32_t left{};   ///< first column
+    int32_t top{};    ///< first row
+    int32_t right{};  ///< last column
+    int32_t bottom{}; ///< last row
+};
+
+/// The most columns and rows of a text's box that draw_text_in_color draws.
+constexpr int32_t kColorTextMostWidth = 64;
+constexpr int32_t kColorTextMostHeight = 32;
+
+/// Draws text's letters in one colour, laid out in a box as draw_text_in lays it out.
+///
+/// The text is drawn through the font's coverage, as draw_text_in draws it.
+/// A glyph's letter pixels, those at least half as light as the font's ink
+/// (renderer::fnt_font_ink), take the colour whatever palette index the font
+/// gives them; its darker outline is left out, so that what lies under the
+/// text shows around the letters. Only the pixels inside the box, the clip
+/// rectangle and the surface are drawn, and of the box only its first
+/// kColorTextMostWidth columns and kColorTextMostHeight rows. Nothing is
+/// allocated.
+///
+/// @param[in,out] surface image drawn on
+/// @param res screen resources, whose palette the font's indices select from
+/// @param font font the text is drawn in
+/// @param text text drawn, in the font's own characters
+/// @param x left of the box in pixels
+/// @param y top of the box in pixels
+/// @param width box width in pixels
+/// @param height box height in pixels
+/// @param clip the only pixels that may be drawn
+/// @param color the letters' colour
+void draw_text_in_color(
+    renderer::Surface& surface,
+    const Resources& res,
+    const formats::fnt::Font& font,
+    std::string_view text,
+    int32_t x,
+    int32_t y,
+    int32_t width,
+    int32_t height,
+    const ScreenBox& clip,
+    ScreenColor color
+) {
+    width = std::min(width, kColorTextMostWidth);
+    height = std::min(height, kColorTextMostHeight);
+    if (surface.width == 0 || width <= 0 || height <= 0)
+        return;
+    const auto& palette = res.screen.background.palette.has_value() ? *res.screen.background.palette
+                                                                    : res.screen.gui_palette;
+    // Lightness as the sum of the three channels, as fnt_font_ink judges it.
+    const auto lightness = [&palette](uint8_t index) {
+        const auto at = static_cast<std::size_t>(index) * 4U;
+        return palette[at] + palette[at + 1] + palette[at + 2];
+    };
+    const auto ink_lightness = lightness(renderer::fnt_font_ink(font, palette));
+    uint8_t pixels[kColorTextMostWidth * kColorTextMostHeight]{};
+    uint8_t coverage[kColorTextMostWidth * kColorTextMostHeight]{};
+    const auto area = static_cast<std::size_t>(width) * static_cast<std::size_t>(height);
+    formats::fnt::IndexedSurface target{
+        static_cast<uint32_t>(width),
+        static_cast<uint32_t>(height),
+        static_cast<std::size_t>(width),
+        std::span<uint8_t>(pixels, area),
+        std::span<uint8_t>(coverage, area)
+    };
+    (void)formats::fnt::raster_text(target, font, text, 0, 0);
+    for (int32_t row = 0; row < height; ++row)
+        for (int32_t column = 0; column < width; ++column) {
+            const auto at = static_cast<std::size_t>(row * width + column);
+            if (coverage[at] == 0 || lightness(pixels[at]) * 2 < ink_lightness)
+                continue;
+            const auto px = x + column;
+            const auto py = y + row;
+            if (px < clip.left || px > clip.right || py < clip.top || py > clip.bottom || px < 0 ||
+                py < 0 || px >= static_cast<int32_t>(surface.width) ||
+                py >= static_cast<int32_t>(surface.height))
+                continue;
+            auto* out = &surface.rgb
+                             [(static_cast<std::size_t>(py) * surface.width +
+                               static_cast<std::size_t>(px)) *
+                              3U];
+            out[0] = color.r;
+            out[1] = color.g;
+            out[2] = color.b;
         }
 }
 
@@ -1715,6 +2458,162 @@ void fill(
             out[1] = g;
             out[2] = b;
         }
+}
+
+// The OA badge, drawn where a 3.1c player's row shows the CD icon, in the
+// design's colours.
+/// The badge's text.
+constexpr std::string_view kBadgeText = "OA";
+/// Badge border, #7d6a2c: the badge's 1-pixel edge.
+constexpr ScreenColor kBadgeBorderColor{0x7d, 0x6a, 0x2c};
+/// Badge top, #2c332c: the top row of the badge's vertical gradient.
+constexpr ScreenColor kBadgeTopColor{0x2c, 0x33, 0x2c};
+/// Badge bottom, #151915: the bottom row of the badge's vertical gradient.
+constexpr ScreenColor kBadgeBottomColor{0x15, 0x19, 0x15};
+/// Amber, #e2b23d: the badge's text and its dot.
+constexpr ScreenColor kAmberColor{0xe2, 0xb2, 0x3d};
+/// Background, #0d100e: the ring around the dot.
+constexpr ScreenColor kBackgroundColor{0x0d, 0x10, 0x0e};
+/// The dot's ring is presence_badge_dot_ring pixels across, its four corner
+/// pixels left out, reaching presence_badge_dot_overhang pixels past the
+/// badge's right edge and above its top; the dot is the square one pixel inside it.
+
+/// Fills a square without its four corner pixels, skipping pixels outside the surface.
+///
+/// @param[in,out] surface image drawn on
+/// @param left first column
+/// @param top first row
+/// @param size columns and rows, 2 or more
+/// @param color the fill
+void fill_square_without_corners(
+    renderer::Surface& surface, int32_t left, int32_t top, int32_t size, ScreenColor color
+) {
+    for (int32_t row = 0; row < size; ++row) {
+        const int32_t inset = (row == 0 || row == size - 1) ? 1 : 0;
+        fill(surface, left + inset, top + row, size - 2 * inset, 1, color.r, color.g, color.b);
+    }
+}
+
+/// Draws the OA badge over its CD<slot> rectangle, and the dot on it when its player's rules differ.
+///
+/// The rectangle is filled row by row with a vertical gradient from badge
+/// top to badge bottom: row r of h takes, in each channel,
+/// top + (bottom - top) * r / (h - 1), truncated toward zero, and a
+/// rectangle one row high takes badge top. Its four edges are drawn in badge
+/// border, and "OA" in the label font in amber, centred as
+/// draw_player_versions centres a version and clipped to the rectangle
+/// inside the border. The dot is drawn last, over the top-right corner.
+///
+/// @param[in,out] surface image drawn on
+/// @param res the battle room's resources
+/// @param spot where the badge goes, and whether it carries the dot
+void draw_presence_badge(
+    renderer::Surface& surface, const Resources& res, const PresenceBadgeSpot& spot
+) {
+    const int32_t x = spot.x;
+    const int32_t y = spot.y;
+    const int32_t width = spot.width;
+    const int32_t height = spot.height;
+    if (width <= 0 || height <= 0)
+        return;
+    const auto shade = [&](uint8_t top, uint8_t bottom, int32_t row) {
+        return static_cast<uint8_t>(height == 1 ? top : top + (bottom - top) * row / (height - 1));
+    };
+    for (int32_t row = 0; row < height; ++row)
+        fill(
+            surface,
+            x,
+            y + row,
+            width,
+            1,
+            shade(kBadgeTopColor.r, kBadgeBottomColor.r, row),
+            shade(kBadgeTopColor.g, kBadgeBottomColor.g, row),
+            shade(kBadgeTopColor.b, kBadgeBottomColor.b, row)
+        );
+    const int32_t right = x + width - 1;
+    const int32_t bottom = y + height - 1;
+    const auto& border = kBadgeBorderColor;
+    fill(surface, x, y, width, 1, border.r, border.g, border.b);
+    fill(surface, x, bottom, width, 1, border.r, border.g, border.b);
+    fill(surface, x, y, 1, height, border.r, border.g, border.b);
+    fill(surface, right, y, 1, height, border.r, border.g, border.b);
+    const auto& font = res.screen.label_font;
+    const auto text_width = static_cast<int32_t>(formats::fnt::measure_text(font, kBadgeText));
+    const int32_t text_height = formats::fnt::line_height(font);
+    draw_text_in_color(
+        surface,
+        res,
+        font,
+        kBadgeText,
+        (x + right - text_width) / 2,
+        (y + bottom - text_height) / 2,
+        text_width,
+        text_height,
+        {x + 1, y + 1, right - 1, bottom - 1},
+        kAmberColor
+    );
+    if (!spot.rules_differ)
+        return;
+    const int32_t ring_left = x + width + presence_badge_dot_overhang - presence_badge_dot_ring;
+    const int32_t ring_top = y - presence_badge_dot_overhang;
+    fill_square_without_corners(
+        surface, ring_left, ring_top, presence_badge_dot_ring, kBackgroundColor
+    );
+    fill_square_without_corners(
+        surface, ring_left + 1, ring_top + 1, presence_badge_dot_ring - 2, kAmberColor
+    );
+}
+
+/// Lists the OA badges the battle room's rows show, in slot order, as multiplayer_presence_badges does.
+///
+/// @param res the battle room's resources
+/// @param lobby lobby whose slots are shown
+/// @param[out] out receives the badges; null receives none
+/// @param capacity how many badges out holds
+/// @return how many badges were written
+int32_t presence_badge_spots(
+    const Resources& res, Lobby& lobby, PresenceBadgeSpot* out, int32_t capacity
+) noexcept {
+    if (lobby.game == nullptr || out == nullptr)
+        return 0;
+    int32_t count = 0;
+    for (int32_t slot = 0; slot < kSlotCount && count < capacity; ++slot) {
+        const auto badge = lobby_row_badge(lobby, slot);
+        if (badge.badge != RowBadge::open_annihilation)
+            continue;
+        char name[16];
+        std::snprintf(name, sizeof(name), "CD%d", static_cast<int>(slot));
+        const auto* disc = panel_control(res.panel, name);
+        if (disc == nullptr || disc->width <= 0 || disc->height <= 0)
+            continue;
+        out[count++] = {
+            slot,
+            disc->x + res.offset_x,
+            disc->y + res.offset_y,
+            disc->width,
+            disc->height,
+            badge.rules_differ
+        };
+    }
+    return count;
+}
+
+/// Draws the OA badge, and its dot, in each OA player's CD<slot> rectangle (draw_presence_badge).
+///
+/// Left out when the OA layer draws the badges at the window's own pixels
+/// (multiplayer_bind_layer_presence_badges), so the frame's small badge is
+/// not magnified under the sharp one. A renderer without the layer keeps it.
+///
+/// @param[in,out] surface image drawn on
+/// @param res the battle room's resources
+/// @param lobby lobby whose slots are shown
+void draw_presence_badges(renderer::Surface& surface, const Resources& res, Lobby& lobby) {
+    if (g_layer_draws_badges != nullptr && g_layer_draws_badges(g_layer_badge_context))
+        return;
+    PresenceBadgeSpot spots[kSlotCount]{};
+    const auto count = presence_badge_spots(res, lobby, spots, kSlotCount);
+    for (int32_t index = 0; index < count; ++index)
+        draw_presence_badge(surface, res, spots[index]);
 }
 
 renderer::Surface render(Resources& res) {
@@ -1866,6 +2765,7 @@ void draw_text_boxes(renderer::Surface& surface, Resources& res) {
         const auto& control = panel.controls[static_cast<std::size_t>(index)];
         if (control.type != ControlType::text_box || control.active == 0)
             continue;
+        paint_plain_text_box(surface, res, control);
         std::string text(control_text(control));
         const bool focused = index == panel.focus;
         const bool cursor = focused && ((elapsed_ms() / 500U) & 1U) == 0;
@@ -2093,6 +2993,7 @@ bool click(ScreenContext* ctx, int32_t index, int32_t x, int32_t y, uint8_t butt
 ///
 /// @param ctx Screen context of the running frontend.
 void return_to_main_menu(ScreenContext* ctx) {
+    release_pack_source();
     const auto& link = ui().launch_link;
     if (link.request_app_mode != nullptr)
         link.request_app_mode(link.context, kAppModeFrontend);
@@ -2292,14 +3193,22 @@ void apply_game_list_action(ScreenContext* ctx, ConnectAction action) {
 
 /// Creates the game NEWMULTI accepted and opens the battle room.
 ///
+/// A direct game that reached NEWMULTI is marked entering, including a launch
+/// that hosts at once and never types its names through OK. The battle room
+/// reports that arrival. A direct game that cannot be created is refused.
+///
 /// @param ctx Screen context of the running frontend.
 void host_new_game(ScreenContext* ctx) {
     auto& state = ui();
     if (connect_host(state.lobby, state.connect)) {
         state.in_lobby = false;
+        if (g_direct.stage == DirectStage::new_game)
+            g_direct.stage = DirectStage::entering;
         app::screen_request(ctx, kScreenBattleroom);
     } else {
         state.message = "The game could not be created.";
+        if (g_direct.stage == DirectStage::new_game)
+            fail_direct_game("The game could not be created.");
     }
 }
 
@@ -2416,6 +3325,7 @@ void dispatch(ScreenContext* ctx) {
     case kScreenProviders: {
         const auto action = providers_handle_event(lobby, connect, panel);
         if (action == ConnectAction::main_menu) {
+            release_pack_source();
             app::screen_request(ctx, kScreenMainMenu);
         } else if (action == ConnectAction::options) {
             app::screen_request(ctx, kScreenOptions);
@@ -2468,7 +3378,7 @@ void say_engine_banner(Ui& state) {
 ///
 /// @param ctx Screen context of the running frontend.
 void begin(ScreenContext* ctx) {
-    ui().ctx = ctx;
+    remember_screen(ui(), ctx);
     ui().showing = true;
     bind_boundaries();
     set_text_input(ctx, true);
@@ -2584,6 +3494,12 @@ void enter_battleroom(ScreenContext* ctx, void*) {
     if (!load(state.base, ctx, "lounge2.gui", "bitmaps/battleroom.pcx", "anims/lounge2.gaf"))
         return;
     load_maps();
+    // A screen left on the way here unmounted the pack map. Mount it again
+    // before the battle room hashes the map it plays.
+    if (state.map >= 0 && static_cast<std::size_t>(state.map) < state.maps.size()) {
+        const std::string selected = state.maps[static_cast<std::size_t>(state.map)].name;
+        (void)maps_select(nullptr, selected.c_str());
+    }
     load_units();
     local_info(state.lobby).memory_mb = kMachineMemoryMb;
     lobby_enter_battleroom(state.lobby, state.base.panel);
@@ -2615,6 +3531,7 @@ void enter_battleroom(ScreenContext* ctx, void*) {
 void leave_screen(ScreenContext* ctx, void* /*state*/) {
     close_modal();
     set_text_input(ctx, false);
+    release_pack_source();
     ui().showing = false;
     ui().exit_confirm_requested = false;
 }
@@ -2709,11 +3626,136 @@ void drop_composition(std::string& value) {
     composition.clear();
 }
 
+/// Returns the slot a PLAYER<slot> control names.
+///
+/// @param name the control's name
+/// @return the slot, 0..9; -1 when the name is not a player's row
+int32_t player_row_slot(std::string_view name) noexcept {
+    constexpr std::string_view row_name = "PLAYER";
+    if (name.size() != row_name.size() + 1 || !name.starts_with(row_name))
+        return -1;
+    const char digit = name.back();
+    if (digit < '0' || digit > '9')
+        return -1;
+    const auto slot = static_cast<int32_t>(digit - '0');
+    return slot < kSlotCount ? slot : -1;
+}
+
+/// Tells whether a list takes a place in the battle room's focus order.
+///
+/// @param control the control
+/// @return true for a shown list a key can select
+bool focusable_list(const Control& control) noexcept {
+    return control.active != 0 && control.type == ControlType::list_box &&
+           (control.attributes & ui::gui_layout::attribute::no_focus) == 0 &&
+           (control.attributes & ui::gui_layout::attribute::cycle_frames) == 0;
+}
+
+/// Tells whether a remote player's row takes a place in the focus order.
+///
+/// The local player's row is a label and takes none. An empty slot takes
+/// none: it is not another player's row.
+///
+/// @param lobby the battle room
+/// @param control the control
+/// @return true for a shown row of a remote or computer player
+bool focusable_player_row(Lobby& lobby, const Control& control) noexcept {
+    if (control.active == 0 || control.grayed || control.type != ControlType::button)
+        return false;
+    if ((control.attributes & ui::gui_layout::attribute::no_focus) != 0)
+        return false;
+    const int32_t slot = player_row_slot(control_name(control));
+    if (slot < 0)
+        return false;
+    const Player& player = slot_player(lobby, slot);
+    return slot_active(player) && player.status != kSlotLocal;
+}
+
+/// The battle room's focus order: its lists, then each remote player's row
+/// in slot order, then the chat line.
+struct FocusOrder {
+    std::array<int32_t, kPanelControls> index{}; ///< control indexes
+    int32_t count = 0;                           ///< how many indexes are set
+};
+
+/// Builds the battle room's focus order.
+///
+/// @param panel the battle room's panel
+/// @param lobby the battle room
+/// @return the order, lists then remote rows then the chat line
+FocusOrder battle_room_focus_order(const Panel& panel, Lobby& lobby) noexcept {
+    FocusOrder order;
+    const auto add = [&](int32_t index) {
+        if (order.count < static_cast<int32_t>(order.index.size()))
+            order.index[static_cast<std::size_t>(order.count++)] = index;
+    };
+    for (int32_t index = 1; index < panel.count; ++index)
+        if (focusable_list(panel.controls[static_cast<std::size_t>(index)]))
+            add(index);
+    std::array<int32_t, kSlotCount> player_at{};
+    player_at.fill(kNoControl);
+    for (int32_t index = 1; index < panel.count; ++index) {
+        const auto& control = panel.controls[static_cast<std::size_t>(index)];
+        if (!focusable_player_row(lobby, control))
+            continue;
+        const int32_t slot = player_row_slot(control_name(control));
+        if (player_at[static_cast<std::size_t>(slot)] == kNoControl)
+            player_at[static_cast<std::size_t>(slot)] = index;
+    }
+    for (int32_t slot = 0; slot < kSlotCount; ++slot)
+        if (player_at[static_cast<std::size_t>(slot)] != kNoControl)
+            add(player_at[static_cast<std::size_t>(slot)]);
+    for (int32_t index = 1; index < panel.count; ++index) {
+        const auto& control = panel.controls[static_cast<std::size_t>(index)];
+        if (control.active != 0 && takes_any_character(control) &&
+            (control.attributes & ui::gui_layout::attribute::no_focus) == 0)
+            add(index);
+    }
+    return order;
+}
+
+/// Moves the battle room's focus one place along its order, wrapping.
+///
+/// @param[in,out] panel the battle room's panel; its focus moves
+/// @param forward true toward the chat line, false back toward the lists
+void move_battle_room_focus(Panel& panel, bool forward) noexcept {
+    const FocusOrder order = battle_room_focus_order(panel, ui().lobby);
+    if (order.count == 0)
+        return;
+    int32_t place = -1;
+    for (int32_t index = 0; index < order.count; ++index) {
+        if (order.index[static_cast<std::size_t>(index)] == panel.focus) {
+            place = index;
+            break;
+        }
+    }
+    int32_t next = forward ? 0 : order.count - 1;
+    if (place >= 0)
+        next = forward ? (place + 1) % order.count : (place + order.count - 1) % order.count;
+    const int32_t chosen = order.index[static_cast<std::size_t>(next)];
+    if (panel.focus == chosen)
+        return;
+    panel.focus = chosen;
+    panel.dirty = true;
+}
+
+/// Tells whether the battle room itself is the screen taking keys.
+///
+/// @return true while it shows and no dialog covers it
+bool battle_room_keys() noexcept {
+    const auto& state = ui();
+    return state.screen == kScreenBattleroom && state.base.loaded && &front() == &state.base;
+}
+
+/// The card trigger Return and the pad's A use while a remote row is focused.
+/// The presence card screen binds its own; null opens no card.
+PresenceCardTrigger* row_key_trigger = nullptr;
+
 } // namespace
 
 int screen_event(ScreenContext* ctx, void*) {
     auto& state = ui();
-    state.ctx = ctx;
+    remember_screen(state, ctx);
     const auto* input = ctx->input;
     if (input == nullptr)
         return 0;
@@ -2727,6 +3769,8 @@ int screen_event(ScreenContext* ctx, void*) {
     auto& panel = res.panel;
     const auto px = static_cast<int32_t>(input->x) - res.offset_x;
     const auto py = static_cast<int32_t>(input->y) - res.offset_y;
+    // Declared here: a variable inside one case cannot be jumped over by another.
+    const bool focus_valid = panel.focus > 0 && panel.focus < panel.count;
     switch (input->kind) {
     case ScreenInputKind::pointer_move:
         res.hovered = panel_hit(panel, px, py);
@@ -2791,35 +3835,75 @@ int screen_event(ScreenContext* ctx, void*) {
             }
         }
         if (input->key == kSdlKeyBackspace && panel.focus > 0 && panel.focus < panel.count) {
-            // Backspace takes the last character away: a whole UTF-8
-            // sequence of the chat line where game text holds UTF-8, else
-            // one byte.
+            // Backspace takes the last character away from a text box: a
+            // whole UTF-8 sequence of the chat line where game text holds
+            // UTF-8, else one byte. A focused player's row is not a text box.
             auto& control = panel.controls[static_cast<std::size_t>(panel.focus)];
-            std::string text(control_text(control));
-            if (control.type == ControlType::text_box && takes_any_character(control) &&
-                oa::present::game_text_settings().utf8)
-                std::ignore = oa::present::erase_last_character(text);
-            else if (!text.empty())
-                text.pop_back();
-            set_control_text(control, text);
+            if (control.type == ControlType::text_box) {
+                std::string text(control_text(control));
+                if (takes_any_character(control) && oa::present::game_text_settings().utf8)
+                    std::ignore = oa::present::erase_last_character(text);
+                else if (!text.empty())
+                    text.pop_back();
+                set_control_text(control, text);
+            }
             return 1;
         }
-        if (input->key == kSdlKeyReturn && panel.focus > 0 && panel.focus < panel.count) {
+        if (input->key == kSdlKeyReturn && focus_valid) {
+            // A focused remote row takes Return and the pad's A as the
+            // information key. The card opens when that row shows an OA
+            // badge, and nothing happens otherwise. The row is not pressed,
+            // so a player is not rejected and an AI is not cycled. A click
+            // on the row still presses it.
+            const auto& focused = panel.controls[static_cast<std::size_t>(panel.focus)];
+            if (battle_room_keys() && focusable_player_row(state.lobby, focused)) {
+                if (row_key_trigger != nullptr) {
+                    const int32_t slot = player_row_slot(control_name(focused));
+                    PresenceBadgeSpot spots[kSlotCount]{};
+                    const auto count = multiplayer_presence_badges(spots, kSlotCount);
+                    for (int32_t index = 0; index < count; ++index) {
+                        if (spots[static_cast<std::size_t>(index)].slot == slot) {
+                            row_key_trigger->key_info(slot);
+                            break;
+                        }
+                    }
+                }
+                return 1;
+            }
             if (panel_press(panel, panel.focus))
                 dispatch(ctx);
             return 1;
         }
         // Up and Down move a focused list's selection a row and run its
         // handler for a new selection, as 3.1c does; they never click it.
-        if ((input->key == kSdlKeyUp || input->key == kSdlKeyDown) && panel.focus > 0 &&
-            panel.focus < panel.count) {
+        if ((input->key == kSdlKeyUp || input->key == kSdlKeyDown) && focus_valid) {
             const auto& focused = panel.controls[static_cast<std::size_t>(panel.focus)];
             if (focused.type == ControlType::list_box && focused.list_item_height != 0) {
                 panel_step_list(panel, panel.focus, input->key == kSdlKeyDown);
                 list_changed(res, panel.focus);
+                return 1;
+            }
+        }
+        // In the battle room, Tab and the pad's D-pad (the arrow keys) walk
+        // the focus order: the lists, then each remote player's row, then
+        // the chat line. Left and Right stay in the chat line. Up and Down
+        // stay in a list, where they move its selection.
+        if (battle_room_keys() &&
+            (input->key == kSdlKeyTab || input->key == kSdlKeyUp || input->key == kSdlKeyDown ||
+             input->key == kSdlKeyLeft || input->key == kSdlKeyRight)) {
+            const bool along_chat =
+                (input->key == kSdlKeyLeft || input->key == kSdlKeyRight) && focus_valid &&
+                takes_any_character(panel.controls[static_cast<std::size_t>(panel.focus)]);
+            if (!along_chat) {
+                const bool backward =
+                    input->key == kSdlKeyUp || input->key == kSdlKeyLeft ||
+                    (input->key == kSdlKeyTab && (input->modifiers & kSdlModifierShift) != 0);
+                move_battle_room_focus(panel, !backward);
             }
             return 1;
         }
+        if ((input->key == kSdlKeyUp || input->key == kSdlKeyDown) && focus_valid)
+            return 1;
         if (input->key == kSdlKeyEscape) {
             for (const char* name : {"PREVMENU", "PREV", "CANCEL", "Cancel", "CHOICE2", "OK"})
                 if (panel_find(panel, name) != kNoControl) {
@@ -2835,7 +3919,7 @@ int screen_event(ScreenContext* ctx, void*) {
 
 void screen_tick(ScreenContext* ctx, void*) {
     auto& state = ui();
-    state.ctx = ctx;
+    remember_screen(state, ctx);
     if (state.exit_confirm_requested) {
         state.exit_confirm_requested = false;
         open_exit_confirm(ctx);
@@ -2887,15 +3971,17 @@ void screen_tick(ScreenContext* ctx, void*) {
 
 void screen_draw(ScreenContext* ctx, void*) {
     auto& state = ui();
-    state.ctx = ctx;
+    remember_screen(state, ctx);
     if (ctx->surface == nullptr || !state.base.loaded)
         return;
     auto& res = front();
     auto surface = render(res);
     draw_pictures(surface, res);
     draw_sliders(surface, res);
-    if (&res == &state.base && state.screen == kScreenBattleroom)
+    if (&res == &state.base && state.screen == kScreenBattleroom) {
         draw_player_versions(surface, res, state.lobby);
+        draw_presence_badges(surface, res, state.lobby);
+    }
     if (&res != &state.base)
         draw_text_boxes(surface, state.base);
     draw_text_boxes(surface, res);
@@ -2975,6 +4061,25 @@ void multiplayer_bind_unicode_chat(bool on) noexcept {
     ui().lobby.unicode_chat = on;
 }
 
+void multiplayer_bind_presence_record(const uint8_t* record, std::size_t size) noexcept {
+    auto& state = ui();
+    if (record == nullptr || size > netgame::presence_record_max_bytes)
+        size = 0;
+    state.presence_record.assign(record, record + size);
+    take_presence_record(state.lobby, state.presence_record);
+}
+
+void multiplayer_bind_map_pack(
+    void* context, bool (*pack)(void* context, netgame::PresenceMapPack* out)
+) noexcept {
+    auto& state = ui();
+    state.pack_context = context;
+    state.pack = pack;
+    state.lobby.maps.pack_context = context;
+    state.lobby.maps.pack = pack;
+    state.lobby.presence_records.pack_rebound = true;
+}
+
 void multiplayer_bind_wire_rules(const netgame::WireRules& rules, const char* program) noexcept {
     auto& state = ui();
     state.wire_rules = rules;
@@ -3023,6 +4128,353 @@ PanelOffset multiplayer_panel_offset() noexcept {
     return {res.offset_x, res.offset_y};
 }
 
+int32_t multiplayer_presence_badges(PresenceBadgeSpot* out, int32_t capacity) noexcept {
+    auto& state = ui();
+    // Drawn only as screen_draw draws them: the battle room shows, with no
+    // dialog over it.
+    if (!state.showing || state.screen != kScreenBattleroom || !state.base.loaded ||
+        &front() != &state.base)
+        return 0;
+    return presence_badge_spots(state.base, state.lobby, out, capacity);
+}
+
+bool multiplayer_map_list_rect(int32_t* x, int32_t* y, int32_t* width, int32_t* height) noexcept {
+    auto& state = ui();
+    if (!state.showing || state.screen != kScreenBattleroom ||
+        state.modal_kind != ModalKind::selmap || !state.modal.loaded ||
+        (local_info(state.lobby).role & kRoleHost) == 0)
+        return false;
+    const auto* list = panel_control(state.modal.panel, "MAPNAMES");
+    if (list == nullptr || list->width <= 0 || list->height <= 0)
+        return false;
+    if (x != nullptr)
+        *x = list->x + state.modal.offset_x;
+    if (y != nullptr)
+        *y = list->y + state.modal.offset_y;
+    if (width != nullptr)
+        *width = list->width;
+    if (height != nullptr)
+        *height = list->height;
+    return true;
+}
+
+namespace {
+
+/// A point on the canvas, in a rectangle whose right and bottom edges are open.
+///
+/// @param x the point's column
+/// @param y the point's row
+/// @param left the rectangle's left column
+/// @param top the rectangle's top row
+/// @param width the rectangle's width
+/// @param height the rectangle's height
+/// @return true when the point lies inside
+bool point_inside(
+    int32_t x, int32_t y, int32_t left, int32_t top, int32_t width, int32_t height
+) noexcept {
+    return width > 0 && height > 0 && x >= left && y >= top && x < left + width && y < top + height;
+}
+
+/// The list a canvas point's scroll arrow pages, and which way.
+struct PageArrow {
+    int32_t list = kNoControl; ///< the list; kNoControl when the point pages none
+    bool toward_end = false;   ///< the arrow toward the list's end, rather than its start
+};
+
+/// Finds the shown list whose scroll arrow contains a canvas point.
+///
+/// A bar that is hidden, a list with no row pitch and a point off both arrows
+/// page nothing. The frontmost bar wins, as a click does.
+///
+/// @param x the point's column on the canvas
+/// @param y the point's row on the canvas
+/// @return the list and the way; the list is kNoControl when there is none
+PageArrow page_arrow_at(int32_t x, int32_t y) noexcept {
+    PageArrow found;
+    if (!ui().showing)
+        return found;
+    auto& shown = front();
+    auto& panel = shown.panel;
+    for (int32_t index = panel.count - 1; index >= 1; --index) {
+        const auto& slider = panel.controls[static_cast<std::size_t>(index)];
+        if (slider.type != ControlType::slider || slider.active == 0 ||
+            slider.scroll.art == oa::ui::gui_input::ScrollArt::unbound)
+            continue;
+        const auto list = panel_group_member(panel, index, ControlType::list_box);
+        if (list == kNoControl)
+            continue;
+        const auto& rows = panel.controls[static_cast<std::size_t>(list)];
+        if (rows.list_item_height <= 0)
+            continue;
+        const int32_t left = shown.offset_x;
+        const int32_t top = shown.offset_y;
+        const auto& back = slider.scroll.back_arrow;
+        const auto& forward = slider.scroll.forward_arrow;
+        const bool on_back =
+            point_inside(x, y, back.x + left, back.y + top, back.width, back.height);
+        const bool on_forward =
+            point_inside(x, y, forward.x + left, forward.y + top, forward.width, forward.height);
+        if (!on_back && !on_forward)
+            continue;
+        found.list = list;
+        found.toward_end = on_forward && !on_back;
+        return found;
+    }
+    return found;
+}
+
+} // namespace
+
+bool multiplayer_list_page_arrow(int32_t x, int32_t y) noexcept {
+    return page_arrow_at(x, y).list != kNoControl;
+}
+
+bool multiplayer_scroll_list_page(int32_t x, int32_t y) noexcept {
+    const PageArrow arrow = page_arrow_at(x, y);
+    if (arrow.list == kNoControl)
+        return false;
+    auto& panel = front().panel;
+    const auto& rows = panel.controls[static_cast<std::size_t>(arrow.list)];
+    const int32_t page = list_shown_rows(rows, panel.line_height);
+    return panel_scroll_list(panel, arrow.list, arrow.toward_end ? page : -page);
+}
+
+bool multiplayer_offer_map(const char* name) noexcept {
+    auto& state = ui();
+    if (name == nullptr || !multiplayer_map_list_rect(nullptr, nullptr, nullptr, nullptr))
+        return false;
+    const std::string_view wanted(name);
+    const auto listed = [&state, wanted] {
+        return std::any_of(state.maps.begin(), state.maps.end(), [wanted](const MapInfo& map) {
+            return map.name == wanted;
+        });
+    };
+    if (!listed()) {
+        // The list is built once a visit: build it again, so that a pack
+        // installed since joins it, keeping the map selected now.
+        const std::string current =
+            state.map >= 0 && static_cast<std::size_t>(state.map) < state.maps.size()
+                ? state.maps[static_cast<std::size_t>(state.map)].name
+                : std::string();
+        state.maps_loaded = false;
+        load_maps();
+        for (std::size_t index = 0; index < state.maps.size(); ++index)
+            if (state.maps[index].name == current)
+                state.map = static_cast<int32_t>(index);
+        if (!listed())
+            return false;
+    }
+    return mapselect_offer(state.lobby, state.mapselect, state.modal.panel, wanted);
+}
+
+void multiplayer_reload_maps() {
+    auto& state = ui();
+    if (!state.maps_loaded)
+        return;
+    const std::string selected =
+        state.map >= 0 && static_cast<std::size_t>(state.map) < state.maps.size()
+            ? state.maps[static_cast<std::size_t>(state.map)].name
+            : std::string();
+    std::string highlighted;
+    if (state.modal_kind == ModalKind::selmap && state.modal.loaded) {
+        if (const Control* list = panel_control(state.modal.panel, "MAPNAMES")) {
+            const int32_t row = list->list_selection;
+            if (row >= 0 && static_cast<std::size_t>(row) < state.mapselect.names.size())
+                highlighted = state.mapselect.names[static_cast<std::size_t>(row)];
+        }
+    }
+    state.maps.clear();
+    state.maps_loaded = false;
+    state.map = -1;
+    load_maps();
+    for (std::size_t index = 0; index < state.maps.size() && !selected.empty(); ++index)
+        if (state.maps[index].name == selected)
+            state.map = static_cast<int32_t>(index);
+    if (state.modal_kind != ModalKind::selmap || !state.modal.loaded)
+        return;
+    state.mapselect.names.clear();
+    state.mapselect.names.reserve(state.maps.size());
+    for (const MapInfo& info : state.maps)
+        state.mapselect.names.push_back(info.name);
+    multiplayer_fill_map_names(state.modal.panel, state.mapselect.names);
+    if (highlighted.empty())
+        return;
+    for (std::size_t row = 0; row < state.mapselect.names.size(); ++row) {
+        if (state.mapselect.names[row] != highlighted)
+            continue;
+        panel_select_list_row(state.modal.panel, "MAPNAMES", static_cast<int32_t>(row));
+        return;
+    }
+}
+
+int32_t multiplayer_map_count() {
+    load_maps();
+    const auto count = ui().maps.size();
+    if (count > static_cast<std::size_t>(std::numeric_limits<int32_t>::max()))
+        return std::numeric_limits<int32_t>::max();
+    return static_cast<int32_t>(count);
+}
+
+void multiplayer_order_map_names(std::vector<std::string>& names) {
+    load_maps();
+    const auto& maps = ui().maps;
+    std::vector<MapListFact> facts;
+    facts.reserve(names.size());
+    for (const std::string& key : names) {
+        const auto found = std::find_if(maps.begin(), maps.end(), [&](const MapInfo& info) {
+            return info.name == key;
+        });
+        MapListFact fact;
+        fact.key = key;
+        if (found == maps.end() && oa::data::map_pack::split_pack_map_name(key))
+            fact.pack = true;
+        if (found != maps.end()) {
+            fact.title = found->title;
+            fact.file_title = found->file_title;
+            fact.pack_name = found->pack_name;
+            fact.pack = found->pack;
+            fact.blocked_reason = found->blocked_reason;
+        }
+        facts.push_back(fact);
+    }
+    std::vector<std::size_t> order;
+    try {
+        order = map_list_order(facts);
+    } catch (const std::exception&) {
+        return;
+    }
+    if (order.size() != names.size())
+        return;
+    for (const std::size_t index : order) {
+        if (index >= names.size())
+            return;
+    }
+    std::vector<std::string> sorted;
+    sorted.reserve(names.size());
+    for (const std::size_t index : order)
+        sorted.push_back(std::move(names[index]));
+    names = std::move(sorted);
+}
+
+std::vector<std::string> multiplayer_map_texts(std::span<const std::string> names) {
+    load_maps();
+    const auto& maps = ui().maps;
+    std::vector<MapListFact> facts;
+    facts.reserve(names.size());
+    for (const std::string& key : names) {
+        const auto found = std::find_if(maps.begin(), maps.end(), [&](const MapInfo& info) {
+            return info.name == key;
+        });
+        MapListFact fact;
+        fact.key = key;
+        if (found == maps.end() && oa::data::map_pack::split_pack_map_name(key))
+            fact.pack = true;
+        if (found != maps.end()) {
+            fact.title = found->title;
+            fact.file_title = found->file_title;
+            fact.pack_name = found->pack_name;
+            fact.pack = found->pack;
+            fact.blocked_reason = found->blocked_reason;
+        }
+        facts.push_back(fact);
+    }
+    std::vector<std::string> texts = map_list_texts(facts);
+    if (texts.size() != names.size())
+        texts.assign(names.begin(), names.end());
+    return texts;
+}
+
+std::string multiplayer_shown_map_name(const char* key) {
+    if (key == nullptr)
+        return {};
+    load_maps();
+    const std::string wanted(key);
+    std::vector<std::string> names;
+    names.reserve(ui().maps.size() + 1);
+    bool listed = false;
+    for (const MapInfo& info : ui().maps) {
+        names.push_back(info.name);
+        if (info.name == wanted)
+            listed = true;
+    }
+    if (!listed)
+        names.push_back(wanted);
+    const std::vector<std::string> texts = multiplayer_map_texts(names);
+    for (std::size_t index = 0; index < names.size() && index < texts.size(); ++index)
+        if (names[index] == wanted)
+            return texts[index];
+    return wanted;
+}
+
+void multiplayer_fill_map_names(Panel& panel, const std::vector<std::string>& names) {
+    std::vector<std::string> texts = multiplayer_map_texts(names);
+    if (texts.size() != names.size())
+        texts.assign(names.begin(), names.end());
+    panel_fill_list(panel, "MAPNAMES", std::move(texts));
+    panel_set_item_keys(panel, "MAPNAMES", names);
+    std::vector<uint8_t> grey(names.size(), 0);
+    const auto& maps = ui().maps;
+    for (std::size_t index = 0; index < names.size(); ++index) {
+        const auto found = std::find_if(maps.begin(), maps.end(), [&](const MapInfo& info) {
+            return info.name == names[index];
+        });
+        if (found != maps.end() && !found->blocked_reason.empty())
+            grey[index] = 1;
+    }
+    panel_set_item_grey(panel, "MAPNAMES", std::move(grey));
+}
+
+const char* multiplayer_map_at(int32_t index) {
+    load_maps();
+    const auto& maps = ui().maps;
+    if (index < 0 || static_cast<std::size_t>(index) >= maps.size())
+        return nullptr;
+    return maps[static_cast<std::size_t>(index)].name.c_str();
+}
+
+const char* multiplayer_pack_map_title(const char* name) {
+    if (name == nullptr || g_map_source.count == nullptr || g_map_source.at == nullptr)
+        return nullptr;
+    const int32_t count = g_map_source.count(g_map_source.context);
+    for (int32_t row = 0; row < count; ++row) {
+        LobbyPackMap pack{};
+        if (!g_map_source.at(g_map_source.context, row, &pack) || pack.name == nullptr)
+            continue;
+        if (std::strcmp(pack.name, name) == 0)
+            return pack.title;
+    }
+    return nullptr;
+}
+
+bool multiplayer_battle_room_map(BattleRoomMap* out) noexcept {
+    if (out == nullptr)
+        return false;
+    auto& state = ui();
+    // As the badges: the battle room shows, with no dialog over it.
+    if (!state.showing || state.screen != kScreenBattleroom || !state.base.loaded ||
+        &front() != &state.base) {
+        *out = BattleRoomMap{};
+        return false;
+    }
+    return battle_room_map(
+        state.lobby, state.base.panel, state.base.offset_x, state.base.offset_y, out
+    );
+}
+
+int32_t multiplayer_focused_player_slot() noexcept {
+    auto& state = ui();
+    // As the badges: the battle room shows, with no dialog over it.
+    if (!state.showing || state.screen != kScreenBattleroom || !state.base.loaded ||
+        &front() != &state.base)
+        return -1;
+    const auto& panel = state.base.panel;
+    if (panel.focus <= 0 || panel.focus >= panel.count)
+        return -1;
+    const auto& name = panel.controls[static_cast<std::size_t>(panel.focus)].name;
+    const std::string_view focused(name.data(), ::strnlen(name.data(), name.size()));
+    return player_row_slot(focused);
+}
+
 const ui::gui_layout::Layout& multiplayer_screen_layout() noexcept {
     return ui().base.source;
 }
@@ -3055,7 +4507,10 @@ const DirectGameProgress& multiplayer_direct_game_progress() noexcept {
 void multiplayer_reload_unit_headers(ScreenContext* ctx) {
     auto& state = ui();
     auto* previous = state.ctx;
-    state.ctx = ctx;
+    const oa::AssetStore* previous_assets = state.assets;
+    void* previous_host = state.host;
+    const app::ScreenServices* previous_services = state.services;
+    remember_screen(state, ctx);
     const oa::data::defs::UnitHeaderLoader loader{nullptr, [](void*, Game* game) {
                                                       auto& units = ui().units;
                                                       units = UnitStore{};
@@ -3065,6 +4520,9 @@ void multiplayer_reload_unit_headers(ScreenContext* ctx) {
                                                   }};
     oa::data::defs::reload_unit_headers(state.game.get(), loader);
     state.ctx = previous;
+    state.assets = previous_assets;
+    state.host = previous_host;
+    state.services = previous_services;
 }
 
 RestrictPanel& multiplayer_restrict() noexcept {
@@ -3094,7 +4552,7 @@ const std::string& multiplayer_message() noexcept {
 }
 
 bool multiplayer_click(ScreenContext* ctx, const char* name, uint8_t button) noexcept {
-    ui().ctx = ctx;
+    remember_screen(ui(), ctx);
     if (!ui().message.empty()) {
         ui().message.clear();
         return true;
@@ -3108,7 +4566,7 @@ bool multiplayer_click(ScreenContext* ctx, const char* name, uint8_t button) noe
 }
 
 void multiplayer_type(ScreenContext* ctx, const char* text) noexcept {
-    ui().ctx = ctx;
+    remember_screen(ui(), ctx);
     Control* control = focused_text_box();
     if (control == nullptr || text == nullptr)
         return;
@@ -3148,7 +4606,33 @@ void multiplayer_bind_display_modes(const LobbyDisplayModes& display_modes) noex
     g_display_modes = display_modes;
 }
 
+void multiplayer_choose_screen_size(int32_t width, int32_t height) noexcept {
+    if (g_display_modes.choose != nullptr)
+        g_display_modes.choose(g_display_modes.context, width, height);
+}
+
+void multiplayer_bind_map_source(const LobbyMapSource& source) noexcept {
+    release_pack_source();
+    g_map_source = source;
+    auto& state = ui();
+    state.maps.clear();
+    state.maps_loaded = false;
+    state.map = -1;
+    clear_pack_refusal();
+    state.pack_prepared = false;
+}
+
+void multiplayer_bind_row_key(PresenceCardTrigger* trigger) noexcept {
+    row_key_trigger = trigger;
+}
+
+void multiplayer_bind_layer_presence_badges(void* context, bool (*draws)(void*)) noexcept {
+    g_layer_badge_context = context;
+    g_layer_draws_badges = draws;
+}
+
 void multiplayer_reset() noexcept {
+    release_pack_source();
     auto& state = ui();
     const bool custom = state.custom_net;
     const auto net = state.bound_net;

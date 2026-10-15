@@ -107,6 +107,24 @@ void pseudo_pack_reads_whole() {
     OA_CHECK(manifest.fallbacks.empty());
     OA_CHECK(manifest.needs == languages::TextNeeds::modern_fonts);
     OA_CHECK(manifest.unicode);
+    OA_CHECK(manifest.homepage == "https://example.org/pseudo");
+    OA_CHECK(manifest.tags == std::vector<std::string>{"test"});
+    OA_CHECK(manifest.requires_engine == ">= 0.0.1");
+    OA_CHECK(manifest.warmup == "warmup.txt");
+    OA_CHECK(manifest.fonts.empty());
+    const languages::LanguageEntry entry = languages::entry_of(manifest);
+    OA_CHECK(entry.tag == "en-XA");
+    OA_CHECK(entry.endonym == manifest.name);
+    OA_CHECK(
+        entry.endonym == "\xEF\xBC\xBB\xE6\xB5\x8B"
+                         "Pseudo"
+                         "\xE8\xAF\x95\xEF\xBC\xBD"
+    );
+    OA_CHECK(entry.english_name == "Pseudo");
+    OA_CHECK(entry.word == "Pseudo");
+    OA_CHECK(entry.locales == std::vector<std::string>({"en-XA"}));
+    OA_CHECK(entry.fallbacks.empty());
+    OA_CHECK(entry.needs == languages::TextNeeds::modern_fonts);
     // A caption and a message, keyed by their English; an empty value adds
     // nothing.
     OA_CHECK(pack.translations().size() == 2);
@@ -154,6 +172,241 @@ void manifests_are_refused_by_rule() {
         languages::read_manifest(bytes_of("oalang: 1\ntag: zh-Hans\nword: Chinese\n"), manifest)
     );
     OA_CHECK(manifest.needs == languages::TextNeeds::game_fonts && !manifest.unicode);
+    OA_CHECK(manifest.fonts.empty() && manifest.warmup.empty() && !manifest.packaging);
+
+    // fonts, warmup and packaging are read beside homepage, tags and requires.
+    languages::PackManifest held;
+    std::string error;
+    OA_CHECK(
+        languages::read_manifest(
+            bytes_of(
+                "oalang: 1\n"
+                "tag: zh-Hans\n"
+                "word: Chinese\n"
+                "homepage: \"https://example.org/lang\"\n"
+                "tags: [translation]\n"
+                "requires: {engine: \">= 0.0.1\"}\n"
+                "fonts:\n"
+                "  - {file: NotoSansCJKsc-Bold.otf, role: ideographs}\n"
+                "  - {file: Letters.TTF, role: letters}\n"
+                "  - {file: Third.otf, role: ideographs}\n"
+                "  - {file: Fourth.ttf, role: letters}\n"
+                "warmup: warmup.txt\n"
+                "packaging: {revision: 3, date: \"2026-10-10\", packager: Ridge}\n"
+            ),
+            held,
+            &error
+        )
+    );
+    OA_CHECK(error.empty());
+    OA_CHECK(held.homepage == "https://example.org/lang");
+    OA_CHECK(held.tags == std::vector<std::string>{"translation"});
+    OA_CHECK(held.requires_engine == ">= 0.0.1");
+    OA_CHECK(held.fonts.size() == 4);
+    if (held.fonts.size() == 4) {
+        OA_CHECK(held.fonts[0].file == "NotoSansCJKsc-Bold.otf");
+        OA_CHECK(held.fonts[0].role == languages::PackFontRole::ideographs);
+        OA_CHECK(held.fonts[1].file == "Letters.TTF");
+        OA_CHECK(held.fonts[1].role == languages::PackFontRole::letters);
+    }
+    OA_CHECK(held.warmup == "warmup.txt");
+    OA_CHECK(held.packaging && held.packaging->revision == 3);
+    OA_CHECK(held.packaging && held.packaging->date == "2026-10-10");
+    OA_CHECK(held.packaging && held.packaging->packager == "Ridge");
+
+    const auto refused_for = [](std::string_view text, std::string_view key) {
+        languages::PackManifest kept;
+        kept.tag = "kept";
+        std::string failure;
+        const bool read = languages::read_manifest(bytes_of(text), kept, &failure);
+        OA_CHECK(kept.tag == "kept");
+        return !read && failure.find(key) != std::string::npos;
+    };
+    constexpr std::string_view stem = "oalang: 1\ntag: zh-Hans\nword: Chinese\n";
+    const auto with = [stem](std::string_view rest) {
+        return std::string(stem) + std::string(rest);
+    };
+    OA_CHECK(refused_for(with("fonts: yes\n"), "fonts"));
+    OA_CHECK(refused_for(with("warmup: 1\n"), "warmup"));
+    OA_CHECK(refused_for(with("packaging: []\n"), "packaging"));
+    OA_CHECK(refused_for(
+        with(
+            "fonts:\n"
+            "  - {file: A.otf, role: ideographs}\n"
+            "  - {file: B.otf, role: letters}\n"
+            "  - {file: C.ttf, role: ideographs}\n"
+            "  - {file: D.ttf, role: letters}\n"
+            "  - {file: E.otf, role: ideographs}\n"
+        ),
+        "fonts"
+    ));
+    OA_CHECK(refused_for(
+        with(
+            "fonts:\n"
+            "  - {file: A.otf, role: ideographs}\n"
+            "  - {file: A.otf, role: letters}\n"
+        ),
+        "fonts"
+    ));
+    OA_CHECK(refused_for(with("fonts:\n  - {file: fonts/x.otf, role: ideographs}\n"), "fonts"));
+    OA_CHECK(refused_for(with("fonts:\n  - {file: ../x.otf, role: ideographs}\n"), "fonts"));
+    OA_CHECK(refused_for(with("fonts:\n  - {file: x.woff, role: ideographs}\n"), "fonts"));
+    OA_CHECK(refused_for(with("fonts:\n  - {file: x.otf, role: symbols}\n"), "fonts"));
+    OA_CHECK(refused_for(with("fonts:\n  - {file: x.otf, role: ideographs, extra: 1}\n"), "fonts"));
+    OA_CHECK(refused_for(with("warmup: fonts/warm.txt\n"), "warmup"));
+    OA_CHECK(refused_for(with("warmup: ../warm.txt\n"), "warmup"));
+    OA_CHECK(refused_for(
+        with("packaging: {revision: 0, date: \"2026-10-10\", packager: Ridge}\n"), "revision"
+    ));
+    OA_CHECK(refused_for(
+        with("packaging: {revision: 65536, date: \"2026-10-10\", packager: Ridge}\n"), "revision"
+    ));
+    OA_CHECK(refused_for(
+        with("packaging: {revision: 1, date: \"2026-13-01\", packager: Ridge}\n"), "date"
+    ));
+    OA_CHECK(refused_for(
+        with("packaging: {revision: 1, date: \"2026-10-10\", packager: Ridge, extra: 1}\n"),
+        "packaging"
+    ));
+}
+
+/// homepage, tags and requires.engine are read; a broken one is refused,
+/// and an unmet engine requirement is kept.
+void package_keys_are_read_and_checked() {
+    languages::PackManifest manifest;
+    std::string error;
+    OA_CHECK(
+        languages::read_manifest(
+            bytes_of(
+                "oalang: 1\n"
+                "tag: zh-Hans\n"
+                "word: Chinese\n"
+                "homepage: \"https://example.org/lang\"\n"
+                "tags: [translation]\n"
+                "requires: {engine: \">= 0.0.1\"}\n"
+            ),
+            manifest,
+            &error
+        )
+    );
+    OA_CHECK(error.empty());
+    OA_CHECK(manifest.homepage == "https://example.org/lang");
+    OA_CHECK(manifest.tags == std::vector<std::string>{"translation"});
+    OA_CHECK(manifest.requires_engine == ">= 0.0.1");
+
+    const auto refused = [](std::string_view text) {
+        languages::PackManifest kept;
+        kept.tag = "kept";
+        std::string failure;
+        const bool read = languages::read_manifest(bytes_of(text), kept, &failure);
+        OA_CHECK(kept.tag == "kept");
+        return !read && !failure.empty();
+    };
+    OA_CHECK(refused("oalang: 1\ntag: zh-Hans\nword: Chinese\nhomepage: \"javascript:no\"\n"));
+    OA_CHECK(refused("oalang: 1\ntag: zh-Hans\nword: Chinese\ntags: [Not-Kebab]\n"));
+    OA_CHECK(refused("oalang: 1\ntag: zh-Hans\nword: Chinese\ntags: []\n"));
+    OA_CHECK(refused("oalang: 1\ntag: zh-Hans\nword: Chinese\nrequires: {engine: \">= 1.2\"}\n"));
+    OA_CHECK(refused("oalang: 1\ntag: zh-Hans\nword: Chinese\nrequires: {base: other}\n"));
+
+    languages::PackManifest unmet;
+    OA_CHECK(
+        languages::read_manifest(
+            bytes_of(
+                "oalang: 1\ntag: zh-Hans\nword: Chinese\nrequires: {engine: \">= 9999.0.0\"}\n"
+            ),
+            unmet,
+            &error
+        )
+    );
+    OA_CHECK(unmet.requires_engine == ">= 9999.0.0");
+}
+
+/// supportedGames defaults to every base game, and requires.base reads as totala.
+void content_needs_are_read() {
+    languages::PackManifest minimal;
+    std::string error;
+    OA_CHECK(
+        languages::read_manifest(
+            bytes_of("oalang: 1\ntag: zh-Hans\nword: Chinese\n"), minimal, &error
+        )
+    );
+    OA_CHECK(error.empty());
+    OA_CHECK(minimal.supported_games == (std::vector<std::string>{"totala", "totala-demo"}));
+    OA_CHECK(minimal.required_expansions.empty());
+    OA_CHECK(minimal.requires_base.empty());
+
+    languages::PackManifest named;
+    OA_CHECK(
+        languages::read_manifest(
+            bytes_of(
+                "oalang: 1\n"
+                "tag: zh-Hans\n"
+                "word: Chinese\n"
+                "supportedGames: [\"totala\", \"totala-demo\"]\n"
+                "requiredExpansions: [\"music\"]\n"
+            ),
+            named,
+            &error
+        )
+    );
+    OA_CHECK(named.supported_games == (std::vector<std::string>{"totala", "totala-demo"}));
+    OA_CHECK(named.required_expansions == std::vector<std::string>{"music"});
+
+    languages::PackManifest legacy;
+    OA_CHECK(
+        languages::read_manifest(
+            bytes_of("oalang: 1\ntag: zh-Hans\nword: Chinese\nrequires: {base: ta-3.1c}\n"),
+            legacy,
+            &error
+        )
+    );
+    OA_CHECK(legacy.supported_games == std::vector<std::string>{"totala"});
+    OA_CHECK(legacy.requires_base == "ta-3.1c");
+
+    languages::PackManifest both;
+    OA_CHECK(
+        languages::read_manifest(
+            bytes_of(
+                "oalang: 1\n"
+                "tag: zh-Hans\n"
+                "word: Chinese\n"
+                "supportedGames: [\"totala-demo\"]\n"
+                "requires: {base: ta-3.1c}\n"
+            ),
+            both,
+            &error
+        )
+    );
+    OA_CHECK(both.supported_games == std::vector<std::string>{"totala-demo"});
+    OA_CHECK(both.requires_base == "ta-3.1c");
+
+    const auto refused = [](std::string_view text) {
+        languages::PackManifest kept;
+        kept.tag = "kept";
+        std::string failure;
+        const bool read = languages::read_manifest(bytes_of(text), kept, &failure);
+        OA_CHECK(kept.tag == "kept");
+        return !read ? failure : std::string{};
+    };
+    const std::string unknown =
+        refused("oalang: 1\ntag: zh-Hans\nword: Chinese\nsupportedGames: [\"no-such\"]\n");
+    OA_CHECK(unknown.find("no-such") != std::string::npos);
+    OA_CHECK(unknown.find("is not a base game") != std::string::npos);
+    const std::string extends = refused(
+        "oalang: 1\ntag: zh-Hans\nword: Chinese\n"
+        "supportedGames: [\"totala-demo\"]\n"
+        "requiredExpansions: [\"core-contingency\"]\n"
+    );
+    OA_CHECK(extends.find("core-contingency") != std::string::npos);
+    OA_CHECK(extends.find("extends none") != std::string::npos);
+    OA_CHECK(
+        refused("oalang: 1\ntag: zh-Hans\nword: Chinese\nrequires: {base: totala}\n")
+            .find("ta-3.1c") != std::string::npos
+    );
+    OA_CHECK(
+        refused("oalang: 1\ntag: zh-Hans\nword: Chinese\nsupportedGames: []\n")
+            .find("at least one") != std::string::npos
+    );
 }
 
 /// The game's own texts: a mod's pack first, then the game data in the
@@ -314,6 +567,8 @@ int main(int argc, char** argv) {
     pack_folder = argv[1];
     pseudo_pack_reads_whole();
     manifests_are_refused_by_rule();
+    package_keys_are_read_and_checked();
+    content_needs_are_read();
     game_texts_are_looked_up_through_the_layers();
     unit_texts_are_looked_up_through_the_layers();
     unit_texts_check_the_english_they_translate();

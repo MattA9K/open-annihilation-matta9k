@@ -5,10 +5,15 @@
 #include "oa/app/app.hpp"
 #include "oa/app/extension.hpp"
 #include "oa/app/game_directory.hpp"
+#include "net_options.hpp"
+#include "oa/app/netgame/launch_file.hpp"
+#include "oa/data/content_bundles/content_choice.hpp"
 #include "oa/app/hook_call.hpp"
-#include "oa/app/mod_install.hpp"
+#include "oa/app/package_install.hpp"
+#include "oa/app/package_install/inbox.hpp"
 #include "oa/platform/display_modes.hpp"
 #include "oa/platform/job_pool.hpp"
+#include "oa/platform/preferences.hpp"
 #include "oa/platform/system.hpp"
 #include <algorithm>
 #include <array>
@@ -16,16 +21,24 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <iostream>
 #include <iterator>
 #include <optional>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <system_error>
 #include <utility>
 #include <vector>
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 namespace oa::app {
 namespace {
@@ -46,7 +59,8 @@ constexpr std::size_t kGameFilesCheckFrames = 30;
     return value;
 }
 
-// The arguments after a long option, as OptionValues hands them out.
+// The command line from a long option on: the arguments after it, as the
+// engine's options and OptionValues read them.
 struct ArgumentCursor {
     int argc{};
     char** argv{};
@@ -59,6 +73,18 @@ const char* next_value(void* arguments) {
     if (++*cursor.index >= cursor.argc || std::string_view(cursor.argv[*cursor.index]).empty())
         throw std::runtime_error(std::string(cursor.name) + " requires a value");
     return cursor.argv[*cursor.index];
+}
+
+/// Names the argument after the option without taking it (OptionValues::following).
+///
+/// @param arguments the ArgumentCursor
+/// @return that argument, or null when the command line ends on the option
+const char* following_value(void* arguments) {
+    const auto& cursor = *static_cast<ArgumentCursor*>(arguments);
+    const int following = *cursor.index + 1;
+    if (following >= cursor.argc)
+        return nullptr;
+    return cursor.argv[following];
 }
 
 // The extension's text for `which`, or `fallback` when it has none.
@@ -261,11 +287,23 @@ void check_game_files_options(Options& options) {
         {options.check_frontend_controls, "--check-frontend-controls"},
         {options.check_scroll_bars, "--check-scroll-bars"},
         {options.check_engine_settings, "--check-engine-settings"},
+        {options.check_registered_kit, "--check-registered-kit"},
+        {options.check_kit_gallery, "--check-kit-gallery"},
         {options.check_user_folder, "--check-user-folder"},
         {options.check_mod_switch, "--check-mod-switch"},
+        {options.check_map_packs, "--check-map-packs"},
+        {options.check_map_browser, "--check-map-browser"},
+        {options.check_map_pack_lists, "--check-map-pack-lists"},
         {options.check_mod_warning, "--check-mod-warning"},
         {options.check_mod_install, "--check-mod-install"},
-        {!options.install_mods.empty(), "--install-mod"},
+        {options.check_language_install, "--check-language-install"},
+        {options.check_challenge, "--check-challenge"},
+        {options.check_registries, "--check-registries"},
+        {options.check_library, "--check-library"},
+        {options.check_library_install, "--check-library-install"},
+        {options.check_library_map_previews, "--check-library-map-previews"},
+        {options.check_library_content, "--check-library-content"},
+        {!options.open_files.empty(), "--open"},
         {options.check_renderer_ladder, "--check-renderer-ladder"},
         {options.check_briefing_narration, "--check-briefing-narration"},
         {options.check_match_layers, "--check-match-layers"},
@@ -282,8 +320,17 @@ void check_game_files_options(Options& options) {
         {options.check_kill_board, "--check-kill-board"},
         {options.check_paused_save, "--check-paused-save"},
         {options.check_simulation_hash, "--check-simulation-hash"},
+        {options.check_zoom_memory, "--check-zoom-memory"},
         {!options.check_unit_language.empty(), "--check-unit-language"},
         {options.check_language_switch, "--check-language-switch"},
+        {options.check_language_registry, "--check-language-registry"},
+        {options.check_language_notice, "--check-language-notice"},
+        {options.check_first_run, "--check-first-run"},
+        {options.check_setup_window, "--check-setup-window"},
+        {options.check_window_place, "--check-window-place"},
+        {options.check_progress, "--check-progress"},
+        {options.check_text_fit, "--check-text-fit"},
+        {options.check_folder_chooser, "--check-folder-chooser"},
         {options.check_patrol_reclaim, "--check-patrol-reclaim"},
         {options.check_reclaim_cursor, "--check-reclaim-cursor"},
         {options.check_build_preview, "--check-build-preview"},
@@ -492,8 +539,17 @@ void check_director_options(Options& options) {
         {options.check_kill_board, "--check-kill-board"},
         {options.check_paused_save, "--check-paused-save"},
         {options.check_simulation_hash, "--check-simulation-hash"},
+        {options.check_zoom_memory, "--check-zoom-memory"},
         {!options.check_unit_language.empty(), "--check-unit-language"},
         {options.check_language_switch, "--check-language-switch"},
+        {options.check_language_registry, "--check-language-registry"},
+        {options.check_language_notice, "--check-language-notice"},
+        {options.check_first_run, "--check-first-run"},
+        {options.check_setup_window, "--check-setup-window"},
+        {options.check_window_place, "--check-window-place"},
+        {options.check_progress, "--check-progress"},
+        {options.check_text_fit, "--check-text-fit"},
+        {options.check_folder_chooser, "--check-folder-chooser"},
         {options.check_patrol_reclaim, "--check-patrol-reclaim"},
         {options.check_reclaim_cursor, "--check-reclaim-cursor"},
         {options.check_build_preview, "--check-build-preview"},
@@ -509,11 +565,23 @@ void check_director_options(Options& options) {
         {options.check_interpolation, "--check-interpolation"},
         {options.check_unit_playout, "--check-unit-playout"},
         {options.check_engine_settings, "--check-engine-settings"},
+        {options.check_registered_kit, "--check-registered-kit"},
+        {options.check_kit_gallery, "--check-kit-gallery"},
         {options.check_user_folder, "--check-user-folder"},
         {options.check_mod_switch, "--check-mod-switch"},
+        {options.check_map_packs, "--check-map-packs"},
+        {options.check_map_browser, "--check-map-browser"},
+        {options.check_map_pack_lists, "--check-map-pack-lists"},
         {options.check_mod_warning, "--check-mod-warning"},
         {options.check_mod_install, "--check-mod-install"},
-        {!options.install_mods.empty(), "--install-mod"},
+        {options.check_language_install, "--check-language-install"},
+        {options.check_challenge, "--check-challenge"},
+        {options.check_registries, "--check-registries"},
+        {options.check_library, "--check-library"},
+        {options.check_library_install, "--check-library-install"},
+        {options.check_library_map_previews, "--check-library-map-previews"},
+        {options.check_library_content, "--check-library-content"},
+        {!options.open_files.empty(), "--open"},
         {options.check_renderer_ladder, "--check-renderer-ladder"},
     };
     for (const auto& [given, name] : refused)
@@ -553,8 +621,17 @@ void refuse_left_out_self_checks([[maybe_unused]] const Options& options) {
             {options.check_kill_board, "--check-kill-board"},
             {options.check_paused_save, "--check-paused-save"},
             {options.check_simulation_hash, "--check-simulation-hash"},
+            {options.check_zoom_memory, "--check-zoom-memory"},
             {!options.check_unit_language.empty(), "--check-unit-language"},
             {options.check_language_switch, "--check-language-switch"},
+            {options.check_language_registry, "--check-language-registry"},
+            {options.check_language_notice, "--check-language-notice"},
+            {options.check_first_run, "--check-first-run"},
+            {options.check_setup_window, "--check-setup-window"},
+            {options.check_window_place, "--check-window-place"},
+            {options.check_progress, "--check-progress"},
+            {options.check_text_fit, "--check-text-fit"},
+            {options.check_folder_chooser, "--check-folder-chooser"},
             {options.check_patrol_reclaim, "--check-patrol-reclaim"},
             {options.check_reclaim_cursor, "--check-reclaim-cursor"},
             {options.check_build_preview, "--check-build-preview"},
@@ -565,16 +642,30 @@ void refuse_left_out_self_checks([[maybe_unused]] const Options& options) {
             {options.check_pad_controls, "--check-pad-controls"},
             {options.check_running_while_inactive, "--check-running-while-inactive"},
             {options.check_game_files, "--check-game-files"},
+            {!options.check_content_copy.empty(), "--check-content-copy"},
+            {!options.check_installer.empty(), "--check-installer"},
             {options.check_multiplayer_menu, "--check-multiplayer-menu"},
             {options.check_director_view, "--check-director-view"},
             {options.check_director_render, "--check-director-render"},
             {options.check_interpolation, "--check-interpolation"},
             {options.check_unit_playout, "--check-unit-playout"},
             {options.check_engine_settings, "--check-engine-settings"},
+            {options.check_registered_kit, "--check-registered-kit"},
+            {options.check_kit_gallery, "--check-kit-gallery"},
             {options.check_user_folder, "--check-user-folder"},
             {options.check_mod_switch, "--check-mod-switch"},
+            {options.check_map_packs, "--check-map-packs"},
+            {options.check_map_browser, "--check-map-browser"},
+            {options.check_map_pack_lists, "--check-map-pack-lists"},
             {options.check_mod_warning, "--check-mod-warning"},
             {options.check_mod_install, "--check-mod-install"},
+            {options.check_language_install, "--check-language-install"},
+            {options.check_challenge, "--check-challenge"},
+            {options.check_registries, "--check-registries"},
+            {options.check_library, "--check-library"},
+            {options.check_library_install, "--check-library-install"},
+            {options.check_library_map_previews, "--check-library-map-previews"},
+            {options.check_library_content, "--check-library-content"},
             {options.check_renderer_ladder, "--check-renderer-ladder"},
         };
         for (const auto& [given, name] : checks)
@@ -658,30 +749,596 @@ namespace {
 
 namespace {
 
-/// Returns a mod package's path as the command line names it, made absolute.
+/// Returns a file to open as the command line names it, made absolute.
 ///
 /// @param text the path, UTF-8
 /// @return the absolute path
-[[nodiscard]] fs::path mod_package_path(std::string_view text) {
+[[nodiscard]] fs::path opened_file_path(std::string_view text) {
     const fs::path file = path_from_utf8(text);
     std::error_code error;
     const fs::path whole = fs::absolute(file, error);
     return error ? file : whole;
 }
 
-/// Tells whether a bare argument names a mod package by its extension, any case.
+/// Tells whether a bare argument names a file to open, by its extension, any case.
 ///
 /// @param argument the argument
-/// @return true for a .oamod file
-[[nodiscard]] bool names_mod_package(std::string_view argument) {
-    return mod_install::names_mod_package(path_from_utf8(argument));
+/// @return true for a .oamod, .oalang, .oamap or .oareg file
+[[nodiscard]] bool names_opened_file(std::string_view argument) {
+    return package_install::opens_file(path_from_utf8(argument));
+}
+
+/// An option that takes no value and turns on one member of Options.
+struct FlagOption {
+    std::string_view name;
+    bool Options::* member{};
+};
+
+/// The options that take no value and do nothing but turn on their member.
+/// The options that take a value or do more are read by the functions below.
+constexpr FlagOption kFlagOptions[] = {
+    {"--choose-game-dir", &Options::choose_game_dir},
+    {"--base-game", &Options::base_game},
+    {"--print-profile", &Options::print_profile},
+    {"--accept-unimplemented-hacks", &Options::accept_unimplemented_hacks},
+    {"--force-capable", &Options::force_capable},
+    {"--native-density", &Options::native_density},
+    {"--scroll-camera", &Options::scroll_camera},
+    {"--march", &Options::march},
+    {"--follow", &Options::follow},
+    {"--past-outcome", &Options::campaign_past_outcome},
+    {"--busy-combat", &Options::busy_combat},
+    {"--give-orders", &Options::give_orders},
+    {"--reclaim-check", &Options::reclaim_check},
+    {"--skip-intro", &Options::skip_intro},
+    {"--first-run", &Options::first_run},
+    {"--headless-check", &Options::headless_check},
+    {"--mute", &Options::mute},
+    {"--check-match-dialogs", &Options::check_match_dialogs},
+    {"--check-load-save", &Options::check_load_save},
+    {"--check-frontend-controls", &Options::check_frontend_controls},
+    {"--check-scroll-bars", &Options::check_scroll_bars},
+    {"--check-engine-settings", &Options::check_engine_settings},
+    {"--check-registered-kit", &Options::check_registered_kit},
+    {"--check-kit-gallery", &Options::check_kit_gallery},
+    {"--check-user-folder", &Options::check_user_folder},
+    {"--check-mod-switch", &Options::check_mod_switch},
+    {"--check-map-packs", &Options::check_map_packs},
+    {"--check-map-browser", &Options::check_map_browser},
+    {"--check-map-pack-lists", &Options::check_map_pack_lists},
+    {"--check-mod-warning", &Options::check_mod_warning},
+    {"--check-mod-install", &Options::check_mod_install},
+    {"--check-language-install", &Options::check_language_install},
+    {"--check-challenge", &Options::check_challenge},
+    {"--check-registries", &Options::check_registries},
+    {"--check-library", &Options::check_library},
+    {"--check-library-install", &Options::check_library_install},
+    {"--check-library-map-previews", &Options::check_library_map_previews},
+    {"--check-library-content", &Options::check_library_content},
+    {"--check-renderer-ladder", &Options::check_renderer_ladder},
+    {"--check-briefing-narration", &Options::check_briefing_narration},
+    {"--check-match-layers", &Options::check_match_layers},
+    {"--check-render-tiers", &Options::check_render_tiers},
+    {"--check-match-orders", &Options::check_match_orders},
+    {"--check-factory-orders", &Options::check_factory_orders},
+    {"--check-unit-speech", &Options::check_unit_speech},
+    {"--check-download-builds", &Options::check_download_builds},
+    {"--check-stockpile-builds", &Options::check_stockpile_builds},
+    {"--check-unit-page-memory", &Options::check_unit_page_memory},
+    {"--check-side-column", &Options::check_side_column},
+    {"--check-match-bars", &Options::check_match_bars},
+    {"--check-kill-board", &Options::check_kill_board},
+    {"--check-paused-save", &Options::check_paused_save},
+    {"--check-simulation-hash", &Options::check_simulation_hash},
+    {"--check-zoom-memory", &Options::check_zoom_memory},
+    {"--check-language-switch", &Options::check_language_switch},
+    {"--check-language-registry", &Options::check_language_registry},
+    {"--check-language-notice", &Options::check_language_notice},
+    {"--check-first-run", &Options::check_first_run},
+    {"--check-setup-window", &Options::check_setup_window},
+    {"--check-window-place", &Options::check_window_place},
+    {"--check-progress", &Options::check_progress},
+    {"--check-text-fit", &Options::check_text_fit},
+    {"--check-folder-chooser", &Options::check_folder_chooser},
+    {"--check-patrol-reclaim", &Options::check_patrol_reclaim},
+    {"--check-reclaim-cursor", &Options::check_reclaim_cursor},
+    {"--check-build-preview", &Options::check_build_preview},
+    {"--check-pointer-interfaces", &Options::check_pointer_interfaces},
+    {"--check-megamap-clicks", &Options::check_megamap_clicks},
+    {"--check-radar-orders", &Options::check_radar_orders},
+    {"--check-touch-controls", &Options::check_touch_controls},
+    {"--check-pad-controls", &Options::check_pad_controls},
+    {"--check-running-while-inactive", &Options::check_running_while_inactive},
+    {"--touch-controls", &Options::touch_controls},
+    {"--check-game-files", &Options::check_game_files},
+    {"--no-game-files-screen", &Options::no_game_files_screen},
+    {"--check-multiplayer-menu", &Options::check_multiplayer_menu},
+    {"--check-director-view", &Options::check_director_view},
+    {"--check-director-render", &Options::check_director_render},
+    {"--check-interpolation", &Options::check_interpolation},
+    {"--check-unit-playout", &Options::check_unit_playout},
+    {"--trace-input", &Options::trace_input},
+    {"--debug-order-lines", &Options::debug_order_lines},
+};
+
+/// Turns on the member of an option kFlagOptions lists.
+///
+/// @param argument the option
+/// @param[in,out] options the options read so far
+/// @return true when kFlagOptions lists the option
+[[nodiscard]] bool take_flag_option(std::string_view argument, Options& options) {
+    for (const auto& [name, member] : kFlagOptions)
+        if (argument == name) {
+            options.*member = true;
+            return true;
+        }
+    return false;
+}
+
+/// Returns the value after the option the cursor stands on, and moves the
+/// cursor onto it.
+///
+/// Throws std::runtime_error naming the option when no value follows or the
+/// value is empty.
+///
+/// @param[in,out] cursor the command line, standing on the option
+/// @return the value
+[[nodiscard]] std::string_view option_value(ArgumentCursor& cursor) {
+    return next_value(&cursor);
+}
+
+/// Reads an option that names a folder or file the run reads or writes, or
+/// a file to open: the game and mod folders, archives, the snapshot, the
+/// preferences, the data, the player's and the log's folders.
+///
+/// @param argument the option
+/// @param[in,out] cursor the command line, standing on the option; moved
+///        onto its value when it takes one
+/// @param[in,out] options the options read so far
+/// @return true when the option is one of these
+[[nodiscard]] bool
+take_folder_option(std::string_view argument, ArgumentCursor& cursor, Options& options) {
+    if (argument == "--game-dir") {
+        options.game_dir = path_from_utf8(option_value(cursor));
+        return true;
+    }
+    if (argument == "--archive") {
+        options.archives.push_back(path_from_utf8(option_value(cursor)));
+        return true;
+    }
+    if (argument == "--mod") {
+        options.mod_file = path_from_utf8(option_value(cursor));
+        return true;
+    }
+    if (argument == "--mod-dir") {
+        options.mod_dir = path_from_utf8(option_value(cursor));
+        return true;
+    }
+    if (argument == "--snapshot") {
+        options.snapshot = path_from_utf8(option_value(cursor));
+        return true;
+    }
+    if (argument == "--preferences-file") {
+        options.preferences_file = path_from_utf8(option_value(cursor));
+        return true;
+    }
+    if (argument == "--data-dir") {
+        options.data_dir = path_from_utf8(option_value(cursor));
+        return true;
+    }
+    if (argument == "--user-folder") {
+        options.user_folder = path_from_utf8(option_value(cursor));
+        return true;
+    }
+    if (argument == "--log-dir") {
+        options.log_dir = path_from_utf8(option_value(cursor));
+        return true;
+    }
+    if (argument == "--open" || argument == "--install-mod") {
+        options.open_files.push_back(opened_file_path(option_value(cursor)));
+        return true;
+    }
+    if (argument == "--check-content-copy") {
+        options.check_content_copy = path_from_utf8(option_value(cursor));
+        return true;
+    }
+    if (argument == "--check-installer") {
+        options.check_installer = path_from_utf8(option_value(cursor));
+        return true;
+    }
+    return false;
+}
+
+/// Reads an option that sets how long a run lasts and how it draws: its
+/// frames, its frame rates, its window and the threads that draw.
+///
+/// @param argument the option
+/// @param[in,out] cursor the command line, standing on the option; moved
+///        onto its value when it takes one
+/// @param[in,out] options the options read so far
+/// @return true when the option is one of these
+[[nodiscard]] bool
+take_frame_option(std::string_view argument, ArgumentCursor& cursor, Options& options) {
+    if (argument == "--frames") {
+        options.frame_limit = parse_count(option_value(cursor));
+        return true;
+    }
+    if (argument == "--benchmark") {
+        options.benchmark_frames = parse_count(option_value(cursor));
+        return true;
+    }
+    if (argument == "--max-fps") {
+        options.max_frames_per_second = parse_frame_rate(
+            option_value(cursor),
+            kLowestMaxFramesPerSecond,
+            true,
+            "--max-fps expects 0 for no limit, or frames a second from 30 through 1000"
+        );
+        options.max_frames_per_second_given = true;
+        return true;
+    }
+    if (argument == "--display-modes") {
+        options.display_modes = std::string(option_value(cursor));
+        if (!oa::platform::display_modes::report_from_text(options.display_modes))
+            throw std::runtime_error(
+                "--display-modes expects WIDTHxHEIGHT[@RATE][/DENSITY] modes separated "
+                "by commas, or none"
+            );
+        return true;
+    }
+    if (argument == "--frame-rate") {
+        options.frame_rate = parse_frame_rate(
+            option_value(cursor),
+            1,
+            false,
+            "--frame-rate expects frames a second from 1 through 1000"
+        );
+        return true;
+    }
+    if (argument == "--frame-log") {
+        options.frame_log = path_from_utf8(option_value(cursor));
+        return true;
+    }
+    if (argument == "--frame-clock") {
+        options.frame_clock_ms = parse_frame_clock(option_value(cursor));
+        return true;
+    }
+    if (argument == "--resolution") {
+        const auto text = std::string(option_value(cursor));
+        const auto separator = text.find('x');
+        if (separator == std::string::npos)
+            throw std::runtime_error("--resolution expects WIDTHxHEIGHT");
+        options.match_width = static_cast<int>(parse_count(text.substr(0, separator)));
+        options.match_height = static_cast<int>(parse_count(text.substr(separator + 1)));
+        if (options.match_width <= 0 || options.match_height <= 0)
+            throw std::runtime_error("--resolution expects a width and height above 0");
+        options.window_resolution = true;
+        return true;
+    }
+    if (argument == "--draw-threads") {
+        options.draw_threads = parse_draw_threads(option_value(cursor), argument);
+        return true;
+    }
+    return false;
+}
+
+/// Reads an option that sets up the match a run plays: its length, the
+/// campaign mission, the armies, the stage, the saved games, the zoom, the
+/// camera and the random seed.
+///
+/// @param argument the option
+/// @param[in,out] cursor the command line, standing on the option; moved
+///        onto its value when it takes one
+/// @param[in,out] options the options read so far
+/// @return true when the option is one of these
+[[nodiscard]] bool
+take_match_option(std::string_view argument, ArgumentCursor& cursor, Options& options) {
+    if (argument == "--match-ticks") {
+        options.match_ticks = parse_count(option_value(cursor));
+        return true;
+    }
+    if (argument == "--campaign") {
+        options.campaign = option_value(cursor);
+        return true;
+    }
+    if (argument == "--mission") {
+        options.campaign_mission = parse_count(option_value(cursor));
+        return true;
+    }
+    if (argument == "--restart-at") {
+        options.campaign_restart_tick = parse_count(option_value(cursor));
+        return true;
+    }
+    if (argument == "--combat") {
+        options.combat_units = parse_count(option_value(cursor));
+        return true;
+    }
+    if (argument == "--stage") {
+        options.stage_file = path_from_utf8(option_value(cursor));
+        return true;
+    }
+    if (argument == "--save-after") {
+        options.save_after = parse_count(option_value(cursor));
+        return true;
+    }
+    if (argument == "--save-file") {
+        options.save_file = path_from_utf8(option_value(cursor));
+        return true;
+    }
+    if (argument == "--load") {
+        options.load_file = path_from_utf8(option_value(cursor));
+        return true;
+    }
+    if (argument == "--zoom") {
+        const auto text = std::string(option_value(cursor));
+        char* end = nullptr;
+        options.match_zoom = std::strtof(text.c_str(), &end);
+        if (end == text.c_str() || *end != '\0' || !(options.match_zoom > 0.0F))
+            throw std::runtime_error("--zoom expects a positive number");
+        return true;
+    }
+    if (argument == "--camera") {
+        const auto text = std::string(option_value(cursor));
+        const auto separator = text.find(',');
+        if (separator == std::string::npos)
+            throw std::runtime_error("--camera expects X,Z");
+        options.camera = {
+            static_cast<int>(parse_count(text.substr(0, separator))),
+            static_cast<int>(parse_count(text.substr(separator + 1)))
+        };
+        return true;
+    }
+    if (argument == "--seed") {
+        options.seed = parse_seed(option_value(cursor));
+        return true;
+    }
+    return false;
+}
+
+/// Reads a self-check's option that takes a value, or a word after it: the
+/// navigation check and its group, the failure the renderer ladder check
+/// narrows to, and the pages and the language the unit checks show.
+///
+/// @param argument the option
+/// @param[in,out] cursor the command line, standing on the option; moved
+///        onto its value when it takes one
+/// @param[in,out] options the options read so far
+/// @return true when the option is one of these
+[[nodiscard]] bool
+take_check_option(std::string_view argument, ArgumentCursor& cursor, Options& options) {
+    if (argument == "--check-navigation") {
+        options.check_navigation = true;
+        // A group's name may follow; any other word is read as before.
+        if (*cursor.index + 1 < cursor.argc)
+            if (const auto group = navigation_group_named(cursor.argv[*cursor.index + 1])) {
+                options.navigation_group = *group;
+                ++*cursor.index;
+            }
+        return true;
+    }
+    if (argument == "--render-fault") {
+        options.render_fault = parse_render_fault(option_value(cursor));
+        return true;
+    }
+    if (argument == "--check-unit-pages") {
+        options.check_unit_pages = option_value(cursor);
+        return true;
+    }
+    if (argument == "--check-unit-language") {
+        options.check_unit_language = option_value(cursor);
+        return true;
+    }
+    return false;
+}
+
+/// Reads one of --check-game-files's companions, which set the route the
+/// check takes through the Game files screen and what it expects there.
+///
+/// @param argument the option
+/// @param[in,out] cursor the command line, standing on the option; moved
+///        onto its value
+/// @param[in,out] options the options read so far
+/// @return true when the option is one of these
+[[nodiscard]] bool
+take_game_files_option(std::string_view argument, ArgumentCursor& cursor, Options& options) {
+    if (argument == "--game-files-route") {
+        options.game_files_route = parse_game_files_route(option_value(cursor));
+        return true;
+    }
+    if (argument == "--game-files-expect") {
+        options.game_files_expect = parse_game_files_expect(option_value(cursor));
+        return true;
+    }
+    if (argument == "--game-files-source") {
+        options.game_files_source = path_from_utf8(option_value(cursor));
+        return true;
+    }
+    if (argument == "--game-files-free-bytes") {
+        options.game_files_free_bytes =
+            parse_game_files_bytes(option_value(cursor), argument, false);
+        return true;
+    }
+    if (argument == "--game-files-copy-rate") {
+        options.game_files_copy_rate = parse_game_files_bytes(option_value(cursor), argument, true);
+        return true;
+    }
+    if (argument == "--game-files-stop-after") {
+        options.game_files_stop_after =
+            parse_game_files_bytes(option_value(cursor), argument, true);
+        return true;
+    }
+    return false;
+}
+
+/// Reads an option of the director, the traces, the video capture or the
+/// showcases.
+///
+/// @param argument the option
+/// @param[in,out] cursor the command line, standing on the option; moved
+///        onto its value
+/// @param[in,out] options the options read so far
+/// @return true when the option is one of these
+[[nodiscard]] bool
+take_recording_option(std::string_view argument, ArgumentCursor& cursor, Options& options) {
+    if (argument == "--generate-script") {
+        options.generate_script = path_from_utf8(option_value(cursor));
+        return true;
+    }
+    if (argument == "--render-script") {
+        options.render_script = path_from_utf8(option_value(cursor));
+        return true;
+    }
+    if (argument == "--output") {
+        options.director_output = path_from_utf8(option_value(cursor));
+        return true;
+    }
+    if (argument == "--chunks") {
+        options.director_chunks = parse_chunks(option_value(cursor));
+        return true;
+    }
+    if (argument == "--stills") {
+        options.director_stills = parse_stills(option_value(cursor));
+        return true;
+    }
+    if (argument == "--trace-lookups") {
+        options.trace_lookups = path_from_utf8(option_value(cursor));
+        return true;
+    }
+    if (argument == "--trace-digest") {
+        options.trace_digest = path_from_utf8(option_value(cursor));
+        return true;
+    }
+    if (argument == "--trace-units") {
+        options.trace_units = path_from_utf8(option_value(cursor));
+        return true;
+    }
+    if (argument == "--capture-video") {
+        options.capture_video = path_from_utf8(option_value(cursor));
+        return true;
+    }
+    if (argument == "--showcase") {
+        options.showcase = parse_showcase(option_value(cursor));
+        return true;
+    }
+    return false;
+}
+
+/// Reads one of the engine's options that turns on a member or takes a
+/// value. The hardware acceleration flags, --help, an extension's options,
+/// files to open and the game's switches are read by parse_options itself.
+///
+/// @param argument the option
+/// @param[in,out] cursor the command line, standing on the option; moved
+///        onto its value when it takes one
+/// @param[in,out] options the options read so far
+/// @return true when the option is one of these
+[[nodiscard]] bool
+take_engine_option(std::string_view argument, ArgumentCursor& cursor, Options& options) {
+    if (argument == "--content") {
+        options.content = std::string(option_value(cursor));
+        return true;
+    }
+    return take_flag_option(argument, options) || take_folder_option(argument, cursor, options) ||
+           take_frame_option(argument, cursor, options) ||
+           take_match_option(argument, cursor, options) ||
+           take_check_option(argument, cursor, options) ||
+           take_game_files_option(argument, cursor, options) ||
+           take_recording_option(argument, cursor, options);
 }
 
 } // namespace
 
+namespace {
+
+/// Writes `text` to the console this program was started from, when Windows
+/// gave the program no console of its own and nothing is capturing the output.
+void write_parent_console(std::string_view text) {
+#if defined(_WIN32)
+    // The console of the process that started this one. Windows names it -1.
+    constexpr DWORD kParentConsole = 0xFFFFFFFFu;
+    const HANDLE current = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (current != nullptr && current != INVALID_HANDLE_VALUE) {
+        const DWORD kind = GetFileType(current);
+        if (kind == FILE_TYPE_PIPE || kind == FILE_TYPE_DISK)
+            return;
+    }
+    const HMODULE kernel = GetModuleHandleW(L"kernel32.dll");
+    if (kernel == nullptr)
+        return;
+    using AttachConsoleFunction = BOOL(WINAPI*)(DWORD);
+    // A direct cast of GetProcAddress is a cast between function types, which
+    // this build rejects. Copy the pointer instead.
+    const auto looked_up = GetProcAddress(kernel, "AttachConsole");
+    AttachConsoleFunction attach = nullptr;
+    static_assert(sizeof(attach) == sizeof(looked_up));
+    std::memcpy(&attach, &looked_up, sizeof(attach));
+    if (attach == nullptr || attach(kParentConsole) == FALSE)
+        return;
+    const HANDLE console = CreateFileW(
+        L"CONOUT$",
+        GENERIC_WRITE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE,
+        nullptr,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL,
+        nullptr
+    );
+    if (console == INVALID_HANDLE_VALUE)
+        return;
+    DWORD written = 0;
+    std::ignore =
+        WriteFile(console, text.data(), static_cast<DWORD>(text.size()), &written, nullptr);
+    std::ignore = CloseHandle(console);
+#else
+    (void)text;
+#endif
+}
+
+/// Finds the game folder, where a launch file named without a folder is looked for after the current folder.
+///
+/// It is the folder --game-dir names, or else the one the preferences
+/// remember from an earlier start.
+///
+/// @param context the Options being parsed
+/// @return the folder, or nothing when neither names one
+std::optional<fs::path> launch_game_folder(const void* context) {
+    const auto& options = *static_cast<const Options*>(context);
+    if (!options.game_dir.empty())
+        return options.game_dir;
+    try {
+        const auto values = oa::platform::preferences::load(
+            options.preferences_file ? *options.preferences_file
+                                     : oa::platform::preferences::default_file()
+        );
+        const auto found = values.find(std::string(kGameDirectoryPreference));
+        if (found != values.end() && !found->second.empty())
+            return path_from_utf8(found->second);
+    } catch (const std::exception&) {
+        // Unreadable preferences remember no folder.
+    }
+    return std::nullopt;
+}
+
+} // namespace
+
+void write_startup_line(std::string_view text) {
+    std::string bytes(text);
+    if (bytes.empty() || bytes.back() != '\n')
+        bytes.push_back('\n');
+    // A test replaces the output buffer and reads it back. The console is
+    // written only for the program's own buffer, so that capture stays one copy.
+    static std::streambuf* const own_buffer = std::cout.rdbuf();
+    if (std::cout.rdbuf() == own_buffer)
+        write_parent_console(bytes);
+    std::cout << bytes;
+    std::exit(0);
+}
+
 [[nodiscard]] Options parse_options(int argc, char** argv, const Extension& extension) {
     Options result;
-    std::string joined_line;
+    // The game's switches, each argument one word: the system has already
+    // split the command line, honouring its quotes.
+    std::vector<const char*> switch_words;
     uint32_t extension_effects = 0;
     // The acceleration flags, wherever they stand, must name one level: the
     // first given and the first that names another are refused once the
@@ -704,51 +1361,12 @@ namespace {
     };
     for (int index = 1; index < argc; ++index) {
         const std::string_view argument(argv[index]);
-        auto value = [&](std::string_view name) -> std::string_view {
-            ArgumentCursor cursor{argc, argv, &index, name};
-            return next_value(&cursor);
-        };
-        if (argument == "--game-dir")
-            result.game_dir = path_from_utf8(value(argument));
-        else if (argument == "--choose-game-dir")
-            result.choose_game_dir = true;
-        else if (argument == "--archive")
-            result.archives.push_back(path_from_utf8(value(argument)));
-        else if (argument == "--mod")
-            result.mod_file = path_from_utf8(value(argument));
-        else if (argument == "--mod-dir")
-            result.mod_dir = path_from_utf8(value(argument));
-        else if (argument == "--base-game")
-            result.base_game = true;
-        else if (argument == "--print-profile")
-            result.print_profile = true;
-        else if (argument == "--accept-unimplemented-hacks")
-            result.accept_unimplemented_hacks = true;
-        else if (argument == "--snapshot")
-            result.snapshot = path_from_utf8(value(argument));
-        else if (argument == "--preferences-file")
-            result.preferences_file = path_from_utf8(value(argument));
-        else if (argument == "--data-dir")
-            result.data_dir = path_from_utf8(value(argument));
-        else if (argument == "--user-folder")
-            result.user_folder = path_from_utf8(value(argument));
-        else if (argument == "--log-dir")
-            result.log_dir = path_from_utf8(value(argument));
-        else if (argument == "--frames")
-            result.frame_limit = parse_count(value(argument));
-        else if (argument == "--benchmark")
-            result.benchmark_frames = parse_count(value(argument));
-        else if (argument == "--match-ticks")
-            result.match_ticks = parse_count(value(argument));
-        else if (argument == "--max-fps") {
-            result.max_frames_per_second = parse_frame_rate(
-                value(argument),
-                kLowestMaxFramesPerSecond,
-                true,
-                "--max-fps expects 0 for no limit, or frames a second from 30 through 1000"
-            );
-            result.max_frames_per_second_given = true;
-        } else if (argument == "--hardware-acceleration") {
+        ArgumentCursor cursor{argc, argv, &index, argument};
+        // The engine's options come before an extension's. Each is matched
+        // by its whole name, so no two of them can take the same argument.
+        if (take_engine_option(argument, cursor, result))
+            continue;
+        if (argument == "--hardware-acceleration") {
             take_acceleration(argument, HardwareAcceleration::full);
         } else if (argument.starts_with(kAccelerationLevelFlag)) {
             const auto level = oa::ui::engine_settings::hardware_acceleration_from_text(
@@ -759,309 +1377,101 @@ namespace {
             take_acceleration(argument, *level);
         } else if (argument == "--no-hardware-acceleration") {
             take_acceleration(argument, HardwareAcceleration::off);
-        } else if (argument == "--force-capable")
-            result.force_capable = true;
-        else if (argument == "--display-modes") {
-            result.display_modes = std::string(value(argument));
-            if (!oa::platform::display_modes::report_from_text(result.display_modes))
-                throw std::runtime_error(
-                    "--display-modes expects WIDTHxHEIGHT[@RATE][/DENSITY] modes separated "
-                    "by commas, or none"
-                );
-        } else if (argument == "--native-density")
-            result.native_density = true;
-        else if (argument == "--frame-rate")
-            result.frame_rate = parse_frame_rate(
-                value(argument),
-                1,
-                false,
-                "--frame-rate expects frames a second from 1 through 1000"
-            );
-        else if (argument == "--frame-log")
-            result.frame_log = path_from_utf8(value(argument));
-        else if (argument == "--scroll-camera")
-            result.scroll_camera = true;
-        else if (argument == "--march")
-            result.march = true;
-        else if (argument == "--follow")
-            result.follow = true;
-        else if (argument == "--frame-clock")
-            result.frame_clock_ms = parse_frame_clock(value(argument));
-        else if (argument == "--campaign")
-            result.campaign = value(argument);
-        else if (argument == "--mission")
-            result.campaign_mission = parse_count(value(argument));
-        else if (argument == "--past-outcome")
-            result.campaign_past_outcome = true;
-        else if (argument == "--restart-at")
-            result.campaign_restart_tick = parse_count(value(argument));
-        else if (argument == "--combat")
-            result.combat_units = parse_count(value(argument));
-        else if (argument == "--busy-combat")
-            result.busy_combat = true;
-        else if (argument == "--stage")
-            result.stage_file = path_from_utf8(value(argument));
-        else if (argument == "--save-after")
-            result.save_after = parse_count(value(argument));
-        else if (argument == "--save-file")
-            result.save_file = path_from_utf8(value(argument));
-        else if (argument == "--load")
-            result.load_file = path_from_utf8(value(argument));
-        else if (argument == "--give-orders")
-            result.give_orders = true;
-        else if (argument == "--zoom") {
-            const auto text = std::string(value(argument));
-            char* end = nullptr;
-            result.match_zoom = std::strtof(text.c_str(), &end);
-            if (end == text.c_str() || *end != '\0' || !(result.match_zoom > 0.0F))
-                throw std::runtime_error("--zoom expects a positive number");
-        } else if (argument == "--reclaim-check")
-            result.reclaim_check = true;
-        else if (argument == "--resolution") {
-            const auto text = std::string(value(argument));
-            const auto separator = text.find('x');
-            if (separator == std::string::npos)
-                throw std::runtime_error("--resolution expects WIDTHxHEIGHT");
-            result.match_width = static_cast<int>(parse_count(text.substr(0, separator)));
-            result.match_height = static_cast<int>(parse_count(text.substr(separator + 1)));
-            if (result.match_width <= 0 || result.match_height <= 0)
-                throw std::runtime_error("--resolution expects a width and height above 0");
-            result.window_resolution = true;
-        } else if (argument == "--camera") {
-            const auto text = std::string(value(argument));
-            const auto separator = text.find(',');
-            if (separator == std::string::npos)
-                throw std::runtime_error("--camera expects X,Z");
-            result.camera = {
-                static_cast<int>(parse_count(text.substr(0, separator))),
-                static_cast<int>(parse_count(text.substr(separator + 1)))
-            };
-        } else if (argument == "--skip-intro")
-            result.skip_intro = true;
-        else if (argument == "--headless-check")
-            result.headless_check = true;
-        else if (argument == "--mute")
-            result.mute = true;
-        else if (argument == "--check-navigation") {
-            result.check_navigation = true;
-            // A group's name may follow; any other word is read as before.
-            if (index + 1 < argc)
-                if (const auto group = navigation_group_named(argv[index + 1])) {
-                    result.navigation_group = *group;
-                    ++index;
-                }
-        } else if (argument == "--check-match-dialogs")
-            result.check_match_dialogs = true;
-        else if (argument == "--check-load-save")
-            result.check_load_save = true;
-        else if (argument == "--check-frontend-controls")
-            result.check_frontend_controls = true;
-        else if (argument == "--check-scroll-bars")
-            result.check_scroll_bars = true;
-        else if (argument == "--check-engine-settings")
-            result.check_engine_settings = true;
-        else if (argument == "--check-user-folder")
-            result.check_user_folder = true;
-        else if (argument == "--check-mod-switch")
-            result.check_mod_switch = true;
-        else if (argument == "--check-mod-warning")
-            result.check_mod_warning = true;
-        else if (argument == "--check-mod-install")
-            result.check_mod_install = true;
-        else if (argument == "--install-mod")
-            result.install_mods.push_back(mod_package_path(value(argument)));
-        else if (argument == "--check-renderer-ladder")
-            result.check_renderer_ladder = true;
-        else if (argument == "--render-fault")
-            result.render_fault = parse_render_fault(value(argument));
-        else if (argument == "--check-briefing-narration")
-            result.check_briefing_narration = true;
-        else if (argument == "--check-match-layers")
-            result.check_match_layers = true;
-        else if (argument == "--check-render-tiers")
-            result.check_render_tiers = true;
-        else if (argument == "--check-match-orders")
-            result.check_match_orders = true;
-        else if (argument == "--check-factory-orders")
-            result.check_factory_orders = true;
-        else if (argument == "--check-unit-speech")
-            result.check_unit_speech = true;
-        else if (argument == "--check-download-builds")
-            result.check_download_builds = true;
-        else if (argument == "--check-stockpile-builds")
-            result.check_stockpile_builds = true;
-        else if (argument == "--check-unit-page-memory")
-            result.check_unit_page_memory = true;
-        else if (argument == "--check-side-column")
-            result.check_side_column = true;
-        else if (argument == "--check-match-bars")
-            result.check_match_bars = true;
-        else if (argument == "--check-unit-pages")
-            result.check_unit_pages = value(argument);
-        else if (argument == "--check-kill-board")
-            result.check_kill_board = true;
-        else if (argument == "--check-paused-save")
-            result.check_paused_save = true;
-        else if (argument == "--check-simulation-hash")
-            result.check_simulation_hash = true;
-        else if (argument == "--check-unit-language")
-            result.check_unit_language = value(argument);
-        else if (argument == "--check-language-switch")
-            result.check_language_switch = true;
-        else if (argument == "--check-patrol-reclaim")
-            result.check_patrol_reclaim = true;
-        else if (argument == "--check-reclaim-cursor")
-            result.check_reclaim_cursor = true;
-        else if (argument == "--check-build-preview")
-            result.check_build_preview = true;
-        else if (argument == "--check-pointer-interfaces")
-            result.check_pointer_interfaces = true;
-        else if (argument == "--check-megamap-clicks")
-            result.check_megamap_clicks = true;
-        else if (argument == "--check-radar-orders")
-            result.check_radar_orders = true;
-        else if (argument == "--check-touch-controls")
-            result.check_touch_controls = true;
-        else if (argument == "--check-pad-controls")
-            result.check_pad_controls = true;
-        else if (argument == "--check-running-while-inactive")
-            result.check_running_while_inactive = true;
-        else if (argument == "--touch-controls")
-            result.touch_controls = true;
-        else if (argument == "--check-game-files")
-            result.check_game_files = true;
-        else if (argument == "--no-game-files-screen")
-            result.no_game_files_screen = true;
-        else if (argument == "--game-files-route")
-            result.game_files_route = parse_game_files_route(value(argument));
-        else if (argument == "--game-files-expect")
-            result.game_files_expect = parse_game_files_expect(value(argument));
-        else if (argument == "--game-files-source")
-            result.game_files_source = path_from_utf8(value(argument));
-        else if (argument == "--game-files-free-bytes")
-            result.game_files_free_bytes = parse_game_files_bytes(value(argument), argument, false);
-        else if (argument == "--game-files-copy-rate")
-            result.game_files_copy_rate = parse_game_files_bytes(value(argument), argument, true);
-        else if (argument == "--game-files-stop-after")
-            result.game_files_stop_after = parse_game_files_bytes(value(argument), argument, true);
-        else if (argument == "--check-multiplayer-menu")
-            result.check_multiplayer_menu = true;
-        else if (argument == "--check-director-view")
-            result.check_director_view = true;
-        else if (argument == "--check-director-render")
-            result.check_director_render = true;
-        else if (argument == "--check-interpolation")
-            result.check_interpolation = true;
-        else if (argument == "--check-unit-playout")
-            result.check_unit_playout = true;
-        else if (argument == "--generate-script")
-            result.generate_script = path_from_utf8(value(argument));
-        else if (argument == "--render-script")
-            result.render_script = path_from_utf8(value(argument));
-        else if (argument == "--output")
-            result.director_output = path_from_utf8(value(argument));
-        else if (argument == "--chunks")
-            result.director_chunks = parse_chunks(value(argument));
-        else if (argument == "--stills")
-            result.director_stills = parse_stills(value(argument));
-        else if (argument == "--trace-input")
-            result.trace_input = true;
-        else if (argument == "--trace-lookups")
-            result.trace_lookups = path_from_utf8(value(argument));
-        else if (argument == "--debug-order-lines")
-            result.debug_order_lines = true;
-        else if (argument == "--trace-digest")
-            result.trace_digest = path_from_utf8(value(argument));
-        else if (argument == "--trace-units")
-            result.trace_units = path_from_utf8(value(argument));
-        else if (argument == "--seed")
-            result.seed = parse_seed(value(argument));
-        else if (argument == "--draw-threads")
-            result.draw_threads = parse_draw_threads(value(argument), argument);
-        else if (argument == "--capture-video")
-            result.capture_video = path_from_utf8(value(argument));
-        else if (argument == "--showcase")
-            result.showcase = parse_showcase(value(argument));
-        // A bare -h stays the help flag, so the game's "-h NAME" (name as
-        // the next argument) must be written -hNAME here.
-        else if (argument == "--help" || argument == "-h") {
-            std::cout
-                << "usage: open-annihilation [--game-dir PATH | --choose-game-dir] "
-                   "[--archive PATH]... "
-                   "[--mod FILE] [--mod-dir PATH | --base-game] [--print-profile] "
-                   "[--accept-unimplemented-hacks] "
-                   "[--skip-intro] [--frames N] [--headless-check] "
-                   "[--snapshot PATH.ppm] [--preferences-file PATH] [--data-dir PATH] "
-                   "[--user-folder PATH] [--log-dir PATH] "
-                   "[--mute] "
-                   "[--check-navigation [screens|orders|outcomes|zoom|zoom-1366x768|"
-                   "zoom-1920x1080|zoom-2560x1440|campaign]] "
-                   "[--check-match-dialogs] [--check-match-layers] "
-                   "[--check-render-tiers [--force-capable]] "
-                   "[--check-match-orders] [--check-factory-orders] [--check-unit-speech] "
-                   "[--check-download-builds] [--check-stockpile-builds] "
-                   "[--check-unit-page-memory] [--check-side-column] [--check-match-bars] "
-                   "[--check-unit-pages whole|scaled:TYPE,...] "
-                   "[--check-kill-board] [--check-simulation-hash] "
-                   "[--check-unit-language TAG] "
-                   "[--check-language-switch] "
-                   "[--check-patrol-reclaim] [--check-reclaim-cursor] [--check-build-preview] "
-                   "[--check-megamap-clicks] [--check-radar-orders] "
-                   "[--check-pointer-interfaces] [--check-pad-controls] [--check-touch-controls] "
-                   "[--check-game-files] "
-                   "[--check-multiplayer-menu] "
-                   "[--check-load-save] [--check-frontend-controls] "
-                   "[--check-scroll-bars] [--check-engine-settings [--force-capable]] "
-                   "[--check-user-folder] [--check-mod-switch] [--check-mod-warning] "
-                   "[--check-mod-install] "
-                   "[--check-renderer-ladder [--render-fault POINT[@FRAME]]] "
-                   "[--check-briefing-narration] [--check-director-view] "
-                   "[--check-director-render] [--check-interpolation] "
-                   "[--check-unit-playout] [--check-running-while-inactive] "
-                   "[--trace-input] "
-                << extension_text(extension, ExtensionText::usage_checks, "")
-                << "[--debug-order-lines] "
-                   "[--max-fps N] "
-                   "[--hardware-acceleration[=off|basic|full] | --no-hardware-acceleration] "
-                   "[--native-density] [--display-modes MODES] "
-                   "[--benchmark FRAMES] [--match-ticks N "
-                   "[--frame-rate FPS [--frame-log FILE] [--scroll-camera] [--march] "
-                   "[--follow] [--frame-clock MS]]] "
-                   "[--campaign NAME --mission N [--past-outcome] [--restart-at TICK]] "
-                   "[--resolution WxH] [--touch-controls] "
-                   "[--game-files-route folder|demo|copy-yourself|manage] "
-                   "[--game-files-expect main-menu|stopped-kept|resumed|not-a-game|short-space|"
-                   "next-start] "
-                   "[--game-files-source PATH] [--game-files-free-bytes N] "
-                   "[--game-files-copy-rate BYTES] [--game-files-stop-after BYTES] "
-                   "[--no-game-files-screen] "
-                   "[--zoom FACTOR] [--combat UNITS [--busy-combat]] [--stage FILE] "
-                   "[--reclaim-check] "
-                   "[--camera X,Z] "
-                << extension_text(extension, ExtensionText::usage_runs, "")
-                << "[--save-after TICK] "
-                   "[--save-file PATH.sav] [--load PATH.sav] [--give-orders] [--seed N] "
-                   "[--trace-digest FILE] [--trace-units FILE] [--trace-lookups FILE] "
-                   "[--draw-threads N] "
-                   "[--capture-video PATH.mp4] [--showcase arm-first-mission|skirmish-battle] "
-                   "[--install-mod FILE.oamod]... "
-                   "[--generate-script RECORDING [--output PATH.oascript|PATH.oamovie] "
-                   "[--resolution WxH]] "
-                   "[--render-script PATH.oascript|PATH.oamovie [--output DIR] "
-                   "[--chunks A-B] [--stills F,F...]] "
-                   "[game switches such as "
-                << extension_text(extension, ExtensionText::usage_switches, "")
-                << "-d -s] "
-                   "[LANGUAGE]\n"
-                   "--generate-script plans a director script from a recording an "
-                   "extension of this build replays;\n"
-                   "--render-script renders a director script, or a bundle of one and "
-                   "its recording, to video (docs/director.md).\n"
-                << extension_text(extension, ExtensionText::usage_note, "");
-            std::exit(0);
+        } else if (argument == "--help" || (argument == "-h" && index + 1 == argc)) {
+            // -h with nothing after it is the help flag; with a word after
+            // it, it is the game's "-h NAME".
+            std::ostringstream usage;
+            usage << "usage: open-annihilation [--version] [--game-dir PATH | --choose-game-dir] "
+                     "[--archive PATH]... "
+                     "[--mod FILE] [--mod-dir PATH | --base-game] "
+                     "[--content GAME[:EXPANSION,...]] [--print-profile] "
+                     "[--accept-unimplemented-hacks] "
+                     "[--skip-intro] [--first-run] [--frames N] [--headless-check] "
+                     "[--snapshot PATH.ppm] [--preferences-file PATH] [--data-dir PATH] "
+                     "[--user-folder PATH] [--log-dir PATH] "
+                     "[--mute] "
+                     "[--check-navigation [screens|orders|outcomes|zoom|zoom-1366x768|"
+                     "zoom-1920x1080|zoom-2560x1440|campaign]] "
+                     "[--check-match-dialogs] [--check-match-layers] "
+                     "[--check-render-tiers [--force-capable]] "
+                     "[--check-match-orders] [--check-factory-orders] [--check-unit-speech] "
+                     "[--check-download-builds] [--check-stockpile-builds] "
+                     "[--check-unit-page-memory] [--check-side-column] [--check-match-bars] "
+                     "[--check-unit-pages whole|scaled:TYPE,...] "
+                     "[--check-kill-board] [--check-paused-save] [--check-simulation-hash] "
+                     "[--check-zoom-memory] "
+                     "[--check-unit-language TAG] "
+                     "[--check-language-switch] "
+                     "[--check-language-registry] "
+                     "[--check-language-notice] [--check-first-run] [--check-setup-window] "
+                     "[--check-window-place] "
+                     "[--check-progress] "
+                     "[--check-text-fit] "
+                     "[--check-folder-chooser] "
+                     "[--check-patrol-reclaim] [--check-reclaim-cursor] [--check-build-preview] "
+                     "[--check-megamap-clicks] [--check-radar-orders] "
+                     "[--check-pointer-interfaces] [--check-pad-controls] [--check-touch-controls] "
+                     "[--check-game-files] [--check-content-copy PATH] "
+                     "[--check-installer FILE] "
+                     "[--check-multiplayer-menu] "
+                     "[--check-load-save] [--check-frontend-controls] "
+                     "[--check-scroll-bars] [--check-engine-settings [--force-capable]] "
+                     "[--check-registered-kit] [--check-kit-gallery] "
+                     "[--check-user-folder] [--check-mod-switch] [--check-map-packs] "
+                     "[--check-map-pack-lists] "
+                     "[--check-map-browser] "
+                     "[--check-mod-warning] "
+                     "[--check-mod-install] [--check-language-install] [--check-challenge] "
+                     "[--check-registries] "
+                     "[--check-library] [--check-library-install] "
+                     "[--check-library-map-previews] [--check-library-content] "
+                     "[--check-renderer-ladder [--render-fault POINT[@FRAME]]] "
+                     "[--check-briefing-narration] [--check-director-view] "
+                     "[--check-director-render] [--check-interpolation] "
+                     "[--check-unit-playout] [--check-running-while-inactive] "
+                     "[--trace-input] "
+                  << extension_text(extension, ExtensionText::usage_checks, "")
+                  << "[--debug-order-lines] "
+                     "[--max-fps N] "
+                     "[--hardware-acceleration[=off|basic|full] | --no-hardware-acceleration] "
+                     "[--native-density] [--display-modes MODES] "
+                     "[--benchmark FRAMES] [--match-ticks N "
+                     "[--frame-rate FPS [--frame-log FILE] [--scroll-camera] [--march] "
+                     "[--follow] [--frame-clock MS]]] "
+                     "[--campaign NAME --mission N [--past-outcome] [--restart-at TICK]] "
+                     "[--resolution WxH] [--touch-controls] "
+                     "[--game-files-route folder|demo|copy-yourself|manage] "
+                     "[--game-files-expect main-menu|stopped-kept|resumed|not-a-game|short-space|"
+                     "next-start] "
+                     "[--game-files-source PATH] [--game-files-free-bytes N] "
+                     "[--game-files-copy-rate BYTES] [--game-files-stop-after BYTES] "
+                     "[--no-game-files-screen] "
+                     "[--zoom FACTOR] [--combat UNITS [--busy-combat]] [--stage FILE] "
+                     "[--reclaim-check] "
+                     "[--camera X,Z] "
+                  << extension_text(extension, ExtensionText::usage_runs, "")
+                  << "[--save-after TICK] "
+                     "[--save-file PATH.sav] [--load PATH.sav] [--give-orders] [--seed N] "
+                     "[--trace-digest FILE] [--trace-units FILE] [--trace-lookups FILE] "
+                     "[--draw-threads N] "
+                     "[--capture-video PATH.mp4] [--showcase arm-first-mission|skirmish-battle] "
+                     "[--open FILE]... [--install-mod FILE]... "
+                     "[--generate-script RECORDING [--output PATH.oascript|PATH.oamovie] "
+                     "[--resolution WxH]] "
+                     "[--render-script PATH.oascript|PATH.oamovie [--output DIR] "
+                     "[--chunks A-B] [--stills F,F...]] "
+                     "[game switches such as "
+                  << extension_text(extension, ExtensionText::usage_switches, "")
+                  << "-d|-df -f -l -r TEXT -s -w] "
+                     "[LANGUAGE]\n"
+                     "--generate-script plans a director script from a recording an "
+                     "extension of this build replays;\n"
+                     "--render-script renders a director script, or a bundle of one and "
+                     "its recording, to video (docs/director.md).\n"
+                  << extension_text(extension, ExtensionText::usage_note, "");
+            write_startup_line(usage.str());
         } else if (argument.starts_with("--")) {
-            ArgumentCursor cursor{argc, argv, &index, argument};
-            const OptionValues values{&cursor, next_value};
+            const OptionValues values{&cursor, next_value, following_value};
             uint32_t effects = 0;
             if (!call_hook_or_raise<&Extension::take_option>(
                     extension, argv[index], values, effects
@@ -1077,20 +1487,18 @@ namespace {
         } else if (argument.starts_with("-psn_")) {
             // macOS names the process it started from the Finder; nothing to read.
             continue;
-        } else if (names_mod_package(argument)) {
-            // A .oamod file opened with the game, or dropped on it.
-            result.install_mods.push_back(mod_package_path(argument));
+        } else if (names_opened_file(argument)) {
+            // One of the four file types, opened with the game or dropped on it.
+            result.open_files.push_back(opened_file_path(argument));
         } else {
-            if (!joined_line.empty())
-                joined_line += ' ';
-            joined_line += argument;
+            switch_words.push_back(argv[index]);
         }
     }
     GuardedSwitches switches;
     switches.handler = call_hook_or_raise<&Extension::switch_handler>(extension);
     switches.guard = {&switches, take_guarded_switch, reset_guarded_switches};
     const auto parsed = oa::app::command_line::parse(
-        joined_line.c_str(), result.launch, switches.handler != nullptr ? &switches.guard : nullptr
+        switch_words, result.launch, switches.handler != nullptr ? &switches.guard : nullptr
     );
     // A handler that threw stops the start with its message, as a hook that
     // raises its error does.
@@ -1100,15 +1508,16 @@ namespace {
     case oa::app::command_line::Status::run:
         break;
     case oa::app::command_line::Status::register_application:
-        throw std::runtime_error(extension_text(
+        // 3.1c registers itself with DirectPlay and ends; there is nothing
+        // to register here, so the game says so and ends as well.
+        write_startup_line(extension_text(
             extension,
             ExtensionText::register_switch,
             "-r registers the game for multiplayer, which this game does not need"
         ));
+        break;
     case oa::app::command_line::Status::line_too_long:
         throw std::runtime_error("the game switches exceed the command-line limit");
-    case oa::app::command_line::Status::argument_too_long:
-        throw std::runtime_error("the language argument is too long");
     case oa::app::command_line::Status::unavailable_switch:
         throw std::runtime_error(
             std::string("-") + result.launch.unavailable_switch + " is not handled by this build"
@@ -1137,7 +1546,22 @@ namespace {
         throw std::runtime_error(
             "--frame-log, --scroll-camera, --march, --follow and --frame-clock need --frame-rate"
         );
-    call_hook_or_raise<&Extension::check_options>(extension);
+    {
+        // A launch file named without a folder is looked for in the game
+        // folder too, which only the engine's options name, while the hook
+        // reads it.
+        struct ForgetGameFolder {
+            ~ForgetGameFolder() { find_launch_files_in({}); }
+        };
+
+        find_launch_files_in({launch_game_folder, &result});
+        const ForgetGameFolder forget;
+        call_hook_or_raise<&Extension::check_options>(extension);
+    }
+    // A launch file refused inside the hook is raised here, so main exits 2.
+    raise_launch_refusal();
+    adopt_launch_run(result);
+    note_game_switches(result);
     if (const auto env = oa::platform::environment_value("OA_DEBUG_ORDER_LINES");
         env && !env->empty())
         result.debug_order_lines = true;
@@ -1160,6 +1584,10 @@ namespace {
         throw std::runtime_error(
             "--check-render-tiers draws in a window and cannot be used with --headless-check"
         );
+    if (result.check_progress && result.headless_check)
+        throw std::runtime_error(
+            "--check-progress draws in a window and cannot be used with --headless-check"
+        );
     if (result.check_running_while_inactive && result.headless_check)
         throw std::runtime_error(
             "--check-running-while-inactive keeps a window and cannot be used with "
@@ -1177,24 +1605,32 @@ namespace {
     result.fixed_clock =
         result.headless_check || result.check_match_layers || result.check_render_tiers ||
         result.check_match_dialogs || result.check_load_save || result.check_frontend_controls ||
-        result.check_scroll_bars || result.check_engine_settings || result.check_user_folder ||
-        result.check_mod_switch || result.check_mod_warning || result.check_mod_install ||
-        result.check_renderer_ladder || result.check_match_orders || result.check_factory_orders ||
-        result.check_unit_speech || result.check_download_builds || result.check_stockpile_builds ||
-        result.check_unit_page_memory || result.check_side_column || result.check_match_bars ||
-        !result.check_unit_pages.empty() || result.check_kill_board ||
-        !result.check_unit_language.empty() || result.check_language_switch ||
-        result.check_patrol_reclaim || result.check_reclaim_cursor || result.check_build_preview ||
-        result.check_pointer_interfaces || result.check_megamap_clicks ||
-        result.check_radar_orders || result.check_touch_controls || result.check_pad_controls ||
-        result.check_running_while_inactive || result.check_director_view ||
-        result.check_director_render || result.check_interpolation || result.check_unit_playout ||
-        result.check_paused_save || result.check_simulation_hash;
+        result.check_scroll_bars || result.check_engine_settings || result.check_registered_kit ||
+        result.check_kit_gallery || result.check_user_folder || result.check_mod_switch ||
+        result.check_mod_warning || result.check_mod_install || result.check_language_install ||
+        result.check_challenge || result.check_registries || result.check_library ||
+        result.check_library_install || result.check_library_map_previews ||
+        result.check_library_content || result.check_renderer_ladder || result.check_match_orders ||
+        result.check_factory_orders || result.check_unit_speech || result.check_download_builds ||
+        result.check_stockpile_builds || result.check_unit_page_memory ||
+        result.check_side_column || result.check_match_bars || !result.check_unit_pages.empty() ||
+        result.check_kill_board || !result.check_unit_language.empty() ||
+        result.check_language_switch || result.check_language_registry ||
+        result.check_language_notice || result.check_first_run || result.check_setup_window ||
+        result.check_window_place || result.check_progress || result.check_text_fit ||
+        result.check_folder_chooser || result.check_patrol_reclaim || result.check_reclaim_cursor ||
+        result.check_build_preview || result.check_pointer_interfaces ||
+        result.check_megamap_clicks || result.check_radar_orders || result.check_touch_controls ||
+        result.check_pad_controls || result.check_running_while_inactive ||
+        result.check_director_view || result.check_director_render || result.check_interpolation ||
+        result.check_unit_playout || result.check_paused_save || result.check_simulation_hash ||
+        result.check_zoom_memory || result.check_map_packs || result.check_map_browser ||
+        result.check_map_pack_lists;
     // A capture and a showcase need the application's own loop and window,
     // which checks and benchmarks do not run.
     const bool check_run = result.fixed_clock || result.check_navigation ||
-                           result.check_multiplayer_menu || result.check_briefing_narration ||
-                           result.benchmark_frames;
+                           result.check_zoom_memory || result.check_multiplayer_menu ||
+                           result.check_briefing_narration || result.benchmark_frames;
 #if OA_PROCESS_SPAWNING == 0
     // The capture and the director's encoder run the ffmpeg program, which a
     // build without OA_PROCESS_SPAWNING cannot start. A render with encoding
@@ -1231,17 +1667,31 @@ namespace {
         result.unattended = true;
     if (result.check_game_files)
         result.unattended = true;
+    if (!result.check_content_copy.empty())
+        result.unattended = true;
+    if (!result.check_installer.empty())
+        result.unattended = true;
     if (!result.display_modes.empty() && !result.unattended)
         throw std::runtime_error(
             "--display-modes is accepted only with checks, snapshots, benchmarks and frame "
             "limits"
         );
+    // -df starts a player's run full screen and -d, with any other suffix,
+    // in a window. Without either, a player's run on Windows starts full
+    // screen. Unattended runs and video captures keep a window.
+    namespace display_option = oa::app::command_line::display_option;
 #ifdef _WIN32
-    // On Windows a player's run starts full screen; -d, with any suffix, keeps
-    // a window, and so do unattended runs and video captures.
-    result.start_full_screen =
-        result.launch.display_option == 0 && !result.unattended && result.capture_video.empty();
+    constexpr bool platform_full_screen = true;
+#else
+    constexpr bool platform_full_screen = false;
 #endif
+    const int32_t display = result.launch.display_option;
+    result.start_full_screen =
+        (display == display_option::f_suffix || (display == 0 && platform_full_screen)) &&
+        !result.unattended && result.capture_video.empty();
+    // 3.1c never plays its intro in the window -d asks for.
+    if (display == display_option::other)
+        result.skip_intro = true;
     if (result.print_profile && result.mod_file.empty() && result.mod_dir.empty() &&
         result.game_dir.empty())
         throw std::runtime_error(
@@ -1257,28 +1707,34 @@ namespace {
         throw std::runtime_error("--base-game and --mod-dir cannot be used together");
     if (result.choose_game_dir && !result.game_dir.empty())
         throw std::runtime_error("--choose-game-dir and --game-dir cannot be used together");
-    // A package is installed only once the player answers its questions,
-    // which a run nobody watches never shows; --check-mod-install answers
-    // them itself.
-    if (!result.install_mods.empty() && result.headless_check)
+    // A file is opened only once the player answers its questions, which a
+    // run nobody watches never shows; --check-mod-install answers them itself.
+    if (!result.open_files.empty() && result.headless_check)
         throw std::runtime_error(
-            "a .oamod file to install, after --install-mod or on its own, needs the game's "
-            "window, which asks before it installs"
+            "a file to open (.oamod, .oalang, .oamap or .oareg), after --open or on its own, "
+            "needs the game's window, which asks before it installs"
         );
-    if (!result.install_mods.empty() && result.unattended && !result.check_mod_install)
+    if (!result.open_files.empty() && result.unattended && !result.check_mod_install)
         throw std::runtime_error(
-            "a .oamod file to install, after --install-mod or on its own, is asked about "
-            "before it installs, which headless, check, benchmark, --frames and --snapshot "
-            "runs never show"
+            "a file to open (.oamod, .oalang, .oamap or .oareg), after --open or on its own, "
+            "is asked about before it installs, which headless, check, benchmark, --frames and "
+            "--snapshot runs never show"
         );
-    // A package opened with the game goes to the main menu at once.
-    if (!result.install_mods.empty())
+    // A file opened with the game goes to the main menu at once.
+    if (!result.open_files.empty())
         result.skip_intro = true;
     if (result.choose_game_dir && result.unattended)
         throw std::runtime_error(
             "--choose-game-dir opens a dialog, which headless, check, benchmark, --frames and "
             "--snapshot runs never show"
         );
+    // A launch's content was checked as it was taken (adopt_launch_run).
+    if (!result.content.empty()) {
+        const oa::data::content_bundles::ContentChoice named =
+            oa::data::content_bundles::parse_content_argument(result.content);
+        if (!named.error.empty())
+            throw std::runtime_error(named.error);
+    }
     return result;
 }
 

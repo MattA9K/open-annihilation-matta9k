@@ -22,17 +22,27 @@ target's `OA_GAME_FILES_DIR` property names it for build commands. The
 out-of-memory report goes to `ErrorLog.txt` beside the application: beside
 the executable, or beside the bundle, never inside it.
 
-The game carries the Open Annihilation icon in three forms, which
-`tools/make_icons.py` makes on macOS from `branding/open-annihilation-icon.png`
-and which are committed beside it: the bundle's `open-annihilation.icns`,
-which its Info.plist names; `open-annihilation.ico`, which
-`open-annihilation.rc.in` compiles into `open-annihilation.exe` with the
-version information that names it Open Annihilation; and
-`open-annihilation-256.png`, which the build embeds (`window_icon.hpp`) and
-start-up gives the window with `SDL_SetWindowIcon`; a failure there is
-reported, and the game starts without it. The branding is not under the
-project's licence (`COPYRIGHT`). `branding-icons` checks the icons' sizes,
-and `app-window-icon` that the embedded one decodes.
+The game carries three icons. `tools/make_icons.py` makes them on macOS
+from the 1024-pixel pictures in `branding/` and the results are committed
+beside those pictures. The app icon, the plates alone
+(`open-annihilation-icon.png`), becomes the bundle's
+`open-annihilation.icns`, which its Info.plist names;
+`open-annihilation.ico`, which `open-annihilation.rc.in` compiles into
+`open-annihilation.exe` with the version information that names it Open
+Annihilation; and `open-annihilation-256.png`, which the build embeds
+(`window_icon_png`) and start-up gives the window with `SDL_SetWindowIcon`.
+A failure there is reported, and the game starts without it. That icon is
+also the badge of every OA dialog and notice but Settings and the Library,
+and the small maker's mark. The settings icon, the plates over two gears
+(`open-annihilation-settings-icon.png`), is embedded at 256 pixels
+(`open-annihilation-settings-256.png`; `settings_icon_png`) for the buttons
+that open Settings and for the Settings dialog's header. The mods icon, the
+plates over drive bays (`open-annihilation-mods-icon.png`), is embedded the
+same way (`open-annihilation-mods-256.png`; `mods_icon_png`) for the Library
+button and the Library's header. The branding is not under the project's
+licence (`COPYRIGHT`). `branding-icons` checks the icons' sizes and that
+their corners are clear, and `app-window-icon` that the embedded ones
+decode.
 
 Start-up makes the window's renderer by walking SDL's render drivers one
 at a time, in SDL's own order (`render_host.hpp`): the first that starts is
@@ -126,6 +136,45 @@ names the same renderer. `app-graphics-report` checks the limit and the
 line, and `native-renderer-report` that a start on the dummy video driver
 logs it.
 
+## The start's movies and the menu hum
+
+The game starts with two movies, the logo movie and the intro (the mod
+profile's `media.movies`, `1.zrb` and `2.zrb` for 3.1c), unless
+`--skip-intro` or the game's `-c`, `-n` or `-y` skips them, or a key ends
+them. The main menu's hum, the BGM loop on the alternate route
+(`Runtime::play_menu_voice`, `runtime_menu_audio.cpp`), starts with the
+main menu once the movies are over, never while one plays:
+
+- A start that does not show the setup plays the movies in `run_once`
+  (`main.cpp`) before the archives are mounted. The runtime then opens the
+  main menu, which starts the hum.
+- A start that shows the setup, the first start and a `--first-run` start,
+  keeps the movies until the setup will not show again
+  (`Options::intro_after_setup`, `Runtime::play_intro_after_setup`), and
+  the hum waits with them (`Runtime::menu_hum_waits`): it does not play
+  through the setup window, the copy, the mounting of the archives or the
+  setup's steps over the main menu. When the walk ends, the movies play,
+  and the frame after them the hum starts
+  (`Runtime::start_waiting_menu_hum`); with the movies skipped it starts
+  as the walk ends. A `--first-run` start shows the setup again each time
+  the menu settles, so its movies never come: its hum starts once the walk
+  is first finished.
+
+The hum stops as a match starts (`Runtime::stop_menu_music`) and starts
+again as the game returns to the menus; a movie the menus play holds it
+while it plays (`Runtime::play_movie_resource`). `--mute` and headless runs
+play none of it, but the log says what it does in every run: `menu hum:
+waits for the setup and the movies after it` when it waits, and `menu hum:
+starts`, with `(muted)` or `(headless)`, each time it starts, after the
+movies' `intro 1.ZRB: decoded …` lines. `native-menu-hum-start` and
+`native-menu-hum-start-skip-intro` check that order on a start without the
+setup, with the movies and with `--skip-intro`; `native-menu-hum-setup`
+that the hum still waits once the setup window has copied the game and the
+archives are mounted; and `native-menu-hum-first-run` and
+`native-menu-hum-first-run-skip-intro` that, when the setup's walk over the
+menu ends, the movies play first and the hum starts after them, or at once
+when they are skipped.
+
 ## Adding a screen or overlay
 
 1. In your package, write `void oa::app::register_<pkg>_screens(ScreenRegistry*)`
@@ -160,12 +209,663 @@ logs it.
 7. Event hooks return nonzero to consume input; otherwise the built-in
    handler still runs.
 
+## The OA layer
+
+`oa_layer.hpp` and `oa_layer.cpp` are one host for Open Annihilation's own
+screens over every screen of the game: `OaLayer`, which every screen
+reaches through `Runtime::oa_layer()`. It holds the settings dialog on the
+main menu and in a match (`Runtime::SettingsScreen`), the Library on the
+main menu (`Runtime::LibraryScreen`, [The Library](#the-library)), the
+in-game menu's OA button, and the notices and questions of the engine's own
+(`NoticeScreen`, `QuestionScreen`). It replaces the main menu's and the match's own hosts of
+the dialog, and the notices' and the installs' prompts' own overlays, which
+each mapped the pointer, told a finger from a mouse, mapped the keys,
+latched the closing key and drew a backdrop.
+
+- **A screen** is a `LayerScreen`: a name, a placement, whether it is modal
+  and darkens what lies under it, whether it is opaque, a layout at the
+  view's size class (`lay_out`), a drawing from its own top left corner at
+  the canvas's scale, its answers to the pointer, the keys, the wheel
+  and typed text, a text field, its display list and interaction (what
+  automation lists), a tick and a revision. No call of it names an SDL
+  type. A screen joins with
+  `oa_layer().push(std::make_unique<...>())` and leaves when it answers
+  `close`, by `oa_layer().close(screen)`, or by `close_top` and
+  `close_above(name)`; `close` tells it it leaves, and a screen whose own
+  model is still open closes it there as its Cancel would. A host may close
+  a screen while that screen takes an input or its tick: it leaves once the
+  call is done, as if it had answered `close`. `return_to(name)` brings a
+  screen on the stack back to the top by closing every screen above it in
+  that way, so that a screen asking for one already under it goes back to
+  it rather than stacking a second.
+- **Pushed or queued.** A screen somebody asked for at that moment joins at
+  once with `push`: Settings, or a question a screen asks of its own over
+  that screen (the Library's Switch Mod question over the Library). One nobody
+  asked for at that moment, such as a notice or an install's question,
+  joins with `show_when_free`: the screens wait first in, first out, and the
+  first is pushed while no modal screen shows, no frontend message box is
+  open and no match is being played, at once, after an input or a tick, or
+  when a screen is closed, so that two never show at once, none opens over
+  Settings and none is drawn over a match. A registered notice or prompt is
+  never held back because nobody is watching. A question a screen asks about
+  its own content is pushed, not queued. The engine's own unsolicited
+  notices and prompts are still suppressed in an unwatched run by the code
+  that raises them, unless that run's check asks for them. A screen waiting
+  is ticked too, and leaves the queue
+  when its tick closes it. `find(name)` finds a screen on the stack and
+  `waiting(name)` one in the queue.
+- **Notices and questions.** `NoticeScreen` holds a `kit::Notice`, and
+  `QuestionScreen` a `kit::Question`, each named by its word (`notice` and
+  `prompt` unless the code that raises it gives its own),
+  with the callbacks of their host (`NoticeScreen::Host`,
+  `QuestionScreen::Host`). Each shows over one screen of the game, laid out
+  at the view's size class (its class's notice width wide, as tall as its
+  text makes it, from `notice_height` or `prompt_height`) and centred in the
+  window at the view's scale, modal over a backdrop, and is drawn with
+  `draw_notice` or `draw_prompt`; a question keeps its class when its host
+  puts another question in its place (`changed`). Its events go through
+  the kit's notice and question functions with the layer's point, reach and
+  key, and its display list and interaction are the kit's
+  (`notice_list`, `question_list`) with its hover, press and mark. A
+  notice's host says what its open button does (the failure it returns is
+  shown in amber), what OK does besides closing it, and, each tick, whether
+  it must close. A question's host takes each answer (the key that answered
+  is latched, `latch_key`, whether the question closes or stays) and says
+  whether the answer was its last; the host may change the question
+  meanwhile (`question`, `changed`) or close it, and is told when it leaves
+  for any reason (`closed`). To show one: make the screen with the layer,
+  the screen of the game it shows over, the notice or question and the
+  host's callbacks, then `show_when_free` it, or `push` it when the screen
+  under it asked. The saves notice, the mod warning and the found folder's
+  notice are made by `UserFolderState::show_notice`, and the installs'
+  prompts by `ModInstallState::show`.
+- **Registered pages, screens, notices and prompts.** Code outside the
+  engine's own screens registers them for this runtime: a settings page in
+  the layer's registry (`registered_settings`), a kit screen in the
+  runtime's `ScreenRegistry` (`kit_screen_register`), as
+  `oa/ui/screen_registry/kit.hpp` describes them. An extension registers
+  them through its table ([Extensions](#extensions), version 15). A settings page is listed by the engine's Settings dialog, under a divider
+  naming its owner, after the engine's own sections, and laid out from its
+  preference rows. OK writes the keys that changed and, once the preferences
+  are saved, calls the page's `applied`; Cancel writes nothing, and a mod's
+  options dialog lists no registered page. `open_registered_screen(name)`
+  opens a kit screen by name: modal, over a backdrop, filling the front end's
+  room, laid out and drawn with the kit. Its automation dialog is `oa.<name>`
+  and its parts are named by its own layout. An unknown name opens nothing
+  and returns false. `act` returning 2 pops the screen, and `closed` runs
+  once as it leaves. `queue_notice` and `queue_prompt` build a notice (its
+  word `registered`) or a prompt (its word `prompt`) and put it on this same
+  queue, so a registered one and an engine one wait for each other and two
+  are never shown at once. A prompt's `answered` is called once, with the
+  button pressed, or with −1 from `drop_pending_prompts` when the runtime
+  ends with the prompt still queued or shown. Calling that drop twice is safe.
+- **The UI kit gallery.** Settings › Developer's UI kit gallery row asks
+  for it (`DialogAction::show_gallery`), and `take_engine_settings_action`
+  opens it with `OaLayer::open_gallery`: a `GalleryScreen` named
+  `gallery`, modal over a backdrop and opaque, over the whole window, the
+  settings dialog staying open under it. On the front end it takes the
+  view's scale and size class (the Interface size, or the Auto scale) and
+  centres the room's points at that scale in the window; in a match it
+  takes `OaLayer::match_gallery`: the match canvas's points at the layer's
+  scale on it, capped by the side column's scale, so that 640x480 is
+  Compact at 1×, 1280x720 Large at 1× and 1920x1080 Regular at 2× with HUD
+  scaling On, the room right of the column playing no part. Its model is
+  its own (`kit::GalleryModel`); it reads and changes no setting. Its
+  events go to `kit::gallery_act`, and it is laid out again
+  (`kit::gallery_layout`) whenever the model or the frame changes; Escape
+  and CLOSE take it off, back to Developer, and it leaves when the settings
+  dialog does. Its automation dialog is `oa.gallery`, its controls
+  `oa.gallery.<section>.<n>` (`oa.gallery.toggle.1.on`,
+  `oa.gallery.drop-down.1`) and `oa.gallery.close`
+  ([src/ui/kit](../ui/kit/README.md#gallery)).
+- **The download check.** `Runtime::tell_challenges`, once a frame beside
+  `tell_mod_installs`, reads the download queue when its generation moves.
+  While the main menu shows, including under the Library or Settings, one
+  window named `challenge` shows the registry's name, the page and the code
+  (`draw_challenge`). It joins at once, or with `show_when_free` while a
+  notice or a question is the top screen. OPEN THE CHECK calls
+  `open_web_link` with the page the queue gave and leaves the window
+  waiting; that button is absent when `web_address_available` is false. TRY
+  AGAIN asks the queue to start that download again. CANCEL cancels that
+  download and the same registry's downloads that are still waiting, then
+  closes the window. A passed check, or a download cancelled somewhere
+  else, closes it. A check that arrives during a game waits until the main
+  menu, and leaving the main menu hides the window without cancelling the
+  download. A new code refreshes the same window.
+- **Registries.** `runtime_registries.cpp` hosts the Add registry window,
+  a screen named `add-registry` (`Runtime::AddRegistryScreen`, modal, over
+  a backdrop, centred over the front end at the view's size class, nowhere
+  in a match) and drawn by `draw_add_registry`. ADD REGISTRY… on the
+  Library's Registries tab opens it empty (`open_add_registry`); a caller
+  with an address passes it, and its check starts at once. ADD MIRROR…
+  opens it for a mirror of a registry the player added
+  (`open_add_mirror`), with the keys the player trusts for that registry.
+  `take_registry_files`, once a frame beside `tell_mod_installs`, takes the
+  next `.oareg` file of the add-registry queue (`take_registry_file`) on
+  the settled main menu with no OA screen taking every input and no game
+  running, one at a time, reads it whole (at most
+  `oa::data::registry::max_descriptor_bytes`; a larger or unreadable file
+  is refused) through the platform's `take_opened_file` where it has one,
+  and opens the window filled in from it. A run nobody watches leaves the
+  files waiting, unless `--check-registries` asks for them. CHECK reads
+  the typed address with `parse_http_url` first: an address the reader
+  refuses is refused there, and the content service is never asked. An
+  https address is asked. The client uses the system's TLS where this
+  system has it, and reads https as http where it does not. A certificate
+  the system rejects fails the check. The window asks the content
+  service (`check_registry_url`, `check_mirror`, or `check_registry_file`
+  for a file) and polls `registry_check` each frame in its tick; CANCEL
+  closes it and drops the check, whose answer is never used. ADD calls
+  `add_checked_registry` or `add_checked_mirror`, closes the window and
+  refreshes an open Library so its Registries tab lists what was added; a
+  refusal then, the registries having moved since the check, shows as any
+  other. The refusal sentences are one table in that file, `{name}` the
+  checked registry's name (for a mirror, the registry's own) or the
+  address without one. The Library's Registries tab lists every registry
+  in effect from the content service's snapshot (`library_inputs`), leaving
+  out an added registry whose id a built-in one has taken. Its switch and
+  REMOVE apply at once with `set_registry_enabled` and `remove_registry`
+  (`change_library_registry`, `remove_library_registry`); a refusal is
+  logged with `refusal_text` and said on the tab at once. The
+  window's field keeps the system's text input started while it has the
+  focus (`text_field`); Space or a pad's A on it, and a press on it, start
+  that input again (`OaLayer::restart_text_input`), so that an on-screen
+  keyboard the player put away shows again. Ctrl+V, or Cmd+V on macOS,
+  gives a focused field of any of the layer's screens the clipboard's text
+  up to its first line break (`layer_paste`), which the window takes up to
+  its 2,048-byte limit. `native-registries` (`--check-registries`) writes
+  its own registry list under `--user-folder` before the content service
+  starts, switches its added registry off and on at once, removes it at
+  once, asks about an https address, and opens an `.oareg`
+  file whose catalogue at 127.0.0.1:1 cannot be reached.
+- **Scale and size class.** On the front end the layer draws its screens at
+  a whole scale on the kit canvas's crisp form, or at 150% on its smooth
+  form in the modern fonts (`layer_drawing`), and lays them out at the size
+  class of the points left over (`LayerView`, from `view`, worked out afresh whenever the window's
+  size, the touch state or the Interface size in effect may have changed:
+  each input, tick and present lays the screens out again,
+  `lay_out_screens`). It fills a `kit::Viewport`
+  as the Game files screen fills its own: the canvas in pixels (the
+  renderer's output size, a desktop window's size in pixels, never its
+  points), the canvas pixels a window point holds (`density`) and, while
+  the game has touch controls, the window's safe insets. The scale
+  (`kit::layer_viewport`) is the Interface size setting's whole step, taken
+  when its OK is pressed, or for Auto `kit::auto_scale`: the canvas height
+  over 720, the nearest step, never below the density, so a point is never
+  smaller than a window point. While the modern fonts are on and the
+  layer's stack of them opens (`smooth_fonts`), 150% is among the steps and
+  a tie takes the larger: 1x below 900 lines, 150% from 900, 2x from 1260
+  and 3x from 1800 (`kit::auto_with_fraction_percent`). Otherwise the steps
+  are whole: 1x below 1080 lines, 2x from 1080. It is then held to the
+  largest scale at which Compact's 480 by 324 dialog fits the canvas less
+  its insets, and to at least 1. 150%, chosen or what Auto picked, is 1.5
+  where Compact fits at one and a half, else 1. The class comes from
+  `kit::frame_of`: Compact below 960 by 540 points, Regular from 960 by 540,
+  Large from 1280 by 720. A 640 by 480 window is Compact at 1×, pixel for
+  pixel as 0.7.3; 1024 by 768 is Regular at 1×, 1280 by 720 Large at 1×,
+  1920 by 1080 and 2560 by 1080 Regular at 2× with the modern fonts off and
+  Large at 1.5× with them on (1914 by 1077 is Regular at 1.5×), 2560 by
+  1440 Large at 2× and 3840 by 2160 Large at 3×; a phone of 852 by 393
+  points at 3 pixels a point is Compact at 3×; a chosen 150% on 1920 by
+  1080 is Large at 1.5×.
+  `screen_scale`, `screen_scale_percent`, `screen_class` and
+  `placement_of(name)` report them, for the checks. Without a renderer the canvas is the picture
+  itself, Compact at 1×. In a match the view is Compact at 100%, and
+  Settings takes a scale and class of its own (`OaLayer::match_dialog`).
+  Its scale starts as the layer's on the match's canvas
+  (`kit::layer_viewport` of the canvas's pixels at the Interface size in
+  effect, `LayerView::interface_percent`: its step, 150%, or Auto on the
+  canvas's height). It is capped by the side column's scale
+  (`MatchLayout::scale`, which HUD scaling caps, as before): above it, the
+  largest whole step at or below it, and at least 1. Where Compact's 480 by
+  324 points do not fit the area right of the column at that scale, it is
+  the largest whole step at which they do, and at least 1. The class comes
+  from the points of that area, ((width − column's right edge) / scale) by
+  (height / scale). So with HUD scaling On and the modern fonts off, 640 by
+  480 is Compact at 1× (512 by 480 points), 1280 by 720 Regular at 1× (1088
+  by 720), 1920 by 1080 Compact at 2× (832 by 540) and 2560 by 1080 Regular
+  at 2× (1152 by 540). With the modern fonts on, 1920 by 1080 is Regular at
+  1.5×. With HUD scaling Off, 1920 by 1080 is Large at 1× (1792 by 1080),
+  the column's scale of 1 holding Auto's 150% down. On a phone with
+  touch controls (`match_fits_safe_area`) Settings is Compact, drawn at 1×
+  and fitted to the safe area, as before.
+- **Placement.** A screen says where it shows (`LayerPlacement::shown`) in
+  window pixels, and how many points it has. Settings, a notice and a
+  question centre themselves in the view's room at its scale
+  (`centred_placement`): left = (window width − width at the scale) / 2,
+  rounded down, and the same down, in the canvas less its safe insets on a
+  touch canvas, the width at 150% each edge rounded to the nearest pixel
+  (`kit::to_canvas`); input maps back by the same scale (`layer_point`). A screen anchored to a part of a 3.1c screen places itself by the
+  picture's rectangle (`LayerView::picture`, where the 640 by 480 frame is
+  drawn) at the same scale. The main menu's OA button stays in the frame.
+  In a match Settings shows where `match_dialog` puts it: its class's
+  dialog points at its scale, centred in the area right of the side column
+  (left = column's right edge + (area width − dialog width) / 2, top =
+  (height − dialog height) / 2), and input maps back by that scale. A 640
+  by 480 window shows it at (144, 78), pixel for pixel as before. An empty
+  place means the screen does not show: it neither draws nor takes input.
+- **Input.** One overlay at z 100 on every screen (`register_oa_layer`, over
+  the extensions' overlays, under the frontend's message boxes) hands the
+  layer every input. The key that closed a screen comes first: its presses
+  do nothing until it is released. Then the top modal screen that shows
+  takes every input, and nothing under it sees any. With none, each screen
+  that shows sees the input from the top, and the first that answers other
+  than `pass` takes it; what none takes goes on to the overlays and the
+  screen under the layer, and in a match first to the in-game OA button.
+  So a screen that is not modal sees every pointer move, mapped to its
+  points even outside its rectangle, and keeps its own hover: a move that
+  only changes its hover is answered `pass`. A screen that needs input where
+  it draws nothing can take it through an overlay of its own above z 100
+  that takes nothing while a modal screen shows. On the front end, where
+  input arrives in the picture's pixels, a point is first mapped into the
+  window through the picture's rectangle (`window_position`), then to the
+  screen's points by its placement (`layer_point`): floor((pixel − left) /
+  scale). A finger's press gets the reach of the touch controls in the
+  screen's points, the pick distance over the window pixels a point takes;
+  a mouse's none; keys go first to the screen's own shortcuts (`shortcut`,
+  which every screen but the Library answers `pass`), then through
+  `layer_key`. Outside a match F1 is the
+  kit's information key, `Key::info`, which a screen with more to tell
+  about what the pointer or the focus is on takes; a screen that answers
+  `pass` lets F1 go on to the game as before, and Settings does. In a
+  match F1 is the game's (unit information) and no screen is given it.
+- **Opaque or not.** A screen is opaque unless it says otherwise
+  (`opaque`): it covers every pixel of its place, drawn over black, as
+  every screen did before. One that is not, such as a card beside a badge
+  with its arrow outside the card, may take the whole window as its place
+  and draw only what it shows: the layer draws it on a surface cleared to
+  clear each time, once over black and once over white, and takes each
+  pixel's opacity from what it leaves of the white and its colour from the
+  one over black (`draw_screen`, `LayerDrawing`), so that what it fills is
+  opaque in its own colour, what it leaves alone is clear, and what it
+  blends takes the blend's opacity. The colours stay straight, never
+  multiplied by their opacity, and a pixel is laid over what lies under it,
+  the picture or the screens below, src over: (colour × opacity + under ×
+  (255 − opacity)) / 255. That happens wherever the layer shows it: in the
+  window (`present`, whose texture SDL blends the same way), in the frame
+  (`compose_front_end`) and in a match's layer (`refresh_match`). Such a screen
+  never darkens what lies under it, whatever `backdrop` says, and only the
+  part of it that holds what it drew goes into the window's texture. The
+  cursor stays above it.
+- **Typed text** goes to the screen taking input (`text`), and while that
+  screen reports a `text_field` the system's text input stays started over
+  the field, mapped back to the coordinates input arrives in
+  (`Runtime::start_text_input`); it stops once no screen has one.
+- **On the front end** each opaque modal screen with a backdrop darkens the
+  frame itself, a blend in 256ths (`darken_front_end`), and the window round
+  the picture, which SDL clears to black, takes black darkened as often, so
+  the backdrop covers the whole window; every screen under it darkens too,
+  as its drawing is darkened before it is copied: a question over Settings
+  darkens the menu twice and Settings once. The screens are drawn through a
+  `kit::Canvas` at the view's scale, crisp at a whole scale and smooth at
+  150%, onto a picture of their size in points at the scale, never drawn at
+  another scale and enlarged, and copied pixel for
+  pixel to their places in the window's own pixels
+  (`RenderState::use_window_pixels`); then the software cursor is
+  presented above them, and the frame holds no cursor while a screen shows
+  (`tick_and_draw_cursor`). The layer is uploaded again only when a
+  screen's drawing or place changes. Without a renderer, and while
+  `frame_without_cursor` draws the picture, the screens are drawn into the
+  frame instead (`compose_front_end`), each picture pixel taking the
+  screen's pixel at its centre in the window, which is what the player sees
+  where the picture fills the window. A check that compares the whole
+  window with what it expects asks for the whole window in the frames it
+  reads back (`read_whole_window`); otherwise the read-back holds the
+  picture's area, as it always has. `oa_layer_check.hpp` gives the checks
+  the frame expected with a screen open (`expected_layer_frame`), the pixels
+  a frame differs in outside the cursor's square (`layer_differences`),
+  pointer and finger events at a window pixel (`window_pointer_event`,
+  `window_finger_event`, `layer_window_pixel`), and a screen of their own,
+  opaque or not, that fills one small rectangle and notes the information
+  key (`MarkScreen`), with which the layer's own check
+  (`OaLayer::check_clear_screens`) holds screens that are not opaque and
+  F1.
+- **In a match** the layer is one picture of the window's size while the
+  in-game menu's column shows: the OA button under Resume, the backdrop
+  under a modal screen, and the screens at their places (one that is not
+  opaque laid over by its opacity), each under a modal screen with a
+  backdrop darkened as the button is. Each screen is drawn at its
+  placement's scale as large as its place, Settings at its own class and
+  scale on the kit canvas's crisp form at a whole scale and its smooth form
+  at 150%, never drawn at 1× and enlarged, and copied into the layer pixel
+  for pixel; the OA button's face, and on a phone the fitted Settings, are
+  drawn at a whole scale and fitted to their places by the nearest pixel
+  (`stamp`). The layer is drawn again only when what it shows changes
+  (`refresh_match`), and the composed frame and the window take the same
+  layer: it goes over the composed frame (`compose_match`) and is presented
+  after the match's other layers and before the frontend dialogs' and the
+  cursor (`present`).
+- **Automation** lists what the layer shows (`automation_controls`), as
+  [docs/automation.md](../../docs/automation.md#oas-own-screens) describes:
+  `oa.button` (on the main menu its text says how many updates wait in the
+  Library) and, on the main menu, `oa.settings-button`, then the screens
+  from the top down to the first modal one,
+  each control and part named `oa.` and its kit name, with its exact
+  rectangle in the window's pixels and that rectangle mapped back onto the
+  canvas.
+
+## The Library
+
+`library_host.hpp`, `runtime_library.cpp` and `runtime_library_actions.cpp`
+host the Library ([src/ui/library](../ui/library/README.md)) as a screen of
+the OA layer on the main menu, named `library`: modal over a backdrop, laid
+out at the view's size class (`library::window_size`, `library_layout`) and
+centred in the window at its scale. Its model, its screen's state and its feed are
+the host's (`Runtime::LibraryHost`, made on first use, joined as the
+runtime goes).
+
+- **How it opens.** The main menu's OA button opens it
+  (`Runtime::open_library`) when a press is released over it, on Active,
+  with the button's sound;
+  Settings › Language's MORE IN THE LIBRARY… opens it on Languages over
+  Settings (`DialogAction::open_library`). It opens only where the
+  settings do: on the main menu, never over a message box, a frame a
+  package owns or the saves notice. The layer never holds two Libraries or
+  two Settings: opening one already on the stack goes back to it
+  (`OaLayer::return_to`), so Library › SETTINGS… › MORE IN THE LIBRARY…
+  returns to the first Library. The main menu's Settings button beside
+  the OA button, Cmd+, (Ctrl+, elsewhere), the macOS menu's Settings… and
+  the in-game OA button open Settings.
+  `close_library` closes it and what stands over it. Each opening asks the
+  content service for a refresh (`RefreshReason::library_opened`), which
+  the player's setting and the once-a-minute limit govern; an unattended
+  run asks nothing.
+- **The feed** (`LibraryFeed`) gives the Library its inputs and takes its
+  downloads. The runtime's own builds `Runtime::library_inputs` from the
+  content service's snapshot (each registry, built in when its origin is
+  built-in, its downloads off when it needs an install ID the player turned
+  off, and each catalogue entry), the installed packages and updates the
+  worker last found, the download queue (each item's state as the Library
+  names it; a cancelled one left out) and the run (this build's version,
+  the mod played, a match), and for the Active tab what the run already
+  holds: the mod played as list_offered_mods finds it, the language shown and
+  the first loaded pack that holds it, and the installed map packs' maps
+  (`MapPacks`). GET goes to `queue_download`, UPDATE to
+  `request_update` (below), CANCEL and RETRY to the queue's latest item of
+  that package, and `library_registry_built_in` answers from the same
+  snapshot as the inputs' `Registry::built_in`. An update queued from the
+  Library keeps what it changes (`KeptUpdate`) for its queue line while the
+  queue lists it. What the installer noted of a mod chosen here
+  (`ModInstallState::library_notes`) goes on its queue item as the model is
+  built, whatever the feed: why the installer refused it, in its own words,
+  and, while its change waits for the player to leave the mod being played
+  (`package_install::pending_change_target`), that it is held ("Waiting ·
+  finishes when you leave Ridge").
+  `tick_library` rebuilds the model, at most once a frame on the main
+  menu, whenever the feed's generation moves (the service's, the queue's,
+  the worker's searches and its pictures, added).
+- **The worker** (`LibraryWork`) is one thread of the Library's own, made
+  from `oa-base-threads` and started at its first job. After a catalogue
+  refresh (the service's generation moved), a package the queue installed,
+  and a roll back in Settings, it lists the player's packages
+  (`list_installed`), matches each to the catalogues, adopts each file
+  install a catalogue lists (`adopt_match`), finds the updates
+  (`find_updates`) and reads each installed mod's own picture; the main
+  thread reads what it last found under its lock and never does that work
+  itself. It also reads and fetches the badge pictures
+  (`content::PictureCache`, with its own HTTP client and no install ID)
+  for the rows the Library shows, never while a match runs. The host's
+  destructor stops it and joins it within a second, a fetch included.
+- **The dot and the count.** The main menu's OA button wears the kit's
+  attention dot (`kit::draw_menu_icon_button`) while `library_update_count` is
+  above 0: the updates the Library's last model counts as installable, so
+  the dot shows from the first frame the cached catalogue offers one. Its
+  bottom-right badge is the number of mods that model lists (the Mods tab's
+  All), or a spinner while a fetch has not yet produced a list. With no
+  updates the button is that face and that badge.
+- **The actions.** OPEN FOLDER shows the package's folder
+  (`open_player_folder`) and HOMEPAGE opens its page (`open_web_link`),
+  both recorded in a run nobody watches. SETTINGS… opens Settings over the
+  Library and CLOSE closes it. UPDATE, UPDATE ALL, PLAY NOW, SWITCH OFF,
+  ROLL BACK and CHECK NOW go through `library_entry_action`
+  (`runtime_library_actions.cpp`): UPDATE calls `Runtime::request_update`,
+  the one place an update reaches the download queue
+  (`DownloadReason::update`). An added registry's mod whose rules hash changes or cannot be known
+  (`library::asks_before_update`) asks the update question first
+  (`update_question`), pushed at once over the screen that asked, NOT NOW
+  marked; its UPDATE queues the update and NOT NOW leaves it. Every other
+  update, every built-in registry's among them, is queued at once. UPDATE
+  ALL calls it at once for every update that can act, is not queued and
+  asks nothing, in list order, and asks one question about the others
+  (`update_all_question`), whose UPDATE queues them in list order; PLAY NOW
+  switches the game to the installed mod's folder (`switch_to_mod_folder`,
+  the soft restart), and a folder it cannot play is told in a note over the
+  Library (`library::switch_refused_note`); SWITCH OFF, on the mod played,
+  asks the Switch Mod question of No Mod (`library::switch_off_question`),
+  pushed over the Library at once, CANCEL marked, whose SWITCH plays no mod
+  through the same switch; ROLL BACK asks the Roll Back Mod question
+  (`library::roll_back_question`, with the reload line for the mod being
+  played), pushed and marked the same way, and its ROLL BACK rolls the
+  folder back (`roll_back_mod_folder`), the feed looking again afterwards,
+  a refusal told in MOD NOT ROLLED BACK over the Library. Every refusal
+  shows in the status line too. PLAY NOW and SWITCH OFF do nothing during
+  a game or while `--mod-dir` or `--base-game` chose the mod, where the
+  Library greys them. CHECK NOW asks the registries again
+  (`content::RefreshReason::check_now`, due whatever Check for updates
+  says). UNINSTALL goes there too, to
+  `library_uninstall`: for the mod being played or the language pack in use
+  (`Installed::playing`, `Installed::in_use`, which `language_pack_in_use`
+  fills, or `package_target_in_use` and `language_pack_in_use` now) it shows
+  the notice of what comes first and removes nothing; otherwise it asks the
+  Uninstall question (`library::uninstall_question`), whose UNINSTALL looks
+  again and moves the folder in the player's Mods, Maps or Languages folder
+  aside whole (`package_install::uninstall_package`) for the installer's
+  `Discarder`, a folder anywhere else being refused. The Library's own
+  keys are Cmd+F (Ctrl+F elsewhere) and `/` outside the search for Find, and
+  Ctrl+Tab and Ctrl+Shift+Tab for the tabs; Cmd+, opens Settings over it.
+- **The check.** `native-library` (`--check-library`,
+  `runtime_library_check.cpp`) gives the Library a feed of made-up
+  packages and no network, with its data and the player's folder in the
+  build tree, at 640x480 and 1920x1080: the button's count of the fixture's
+  two mods and one map pack (`oa.button` "Library · 3 packages"), and of
+  that map pack alone ("Library · 1 package"), the Library opened on
+  Active, its lines read and taking no press, and closed, the dot and
+  `oa.button`'s "Library · 3 packages · 2 updates" with two, the Library on
+  Active and its Updates tab on its two updates,
+  GET and CANCEL reaching the feed, OPEN FOLDER and HOMEPAGE through the
+  recorded openers, ROLL BACK's question over the Library, PLAY NOW's soft
+  restart, Settings over the Library and the Library over Settings, never
+  two of either, the shortcut opening Settings, and in a skirmish the
+  in-game OA button opening Settings and the Library opening nowhere.
+- **Installing from the Library.** A mod the player chose in the Library
+  reaches the installer as F10's hand-off posts it: an oamod package whose
+  inbox origin (`Incoming::origin`) is a catalogue, which is the only way
+  it is told from a file. Its registry decides what it asks, by
+  `library_registry_built_in` of that origin's registry, asked once:
+  - a built-in registry's asks nothing: an update, a reinstall or another
+    version replaces whatever copy the folder holds (the same registry's,
+    another's, a file's or one with no record), the copy going to
+    `.backup` for ROLL BACK; a folder of the player's own that does not
+    hold the mod is never replaced nor joined, and the install is refused;
+  - an added registry's replaces its own copy, and a copy with no record,
+    with no question; asks REPLACE MOD (CANCEL, REPLACE) over another
+    registry's copy of the same mod; asks FOLDER IN USE beside a folder of
+    the player's own; and over a file's copy asks what the file would.
+
+  It starts on the settled main menu, and also while the Library is the top
+  screen over the main menu (`catalogue_mod_may_start`), never in a match,
+  on a loading screen or under Settings, a notice or a question; a file
+  waits for the settled main menu as before. While the Library shows, its
+  questions are pushed over the Library at once, and its progress, a
+  refusal ("Mods/cinder is a folder of your own, not Cinder. Move or rename
+  it, then RETRY.") and its outcome show in the Library's queue rather than
+  in a prompt, the entry then offering PLAY NOW; with the Library closed,
+  its questions wait in the OA layer's queue and its prompts show as a
+  file's do. Catalogue map packs and language packs keep their own rules.
+
+  In a run nobody watches (`UserFolderState::unwatched`: unattended, on CI,
+  or on a video driver that shows no window, such as SDL's dummy driver),
+  such a mod asks and installs by the same rules, but starts only while the
+  Library is the top screen, where whoever drives the run asked for it: a
+  built-in registry's asks nothing, and an added registry's question is
+  pushed over the Library and waits for its answer, which the automation
+  endpoint can press (`oa.prompt.replace`); the folders its changes drop
+  are deleted a step a frame while the Library stays on top. With the
+  Library closed it waits in the inbox. A file opened outside the game and
+  any other package without a catalogue origin still wait for a run
+  someone watches, a catalogue map pack keeps the rule below, and a
+  catalogue language pack still installs. A run nobody watches and nobody
+  drives never shows the Library, the map browser or GET MAP: a package
+  the download queue left unfinished in an earlier run, which it restores
+  at start while the catalogue still offers that release and hands over
+  again once its file is whole, waits in the inbox, its queue item
+  installing, and stays in the saved queue as the game quits, for the next
+  run someone watches or drives.
+
+  A catalogue map pack installs in a run nobody watches as in one someone
+  watches, with no prompt, but only while the player is getting one: while
+  the map browser (`map-browser`) is the OA layer's top screen, as it stays
+  after Download and select, or while GET MAP shows over the battle room
+  (`ModInstallState::get_map_shows`: the battle room shows with no dialog
+  over it, and GET MAP has its line there). A pack that does not fit TA
+  3.1c is refused as in a watched run, the download queue told so, and a
+  pack whose plan asks waits, as it does off the main menu, for the
+  settled main menu of a run someone watches. Off those screens,
+  on the main menu and over SELMAP with the browser closed among them, it
+  waits in the inbox, so a pack an earlier run's queue hands over never
+  installs into a run nobody drives. The folders an install drops are left
+  for a main menu someone watches, or the Library on top of one.
+- **Held changes and the quit path.** A chosen mod's update to the mod
+  being played is unpacked and checked as a file's, then held in
+  `set_pending_change` with no soft restart; the download queue is told
+  it is installed, so that it is not fetched again. Switching mod makes the
+  change as a soft restart does, and quitting makes it too: `main()` calls
+  `finish_pending_change` after every run, on the way out as after a soft
+  restart, with the runtime and its archives gone. After a crash the next
+  start's `recover_package_installs` settles the staged files away, the
+  folder whole. CANCEL on that queue line drops the held update
+  (`discard_pending_change`): the staged files are settled away the same
+  way, the mod being played stays as it is, the line goes and the Library
+  offers the update again. It waits for UPDATE or UPDATE ALL; nothing
+  fetches it on its own. A roll back waiting in its place is left.
+- **The install check.** `native-library-install`
+  (`--check-library-install`, `runtime_library_actions_check.cpp`) posts
+  made-up mod packages with catalogue origins as the hand-off does, the
+  Library showing over a feed of three registries (`check-builtin` built
+  in, `check-added` and `check-added-2` added), and checks each rule above
+  over four runs: the questions each registry asks or does not, the
+  `.backup` and origin records after each, the refusals in the queue and
+  told with the Library closed, a file still asking UPDATE MOD, ROLL BACK
+  and PLAY NOW from the Library, and an update to the mod played held,
+  named by `pending_change_target`. CANCEL on that line drops it, the
+  update is taken again and held, and it is made as the mod is switched.
+  The third run also checks UNINSTALL: off for a map pack during a game, a
+  notice for the language pack in use and for the mod being played, the
+  question for a built-in registry's mod and for one of the player's own,
+  and each folder gone, with the copy ROLL BACK keeps, once answered.
+  The fourth run is one nobody watches, on the dummy video driver without
+  the prompts the other runs show: a built-in registry's update waits in
+  the inbox with the Library closed and installs with no prompt once the
+  Library shows, an added registry's copy asks REPLACE MOD over the
+  Library, which waits for its answer until REPLACE installs it, and a file
+  opened outside the game stays in the inbox. A FIXTURES_SETUP test
+  (`library-install-clean`) clears its folders before each run.
+- **Limitations.** A held update is replaced by a ROLL BACK of the mod
+  being played, which waits for the run to end in its place; the download
+  queue has counted the update installed by then. CANCEL on the held line
+  does not drop that roll back. In a run nobody watches, a file opened
+  outside the game that waits first in the inbox holds back every package
+  behind it, a mod chosen in the Library among them, until a run someone
+  watches takes it.
+
+## The map browser
+
+OA's map browser shows every map a player could play as one grid of cards:
+the base maps the start's scan found (`BaseMapSummary`), the installed pack
+maps (`map_packs()`), and the pack maps the catalogues offer (the content
+service's snapshot, entries of kind `oamap`). Its model and screen are
+[src/ui/map-browser](../ui/map-browser/README.md); `runtime_map_browser.cpp`
+hosts them on the OA layer.
+
+- **MORE MAPS….** A screen of the layer of its own (`more-maps`, not modal,
+  no backdrop), kept on the layer while the skirmish setup's map picker
+  (SELMAP) shows, or the host's map dialog in the battle room
+  (`multiplayer_map_list_rect`), by `keep_more_maps_screen`, which
+  `OaLayer::tick` calls once a frame, and taken off when they close. It is
+  one kit button, `oa.more-maps` to automation, directly under the picker's
+  MAPNAMES list with its right edge on the list's, or above the list when
+  that place meets another gadget of the picker, at the layer's scale. It
+  hides while a message box shows. It takes a press or a tap on the button,
+  the controller's Y and Cmd+F (Ctrl+F elsewhere), which the pickers leave
+  unused, and answers `pass` to everything else, a pointer move that only
+  changes its hover included, so the picker sees every other click, key and
+  move as before.
+- **The browser.** Pressing MORE MAPS… pushes the browser (`map-browser`),
+  modal over a backdrop, centred at its size class's dialog size; it closes
+  when its picker closes or a match starts. The controller's A and B are
+  Enter and Escape there, the D-pad the arrows, Y gives the search the
+  focus and the right stick scrolls the grid. Its cards: base maps, which fit;
+  installed pack maps, whose fit is P08's `pack_map_fit`, checked as each
+  card comes into view or is selected (a failure is the mod's fit while a
+  mod plays, the game's otherwise); and online maps, whose fit is the
+  catalogue's `compatible` table, `ta-3.1c` for the game and
+  `<id>@<release>` for the mod being played, its release from the mod
+  folder's origin record when it came from a catalogue, and unknown
+  otherwise. An online map whose name an installed pack already gives shows
+  once, as installed.
+- **Pictures.** The browser keeps its own preview cache
+  (`oa::ui::map_previews::PreviewCache`): the layout asks for the cards in
+  view and the row after them, and each frame the browser forgets the rest
+  (`new_frame`), decodes up to four (`pump`) and lays itself out again
+  before anything draws. A base map's picture is its terrain file's header
+  and minimap; an installed pack's is its preview file; an online map's is
+  the catalogue picture the Library's worker reads or fetches through its
+  picture cache (`PictureCache::request`, `take_bytes`), checked against its
+  SHA-256 name, never during a match.
+- **Select.** Select moves the picker's selection to the map and closes the
+  browser; the player still chooses the map with the picker's LOAD. In
+  SELMAP a pack installed since the list was made joins it in the name
+  order first, then `preview_map_index` selects and previews it; in the
+  battle room `multiplayer_offer_map` builds the screens' map list again
+  when it lacks the map, fills the dialog's list, selects the row and
+  previews it, sending nothing.
+- **Download and select.** An online map's pack is queued as the Library's
+  GET queues it (`queue_download`, reason `install`), never during a match;
+  the browser stays open with the download's progress in its footer, and
+  once the installer has put the pack in place and `map_packs()` lists the
+  map, it acts as Select. A failure, the installer's refusal among them,
+  shows its reason in the footer, and the button comes back. Cancel closes
+  the browser and changes nothing; a download under way goes on in the
+  queue, which the Library shows. In a run nobody watches the pack
+  installs while the browser stays the top screen, and waits in the inbox
+  once it closes ([The Library](#the-library)).
+- **The check.** `native-map-browser` (`--check-map-browser`,
+  `runtime_map_browser_check.cpp`) writes the map pack check's two packs
+  (`write_map_pack_check_packs`) into its own `--user-folder`, turns every
+  built-in registry off there before the content service starts
+  (`prepare_map_browser_check`), and at 640x480, 1280x720, 1920x1080 and
+  2560x1440 opens SELMAP and presses MORE MAPS…. It requires the layer's
+  size class and scale (Compact 1x, Large 1x, Regular 2x, Large 2x) and the
+  grid's columns (3, 6, 4, 6); MORE MAPS… over none of SELMAP's gadgets;
+  every card and control inside the browser's window; Online empty;
+  Installed packs showing the two check maps alone; the clashing map's card
+  greyed, "New names" in the footer and Select disabled; the search "isle"
+  leaving one map; and Select on `check_isle@oa-check-isles` closing the
+  browser with SELMAP's selection on it. It writes each size's frame as
+  `map-browser-<w>x<h>.png` in its folder for review. The run is one
+  nobody watches, on the dummy video driver with no check showing the
+  installer's prompts, and last it posts the two packs again under ids of
+  their own, as the download queue hands a catalogue's over: the fitting
+  one waits in the inbox, nothing asked or installed, on the main menu and
+  over SELMAP with the browser closed, then installs with no prompt once
+  MORE MAPS… opens the browser, its folder holding the catalogue's origin
+  record and the installed packs listing its map; the clashing one is
+  refused there for New names, with no prompt. A FIXTURES_SETUP test
+  (`map-browser-clean`) clears its folders before each run, and the check
+  removes the packs an earlier run installed as a catalogue's.
+- **Limitations.** The fit of an installed pack map is checked on the main
+  thread as its card comes into view, once per pack. A map pack installed
+  while SELMAP is open joins its list, when the map fits, as Select or
+  Download and select chooses it.
+
 ## Files
 
 - `app.hpp`, `runtime.hpp`, `runtime.cpp`, `runtime_frontend_host.cpp`,
   `runtime_builtin_screens.cpp`, `screen_registry.*`: the screen registry,
   screen loading and the host of the frontend dispatcher. Lines are only
   ever added to `screens.inc`.
+- `runtime_menu_audio.cpp`: the main menu's hum, and when it starts and
+  stops (The start's movies and the menu hum, above).
 - `runtime_world_draw.cpp`, `runtime_camera.cpp`: world rendering and the
   camera. The map the game shows (`shown_map_size`) is the tile mosaic less
   its last 32 columns and 128 rows of map pixels, the hidden edges the
@@ -176,7 +876,10 @@ logs it.
   tier draws the filler at any zoom. The features, trees, rocks and wrecks,
   are cut off at the same edges in every tier, nothing of them drawn on
   the black (`shown_map_span`, `region_on_map`, `shown_map_scissor`);
-  units, shots and effects past the edges are drawn whole. The view may go
+  units, shots and effects past the edges are drawn whole. A wreck's
+  picture follows its record (`follow_feature_draw`): while the wreck
+  sinks it is drawn lower each frame, the underwater tint with it, and
+  once the wreck rests the picture stays at that height. The view may go
   past the map's edges as far as View past the map's edge lets it
   (`past_map_edge_share`): at 50% its centre stays on the map, so that a
   map's edge or corner can be brought to the battlefield's middle, or,
@@ -256,9 +959,14 @@ logs it.
   as a dot of its owner's colour over the fog, framed in the selection
   boxes' colour while selected (`draw_far_view_dots`), and no model of a
   unit, feature, projectile, fragment or debris, no health bar or squad
-  digit and a model bridge of one pixel. A frame past the floor whose
-  bridge would take more than `rendered_units_budget`, an eighth of the
-  machine's physical memory, is a frame of dots too. A frame of dots of
+  digit and a model bridge of one pixel. A frame at any zoom whose
+  bridge would take more than `rendered_units_budget` is a frame of dots
+  too: an eighth of the machine's physical memory, and on a 32-bit build
+  also at most an eighth of the free address space (or 256 MiB when that
+  is not known). `OA_RENDERED_UNITS_BUDGET` replaces that figure, in bytes.
+  The picture grows with headroom and is released after the view has zoomed
+  back in; a picture that cannot be allocated draws dots and does not end
+  the game. A frame of dots of
   the whole map takes the memory of a frame at the processor's floor
   whatever the map's size, and about its time but for the fog, whose grid
   holds every cell of the map in view (`build_fog_grid`): on the largest
@@ -1123,7 +1831,9 @@ logs it.
   (`frame_stats_table`) titled "Frame stats (ms)" of the frames a second
   of the last second, with the rate the loop keeps, the frame, work, tick,
   draw and present times' least, mean and most in columns, the units
-  the last frame drew, the renderer: the tier frames are drawn in and
+  the last frame drew, the units' picture ("models": the megabytes the
+  model bridge holds, "MB of" its budget, and "dots" when the last frame
+  drew the units as dots), the renderer: the tier frames are drawn in and
   the render driver, as in "standard: metal", with the adapter's name, or
   "sprite memory full" while the full tier leaves out of a frame what its
   pages may not hold, each cut to 23 bytes, never inside a character; and
@@ -1211,8 +1921,26 @@ logs it.
   `Down`), both reaching an open dialog or menu first, as the player's do,
   and `settings SECTION` opens the settings dialog beside the
   in-game menu at the section its list names so, such as
-  `settings Language`;
-  `native-stage` checks it. A save/load run ends by
+  `settings Language & Text` or `settings User Interface`, or at the
+  section its word names in every language, such as `settings language`
+  or `settings user-interface`. `settings Language` still opens Language &
+  Text. The line prints `stage: settings SECTION at X,Y WxH,
+  version at X,Y WxH`: where the dialog shows and the room its header keeps
+  for the version text, in the match canvas's pixels, so that a golden
+  frame can leave the version out. That room is the header's version part
+  as the dialog's class lays it out, from 71 points left of its right edge
+  to 5 points right of it, and the header's rows 6 to 22, at the dialog's
+  scale: at 640x480 `at 144,78 480x324, version at 540,84 76x16`, and at
+  1920x1080 a dialog of 960x648 and a version room of 152x32;
+  `native-stage` checks it. `gallery` opens the settings dialog beside the
+  in-game menu at Developer and takes its UI kit gallery row's SHOW as the
+  dialog takes it, so that the UI kit gallery covers the window; it stops
+  with `<where>: the gallery did not open` unless the gallery is then the
+  top screen, and prints `stage: gallery at X,Y WxH CLASS Nx`, where it
+  shows in the match canvas's pixels, its size class and its scale: at
+  640x480 `at 0,0 640x480 Compact 1x`, at 1280x720 `at 0,0 1280x720 Large
+  1x` and at 1920x1080 `at 0,0 1920x1080 Regular 2x`. Its text holds no
+  version, so a golden frame of it takes the whole window. A save/load run ends by
   reporting the live units by type, the veterans by veterancy level, the
   stockpiled rounds, the buildings by facing and each player's health.
 - `runtime_stage.cpp` and `stage_state.hpp`: the parts of a stage that play
@@ -1293,8 +2021,22 @@ logs it.
   and Wayland confines it there, each following the window's size and
   display. Switching to another program (Alt+Tab, Command+Tab), a dialog of
   the system's taking the focus, or Alt+Enter to a window lets the pointer
-  go, and coming back to full screen with the focus holds it again; a window
-  never holds it. The window events that may change this
+  go, and coming back to full screen with the focus holds it again. A window
+  keeps the pointer only while a match's battlefield shows and the window
+  has the focus, as Window edge says (`apply_window_edge`). Capture, the
+  default, takes SDL's window grab, which confines the pointer to the window
+  on every system the way full screen's does, so no push or flick takes it
+  out and every edge scrolls (`apply_capture`). Escape and a lost focus let
+  it go until a press on the battlefield; after a lost focus that press and
+  its release reach nothing, so the click that brings the window back is no
+  order (`take_window_edge_event`). Sticky holds the pointer at the edges
+  while the pointer is in the window (`sticky_edge.hpp`), as firmly as Edge
+  stickiness says (`sticky_limits`): the pointer rests on the last pixel and
+  the view edge-scrolls. On macOS, Windows and X11 it stays free and is put
+  back on that pixel until a firm push lets it go; on Wayland it is
+  confined, and a quick approach lets it go. Menus, the pause screen,
+  Settings, a message box, a window without the focus and Window edge Free
+  leave it free. The window events that may change this
   (`changes_pointer_bounds`) settle it in every event loop that takes
   Alt+Enter (the movies, a match loading and the game), and the window's own
   state settles it after the game drops pending input. The game lets the
@@ -1340,7 +2082,12 @@ logs it.
   come back onto the display from off it, also with a usable area smaller
   than the display, and `--check-frontend-controls` presses Alt+Enter on a
   menu, over a message box and in a match, and checks that full screen
-  holds the pointer and a window lets it go, and that the window comes back
+  holds the pointer, that Window edge Capture keeps it in a match's window
+  through pushes and flicks, lets it go in the game menu, Settings, on the
+  pause screen, after Escape and without the focus, and takes it back on a
+  click on the battlefield, the focusing click reaching nothing, that Sticky
+  holds it at an edge until a push as firm as Edge stickiness lets it go,
+  0.0 never holding, and that Free leaves it free, and that the window comes back
   at its own size, or onto its display when it started off it (the dummy
   driver's display is smaller than the game's first window).
   The Window frame setting hides a window's title bar and borders while a
@@ -1353,8 +2100,17 @@ logs it.
   goes; macOS keeps the frame's, so the contents are put back at the size
   and place they had (`set_window_frame`), and the screen size the
   settings show never changes with the frame. A maximised window is left
-  at the size the window system gives it. `app-full-screen` asks for the
-  frame in each case and through a game, its game menu and full screen.
+  at the size the window system gives it. The full screen or window the
+  player left is remembered (`open-annihilation.window-place`,
+  `runtime_window.cpp`) when it changes and when the game closes, and the
+  next start opens that way directly: the same display when it is still
+  connected, otherwise the main one, a window kept wholly on the screen.
+  `-d` and `--resolution` win for that run and are not remembered. A first
+  start is unchanged, and a build whose touch controls are on from the
+  start does not keep a desktop place. `app-full-screen` asks for the
+  frame in each case and through a game, its game menu and full screen,
+  and checks that a saved place round-trips, including a window whose
+  display has gone.
 - `runtime_hud.cpp`, `runtime_match_hud.cpp`: the HUD.
 - `runtime_messages.cpp`: the in-game message log (`Game.chat_lines`) drawn
   over the battlefield, and the speed and message part of `--check-navigation`.
@@ -1394,22 +2150,33 @@ logs it.
   (`register_load_game_screens`).
 - The Open Annihilation settings ([oa/ui/engine_settings.hpp](../ui/engine-settings/README.md)):
   `engine_settings_state.hpp` and `runtime_engine_settings.cpp` read them at
-  start, put them in effect, save them, and run the dialog for both of its
-  hosts. `engine_settings_menu_host.hpp` and
-  `runtime_engine_settings_menu.cpp` are the main menu's host: two overlays
-  on the main menu, the OA button at the picture's bottom-right corner (its
+  start, put them in effect, save them, and run the dialog. The dialog is a
+  screen of the OA layer ([The OA layer](#the-oa-layer)),
+  `Runtime::SettingsScreen` in `oa_layer.cpp`, on the main menu and in a
+  match. `engine_settings_menu_host.hpp` and
+  `runtime_engine_settings_menu.cpp` hold the main menu's OA button and
+  Settings button, an overlay at the picture's bottom-right corner (its
   top-right corner while an extension's overlay stands over the main menu)
-  under the extensions' overlays, and the dialog centred over the darkened
-  menu above them, which takes every input while it shows. A press released
-  over the button, Cmd+, on macOS or Ctrl+, elsewhere, and the macOS
-  application menu's Settings… item open it; nothing opens over a message
-  box or a frame a package owns. Enter is OK and Escape is Cancel; the key
-  that closed the dialog does nothing more until it is released, so that a
-  held key never reaches the main menu, where Escape itself does nothing.
-  Another screen replacing the main menu closes the dialog as Cancel does.
-  `engine_settings_match_host.hpp` and
-  `runtime_engine_settings_match.cpp` are the in-game menu's host, and
-  `runtime_engine_settings_app_menu.cpp` the application menu's item.
+  under the extensions' overlays, drawn into the main menu's picture: the
+  Settings button in the corner, showing the settings icon
+  (`EngineSettingsMenuHost::settings_icon`), and the OA button a quarter of
+  a button's side left of it, showing the mods icon
+  (`EngineSettingsMenuHost::mods_icon`), which opens the Library
+  ([The Library](#the-library)) and wears a dot while updates wait there.
+  The dialog is centred over the darkened menu and takes every input while
+  it shows. The Settings button, Cmd+, on macOS or Ctrl+, elsewhere, the
+  macOS application menu's Settings… item and the Library's SETTINGS… open
+  it, the Settings button with no Library under it; nothing opens
+  over a message box or a frame a package owns. Enter is OK and Escape is Cancel;
+  the key that closed the dialog does nothing more until it is released, so
+  that a held key never reaches the main menu, where Escape itself does
+  nothing. Another screen replacing the main menu closes the dialog as
+  Cancel does. `runtime_engine_settings_match.cpp` opens it beside the
+  in-game menu's column, whose OA button, which shows the settings icon,
+  with the shortcut and Ctrl+F2 for the mod options, the layer draws and
+  drives; the column going closes the
+  dialog as OK does. `runtime_engine_settings_app_menu.cpp` is the
+  application menu's item.
   `acceleration_status.hpp` and `acceleration_status.cpp`
   (`app-acceleration-status`) say what the dialog shows of the renderer:
   Hardware acceleration's status, first reason first, and whether nothing
@@ -1431,25 +2198,52 @@ logs it.
   (`render_probe::vertical_sync_resets_device`), where each change resets
   the graphics device and the game does not recover one the reset leaves
   lost; and once the renderer refused it.
-  `Runtime::acceleration_facts` gathers those facts, both hosts refresh
-  the status each frame while the dialog is open, and
+  `Runtime::acceleration_facts` gathers those facts, the settings screen
+  refreshes the status each frame while the dialog is open, and
   `Runtime::apply_vertical_sync` asks the renderer to wait for the display
   only when the setting in effect changes it, never while it stays Off.
   `--check-engine-settings` (`native-engine-settings`) drives them through
-  the SDL presenter over a preferences file it empties first:
+  the SDL presenter over a preferences file it empties first, the main
+  menu's part and the dialog's in a 640x480 window, where the dialog is
+  Compact at 1×:
   `runtime_engine_settings_check.cpp` holds the main menu's part, with each
-  look of the button and the darkened menu under the dialog compared pixel
-  for pixel with what they should draw, Escape doing nothing on the menu
-  itself and EXIT ending the run;
+  look of the OA button and the Settings button (which opens Settings with
+  no Library under it) and the darkened menu under the dialog compared pixel
+  for pixel with what they should draw, the 640x480 window compared with
+  that picture, the OA layer passing on what its screens do not take
+  (screens of the check's own that are not modal, a text field's text and
+  text input, `layer_key`, `close_above`), Escape doing nothing on the menu
+  itself and EXIT ending the run; `oa_layer_check.cpp` the layer's own
+  check, run after the window sizes: in a 640x480 and a 1920x1080 window
+  a screen that is not opaque, alone, over an opaque screen and under one,
+  and under the cursor, changes no pixel of the window or of the frame
+  without the cursor but those it draws (a half blend within 2 of the
+  colour blended straight over what lies under it), darkens nothing, keeps
+  the cursor above it and lists its control to automation, while an opaque
+  one draws as before; F1 reaches a screen that takes the information key,
+  goes on past one that does not, and changes nothing in Settings; and in a
+  match F1 goes on to the game and such a screen changes only the pixels it
+  draws in the match's picture;
   `runtime_engine_settings_dialog_check.cpp` the dialog driven by the
   pointer, the wheel and the keys (every section, scrolling, each setting in
   effect at once, Vertical sync read back from the renderer, Font shadow
   read back from the text style, OK, Cancel, Restore defaults and the keys
   they save) and the main menu with the
-  button and the dialog as 640x480, 1280x720, 1920x1080 and 2560x1080
-  windows show them, Graphics at its top and its end;
+  buttons as 640x480, 1024x768, 1280x720, 1920x1080 and 2560x1080 windows
+  show it, each button opening its screen, and in each the dialog at the
+  size class and scale the window
+  gives it (Compact 1×, Regular 1×, Large 1×, Regular 2×, Regular 2×),
+  clicked where the window shows it and compared, every window pixel but
+  the cursor's square, with the menu's frame darkened and the dialog drawn
+  at its class and scale (`oa_layer_check.hpp`): each section, Developer
+  Mode's list open, off and on, and Graphics at its top and at its class's
+  end;
   `runtime_engine_settings_match_check.cpp` the in-game menu's button and
-  dialog at those sizes, with the locks of a game played alone and of a
+  dialog at 640x480, 1280x720, 1920x1080 and 2560x1080, and 1920x1080
+  with HUD scaling Off, each at the class and scale `match_dialog` gives,
+  its class's points at the scale centred right of the column, drawn
+  there pixel for pixel as the dialog drawn offscreen at them, a click on
+  a section's entry showing it, with the locks of a game played alone and of a
   shared game, Hardware acceleration set to Full and to Basic in a shared
   game, where each waits for the game's end, and the wheel scrolling the dialog, not the
   battlefield; and `runtime_engine_settings_wiring_check.cpp` each setting
@@ -1468,6 +2262,25 @@ logs it.
   then it sets the extensions' overlays aside
   (`Runtime::set_extension_overlays_aside`) until it ends, so that every
   frame it compares is the engine's own drawing over TA's own layout.
+  `--check-kit-gallery` (`native-kit-gallery`, `runtime_kit_gallery_check.cpp`)
+  needs `--preferences-file`, empties it first and sets the extensions'
+  overlays aside as `--check-engine-settings` does, its ctest's
+  `kit-gallery-clean` removing a previous run's file before the game reads
+  it. On 640x480, 1280x720 and 1920x1080 windows it loads the main menu,
+  opens Settings with its shortcut, clicks Developer's entry and then SHOW
+  where the window shows them, and requires the UI kit gallery on top at
+  Compact 1×, Large 1× and Regular 2×, covering the window, its controls
+  listed to the automation endpoint in dialog `oa.gallery`
+  (`oa.gallery.close`, `oa.gallery.toggle.1.on`, `oa.gallery.drop-down.1`);
+  the window,
+  every pixel but the cursor's square, as the gallery drawn offscreen at
+  that class and scale (`layer_drawing`) over the main menu darkened by
+  Settings' backdrop and the gallery's (`expected_layer_frame`); Tab taking
+  the focus to every control the gallery declares, once each, in its order;
+  and Escape bringing Settings › Developer back. With `--snapshot` it writes
+  `<stem>-kit-gallery-<W>x<H>.ppm`, the window as it shows the gallery, and
+  prints `kit gallery check: <Compact|Regular|Large>, <n>x, on the <W>x<H>
+  window` for each and `kit gallery check: passed`.
   `native-engine-settings-determinism`
   (`tools/check_native_engine_settings.py`) checks that every setting at its
   default plays the game as it plays without any, and that the settings that
@@ -1561,8 +2374,9 @@ logs it.
   [display modes](../platform/display-modes/README.md)), which the options'
   Screen Size, the settings' Screen size after Desktop and the battle room's
   RES column list (`multiplayer_bind_display_modes`), from what SDL reports
-  of the display the window is on, its modes in full screen where full
-  screen switches modes and the sizes that fit its desktop otherwise, up to
+  of the display the window is on: in full screen, the display's modes,
+  including where the desktop scales the frame and cannot switch the
+  output's mode; in a window, the sizes that fit the desktop; up to
   the longest side the setting keeps, or the made-up monitor
   `--display-modes` names for a check on SDL's dummy video driver; the
   table of SDL's calls that apply a size (`sdl_screen_hooks`); and Hardware
@@ -1574,7 +2388,8 @@ logs it.
   (`report_window_size`).
 - `screen_mode.hpp`, `screen_mode.cpp`, `runtime_screen_size.cpp`: the
   Screen size applied at once, when the options or the settings close with
-  OK, on the menus and in a match, which carries on as it was
+  OK, and when the battle room's RES column steps to one, on the menus and
+  in a match, which carries on as it was
   (`Runtime::apply_screen_size`, `EngineSettingsState::take_screen_size`).
   How full screen shows a size depends on the window system
   (`full_screen_method`): Windows, Windows XP's build among them, and X11
@@ -1592,6 +2407,8 @@ logs it.
   (`FullScreenSwitch::window_width`); Desktop gives full screen the
   desktop's mode back and leaves a window as it is. The size applied
   (`FullScreenSwitch::screen_width`) lasts the run, soft restarts included.
+  The next start opens in the full screen or window the player left
+  (`open-annihilation.window-place`), and full screen uses this Screen size.
   In full screen on the desktop's mode at a size of its own
   (`scaled_frame`, `Runtime::scaled_frame_size`), a match is laid out and
   drawn at that size, as in a window of it, and presented letterboxed, or
@@ -1609,11 +2426,14 @@ logs it.
   on the desktop's, a mode missing or refused, and Desktop.
   `--check-frontend-controls` drags the window to a size the display does
   not offer, which the options' Screen Size shows as Custom, and OK on
-  1280x720 snaps it to it; in a match it applies 1280x720, switches to full
-  screen, where the dummy driver keeps the desktop's mode and the match is
+  1280x720 snaps it to it; in a match the Options' Visuals Screen Size
+  chooses a listed size and OK stores it and applies it to the window and
+  the match, then the check applies 1280x720, switches to full screen,
+  where the dummy driver keeps the desktop's mode and the match is
   drawn at 1280x720 and letterboxed, the pointer in the bars resting on the
   frame's edge, applies 800x600 there, which the window takes as it leaves,
-  and Desktop. `--check-engine-settings` chooses 1280x720 in the settings,
+  and Desktop. Alt+Enter does not change the size the game draws at.
+  `--check-engine-settings` chooses 1280x720 in the settings,
   which the window takes on OK and not before, in the menus and in a game,
   whose tick and world stay as they were.
 - `render_host.hpp`, `render_host.cpp` (`oa-app-render-host`, with
@@ -1848,8 +2668,8 @@ saves, recordings and network games are unaffected.
   does, as in 3.1c; the event keeps the keypad's scancode.
 - `runtime_touch_hud.cpp` draws the controls into a layer of their own,
   composed over the CPU frame (`compose_touch_layer`) and presented in every
-  tier (`present_touch_layer`), with the primitives of `touch_paint.*`
-  (`oa-app-touch-paint`, tested by `app-touch-paint`).
+  tier (`present_touch_layer`), with the primitives of `oa-ui-paint`
+  (`src/ui/paint`, tested by `ui-paint`).
 - `runtime_phone_hud.cpp` lays out the match for the window
   (`make_window_match_layout`): on a phone the battlefield fills the canvas
   and the 3.1c HUD's minimap, resources, drawer cells, MORE sheet gadgets
@@ -1939,7 +2759,7 @@ leaves the game without gamepads.
   ([testing.md](../../docs/development/testing.md#gamepad-controls)); while
   it runs, the dispatcher opens only SDL's virtual pads, its stand-ins
   (`PadState::virtual_pads_only`).
-- `pad_glyphs.*` (in `oa-app-touch-paint`) paint the button glyphs of the
+- `oa-ui-paint` (`src/ui/paint`) paints the button glyphs of the
   Steam Deck, Xbox, PlayStation and Nintendo styles with the touch layer's
   painter: the project's own shapes and letters.
 
@@ -1974,9 +2794,13 @@ folders it looked at, why each cannot be played, and the platform's advice
 installer of the Total Annihilation demo (1997) is usable too:
 `demo_installer.cpp` recognises the installer by its size and SHA-256, never
 by its name, and unpacks the game data archive it carries, checked by its
-SHA-256, into `demo-1997` in the per-user data folder (`--data-dir` names
-another), where later starts check it and use it again; while it passes that
-check the installer is recognised by its size alone, since only unpacking
+SHA-256, into `Games/totala-demo` in the player's Open Annihilation folder
+(`--data-dir` names another folder only when the player's folder is not
+known), with its `.oa-content` record, where later starts check it and use
+it again. An earlier unpack in `demo-1997` of the per-user data folder is
+copied from once, sharing disk blocks where the volume can, and left there.
+While the archive passes that check the installer is recognised by its size
+alone, since only unpacking
 reads it. That folder is the installation, with the checked archive as its
 only archive whatever else the folder holds, and the folder the player chose
 is the one remembered. Temporary files an unpacking that stopped part way
@@ -1987,13 +2811,17 @@ is reported the same way.
 `DemoRelease` holds everything that identifies the release, in one place, so
 that the tests (`demo_installer_test.cpp`) substitute a synthetic one.
 
-Where the system's folder dialog cannot show, as in Steam's Game Mode, or
-when several folders are found or the remembered one has gone, the
-in-engine folder chooser picks the folder (`folder_chooser_screen.*`, over
-the model of the module in src/ui/folder-chooser): the folders
-found on this machine, a folder browser driven by touch, a gamepad, the keys
-or the pointer, the 1997 demo's folder and, outside Game Mode, the
-desktop's dialog. `folder_chooser_offered` says whether it may show, and
+Where the in-engine locator is offered, it asks instead of opening the
+system's folder dialog (`folder_chooser_screen.*`, over the model in
+src/ui/folder-chooser). The player browses places, found installs, volumes
+and launcher prefixes, and the column says what each folder or file is.
+Touch, a pointer, the keys or a gamepad drive it. On the desktop the system's
+dialog stays a button on that screen. Steam's Game Mode does not offer the
+button and never opens the dialog. Like the Game files screen, the chooser is laid out, hit
+tested and focused by the UI kit, so every OA screen is one UI stack, and it
+reads the window, shows its frame and reads the pointer through the same
+window-pixel code (`window_pixels.*`, below); its gamepad handling is its
+own. `folder_chooser_offered` says whether it may show, and
 `run_folder_chooser_until_resolved` runs it from `main.cpp` before the Game
 files screen. Resolution looks for folders where Steam, Heroic and Lutris
 put Total Annihilation (the module in src/platform/game-installs)
@@ -2027,11 +2855,28 @@ the game's window ([docs/game-files.md](../../docs/game-files.md)).
   model of [src/ui/game-files](../ui/game-files/README.md);
   `game_files_paint.cpp` paints its layout with the touch controls' painter
   and the bundled fonts; `game_files_dialog.cpp` hosts the Language
-  settings over it.
+  settings over it, placed by the OA layer's rule over the screen's
+  viewport (`kit::layer_viewport`): the scale the Interface size in effect
+  chooses, or the Auto scale, held to what fits Compact's dialog, the size
+  class of the points left over, centred.
 - `game_files_check.cpp` is `--check-game-files`: scripted hooks, the route
   driven by taps and keys, pictures of each step and the verdict line.
 - `runtime_game_files.cpp` fills Settings › Game files and opens the
   screen's management state from its MANAGE… button over the main menu.
+- `render_state.hpp` (`RenderState`) keeps the renderer's target, logical
+  presentation, scale, viewport, clip, colour and blend mode and puts them
+  back, and `use_window_pixels` draws in the window's own pixels: the Game
+  files screen, the folder chooser and the OA layer each keep one while
+  they draw.
+- `window_pixels.hpp` holds the rest of the window-pixel path the Game files
+  screen and the folder chooser share: `read_window_viewport` reads the
+  window's canvas (its pixels, the pixels a window point holds and the safe
+  area), `WindowFrame` shows a painted frame on the window in its own pixels
+  through a texture it keeps, and `read_pointer` reads fingers, the pointer
+  and the wheel as one press in canvas pixels (`WindowPress`), with
+  `touch_screen`, `press_scrolls` (a press over the rows that becomes a
+  scroll), `canvas_point` and the drag and wheel distances. What a press
+  does, and which touch devices a screen takes, stay each screen's.
 
 ## The player's own folder
 
@@ -2091,14 +2936,17 @@ effect:
   (`move_recordings_once`, `move_earlier_recordings`,
   `record_recordings_move`); no notice follows it.
 - **The notice:** `tell_saves_moved` shows it over the darkened main menu
-  once, as the renderer records' notice is shown: in the settings dialog's
-  look (`oa/ui/engine_settings/notice.hpp`), with the count of the moves
+  once, as the renderer records' notice is shown: a notice screen of the
+  OA layer ([The OA layer](#the-oa-layer)) in the settings dialog's look
+  (`oa/ui/engine_settings/notice.hpp`), with the count of the moves
   whose notice is due (`moves_to_tell`), the `Saves/default` path wrapped
   at its separators, and that screenshots, films and mods now go in the
   same folder, or that each mod's go in a folder of its own; **Open
   folder** shows `Saves/default` and **OK**, Enter and
-  Escape close it (`UserFolderState`). Showing it records it `told`. A run
-  nobody watches leaves it due.
+  Escape close it (`UserFolderState::show_notice`). It waits for the layer
+  behind an install's prompt, and none of these notices is made while
+  another shows or waits. Showing it records it `told`. A run nobody
+  watches leaves it due.
 - **Opening folders:** the settings' Your files buttons and the notice show
   a folder through `system_folder_opener` (`user_folder_open.cpp`): the
   platform's own `PlatformHooks::show_folder` where it has one (the Files
@@ -2110,7 +2958,10 @@ effect:
   requests instead (`recorded_folder_opener`).
 
 `--check-user-folder` (`native-user-folder`, `runtime_user_folder_check.cpp`)
-checks all of it beside its preferences file.
+checks all of it beside its preferences file: the saves notice in a
+640x480 window, Compact at 1× pixel for pixel, then in 1280x720 and
+1920x1080 windows at Large 1× and Regular 2×, the whole window compared
+with the menu darkened and the notice drawn at that class and scale.
 
 ## Mod profile and mod folders
 
@@ -2133,40 +2984,50 @@ A mod plays in one of two ways, which give the same game:
   layered over a plain game folder: `--mod-dir PATH`, or the folder the
   preferences remember (`open-annihilation.mod-directory`); `--base-game`
   plays without the remembered one, and one that is gone is dropped with a
-  notice (the settings then show No Mod, and their next save stores the
-  choice over it: `EngineSettingsState::dropped_mod_folder`). Either flag
-  locks the Mod setting for the run (`GameState::mod_from_command_line`),
-  and a match locks it while it runs. A game folder holding its own
+  notice (the game then plays no mod, and the next save of the settings
+  stores that over it: `EngineSettingsState::dropped_mod_folder`). Either
+  flag greys the Library's PLAY NOW and SWITCH OFF for the run
+  (`library::Inputs::mod_from_command_line`), as a match does while it
+  runs. A game folder holding its own
   `oamod.yaml` cannot carry a mod folder. A mod folder without an
   `oamod.yaml` layers over the game folder with no profile, by 3.1c's own
   rules, which the start says on standard output.
 
-The settings' **Mods** page (`runtime_engine_settings.cpp`) lists the mod
-folders of the game folder's `mods` folder (`list_mod_folders`), of the
+The **Library** chooses the mod (`runtime_library.cpp`).
+`list_offered_mods` (`runtime_engine_settings.cpp`) finds the
+mod folders of the game folder's `mods` folder (`list_mod_folders`), of the
 player's own `Documents/Open Annihilation/Mods` (`list_mods_in`), the folder
 an earlier version's Pick Folder... stored
 (`open-annihilation.picked-mod-directory`) while it is the mod stored
 (`open-annihilation.mod-directory`) and still a folder, and the one played;
-a folder listed twice shows once. Once another mod or No Mod is stored, the
-picked folder is forgotten: the save erases its key, a start that finds the
-key naming another folder erases it with the next save, and the folder is
-listed only while the game folder's `mods` folder or the player's own Mods
-holds it. `read_mod_summary`
-(`mod_summary.hpp`) reads each row from the folder alone, without resolving
-its profile: its `oamod.yaml`'s name, version and description, and its
-`oamod.png` badge, decoded by the engine's PNG reader
-(`oa/formats/png.hpp`); a folder without an `oamod.yaml` shows its folder
-name, "N/A" and "No oamod.yaml present". OPEN MODS FOLDER opens
-`Documents/Open Annihilation/Mods` with the Your files buttons' opener.
+a folder found twice counts once. `library_inputs` lists each that the
+installs' own records do not as an installed mod of its own, its key the
+profile's id or the folder's name. Once another mod or No Mod is stored,
+the picked folder is forgotten: the save erases its key, a start that
+finds the key naming another folder erases it with the next save, and the
+folder is listed only while the game folder's `mods` folder or the
+player's own Mods holds it. `read_mod_summary` (`mod_summary.hpp`) reads
+each from the folder alone, without resolving its profile: its
+`oamod.yaml`'s name, version and description, and its `oamod.png` badge,
+decoded by the engine's PNG reader (`oa/formats/png.hpp`), which the
+Library's row shows. The details show the description where no listing
+gives a summary (`library::entry_summary`), as they show the description
+an installed package's manifest gives (`package_install::InstalledPackage`,
+`content::InstalledPackage`); a folder without an `oamod.yaml` shows "N/A"
+for its version and "No oamod.yaml present" in its status line
+(`library::Installed::without_manifest`), and one that cannot be read says
+why in the details. Settings › Your files' Mods opens
+`Documents/Open Annihilation/Mods`.
 
-Choosing another row asks Switch Mod. SWITCH (`DialogAction::switch_mod`)
-first checks the folder as the next start will play it
-(`check_picked_mod_folder`): one it could not play is refused, the line under
-the list says why, and the dialog stays open. Otherwise it puts the dialog's
-settings in effect and saves them as OK does, the new Mod among them, then
-asks for a soft restart (`Runtime::soft_restart_requested`); a save that
-fails leaves the game as it is and says so. The runtime's loop ends after
-that frame. `main()` (`run_once`) frees the textures the runtime made on the
+PLAY NOW on a mod not played, and SWITCH OFF's SWITCH on the mod played,
+call `Runtime::switch_to_mod_folder` (`runtime_mod_install.cpp`), with no
+folder for no mod. A folder is first checked as the next start will play
+it (`check_picked_mod_folder`): one it could not play is refused, a note
+over the Library says why, and nothing changes. Otherwise the new Mod is
+put in effect and saved with the other settings, then a soft restart is
+asked for (`Runtime::soft_restart_requested`); a save that fails leaves
+the game as it is and says so. The runtime's loop ends after that
+frame. `main()` (`run_once`) frees the textures the runtime made on the
 renderer (`Runtime::release_renderer_textures`), destroys the Runtime and the
 mounted archives, runs the game-folder search again, which reads the newly
 stored mod and resolves its profile, sets the data layout again, mounts the
@@ -2199,9 +3060,10 @@ start and play without them, a side without its intgaf's GAF drawn without
 panels and one without its font in COMIX, unmeasured, as sides that name
 none (`Runtime::match_side_file`). The game played without a mod ends its
 start instead when such a file is missing, naming the first: every side's
-intgaf before any side's font (`Runtime::require_side_files`). The Mods
-page refuses a folder without a profile whose start would end on a side's
-missing section or no side at all, before anything is stored
+intgaf before any side's font (`Runtime::require_side_files`). The
+Library's PLAY NOW refuses a folder without a profile whose start would
+end on a side's missing section or no side at all, before anything is
+stored
 (`Runtime::side_data_problem_over`). SIDEDATA and the files its sides name
 are looked for in the language folders of the language the game starts in
 first (`gamedata-German`, `anims-German`, `fonts-German`), once for the
@@ -2222,7 +3084,9 @@ same (`Runtime::start_skirmish_from_setup`) leaves no match and sets the
 skirmish setup up again, with the warning or the failure in a message box,
 in place of ending the program. `--check-mod-warning`
 (`native-mod-warning`, `runtime_mod_warning_check.cpp`) checks the warning
-and the refused start through the Mods page's Switch Mod question.
+and the refused start through the Library's PLAY NOW and its note, the
+main menu's warning in 1280x720 and 1920x1080 windows at Large 1× and
+Regular 2× too.
 
 `inspect_game_install` resolves the profile (`resolve_folder_profile`) before
 any archive is mounted: `--mod`'s file, else the mod folder's, else the game
@@ -2256,9 +3120,11 @@ unit file extension, the map units section, the build version unit files are
 checked against (the profile's network version) and the two side names. The
 runtime then:
 
-- shows the profile's display version on the main menu, when it names one,
-  even where its game data holds no `version.tdf` (without one the base
-  game's label is hidden);
+- shows the profile's display version on the main menu, when it names one
+  other than 3.1c's, even where its game data holds no `version.tdf`.
+  Without one the label reads "Open Annihilation" and this build's version
+  where the game data names its revision, and stays hidden where it does
+  not;
 - keeps the game's settings under the profile's registry root, as
   `registry:<root>\<section>|<name>` keys, unless the root is the base
   game's; a first run seeds the profile's registry seeds where no value of
@@ -2286,31 +3152,43 @@ client, loads under any.
 ### Mod packages (.oamod)
 
 A mod package is a zip archive of a mod's folder, which the game installs
-into the player's own Mods folder (`src/app/mod-install`,
-`oa-app-mod-install`, says how a package is read, planned, unpacked and put
+into the player's own Mods folder (`src/app/package-install`,
+`oa-app-package-install`, says how a package is read, planned, unpacked and put
 in place, and how what a stop leaves is settled). The runtime's part:
 
-- **Opening a package.** `--install-mod FILE`, repeated, and any bare
-  argument ending in `.oamod`, any case, queue packages in the
-  process-wide inbox (`oa/app/mod_install/inbox.hpp`); macOS's `-psn_`
+- **Opening a package.** `--open FILE` and `--install-mod FILE`, repeated,
+  and any bare argument naming a `.oamod`, `.oalang`, `.oamap` or `.oareg`
+  file, any case, are files to open once the main menu shows. `post_opened_file`
+  sends a `.oareg` file to the add-registry queue, which opens the Add
+  registry window (see the OA layer's Registries), and every other file to
+  the package inbox (`oa/app/package_install/inbox.hpp`); macOS's `-psn_`
   argument is skipped. A file the system opens in the game, or one dropped
   on the window, arrives as SDL's drop event: a watch on SDL's events
   (`mod_install_watch.cpp`), started right after each start of SDL's video
-  (the window, the folder dialog's and the runtime's own), copies each into
-  the inbox as it is queued, whatever polls the queue then. A platform that
+  (the window, the folder dialog's and the runtime's own), copies each file
+  the game opens into the inbox as it is queued, whatever polls the queue
+  then, reads a launch file (a `.oalaunch` file, or any file whose text
+  begins `oalaunch:`, as `open -f` hands one over) into network play's
+  waiting launches (`oa/app/netgame/opened_launch.hpp`, see
+  [Network play](#network-play)), and logs any other. A platform that
   brings opened files into its own storage first does so through
   `PlatformHooks::take_opened_file`, and gets its copy back through
   `release_opened_file` once the install is done with it. On Windows and
-  Linux a second start that carries only packages, while another copy holds
+  Linux a second start that carries only such files, while another copy holds
   the instance lock, hands them over through the hand-off folder
-  (`oa/app/mod_install/handoff.hpp`) and ends; the running copy looks there
+  (`oa/app/package_install/handoff.hpp`) and ends; the running copy looks there
   once a second, in the background too, and brings its window forward.
 - **At the main menu** (`runtime_mod_install.cpp`,
   `Runtime::tell_mod_installs`): once the menu has settled for two frames,
   with no dialog, notice or settings dialog over it, the next package is
-  read; a plan that asks nothing unpacks at once, and the others show their
+  read, by the kind its extension names; a plan that asks nothing unpacks at
+  once, and the others show their
   question in a `Prompt` (`oa/ui/engine_settings/prompt.hpp`) over the
-  darkened menu, at z 102. The unpacking runs steps of a 256 KiB budget,
+  darkened menu, a question screen of the OA layer
+  (`ModInstallState::show`, `QuestionScreen`) that waits for the layer to be
+  free; the same screen then shows the progress and what came of it, and
+  another screen replacing the main menu sets a question aside and ends a
+  telling. The unpacking runs steps of a 256 KiB budget,
   each folder or file made costing 16 KiB of it and each step ending after
   about 4 ms, for up to 15 ms a frame under the progress prompt; then the
   prompt says
@@ -2318,32 +3196,177 @@ in place, and how what a stop leaves is settled). The runtime's part:
   pumping events while it waits for files another program holds. What came
   of it is told: MOD INSTALLED, MOD UPDATED or MOD NOT INSTALLED, with OPEN
   FOLDER and, where the Mod setting is the player's to change, PLAY NOW
-  (`Runtime::switch_to_mod_folder`, the Mods page's own switch). A run
-  nobody watches leaves packages waiting.
+  (`Runtime::switch_to_mod_folder`, the Library's own switch). A run
+  nobody watches leaves packages waiting, but for a catalogue language
+  pack, a mod chosen in the Library while the Library is the top screen,
+  and a catalogue map pack while the map browser is the top screen or GET
+  MAP shows over the battle room ([The Library](#the-library)).
 - **The mod played.** A replace or reinstall of the folder the game plays,
-  once unpacked and checked as the Mods page checks a folder, waits in
+  once unpacked and checked as PLAY NOW checks a folder, waits in
   `set_pending_change`, holding the Mods folder's lock, and the run ends
   (`request_soft_restart`); `main()` makes the change between runs, once
-  the runtime and its archives are gone, and the next run tells it. Every
-  run starts with `recover_changes` on the player's Mods folder, before the
-  mod folder is resolved, so that a stop mid-change never drops the Mod
-  setting.
-- **ROLL BACK** on the Mods page (`Runtime::roll_back_mod_folder`): a folder
-  of the player's own Mods folder whose `.backup` keeps an earlier version
-  of its mod, one a pick would accept, offers it
-  (`ModDetails::roll_back_from`, filled by `list_offered_mods`). The kept
-  version is checked again first; then the folder is swapped at once, or,
-  for the mod played, as the run ends. A roll back refused, the kept
-  version changed since the page listed it or the swap undone, is told in
-  a prompt over the dialog (MOD NOT ROLLED BACK) whose OK returns to it.
+  the runtime and its archives are gone, and the next run tells it. A mod
+  chosen in the Library is held instead until the player leaves the mod
+  (switching mod or quitting; [The Library](#the-library)). Every
+  run starts with `recover_package_installs`, which runs `recover_changes`
+  for each kind's root folder (Mods for a mod, Maps for a map pack), before the mod
+  folder is resolved, so that a stop mid-change never drops the Mod
+  setting. A file of no known kind is told NOT INSTALLED and is not read.
+- **ROLL BACK** in the Library (`Runtime::roll_back_mod_folder`, which
+  takes the folder): a folder of the player's own Mods folder whose
+  `.backup` keeps an earlier version of its mod, one PLAY NOW would accept,
+  offers it (`OfferedMod::roll_back`, filled by `list_offered_mods`; the
+  Library hides the kept version otherwise). The kept version is checked
+  again first; then the folder is swapped at once, or, for the mod played,
+  as the run ends. A roll back refused, the kept version changed since it
+  was listed or the swap undone, is told in a prompt over the Library (MOD
+  NOT ROLLED BACK, `ModInstallState::roll_back_refusal`), pushed over it at
+  once, whose OK returns to it; the status line shows the same words.
 - **Registering the file type.** A start someone plays makes the game the
-  opener of `.oamod` files for the player where the system registers at run
+  opener of `.oamod`, `.oalang`, `.oamap` and `.oareg` files, and of
+  `.oalaunch` launch files (opened with `-c FILE`), for the player
+  where the system registers at run
   time (`oa/platform/file_types.hpp`); none does with `--preferences-file`,
   `--user-folder`, `--data-dir`, unattended, headless or on SDL's dummy or
   offscreen video driver.
 
 `native-mod-install` (`--check-mod-install`, `runtime_mod_install_check.cpp`)
-drives every prompt over five runs.
+drives every prompt over five runs, pressing each where the OA layer shows
+it, and holds the first update question to its picture in 1280x720 and
+1920x1080 windows at Large 1× and Regular 2×.
+
+### Map packs (.oamap)
+
+A map pack is a zip archive whose manifest is `oamap.yaml`. It installs into
+`Maps/<id>` in the player's own folder, with the same staging, lock,
+`.backup` and recovery a mod has (`src/app/package-install` says the checks
+and the questions). A file the player opens is asked on the settled main
+menu. A pack from a catalogue installs on any screen except while a match
+loads or runs, and shows no prompt: a question waits for that menu, and a
+refusal is reported to the screen that asked. In a run nobody watches it
+installs only while the map browser is the top screen or GET MAP shows
+over the battle room, and waits in the inbox otherwise
+([The Library](#the-library)). A file the player opens, and a package of
+another kind, still wait for the menu. Nothing starts while a match loads
+or runs.
+
+Before the pack is put in place it is checked: the manifest, that the pack
+holds the files it lists and nothing else, that those files sit in the
+folders a map pack may hold, that each preview is a PNG of at most 2 MiB
+and 1024 pixels on a side, that this build meets `requires.engine`, and that
+every map fits the content the game finds its features in, with no mod:
+the folders the game plays without the mod's (the expansions that are on,
+then the base game), with each expansion the pack's `requiredExpansions`
+names, and those it needs, that the player has copied
+(`map_pack_fit_folders` and `check_content_fit` in `map_packs.hpp`). Their
+archives are mounted as the game's discovery mounts them from those folders
+together, so a feature an expansion defines, such as Core Contingency's
+`ArchiAquaOre1` to `ArchiAquaOre3` in its own archive, is found, and a
+feature none of them defines is refused, named. A clash with the mod being
+played does not refuse the install.
+
+A folder of the pack's id that holds nothing but empty folders, at most
+256 of them, is free: the kind reads it as missing, the install removes
+those folders (each with the call that removes only an empty folder)
+before the staged files move in, and the deletion of a discard folder
+removes such a folder at its package's name once it is done, as a file sync
+can bring the empty folders of an uninstalled pack back. A folder that
+holds anything else is refused as before, and the plan's refusal is logged
+(`open-annihilation: package install: <file>: The folder <id> does not
+hold this map pack. It is left as it is.`).
+
+The runtime keeps one index of the installed packs (`MapPacks`,
+`src/app/map_packs.cpp`) over that Maps folder, made when the packs are
+first needed and refreshed after each install. It lists each pack's maps
+from the manifest. A manifest is read once, and again only when the pack's
+key changes. The key is the SHA-256 in the pack's origin record, or the
+SHA-256 of its `oamap.yaml` when it has no record. A terrain's size is the
+size of the map's TNT file. The index does not open a map.
+
+### Map packs in the game
+
+The skirmish map list lists the base maps as the scan of `Maps/*.ota` finds
+them, then each installed pack map that fits the mod being played, by its
+name `<stem>@<id>`, in the index's order. The battle room's map list holds
+the same pack maps among the base maps, sorted by name. A row is that game
+name. The title under a chosen pack map is the title from the pack's index
+when the screen has a name there. The stock skirmish screen has none, so
+its rows stay the game's names. The battle room's map name is the title.
+
+`refresh_listed_pack_maps` (`runtime_pack_maps.cpp`) builds that pack-map
+tail. It runs from `discover_first_map`, after a map pack is installed or
+removed, and when the catalogue snapshot moves on. No pack map's OTA or TNT
+is opened to list it. The base maps stay in the order and under the names
+the scan gave them, and are not scanned again. The first base map stays the
+default selection while it is still listed. The map picker (SELMAP) sorts
+the base maps as before and the pack maps after them.
+
+A pack from a registry follows the catalogue when the snapshot has a row
+for the mod's key: true lists the map, and a recorded false leaves it out
+without asking the files. The base game's key is `ta-3.1c`. A catalogue
+mod's key is `<catalogue-id>@<release>` from the mod folder's origin
+record. An empty key, or a key that table lacks, is decided by the
+map-fit check, and a miss is final. A release the snapshot does not list
+yet is listed by the map-fit check until the catalogue has it, and a miss
+then is not logged. A pack with no catalogue origin is sideloaded: the
+map-fit check decides, and a miss is final. One log line names each pack
+and mod the first time a map of that pair is left out:
+
+```
+open-annihilation: map pack <id>: <n> map does not fit <key>
+```
+
+The plural is `maps do not fit`. `<key>` is `the mod being played` when the
+mod has no catalogue key.
+
+Only one map's files are ever mounted (`runtime_pack_maps.cpp`). Choosing a
+pack map (`select_map`, from the picker, the skirmish setup, a saved game,
+a recording or the network load) mounts that map's files alone as the
+asset store's pack layer, under every archive and loose file, labelled
+with the pack's id and the first 8 hex digits of its SHA-256. Before that
+the map is checked against the game and the mod played
+(`oa::data::map_fit::check_map`, over the files in the pack's folder); the
+game's names are collected once for the run, whose archives never change,
+and the result is kept for each pack's SHA-256 and map stem. Once mounted,
+the files are checked again as the store shows them, whatever the kept
+check found, since the pack's folder may have changed on disk; a failure
+there unmounts them. A map that fails either check is refused. One the
+lists left out is still refused when something chooses it by name. One
+the lists kept, because a catalogue recorded it as fitting, stays
+listed: highlighting it shows its title, its size and players and
+"Doesn't fit {game}: {reason}", where the game is the mod played or
+Total Annihilation 3.1c and the reason is the first failure, with no
+picture, and choosing it says why in a message box and keeps the earlier
+map. A start on a refused map fails as other loads do. The layer stays
+while that map is selected and through its match. It is unmounted when
+another map is chosen, at the end of the match (`leave_match`) and
+whenever the main menu shows (`Runtime::load`). Mounting and unmounting
+happen on the main thread, never while a match loads or runs: the
+match's start mounts its map, if a refused highlight released it, before
+it reads anything.
+
+The log says what happened, one line each:
+
+```
+open-annihilation: map pack <id>: mounted <name> (<n> files)
+open-annihilation: map pack <id>: unmounted <name>
+open-annihilation: map <name> does not fit: <rule>: <why>
+```
+
+A map that does not fit logs one line per failure, each time it is refused.
+
+`native-map-packs` (`--check-map-packs`, `runtime_map_packs_check.cpp`)
+writes two packs into the Maps folder of the run's own `--user-folder`: one
+whose map, made in code with one feature of its own drawn with a model of
+the game, fits, and one whose feature file also defines a feature the game
+has. It requires the fitting map listed after every base map, in the list
+and in the picker, and the clashing map in neither, with one log line for
+that pack and the base game; nothing mounted before a map is chosen; the
+fitting map mounted alone when chosen and unmounted for a base map; a
+skirmish on it playing 30 ticks with its terrain readable, and its end
+unmounting it and leaving the archives as they were; the clashing map
+refused for New names when it is chosen by name; and nothing mounted at
+the main menu.
 
 ### Developer Mode
 
@@ -2590,14 +3613,19 @@ into the records and decisions of the modules that carry them out, and
   `native-language-switch`) changes the language in the settings from
   Simplified Chinese to English, German and back, over the main menu and
   over a skirmish's in-game menu, and checks each screen shows what it
-  shows opened again in the language.
+  shows opened again in the language, and that in Chinese every caption
+  over the match's pictures shows each of its characters, none as the
+  missing-glyph box (`picture_captions_missing_glyphs`).
 - **Picture captions** (`runtime_picture_captions.cpp`): while a language
   other than English is shown, the words its packs' `pictures.tdf` gives
   (`language_pictures`, drawn by `oa/present/picture_captions.hpp`) are
-  drawn in the bundled fonts over the pictures they name as each is
-  loaded: the GAF files the runtime reads (`append_gaf_file`), the match
-  bar's `commongui.gaf` and side panel, a screen's sprites and the named
-  backgrounds. A picture the
+  drawn over the pictures they name as each is loaded: the GAF files the
+  runtime reads (`append_gaf_file`), the match bar's `commongui.gaf` and
+  side panel, a screen's sprites and the named backgrounds. They are drawn
+  in the faces game text is drawn in: the bundled fonts and the language
+  packs' faces, which both stacks take through `follow_language_fonts`,
+  again whenever the language's faces change, forgetting the lines drawn
+  before. A picture the
   game data holds in the language's own folder (`bitmaps-<word>`,
   `anims-<word>`) already shows its words and is left as it is, as is
   every picture no pack names.
@@ -2688,13 +3716,16 @@ the Mouse wheel zoom setting is off and closing when it is turned on.
 
 `extension.hpp` is the table of hooks through which libraries linked into
 `oa-game` extend it: long options and game switches, start-up and
-shutdown, screens, the frontend's entry (its game name and nickname), run
+shutdown, screens, Settings pages, the frontend's entry (its game name and nickname), run
 modes, per-frame work, match events, the Pause key, the speed keys and
 the GAME slider, the frontend's application modes, the loading's
 progress, the team panels' host (a tournament game withholds CONTROL),
 requests to close the window, the label a match's return names in its
 menus, whether the preferences keep the stored password, recordings to
 replay, console commands and checks. Each such library is an extension.
+The extension API's chapter for an extension's author is
+[docs/extensions/README.md](../../docs/extensions/README.md), and the OA UI
+kit's for extensions [docs/extensions/ui-kit.md](../../docs/extensions/ui-kit.md).
 The engine registers its own, network play ([below](#network-play)) and
 the automation endpoint ([below](#the-automation-endpoint)); a project
 that builds the game registers further ones after adding the engine, each
@@ -2825,6 +3856,10 @@ a missing scheme, and an address whose body holds a space or an ASCII
 control, is refused and is not handed to the browser. `app-web-address`
 checks that through a stub opener
 ([testing.md](../../docs/development/testing.md#opening-a-web-address)).
+The download check asks `web_address_available` before it offers OPEN THE
+CHECK, and opens the page with `open_web_link` only when that button is
+pressed. `native-challenge` checks the window, the recorded page, the
+retry, the cancel and a check that waits out a skirmish.
 Neither is a hook, and no extension fills them.
 
 An extension calls `modern_text_chain`, `modern_text_layout` and
@@ -2882,6 +3917,36 @@ every Developer Mode override that changes the simulation, or the plain
 baseline when the game plays 3.1c. A running match keeps the hash it
 started with. It is not a hook, and no extension fills it.
 
+Version 15 adds the OA UI kit (`src/ui/kit`) to the contract, so that an
+extension's pages, screens, notices and prompts look, scale, focus and
+answer as OA's own do. `register_settings_pages`, called right after
+`register_screens` while each runtime is built, hands the extension the
+runtime's `SettingsRegistry`: each page it takes (`settings_page_register`,
+a `SettingsPageDesc` of preference rows bound to the extension's own keys)
+is listed in Settings under a divider with its owner's name, after the
+engine's sections, and saved, restored and reported to its `applied` as the
+engine's pages are; a page the registry refuses stops the start with
+"settings page registration rejected: <reason>". `register_screens` may
+also register kit screens (`kit_screen_register`, a `KitScreenDesc` with
+`lay_out`, `act` and `closed`) in the `ScreenRegistry`, beside its screens
+and overlays. Three entries appended to `ScreenServices` reach the OA layer
+from a screen's or an overlay's context: `open_kit_screen` opens a kit
+screen by name, modal over the front end; `show_notice` and `ask_prompt`
+copy a `NoticeRequest` or `PromptRequest` at once and queue it with the
+engine's own, so two never show at once, a prompt's `answered` called once
+on the main thread with the button pressed, or −1 when the runtime ends
+with it still waiting. `read_string` with a null section reads a whole
+preference key, as a page's row binds one. `MatchOverlay` gains
+`kit_text_width`, `draw_kit_text`, `draw_chip`, `draw_progress` (−1
+thousandths draws it busy) and `draw_hover_card`, which draw the kit's
+components crisp at the HUD's scale in the game's fonts, clipped to the
+battlefield. From this version the kit's public headers,
+`oa/ui/kit/*.hpp`, are part of the contract: a change to one before 0.8.0,
+the first release that carries version 15, keeps 15 and updates the
+engine's followers and the test extensions in the same change; from that
+release on, any change to one raises the version. The kit is provisional
+all the same: it changes as the engine's screens need.
+
 `app-extension-list` checks each rule of the combined table over two test
 extensions, and `tests/extension/` tests the boundary itself.
 `extension-layout-mismatch` links a unit that sees `Runtime` with members
@@ -2903,7 +3968,11 @@ key reaches `pause_changed`, its speed keys `speed_changed` and its menus
 `--check-match-dialogs`'s close requests `close_requested` and its GAME
 slider `speed_changed`, a `--generate-script` run over a file no
 extension replays `open_recording`, asking the follower first, and the
-end of a headless skirmish `release_runtime`, the follower first.
+end of a headless skirmish `release_runtime`, the follower first. The
+recorder registers a Settings page of its own from
+`register_settings_pages`; with `--record-refused-page` it gives that page
+an id the registry refuses, and the start stops with the registry's
+reason.
 With `--record-quit STATUS` the recorder keeps the screen services an
 overlay is given, stops the sounds, plays BGM on the alternate route,
 asks for a frontend pass and ends the run through `quit`, which must exit
@@ -2918,9 +3987,16 @@ hooks to check what the engine does with their answers: a close request
 answered or declined, quit's status, one frontend pass for two requests,
 a query binding, the launch's nickname, the return label kept as a match
 starts and quit leaving a match, with the preferences open over it,
-first. CI builds that configuration as a job of its own, but has no game
-installation: there `extension-hooks-game` skips, and only the option
-hooks and the hook list are checked. The rest of the hook coverage runs
+first. The same configuration registers a third test extension, the Kit
+fixture (`kit_fixture.cpp`), which uses the OA UI kit through the table
+alone: a Settings page, a kit screen, a prompt and the overlay's kit calls.
+`extension-kit` (`tests/extension/check_kit_fixture.py`) drives it through
+the automation endpoint in 640x480, 1280x720 and 1920x1080 windows, and
+finds its chip in a headless match's frame
+([testing.md](../../docs/development/testing.md#the-kit-for-an-extension)).
+CI builds that configuration as a job of its own, but has no game
+installation: there `extension-hooks-game` and `extension-kit` skip, and
+only the option hooks and the hook list are checked. The rest of the hook coverage runs
 only where `OA_GAME_DIR` is set; run it there before changing the table.
 
 A check an extension runs, from `run_mode` or `check_multiplayer_menu`,
@@ -2994,7 +4070,15 @@ friend `RecorderExtension`.
 
 `netgame/` is network play's extension, `oa-app-netgame`, which the engine
 always builds and registers. It takes the 3.1c network switches
-`-e -h -n -p -t`, binds the network session (`src/netgame`) to the
+`-b -c -e -h -n -p -t -y` and the launch: `-c FILE` or `--launch FILE`
+(an `.oalaunch` file or TA Forever's, told apart by what it holds), a
+launch piped in on standard input, and an option for each launch setting,
+made from one table (`oa/app/netgame/launch_file.hpp`) that also makes
+those options' part of `--help`.
+[Command Line and Game Launching](../../docs/command-line.md) is every
+option and way to launch; `netgame-launch-help` checks that page against
+that table and against `--help`, and reads every launch file it shows. It
+binds the network session (`src/netgame`) to the
 multiplayer screens (`src/ui/frontend-multiplayer`), launches the
 match from the battle room and runs it over the network, and replays
 recorded games (`.tad`, `src/formats/tad` and `src/session/demo`) through
@@ -3002,11 +4086,52 @@ recorded games (`.tad`, `src/formats/tad` and `src/session/demo`) through
 `--net-loopback-check N`, which hosts and joins a match in one process
 over 127.0.0.1 and compares both worlds after N ticks,
 `--check-recording-hook` and `--check-host-not-found`, and `--host` and
-`--join ADDRESS` (with `--player-name`, `--game-name` and
-`--game-password`), which have the multiplayer screens host or join a
+`--join ADDRESS` (with `--player-name`, `--game-name`,
+`--game-password` and `--dplay-guid`), which have the multiplayer screens
+host or join a
 TCP/IP game at once, each screen doing what a player would
 (`multiplayer_bind_direct_game`), and print the battle room's progress;
 `--check-multiplayer-menu` runs its check of the multiplayer screens.
+A transport named with no game to host or join (`-n`, or the `-c` file's
+`connect`) takes the main menu to the multiplayer screens at once, as in
+3.1c: each frame asks for a frontend pass until a multiplayer screen shows
+(`transport_frame`), and the screens take the transport, so `-n1:ADDRESS`
+alone lists the games at that address for the player to choose.
+A launch's player and game names keep 16 characters and its password 10,
+the battle room's and the session's own limits (`kPlayerNameLimit`,
+`kGameNameLimit`, `kPasswordLimit` in `launch_file.hpp`, which
+`launch_file.cpp` checks against those fields): a longer one is refused,
+and TA Forever's file keeps the first ones.
+A launch file the system opens in the game (`opened_launch.hpp`) is read
+as it arrives and waits for the game to take it. One that arrives before
+the runtime starts is the start's launch, exactly as `-c FILE` makes it:
+`main.cpp` starts SDL's video without the window and pumps its events, so
+that the file macOS hands a game it starts for arrives then, and before
+the game folder is resolved puts the launch in place
+(`put_launch_in_place`, the public entry point that puts a plan in place
+after the command line was checked), adopts its content and skips the
+intro; the map check then runs before the runtime as for `-c`, and a
+refusal ends the start with status 2. A launch, from the command line, a
+pipe or an opened file, keeps the window closed until its content and map
+are found installed, and `--list-content --json` opens none at all and
+writes its listing to the standard output the process was started with,
+whatever takes the log; a refusal after the status stream's hello writes
+its exit line, reason `refused`. One that
+arrives while the game runs is network play's frame's
+(`follow_opened_launches`): from the main menu, settled for two frames
+with no dialog and no multiplayer signal waiting, the launch is put in
+place, made active, the direct game bound and the main menu sent to
+multiplayer, as `-n` sends it, so the battle room opens on the file's map,
+rules and seats; the single-player menu goes back to the main menu first.
+During a match the match's message log says the file was not opened; while
+a game is being set up, on any other screen, while a launch is already
+under way, for a file the battle room cannot use, and for a launch whose
+content (mod, base game or expansions) differs from what the game plays,
+a notice says so, and nothing is put in place. In the intro, a loading
+screen or a change of screen the file waits. A late launch's status group
+has no effect. `--check-opened-launch start|menu FILE` opens FILE as the
+system would, a drop of the file, as the game starts, before its window
+opens, or once the main menu has settled (`native-opened-launch`).
 MULTI on the main menu asks the extensions (`select_multiplayer`), and
 network play answers by moving the frontend to its multiplayer states;
 when no extension answers, MULTI does nothing. Over game data with no
@@ -3030,8 +4155,140 @@ may control the game (`Options::remote_controlled`, read through
 `runtime_options`), which the battle room says as the local player's chat
 line as it is entered and again each time the line changes there, a
 deliberate difference from 3.1c.
+The setup blocks OA sends carry no presence: the five bytes after the
+engine signature stay zero, as 0.7 sent them, in the battle room's blocks, a
+computer player's and the match's. OA machines know each other by the
+signature, 'O' and 'A', which 0.7 already sends. What a machine plays
+travels only in the presence record (`oa/netgame/presence.hpp`, type
+0xf0), which the battle room sends to the OA players of other machines:
+this build's version (`0.8.0`, with `-` and the version label after it in a
+development build), the platform and architecture, the mod (its id, name,
+version and packaging revision) and where it was published, the sim hash,
+the game and view hacks that are on with their counts, Developer Mode with
+its overrides, whether the machine can fetch content, and on the host the
+map pack of its selected map.
+`follow_presence`, run every frame, reads the facts from `presence_facts`
+(`oa/app/presence_facts.hpp`, which `--check-simulation-hash` checks) while
+the multiplayer screens show, writes the record within 1024 bytes less the
+491 a map pack may take, so that the host's pack always fits beside it, and
+binds it to the battle room when its bytes change
+(`multiplayer_bind_presence_record`). A fact that breaks the record's rules,
+such as a mod name over 64 bytes, is left out with one line on the error
+stream the first time. Where the mod was published comes from the
+installer's origin record in the mod's folder (`.oa-origin.yaml`, read with
+`package_install::read_origin`): only a catalogue origin gives one, with
+its registry, release and SHA-256, and the registry's descriptor URL from
+the registries in effect (empty for a built-in registry or one added from a
+file); a mod installed from a file, or a folder without a record, sends
+none. The record is read again only when the mod or its folder changes. The
+host's map pack comes from `LobbyMaps::pack`, which the map packs bind
+through `multiplayer_bind_map_pack`; the battle room asks it once each time
+the selected map changes, and until it is bound no record names a pack.
+Network play binds it from the map packs' source (`pack_map_source`, whose
+`pack` answers for the pack map whose files are mounted, on the host the
+selected map's): the pack's id as the key, the release and SHA-256 of its
+folder's origin record, the registry, the address the registry's descriptor
+was read from (empty for a built-in registry, one added from a file and one
+no longer in effect) and the pack's name and version. A pack installed from
+a file has no catalogue origin and is named by no record. Whether the
+machine can fetch content is the record's content field (tag 0x30, one byte
+of flags, bit 0): `PresenceFacts::fetches_content`, true when the content
+service has a downloads folder and at least one registry that is on,
+allowed by Developer Mode and whose downloads are on (its install ID not
+off where it needs one). A setup block carries none of it.
+The battle room sends the record to every human player whose own setup
+block carries the signature (`presence_peer`), on joining, when the record
+changes and once to each such player who arrives later, from the local
+player to that player alone and alone in its frame; never to a computer
+player, to everyone at once or to a machine without the signature, so no
+3.1c machine receives one. OA 0.7 machines carry the signature too: they
+receive the record and lose nothing, since a frame that holds only a 0xf0
+gives a reader without presence records nothing, and the frames after it
+arrive as before. Each machine keeps the record each OA player sent it
+(`lobby_presence_record`) until that player leaves. `--net-loopback-check`
+checks that both machines hold each other's record, naming this build's
+version, and prints how many of the setup blocks each machine holds of the
+other's players carry no presence bytes.
 [docs/development/testing.md](../../docs/development/testing.md#network-play)
 lists its tests.
+
+### GET MAP in the battle room
+
+A joiner whose host is an OA machine playing a pack map gets the host's
+release of the pack in one press (`runtime_get_map.cpp`). The screen
+`get-map` of the OA layer, which is not modal, has no backdrop and is not
+opaque, is kept on the layer while the multiplayer screens show
+(`keep_get_map_screen`, from `OaLayer::tick`). Each frame it reads the
+battle room (`multiplayer_battle_room_map`): the host's map name, read
+within its field, the map pack of the presence record the host's player
+last sent, and the MAPNAME label's rectangle. It shows only on a joiner,
+only when the map's name is a pack map's, the host's record names that
+pack, and this machine does not have the record's SHA-256: never for a base
+map, a host that sends no record (a 3.1c host or OA 0.7), or a pack
+installed at the host's release. A 3.1c player sees the missing-map line as
+before. What it shows (`get_map_state` and `get_map_text`,
+`oa/ui/frontend_multiplayer/get_map.hpp`) comes from the packs installed
+(`local_map_pack`, from each pack folder's origin record), the registries in
+effect and their merged catalogue, and the download queue:
+
+| State | Line | Button |
+|---|---|---|
+| get | "{pack} {version} · {size} from {registry}" | GET MAP |
+| add_registry_first | "Add {registry} to get {pack}" | GET MAP |
+| other_release_get | "You have release {mine} of {pack}; the host plays release {theirs}." | GET MAP |
+| other_release_gone | the same line | none |
+| gone | "The host's release of {pack} is no longer offered by {registry}." | none |
+| downloads_off | "Downloads from {registry} are off (Settings › Downloads)." | none |
+| downloading | "Downloading {pack} · {done} of {size}" | the download's bar |
+| failed | "Couldn't get {pack}: {reason}" | GET MAP, to try again |
+
+The words come from the interface's catalogue. The line stands under the
+map name's box and the button, or the bar in its place, above it at its
+right, drawn with the kit at the layer's scale; the 3.1c gadgets are left as
+they are. The button is pressed with the pointer or a finger, and so with a
+gamepad's pointer, as the main menu's OA button is. Automation lists the
+button as `oa.get-map`, the line as `oa.get-map-text` and the bar as
+`oa.get-map-progress`, with no dialog, as it lists the OA button, and only
+while they show; on the multiplayer screens the endpoint lists the OA
+layer's controls before the panel's.
+
+Pressing GET MAP for a registry the player has not added opens the Add
+registry window with the address the record names, which checks it at once
+and adds the registry only on the player's ADD; GET MAP goes on by itself
+once the registry is added and its catalogue lists the pack at the record's
+SHA-256, asking for that catalogue once if it has not been read. Otherwise
+it requires the catalogue's SHA-256 for the pack to be the record's, queues
+that release (`queue_download`, reason `offered-in-lobby`), and, when the
+mounted pack layer is another release of this pack, unmounts it. The queue
+checks the file against that SHA-256 and the installer puts the pack in
+place, replacing another release (kept as `.backup`); in a run nobody
+watches it does so while GET MAP shows ([The Library](#the-library)).
+Until the queue item ends the pack's maps are held (`hold_pack_maps`):
+`prepare_pack_map` refuses them, so no folder is replaced while its layer
+is mounted. Once the installed packs list the map, the battle room's own
+selection of the host's map finds it (`maps_select` lists a pack map the
+source has gained since the list was read, and a pack map mounted again is
+read again, its hashes among it) and the map name stops flashing. Nothing
+readies the player. A download that fails says why on the line; one
+cancelled leaves GET MAP as it was. The log says what happened:
+
+```
+open-annihilation: GET MAP: offering to add the registry <registry> for <pack>
+open-annihilation: GET MAP: downloading <pack> release <release> from <registry>
+open-annihilation: GET MAP: installed <pack>
+open-annihilation: GET MAP: couldn't get <pack>: <why>
+open-annihilation: map pack <pack>: its maps may be mounted again
+```
+
+The host's presence card says whether this machine has the host's pack
+(`PackState`): installed when a pack of its key has the record's SHA-256,
+another release when one has another, missing when none has its key.
+In the battle room the OA badge is the app icon, drawn by the OA layer at the
+window's own pixels in the CD rectangle, with the rules dot crisp on it. A
+run without a renderer keeps the badge the 640 by 480 frame draws. The card
+lists the platform and architecture on a Platform line under Engine, leaving
+out a field the record leaves empty and the line when both are, and the mark
+by its title is the same icon.
 
 ## The automation endpoint
 

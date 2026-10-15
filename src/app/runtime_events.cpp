@@ -4,7 +4,6 @@
 // SDL event dispatch, menu audio and movie playback.
 #include "oa/app/runtime.hpp"
 #include "oa/app/hook_call.hpp"
-#include "oa/ui/frontend/main_menu.hpp"
 #include "oa/ui/frontend_multiplayer/screens.hpp"
 #include "oa/media/intro_player.hpp"
 #include "oa/present/typed_text.hpp"
@@ -50,6 +49,14 @@ bool typed_answered_key(const char* text, int32_t answered) {
 } // namespace
 
 void Runtime::handle_sdl_event(SDL_Event& event, bool& running) {
+    // The character of a key that ended a middle-click pan types nothing.
+    if (middle_pan_drop_text_) {
+        if (event.type == SDL_EVENT_TEXT_INPUT || event.type == SDL_EVENT_TEXT_EDITING) {
+            middle_pan_drop_text_ = false;
+            return;
+        }
+        middle_pan_drop_text_ = false;
+    }
     // Each key press forgets the quick key the last one answered a panel
     // with; press_match_panel_key records the press's own again.
     if (event.type == SDL_EVENT_KEY_DOWN)
@@ -87,9 +94,14 @@ void Runtime::handle_sdl_event(SDL_Event& event, bool& running) {
         return;
     }
     // The pointer outside the window has no place on the screen until it
-    // comes back.
-    if (event.type == SDL_EVENT_WINDOW_MOUSE_LEAVE)
+    // comes back. A soft wall puts it back on the edge it crossed, and the
+    // view keeps scrolling from that last pixel.
+    if (event.type == SDL_EVENT_WINDOW_MOUSE_LEAVE && !(sticky_soft_wall() && sticky_edge_.holding))
         match_pointer_known_ = false;
+    // Leaving the window ends a middle-click pan. The focus event itself
+    // still reaches the window.
+    if (event.type == SDL_EVENT_WINDOW_FOCUS_LOST)
+        std::ignore = middle_pan_take(event);
     // The character a quick key types after its press answered a panel over
     // the match goes nowhere, though the panel is closed by then; while the
     // surrender confirmation is up, typing reaches neither the chat line nor
@@ -122,6 +134,9 @@ void Runtime::handle_sdl_event(SDL_Event& event, bool& running) {
     }
     if (event.type == SDL_EVENT_TEXT_EDITING &&
         oa::ui::frontend_multiplayer::multiplayer_compose(text_composition_.c_str()))
+        return;
+    // A key ends a middle-click pan and runs no command.
+    if (event.type == SDL_EVENT_KEY_DOWN && middle_pan_take(event))
         return;
     if (event.type == SDL_EVENT_KEY_DOWN && handle_match_hotkey(event.key))
         return;
@@ -223,6 +238,9 @@ void Runtime::handle_sdl_event(SDL_Event& event, bool& running) {
     if (event.type == SDL_EVENT_KEY_DOWN && frontend_has_keyboard() &&
         press_frontend_quick_key(event.key))
         return;
+    // A turn of the wheel ends a middle-click pan and does not zoom.
+    if (event.type == SDL_EVENT_MOUSE_WHEEL && middle_pan_take(event))
+        return;
     if (event.type == SDL_EVENT_MOUSE_WHEEL && screen_ == Screen::match) {
         // ui.megamap takes the wheel, which acts only with the Mouse wheel
         // zoom setting off (megamap_on).
@@ -292,6 +310,14 @@ void Runtime::handle_sdl_event(SDL_Event& event, bool& running) {
         match_pointer_known_ =
             screen_ == Screen::match && event_mouse_id(event) != SDL_TOUCH_MOUSEID;
         update_pointer(x, y);
+        // The release of a press that ended a middle-click pan, before a
+        // panel or the whiteboard can take it. A left order is given on
+        // the release.
+        if (event.type == SDL_EVENT_MOUSE_BUTTON_UP && middle_pan_swallow_button_ != 0 &&
+            event.button.button == middle_pan_swallow_button_) {
+            middle_pan_swallow_button_ = 0;
+            return;
+        }
         // A zoom the wheel eases goes on about the pointer as it moves.
         if (match_pointer_known_ && zoom_focus_.follows_pointer)
             zoom_focus_ = {true, x, y};
@@ -306,6 +332,10 @@ void Runtime::handle_sdl_event(SDL_Event& event, bool& running) {
         if (commander_placement_pointer(event, x, y) || resource_panel_pointer(event, x, y) ||
             megamap_pointer(event, x, y) || whiteboard_pointer(event, x, y) ||
             order_drag_pointer(event, x, y))
+            return;
+        // After the whiteboard, whose middle button places a dot. A pan's
+        // press is consumed here, so it selects nothing and gives no order.
+        if (middle_pan_take(event))
             return;
         // A press on a HUD button holds it until either button comes up, on
         // whatever screen; the release acts on a HUD button only when the
@@ -602,25 +632,16 @@ void Runtime::show_unsupported(std::string_view message) {
     std::cerr << "unsupported operation: " << message << '\n';
     if (sdl_.window != nullptr) {
         // The box needs the pointer; full screen holds it again once the
-        // box has closed and the window has the focus back.
+        // box has closed and the window has the focus back. Window edge
+        // forgets its hold, so a sticky edge holds again only from inside
+        // and Capture asks for the grab again.
+        forget_sticky_edge();
         release_pointer(sdl_.window);
         SDL_ShowSimpleMessageBox(
             SDL_MESSAGEBOX_INFORMATION, "Open Annihilation", status_.c_str(), sdl_.window
         );
         keep_pointer_on_screen(sdl_.window);
     }
-}
-
-void Runtime::start_menu_music() {
-    music_main_menu();
-    play_menu_voice(oa::ui::frontend::kMainMenuMusic);
-}
-
-void Runtime::play_menu_voice(std::string_view sound) {
-    if (menu_music_playing_)
-        return;
-    // A voice that does not start is reported by play_alternate_sound.
-    std::ignore = play_alternate_sound(sound);
 }
 
 bool Runtime::play_alternate_sound(std::string_view sound) {
@@ -638,12 +659,6 @@ bool Runtime::play_alternate_sound(std::string_view sound) {
     if (!menu_music_playing_)
         std::cerr << "menu BGM unavailable: " << error << '\n';
     return menu_music_playing_;
-}
-
-void Runtime::stop_menu_music() {
-    audio_player_.stop_loop();
-    menu_music_playing_ = false;
-    music_begin_match();
 }
 
 void Runtime::play_menu_sound(menu::Sound sound) {

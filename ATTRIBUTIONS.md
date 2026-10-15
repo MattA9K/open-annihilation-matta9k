@@ -21,10 +21,12 @@ in this repository or in the release packages.
 | [zlib](#zlib) | 1.3.1 | zlib | static | static | static |
 | [FreeType](#freetype) | 2.14.3 | FreeType License | static | static | static |
 | [DejaVu fonts](#dejavu-fonts) | 2.37, DejaVu Sans and DejaVu Sans Bold | Bitstream Vera and Arev licences; DejaVu changes public domain | font files | font files | font files |
-| [Noto Sans CJK](#noto-sans-cjk) | 2.004, SC Bold, cut to the common characters | SIL Open Font License 1.1 | font file | font file | font file |
+| [Noto Sans CJK](#noto-sans-cjk) | 2.004, SC Bold, cut to the languages' own names and the language notice | SIL Open Font License 1.1 | font file | font file | font file |
 | [Noto Emoji](#noto-emoji) | 3.002, monochrome | SIL Open Font License 1.1 | font file | font file | font file |
 | [stb_vorbis](#stb_vorbis) | 1.22, changed | public domain or MIT | static | static | static |
 | [dr_mp3 and dr_flac](#dr_mp3-and-dr_flac) | 0.7.3 and 0.13.3, with later fixes | public domain or MIT No Attribution | static | static | static |
+| [Monocypher](#monocypher) | 4.0.2 | BSD-2-Clause | static | static | static |
+| [LZMA SDK](#lzma-sdk) | 25.01, decoder only | public domain | static | static | static |
 | [mingw-w64 runtime and winpthreads](#mingw-w64-runtime-and-winpthreads) | 15.0.0 | ZPL 2.1, MIT, BSD | | static | |
 | [LLVM runtime libraries](#llvm-runtime-libraries) (libc++, libc++abi, libunwind, compiler-rt) | 23.1.2 | Apache 2.0 with LLVM Exceptions | | static | |
 
@@ -41,6 +43,12 @@ repository with CMake links these components as follows:
 - stb_vorbis, dr_mp3 and dr_flac, which decode the music, are kept in
   [`third_party/`](third_party/) and compiled into every build. The movies
   and the rest of the sound are decoded by the engine's own code.
+- Monocypher 4.0.2, which checks a catalogue's signature, is kept in
+  [`third_party/monocypher/`](third_party/monocypher/) and compiled into
+  every build.
+- The LZMA SDK decoder, which reads LZMA and LZMA2 streams, is kept in
+  [`src/formats/lzma/vendor/`](src/formats/lzma/vendor/) and compiled into
+  every build.
 - When CMake is pointed at the SDL that `tools/bootstrap_sdl.py` installs,
   as `run.sh` and the README do, SDL 3.4.16 with the changes described
   under [SDL](#sdl) is linked statically. Otherwise the build takes
@@ -155,6 +163,57 @@ domain, or, at your choice, licensed under the MIT No Attribution licence
 [`licenses/dr_libs-LICENSE.txt`](licenses/dr_libs-LICENSE.txt). dr_mp3 is
 based on minimp3, which is in the public domain (CC0).
 
+## Monocypher
+
+Monocypher 4.0.2, from
+<https://monocypher.org/download/monocypher-4.0.2.tar.gz> (SHA-256
+`38d07179738c0c90677dba3ceb7a7b8496bcfea758ba1a53e803fed30ae0879c`),
+checks a catalogue's signature. It is compiled into the game unchanged
+from [`third_party/monocypher/`](third_party/monocypher/). The release
+offers BSD-2-Clause or CC0-1.0; this project uses BSD-2-Clause. The
+licence text is in
+[`licenses/monocypher-LICENSE.txt`](licenses/monocypher-LICENSE.txt).
+
+> Copyright (c) 2017-2023, Loup Vaillant
+> Copyright (c) 2017-2019, Michael Savage
+> Copyright (c) 2017-2023, Fabio Scotoni
+> All rights reserved.
+>
+> Redistribution and use in source and binary forms, with or without
+> modification, are permitted provided that the following conditions are
+> met:
+>
+> 1. Redistributions of source code must retain the above copyright
+>    notice, this list of conditions and the following disclaimer.
+>
+> 2. Redistributions in binary form must reproduce the above copyright
+>    notice, this list of conditions and the following disclaimer in the
+>    documentation and/or other materials provided with the
+>    distribution.
+>
+> THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+> "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+> LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+> A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+> HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+> SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+> LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+> DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+> THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+> (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+> OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+## LZMA SDK
+
+The LZMA and LZMA2 decoder from the 7-Zip / LZMA SDK 25.01 by Igor Pavlov,
+from <https://github.com/ip7z/7zip> tag `25.01`, directory `C/`. The files
+`LzmaDec`, `Lzma2Dec`, `7zTypes.h`, `Compiler.h` and `Precomp.h` are compiled
+into the game unchanged from
+[`src/formats/lzma/vendor/`](src/formats/lzma/vendor/). The SDK is in the
+public domain. The notice is in
+[`licenses/lzma-sdk.txt`](licenses/lzma-sdk.txt). Each file carries its own
+line, "Igor Pavlov : Public domain".
+
 ## zlib
 
 All packages link zlib 1.3.1 statically, from
@@ -210,15 +269,13 @@ conditions and disclaimer, is in
 Noto Sans CJK SC Bold 2.004, from the `NotoSansCJK-Bold.ttc` collection of
 <https://github.com/notofonts/noto-cjk> at the release tag `Sans2.004`
 (SHA-256 `faa5f3656a78b2e2d450d27fe8382c778bc2b6bb5ea29c986664a6a435056ceb`),
-draws Chinese, Japanese and Korean. The packages hold the Simplified Chinese
-face of the collection, cut down by `tools/bootstrap_text_fonts.py` to the
-characters of GB 2312, of the Table of General Standard Chinese Characters,
-of Big5's symbols and common hanzi, of JIS X 0208 and of KS X 1001 without
-its hanja, with the CJK punctuation, kana, bopomofo, Hangul jamo and
-full-width forms, and without its layout tables; nothing else in it is
-changed. The bootstrap reads which characters the table holds from the
-Unihan archive of Unicode 16.0 at build time; no package holds the
-archive or anything from it. © 2014-2021 Adobe (http://www.adobe.com/). It is
+draws Chinese, Japanese and Korean. The packages hold one cut of the
+Simplified Chinese face of the collection, made by
+`tools/bootstrap_text_fonts.py`: `NotoSansCJKsc-Bold-Endonyms.otf` holds
+the languages' own names and the language notice, the lines of
+`tools/text-fonts/endonyms.txt` that the sans faces do not draw. The
+Simplified Chinese language pack carries its own copy of the face, under
+the same licence, for the language's text. © 2014-2021 Adobe (http://www.adobe.com/). It is
 licensed under the SIL Open Font License, Version 1.1; the text is in
 [`licenses/NotoSansCJK-OFL.txt`](licenses/NotoSansCJK-OFL.txt).
 

@@ -5,6 +5,9 @@
 // campaign matches.
 #include "oa/app/runtime.hpp"
 #include "engine_settings_state.hpp"
+#include "oa_layer.hpp"
+#include "oa/ui/engine_settings/dialog.hpp"
+#include "oa/ui/kit/layout.hpp"
 #include "match_models.hpp"
 #include "stage_state.hpp"
 #include "oa/sim/selection.hpp"
@@ -79,6 +82,15 @@ constexpr int32_t kBusyCombatCargoOffset = 24;
 // word of a frame is folded in with.
 constexpr uint64_t kFramesDigestBasis = 0xcbf29ce484222325ULL;
 constexpr uint64_t kFramesDigestMultiplier = 0x9e3779b97f4a7c15ULL;
+// The room the settings dialog's header keeps for its version text, in the
+// dialog's points, which a stage's settings line names so that a golden
+// frame can leave the version out: from this far left of the version's
+// right edge to this far right of it, and from the header's row this to the
+// row that.
+constexpr int32_t kVersionRoomLeft = 71;
+constexpr int32_t kVersionRoomRight = 5;
+constexpr int32_t kVersionRoomTop = 6;
+constexpr int32_t kVersionRoomBottom = 22;
 
 /// Folds a drawn layer into a frame run's frames digest: its size, then its
 /// bytes eight at a time, little-endian, the last word padded with zeros.
@@ -446,7 +458,6 @@ void Runtime::run_stage_lines(std::span<const StageLine> lines) {
                 {},
                 settings::highest_unit_limit,
                 {},
-                {},
                 nullptr,
                 touch
             );
@@ -456,13 +467,189 @@ void Runtime::run_stage_lines(std::span<const StageLine> lines) {
                      settings::dialog_pages(settings::DialogKind::engine, touch))
                     if (part.text == rest && part.control == settings::page_control(listed))
                         page = listed;
+            // A section's word names it in every language ("language"), and
+            // older stage files name Language & Text "Language".
+            if (!page)
+                for (const auto listed :
+                     settings::dialog_pages(settings::DialogKind::engine, touch))
+                    if (rest == settings::page_word(listed))
+                        page = listed;
+            if (!page && rest == "Language")
+                page = settings::Page::language;
+            // Older stage files still name this section common-tweaks (Common Tweaks).
+            if (!page && rest == "common-tweaks")
+                page = settings::Page::common_tweaks;
             if (!page)
                 throw std::runtime_error(where + ": the settings have no section " + rest);
             engine_settings_state().last_page = *page;
             open_engine_settings_in_match();
+            const settings::Dialog* opened = engine_settings_dialog();
+            if (opened == nullptr)
+                throw std::runtime_error(where + ": the settings dialog did not open");
+            // Where the dialog shows, and the room its header keeps for the
+            // version text, in the match canvas's pixels: the header's
+            // version part, as the dialog's class lays it out, widened.
+            const LayerPlacement placed = oa_layer().placement_of("settings");
+            const auto opened_layout = settings::dialog_layout(*opened);
+            const auto version_part = std::find_if(
+                opened_layout.begin(),
+                opened_layout.end(),
+                [opened](const settings::LayoutPart& part) {
+                    return part.control == settings::no_control && part.text == opened->version;
+                }
+            );
+            if (version_part == opened_layout.end() || placed.points_width <= 0 ||
+                placed.points_height <= 0)
+                throw std::runtime_error(where + ": the settings dialog shows no version");
+            const int32_t version_right = version_part->rect.x + version_part->rect.width;
+            const oa::ui::kit::Rect room_points{
+                version_right - kVersionRoomLeft,
+                kVersionRoomTop,
+                kVersionRoomLeft + kVersionRoomRight,
+                kVersionRoomBottom - kVersionRoomTop
+            };
+            // Drawn at its scale as large as its place; fitted to a phone's
+            // safe area, by the place's size.
+            oa::ui::kit::Rect room = oa::ui::kit::to_canvas(room_points, placed.scale_percent);
+            if (placed.scale_percent <= 0) {
+                const auto along = [](int32_t points, int32_t shown, int32_t whole) {
+                    return static_cast<int32_t>(static_cast<int64_t>(points) * shown / whole);
+                };
+                const int32_t left = along(room_points.x, placed.shown.width, placed.points_width);
+                const int32_t top = along(room_points.y, placed.shown.height, placed.points_height);
+                room = {
+                    left,
+                    top,
+                    along(
+                        room_points.x + room_points.width, placed.shown.width, placed.points_width
+                    ) - left,
+                    along(
+                        room_points.y + room_points.height,
+                        placed.shown.height,
+                        placed.points_height
+                    ) - top
+                };
+            }
+            std::printf(
+                "stage: settings %s at %d,%d %dx%d, version at %d,%d %dx%d\n",
+                rest.c_str(),
+                placed.shown.x,
+                placed.shown.y,
+                placed.shown.width,
+                placed.shown.height,
+                placed.shown.x + room.x,
+                placed.shown.y + room.y,
+                room.width,
+                room.height
+            );
+        } else if (action == "window") {
+            // The window resized, and the match laid out at that size before
+            // the resize is handled, as a size taken at the start is. A
+            // headless match has no window, so it is laid out at the size
+            // directly. The open settings dialog, when there is one, is
+            // reported where it shows then.
+            int width = 0;
+            int height = 0;
+            if (!(line >> width >> height) || width <= 0 || height <= 0)
+                throw std::runtime_error(where + ": window takes WIDTH HEIGHT");
+            if (sdl_.window != nullptr) {
+                if (!SDL_SetWindowSize(sdl_.window, width, height))
+                    throw std::runtime_error(
+                        where + ": SDL_SetWindowSize: " + std::string(SDL_GetError())
+                    );
+                follow_window_output();
+            } else {
+                // A headless match has no window. The layout at this size is
+                // the one a resize of a window of this size leaves.
+                match_layout_ = lay_out_match(width, height);
+            }
+            if (engine_settings_dialog() == nullptr) {
+                std::printf("stage: window %dx%d\n", width, height);
+            } else {
+                const LayerPlacement placed = oa_layer().placement_of("settings");
+                std::printf(
+                    "stage: window %dx%d settings at %d,%d %dx%d\n",
+                    width,
+                    height,
+                    placed.shown.x,
+                    placed.shown.y,
+                    placed.shown.width,
+                    placed.shown.height
+                );
+            }
+        } else if (action == "interface-size") {
+            // Interface size set to a word the preferences keep ("100",
+            // "automatic"), with the dialog already open, as choosing it
+            // does: the dialog stays open and is reported where it shows then.
+            namespace settings = oa::ui::engine_settings;
+            std::string word;
+            if (!(line >> word))
+                throw std::runtime_error(where + ": interface-size takes a size");
+            const std::optional<settings::InterfaceSize> size =
+                settings::interface_size_from_text(word);
+            if (!size)
+                throw std::runtime_error(where + ": interface-size has no size " + word);
+            settings::Dialog* dialog = engine_settings_dialog();
+            if (dialog == nullptr)
+                throw std::runtime_error(where + ": the settings dialog is not open");
+            dialog->chosen.interface_size = *size;
+            take_settings_screen_action(settings::DialogAction::changed);
+            if (engine_settings_dialog() == nullptr)
+                throw std::runtime_error(where + ": choosing an Interface size closed the dialog");
+            const LayerPlacement placed = oa_layer().placement_of("settings");
+            std::printf(
+                "stage: interface-size %s at %d,%d %dx%d\n",
+                word.c_str(),
+                placed.shown.x,
+                placed.shown.y,
+                placed.shown.width,
+                placed.shown.height
+            );
+        } else if (action == "gallery") {
+            // The settings dialog opened beside the in-game menu at
+            // Developer, and the UI kit gallery's SHOW taken as the dialog
+            // takes it: the gallery over the whole window, at the layer's
+            // scale capped by the side column's and the class of the
+            // canvas's points.
+            namespace settings = oa::ui::engine_settings;
+            engine_settings_state().last_page = settings::Page::developer;
+            open_engine_settings_in_match();
             if (engine_settings_dialog() == nullptr)
                 throw std::runtime_error(where + ": the settings dialog did not open");
-            std::printf("stage: settings %s\n", rest.c_str());
+            take_settings_screen_action(settings::DialogAction::show_gallery);
+            const auto* gallery = dynamic_cast<const GalleryScreen*>(oa_layer().top());
+            if (gallery == nullptr || gallery->name() != GalleryScreen::screen_name)
+                throw std::runtime_error(where + ": the gallery did not open");
+            // Where it shows, in the match canvas's pixels, its class and its
+            // scale, as 2x or 1.5x.
+            const LayerPlacement placed = oa_layer().placement_of(GalleryScreen::screen_name);
+            const oa::ui::kit::Frame& laid_for = gallery->frame();
+            std::string_view class_name = "Compact";
+            if (laid_for.size_class == oa::ui::kit::SizeClass::regular)
+                class_name = "Regular";
+            else if (laid_for.size_class == oa::ui::kit::SizeClass::large)
+                class_name = "Large";
+            std::string scale_text = std::to_string(laid_for.scale_percent / 100);
+            if (laid_for.scale_percent % 100 != 0)
+                scale_text += "." + std::to_string(laid_for.scale_percent % 100 / 10);
+            std::printf(
+                "stage: gallery at %d,%d %dx%d %.*s %sx\n",
+                placed.shown.x,
+                placed.shown.y,
+                placed.shown.width,
+                placed.shown.height,
+                static_cast<int>(class_name.size()),
+                class_name.data(),
+                scale_text.c_str()
+            );
+        } else if (action == "first-run") {
+            // One step of the first-run setup, over whatever is showing.
+            std::string token;
+            if (!(line >> token) || !open_staged_first_run(token))
+                throw std::runtime_error(
+                    where + ": first-run takes language, game, copying, online or buttons"
+                );
+            std::printf("stage: first-run %s\n", token.c_str());
         } else if (action == "pointer") {
             // The pointer moved to a point of the window, whose unit the
             // bottom bar then shows.

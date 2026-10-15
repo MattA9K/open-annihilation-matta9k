@@ -18,14 +18,15 @@ target_link_libraries(oa-app-netgame-launch PUBLIC oa-app-command-line oa-ui-fro
   PRIVATE oa-base-text oa-options)
 
 # The long options and 3.1c network switches, which the option test parses
-# without a running app.
-add_library(oa-app-netgame-options STATIC net_options.cpp)
+# without a running app, and the launch files the system opens in the game.
+add_library(oa-app-netgame-options STATIC net_options.cpp launch_file.cpp opened_launch.cpp)
 add_library(oa::app::netgame_options ALIAS oa-app-netgame-options)
 target_include_directories(oa-app-netgame-options PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(oa-app-netgame-options PUBLIC oa::app::headers oa-app-netgame-launch oa-netgame-frontend
   oa-app-command-line oa-ui-frontend-renderer oa-ui-frontend-state oa-sim-scenario oa-ui-screen-registry
   oa-core-types
-  PRIVATE oa-options)
+  PRIVATE oa-netgame oa-options oa-formats-oamod oa-base-text oa-platform-shims oa-base-threads
+  oa-platform-file-types oa-data-content-bundles)
 
 # The network rules a mod profile gives network play, which their test
 # reads without a running app.
@@ -69,12 +70,14 @@ set(oa_app_netgame_sources
   runtime_demo.cpp
   extension.cpp
   runtime_netgame.cpp
+  runtime_opened_launch.cpp
   runtime_report.cpp
   runtime_session_cheats.cpp)
 
 # The recorder's report line names the engine's version.
 set_property(SOURCE runtime_net.cpp APPEND
-  PROPERTY COMPILE_DEFINITIONS "OA_ENGINE_VERSION=\"${PROJECT_VERSION}\"")
+  PROPERTY COMPILE_DEFINITIONS "OA_ENGINE_VERSION=\"${PROJECT_VERSION}\""
+    "OA_ENGINE_VERSION_LABEL=\"${OA_VERSION_LABEL}\"")
 
 if(TARGET oa-game)
   # multiplayer_menu_check.cpp, a self-check, drives the game through the
@@ -94,7 +97,8 @@ if(TARGET oa-game)
       oa-app-netgame-wire-rules
       oa-app-netgame-launch-binding oa-ui-frontend-multiplayer oa-netgame-match-runtime oa-session-demo
       oa-netgame-console oa-netgame-messages
-    PRIVATE oa::extension-sdk oa-app-view-rules oa-base-text oa-data-languages oa-present)
+    PRIVATE oa::extension-sdk oa-app-view-rules oa-base-text oa-data-languages oa-present
+      oa-data-map-pack oa-platform-shims)
   # Network play's API for the extensions built on it: an extension library
   # that links it links network play's extension too, so the engine lists
   # that extension after network play's.
@@ -108,8 +112,29 @@ if(BUILD_TESTING)
   target_link_libraries(oa-netgame-launch-switches-test PRIVATE oa-app-netgame-launch oa-options)
   add_test(NAME net-launch-switches COMMAND oa-netgame-launch-switches-test)
   add_executable(oa-netgame-options-test tests/options_test.cpp)
-  target_link_libraries(oa-netgame-options-test PRIVATE oa-app-netgame-options oa-app-game-options oa-options)
+  target_link_libraries(oa-netgame-options-test PRIVATE oa-app-netgame-options oa-app-game-options oa-netgame oa-options)
   add_test(NAME netgame-game-options COMMAND oa-netgame-options-test)
+  add_executable(oa-netgame-launch-file-test tests/launch_file_test.cpp)
+  target_link_libraries(oa-netgame-launch-file-test PRIVATE oa-app-netgame-options oa-app-game-options
+    oa-netgame oa-options)
+  add_test(NAME netgame-launch-file COMMAND oa-netgame-launch-file-test)
+  # The table of launch settings is what --help and docs/command-line.md say;
+  # that page's launch files are launches the game takes, and it names every
+  # option --help lists. The status stream's options join network play's in
+  # --help, as in the game.
+  add_executable(oa-netgame-launch-help-test tests/launch_help_test.cpp)
+  target_link_libraries(oa-netgame-launch-help-test PRIVATE oa-app-netgame-options oa-app-game-options
+    oa-app-automation-options oa-netgame oa-options)
+  add_test(NAME netgame-launch-help COMMAND oa-netgame-launch-help-test
+    "${PROJECT_SOURCE_DIR}/docs/command-line.md")
+  # A launch file the system opens: told by its name or its first bytes, read as it
+  # arrives, the start's own launch as -c makes it, its content compared with what
+  # runs, and where the running game takes one, refuses one or keeps it waiting.
+  add_executable(oa-netgame-opened-launch-test tests/opened_launch_test.cpp)
+  target_link_libraries(oa-netgame-opened-launch-test PRIVATE oa-app-netgame-options
+    oa-app-game-options oa-netgame oa-test-support oa-options)
+  add_test(NAME netgame-opened-launch COMMAND oa-netgame-opened-launch-test)
+  set_tests_properties(netgame-opened-launch PROPERTIES TIMEOUT 60)
   add_executable(oa-netgame-close-handlers-test tests/close_handlers_test.cpp)
   target_link_libraries(oa-netgame-close-handlers-test PRIVATE oa-app-netgame-launch-binding oa-ui-frontend-state)
   add_test(NAME netgame-close-handlers COMMAND oa-netgame-close-handlers-test)
@@ -161,14 +186,23 @@ if(BUILD_TESTING AND TARGET oa-game AND IS_DIRECTORY "${OA_GAME_DIR}")
     --preferences-file "${oa_netgame_checks}/net-loopback-watcher.conf")
   set_tests_properties(native-net-loopback-watcher PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
   # With Simplified Chinese shown, whose pack turns Unicode chat on, each
-  # machine's setup block says it reads chat in UTF-8.
+  # machine's setup block says it reads chat in UTF-8. The test fixture
+  # pack installs first.
+  add_test(NAME language-fixture-pack-netgame COMMAND ${CMAKE_COMMAND}
+    -DSOURCE=${PROJECT_SOURCE_DIR}/src/data/languages/tests/fixture-packs/zh-Hans
+    -DFONT=${OA_TEXT_FONT_TESTS_DIR}/NotoSansCJKsc-Bold-Fixture.otf
+    "-DDESTINATIONS=${oa_netgame_checks}/Open Annihilation"
+    -P ${PROJECT_SOURCE_DIR}/tools/install_fixture_pack.cmake)
+  set_tests_properties(language-fixture-pack-netgame PROPERTIES
+    FIXTURES_SETUP language-fixture-pack-netgame TIMEOUT 30)
   add_test(NAME native-net-loopback-unicode-chat COMMAND oa-game --game-dir "${OA_GAME_DIR}"
     --skip-intro --mute --headless-check --net-loopback-check 300
     --preferences-file "${oa_netgame_checks}/net-loopback-unicode-chat.conf" Chinese)
   set_tests_properties(native-net-loopback-unicode-chat PROPERTIES
     TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
     PASS_REGULAR_EXPRESSION "Unicode chat on, setup blocks saying UTF-8 [1-9][0-9]* / [1-9]"
-    FAIL_REGULAR_EXPRESSION "its commander went too|check failed|FAILED")
+    FAIL_REGULAR_EXPRESSION "its commander went too|check failed|FAILED"
+    FIXTURES_REQUIRED language-fixture-pack-netgame)
   # Under a profile that presents the recorder and turns ui.whiteboard on
   # over the installed game, the host's whiteboard marks reach the joiner
   # while the host allies it, with the marker echoed to its log, and not
@@ -201,6 +235,16 @@ if(BUILD_TESTING AND TARGET oa-game AND IS_DIRECTORY "${OA_GAME_DIR}")
     --net-loopback-watcher
     --preferences-file "${oa_netgame_checks}/net-loopback-computer-watcher.conf")
   set_tests_properties(native-net-loopback-computer-watcher PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+  # Each machine seats one computer player. They build for 6000 ticks in
+  # step, the host's strikes the joiner's commander, and the host's recording
+  # plays back.
+  add_test(NAME native-net-loopback-each-ai COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+    --skip-intro --mute --headless-check --net-loopback-check 6000 --net-loopback-each-ai
+    --net-record "${oa_netgame_checks}/each-ai.tad"
+    --preferences-file "${oa_netgame_checks}/net-loopback-each-ai.conf")
+  set_tests_properties(native-net-loopback-each-ai PROPERTIES
+    TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+    PASS_REGULAR_EXPRESSION "recording played back")
   # The engine's recording hook (open_recording) declines bytes that are no
   # recording and refuses a recording's truncated header; with --play-demo
   # the check would also replay that recording through the replay hooks.
@@ -227,5 +271,25 @@ if(BUILD_TESTING AND TARGET oa-game AND IS_DIRECTORY "${OA_GAME_DIR}")
       --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
       --scratch-root "${oa_netgame_checks}")
     set_tests_properties(native-net-options PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+    # A launch file, TA Forever's or this game's, opens the battle room on
+    # the file's map and rules. A file the game cannot use, or a map or mod
+    # it names that is not installed, ends before a window with the status
+    # stream's exit line, --list-content --json prints the installed content
+    # on standard output with no window, also beside --log-dir, and -n1
+    # alone opens the game list of its address.
+    add_test(NAME native-launch-file COMMAND ${Python3_EXECUTABLE}
+      "${PROJECT_SOURCE_DIR}/tools/check_native_launch_file.py"
+      --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+      --scratch-root "${oa_netgame_checks}")
+    set_tests_properties(native-launch-file PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+    # A launch file the system opens in the game, as a drop of the file: as the
+    # game starts, before its window, it is the start's launch, as -c makes it; at the main
+    # menu, from a temporary .txt file as `open -f` writes one, it goes to the
+    # same battle room; a file the battle room cannot use opens nothing.
+    add_test(NAME native-opened-launch COMMAND ${Python3_EXECUTABLE}
+      "${PROJECT_SOURCE_DIR}/tools/check_native_opened_launch.py"
+      --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+      --scratch-root "${oa_netgame_checks}")
+    set_tests_properties(native-opened-launch PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
   endif()
 endif()

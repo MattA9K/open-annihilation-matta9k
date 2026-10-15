@@ -138,9 +138,16 @@ Where things are, in the game's data container:
 |---|---|
 | `Documents/Total Annihilation` | the game folder, shown in the Files app and the Finder |
 | `Documents/Open Annihilation` | the player's own folder: `Saves`, `Screenshots`, `Films`, `Recordings` and `Mods`, shown in the Files app and the Finder; saves and recordings an earlier version kept beside the preferences file move here once |
+| `Documents/Open Annihilation/Games` | a base game copied into the player's folder, with a `.oa-content` record of each file |
+| `Documents/Open Annihilation/Expansions` | expansions copied into the player's folder, each under the base game it extends |
 | `Documents/Total Annihilation (old)` | a folder set aside by a replacement, until removed |
 | `Library/Application Support/net.coreprime.open-annihilation/import/` | the copy being made (`Total Annihilation/`) and its state file |
-| `Library/Application Support/net.coreprime.open-annihilation/demo-1997/` | the demo's unpacked game data |
+| `Documents/Open Annihilation/Games/totala-demo` | the demo, with its `.oa-content` record. An earlier unpack in `Library/Application Support/net.coreprime.open-annihilation/demo-1997/` is copied from once and left there |
+
+The Game files screen still fills `Documents/Total Annihilation`, and that folder is what the
+game plays from. The same start also copies the known files into `Games` and `Expansions` under
+`Documents/Open Annihilation`. That copy only reads the folder the screen filled. On the same
+volume the second copy shares the file's disk blocks, so it takes no extra space.
 
 `--no-game-files-screen` shows the message the game had before the screen instead (the **Check
 again** alert): it says where to copy the folder with the Files app or the Finder, and stays up
@@ -227,25 +234,27 @@ second swipe goes home) and the status bar hidden, plays the touch controls' hap
 game its default folder, the advice shown without one and its **Check again** button, shows the
 player's folders in the Files app (the settings' Your files and Open Mods Folder buttons, and the
 notice of moved saves, open it at the folder through its `shareddocuments` link, as `open` does on
-the Mac), brings the mod packages the system opens in the game into the app, and keeps the
+the Mac), brings each file opened in the game into the app, and keeps the
 system's three-finger editing gestures (undo, copy, paste) from taking the fingers of a
 three-finger touch. The second is the Game files screen's side (see [Game files](#game-files)).
 
-A `.oamod` mod package tapped in the Files app, or shared to Open Annihilation, reaches SDL as an
-opened URL, which SDL sends the engine as a dropped file. Before it does, `ios_platform.mm` brings
-the file into `tmp/Opened mods/<UUID>/` on a background queue: a copy the system made in an Inbox
-folder is moved, and any other file (one opened in place from iCloud Drive or another app's
-files) is copied inside a coordinated read under the access its URL grants, which downloads it
-first. SDL then sends the copy's path; the engine reads it through `take_opened_file`, which
-answers with why when the copy failed, installs it into `Documents/Open Annihilation/Mods`, and
-gives it back through `release_opened_file`, which removes the copy. Each start removes the
-copies an earlier run left. Tried in the iPhone and iPad simulators with packages opened through
-the system from the Files app's own storage (On My iPhone, On My iPad), which the game copies:
-opened while the game ran, a package was brought in and installed in the Mods folder; one that
-started the game was installed at the main menu once the intro had played; one whose `oamod.yaml`
-has errors was refused with them, and the Mods folder stayed as it was; each copy was still there
-while the outcome's message showed, and was gone at the next start. Not yet tried on a device, nor
-with a file the system hands over in an Inbox folder or one in iCloud Drive.
+A file opened in the game (`.oamod`, `.oalang`, `.oamap` or `.oareg`) tapped in the Files app, or
+shared to Open Annihilation, reaches SDL as an opened URL, which SDL sends the engine as a dropped
+file. Before it does, `ios_platform.mm` brings the file into `tmp/Opened mods/<UUID>/` on a
+background queue: a copy the system made in an Inbox folder is moved, and any other file (one
+opened in place from iCloud Drive or another app's files) is copied inside a coordinated read
+under the access its URL grants, which downloads it first. SDL then sends the copy's path; the
+engine reads it through `take_opened_file`, which answers with why when the copy failed, and gives
+the copy back through `release_opened_file`, which removes it. A mod package is installed into
+`Documents/Open Annihilation/Mods`. A language pack or a map pack reaches the same installer. A
+registry file waits to be added. Each start removes the copies an earlier run left. Tried in the
+iPhone and iPad simulators with mod packages opened through the system from the Files app's own
+storage (On My iPhone, On My iPad), which the game copies: opened while the game ran, a package
+was brought in and installed in the Mods folder; one that started the game was installed at the
+main menu once the intro had played; one whose `oamod.yaml` has errors was refused with them, and
+the Mods folder stayed as it was; each copy was still there while the outcome's message showed,
+and was gone at the next start. Not yet tried on a device, nor with a file the system hands over
+in an Inbox folder or one in iCloud Drive.
 The engine offers the Game files screen because these hooks are installed, not because of a build
 option: the desktop installs none.
 
@@ -253,9 +262,9 @@ option: the desktop installs none.
 icon, the distribution keys (see [For distribution](#for-distribution)), shows the Documents
 folder in the Files app and the Finder, reads a mouse or trackpad as a pointer, and declares the
 type of the game's archives (`net.coreprime.open-annihilation.game-archive`: `.hpi`, `.ufo`,
-`.ccx` and `.gp3`), which the picker offers when the player adds archives, and the mod package's
-type (`net.coreprime.open-annihilation.oamod`: `.oamod`), which the app exports and opens as its
-owner, so that the Files app and the share sheet offer Open Annihilation for it, with the app's
+`.ccx` and `.gp3`), which the picker offers when the player adds archives, and the four file
+types (`.oamod`, `.oalang`, `.oamap` and `.oareg`), which the app exports and opens as their
+owner, so that the Files app and the share sheet offer Open Annihilation for each, with the app's
 icon. `app-bundle-file-types` checks both bundles' declarations.
 [LaunchScreen.storyboard](LaunchScreen.storyboard) is the black launch screen with the title.
 
@@ -358,7 +367,7 @@ here: it needs a paid developer team.
   progress (iOS 26), continuing a copy without choosing the folder again, importing a .zip,
   "Open in Open Annihilation", drag and drop, and VoiceOver for the engine-drawn screens. Changes
   made in Manage take effect from the next start: the game reloads itself without ending for a
-  switch of mod (the settings' Mods page), but that reload does not take them up yet.
+  switch of mod (the Library's PLAY NOW), but that reload does not take them up yet.
 
 - No resume after iOS ends the game in the background: a match played alone pauses with the
   in-game menu when the game leaves the screen, and is lost if iOS then ends the process.

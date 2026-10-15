@@ -87,6 +87,12 @@ struct Control {
     std::array<char, kControlTextBytes> text{};
     std::array<char, kControlNameBytes> link{}; // name a click reports
     std::vector<std::string> items;             // list rows (the list's text buffer)
+    /// A list's names, one per `items` entry, when the shown text is not the
+    /// name a choice uses. Empty for every other list, and for a list whose
+    /// rows were replaced without names.
+    std::vector<std::string> item_keys;
+    /// One byte per `items` entry: non-zero greys that row. Empty greys none.
+    std::vector<uint8_t> item_grey;
     /// The picture a hot surface without art shows, as palette indices in
     /// rows of picture_width; empty when it has none, and the surface then
     /// shows a blank. MAPPIC holds the selected map's minimap fitted to its size.
@@ -271,6 +277,27 @@ void panel_bind_lists(Panel& panel) noexcept;
 ///        stand away from the first row the list now shows until it moves.
 void panel_fill_list(Panel& panel, std::string_view name, std::vector<std::string> rows) noexcept;
 
+/// Sets the names beside a list's rows, one per row.
+///
+/// A count other than the list's row count clears the names. A missing list
+/// is ignored. Replacing the rows clears the names.
+///
+/// @param[in,out] panel Panel holding the list.
+/// @param name List name or link.
+/// @param keys One name per row.
+void panel_set_item_keys(Panel& panel, std::string_view name, std::vector<std::string> keys);
+
+/// Marks the greyed rows of a list, one byte per row.
+///
+/// A non-zero byte greys that row. A count other than the list's row count
+/// clears the marks. A missing list is ignored. Replacing the rows clears
+/// the marks.
+///
+/// @param[in,out] panel Panel holding the list.
+/// @param name List name or link.
+/// @param grey One byte per row.
+void panel_set_item_grey(Panel& panel, std::string_view name, std::vector<uint8_t> grey);
+
 /// Selects a row of a list and brings it into view, as 3.1c does when a screen picks a row.
 ///
 /// The list and its group's scroll bar move as gui_input::scroll_list_select moves them.
@@ -314,6 +341,16 @@ using ListPress = oa::ui::gui_input::ScrollListPress;
 /// @param y Pointer row in panel coordinates.
 /// @return What the press did.
 ListPress panel_press_list(Panel& panel, int32_t index, int32_t y) noexcept;
+
+/// The rows a list shows at once: its height over its row pitch, at least one.
+///
+/// The pitch is the list's own, or `line_height` when the list has none.
+/// This is the page the automation endpoint reports and moves.
+///
+/// @param list the list
+/// @param line_height the panel's line height, used when the list has no pitch
+/// @return the rows; 1 when the list has no height
+[[nodiscard]] int32_t list_shown_rows(const Control& list, int32_t line_height) noexcept;
 
 /// Scrolls a list with a pitch by whole rows within its first row and its
 /// last page's first row, then brings its group in line with it.

@@ -6,8 +6,13 @@
 
 #include "oa/ui/engine_settings/dialog.hpp"
 
+#include "content_page.hpp"
 #include "developer.hpp"
+#include "downloads_page.hpp"
 #include "geometry.hpp"
+#include "language_page.hpp"
+#include "registered.hpp"
+#include "settings_rows.hpp"
 
 #include "oa/data/languages.hpp"
 #include "oa/data/languages/interface_text.hpp"
@@ -17,7 +22,9 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <functional>
+#include <initializer_list>
 #include <optional>
 #include <span>
 #include <string>
@@ -27,138 +34,9 @@
 
 namespace oa::ui::engine_settings {
 
-namespace pad_controls = oa::ui::pad_controls;
-
 namespace geometry {
 
 namespace {
-
-/// Mods' one row: the list of the mods the game can play.
-constexpr std::array<Setting, 1> kModsRows{Setting::mod};
-/// Controls' rows: the zoom's limits right under the switch for the wheel,
-/// and how far past the map's edges the view goes under them.
-constexpr std::array<Setting, 6> kControlsRows{
-    Setting::wheel_zoom,
-    Setting::max_zoom_out,
-    Setting::max_zoom_in,
-    Setting::view_past_map_edge,
-    Setting::escape_opens_menu,
-    Setting::switch_alt,
-};
-/// Common Tweaks' rows: the player's own folder first.
-constexpr std::array<Setting, 3> kCommonTweaksRows{
-    Setting::user_folder,
-    Setting::unit_limit,
-    Setting::path_search,
-};
-/// Graphics' rows: how units look zoomed out, the zoom they look so from
-/// right under the way, then the window's frame and the HUD's scaling.
-constexpr std::array<Setting, 12> kGraphicsRows{
-    Setting::max_frame_rate,
-    Setting::anti_aliasing,
-    Setting::screen_size,
-    Setting::hardware_acceleration,
-    Setting::vertical_sync,
-    Setting::menu_scaling,
-    Setting::native_density,
-    Setting::explosion_flash,
-    Setting::zoomed_out_units,
-    Setting::zoomed_out_after,
-    Setting::window_frame,
-    Setting::hud_scaling,
-};
-/// Language's rows: the language first, and the text size right
-/// under the switch it needs.
-constexpr std::array<Setting, 7> kLanguageRows{
-    Setting::language,
-    Setting::modern_fonts,
-    Setting::text_size,
-    Setting::text_outline,
-    Setting::text_shadow,
-    Setting::text_background,
-    Setting::unicode_chat,
-};
-/// Touch's rows: how a finger's drag and hold work, then the latches, the
-/// haptics, the side the controls stand on and their size.
-constexpr std::array<Setting, 6> kTouchRows{
-    Setting::touch_drag,
-    Setting::touch_hold_delay,
-    Setting::touch_latches,
-    Setting::touch_haptics,
-    Setting::touch_left_handed,
-    Setting::touch_control_size,
-};
-/// Controller's rows: the scheme, the right trackpad's pointer, the right
-/// stick and the gyro, what the pad feels and shows, the mirror, then the
-/// rows it shares with Touch.
-constexpr std::array<Setting, 15> kControllerRows{
-    Setting::pad_scheme,
-    Setting::pad_right_trackpad,
-    Setting::pad_pointer_speed,
-    Setting::pad_acceleration,
-    Setting::pad_glide,
-    Setting::pad_right_stick,
-    Setting::pad_magnetism,
-    Setting::pad_gyro,
-    Setting::pad_gyro_speed,
-    Setting::pad_haptics,
-    Setting::pad_prompts,
-    Setting::pad_left_handed,
-    Setting::touch_control_size,
-    Setting::touch_hold_delay,
-    Setting::touch_latches,
-};
-/// Controller's rows under the Steam Input notice, while the gamepad
-/// reaches the game through Steam Input.
-constexpr std::array<Setting, kControllerRows.size() + 1> kSteamInputControllerRows = [] {
-    std::array<Setting, kControllerRows.size() + 1> rows{};
-    rows[0] = Setting::pad_steam_input_notice;
-    for (std::size_t index = 0; index < kControllerRows.size(); ++index)
-        rows[index + 1] = kControllerRows[index];
-    return rows;
-}();
-/// Game files' rows: what is installed with its MANAGE… button, the
-/// backups switch, and where the files are.
-constexpr std::array<Setting, 3> kGameFilesRows{
-    Setting::game_files_summary,
-    Setting::game_files_backed_up,
-    Setting::game_files_location,
-};
-/// Developer's rows, over its list.
-constexpr std::array<Setting, developer_row_count> kDeveloperRows{
-    Setting::developer_mode,
-    Setting::frame_stats,
-};
-/// The mod's keys.
-constexpr std::array<Setting, 3> kModKeysRows{
-    Setting::snap_override_key,
-    Setting::autoclick_key,
-    Setting::rotate_build_key,
-};
-/// Patrolling builders.
-constexpr std::array<Setting, 3> kModPatrolRows{
-    Setting::patrol_hold,
-    Setting::patrol_maneuver,
-    Setting::patrol_roam,
-};
-/// Guarding builders.
-constexpr std::array<Setting, 3> kModGuardRows{
-    Setting::guard_hold,
-    Setting::guard_maneuver,
-    Setting::guard_roam,
-};
-/// The build tools and the mex snap.
-constexpr std::array<Setting, 3> kModToolsRows{
-    Setting::optimize_dt_rows,
-    Setting::full_rings,
-    Setting::mex_snap_radius,
-};
-/// The wreck snap, the chat and the resource bar.
-constexpr std::array<Setting, 3> kModChatRows{
-    Setting::wreck_snap_radius,
-    Setting::chat_backdrop,
-    Setting::panel_background,
-};
 
 /// The sections a dialog of the engine's settings lists, in the list's order.
 struct EnginePageList {
@@ -168,7 +46,7 @@ struct EnginePageList {
 
 /// Returns the engine's sections a dialog lists, in the list's order: the
 /// five that every dialog lists, then Touch, Controller and Game files where
-/// each is listed, then Developer.
+/// each is listed, then Downloads, then Game Content, then System, then Developer.
 ///
 /// @param touch the dialog lists Touch
 /// @param controller the dialog lists Controller
@@ -178,7 +56,11 @@ constexpr EnginePageList engine_page_list(bool touch, bool controller, bool game
     EnginePageList list{};
     const auto add = [&list](Page page) { list.pages[list.count++] = page; };
     for (const Page page :
-         {Page::mods, Page::controls, Page::common_tweaks, Page::language, Page::graphics})
+         {Page::controls,
+          Page::common_tweaks,
+          Page::language,
+          Page::graphics,
+          Page::user_interface})
         add(page);
     if (touch)
         add(Page::touch);
@@ -186,6 +68,9 @@ constexpr EnginePageList engine_page_list(bool touch, bool controller, bool game
         add(Page::controller);
     if (game_files)
         add(Page::game_files);
+    add(Page::downloads);
+    add(Page::game_content);
+    add(Page::system);
     add(Page::developer);
     return list;
 }
@@ -212,7 +97,7 @@ constexpr std::array<EnginePageList, 8> kEnginePageLists{
     engine_page_list(false, true, true),
     engine_page_list(true, true, true),
 };
-static_assert(kEnginePageLists.front().count == 6, "six sections without the optional three");
+static_assert(kEnginePageLists.front().count == 9, "nine sections without the optional three");
 static_assert(
     kEnginePageLists.back().count == most_listed_pages,
     "the longest list holds the most sections a dialog lists"
@@ -220,21 +105,35 @@ static_assert(
 /// The one section a Language dialog lists.
 constexpr std::array<Page, 1> kLanguageTextPages{Page::language};
 
-/// Tells whether every section's entry number is its place in the list of
-/// the engine's settings with Touch and Controller, a list without either
-/// only leaving its number out.
+/// Tells whether the sections before Downloads keep their places in the list
+/// with Touch and Controller, and every engine list ends Downloads, Game
+/// Content, System, Developer.
 ///
-/// @return true when page_control follows the list with Touch and Controller
+/// @return true when those numbers hold
 constexpr bool entries_follow_the_list() noexcept {
     const EnginePageList& list = kEnginePageLists[engine_page_list_index(true, true, false)];
-    for (std::size_t index = 0; index < list.count; ++index)
+    if (list.count < 4)
+        return false;
+    for (std::size_t index = 0; index + 4 < list.count; ++index)
         if (page_control(list.pages[index]) != static_cast<int32_t>(index))
             return false;
+    if (page_control(Page::downloads) != 9 || page_control(Page::game_content) != 11 ||
+        page_control(Page::system) != 10 || page_control(Page::developer) != 7)
+        return false;
+    for (const EnginePageList& listed : kEnginePageLists) {
+        if (listed.count < 4 || listed.pages[listed.count - 4] != Page::downloads ||
+            listed.pages[listed.count - 3] != Page::game_content ||
+            listed.pages[listed.count - 2] != Page::system ||
+            listed.pages[listed.count - 1] != Page::developer)
+            return false;
+    }
     return true;
 }
 
 static_assert(
-    entries_follow_the_list(), "each entry's number is its place with Touch and Controller listed"
+    entries_follow_the_list(),
+    "entries before Downloads keep their places, and Downloads, Game Content, System, Developer "
+    "end every list"
 );
 static_assert(
     page_control(Page::game_files) == page_control(Page::developer) + 1,
@@ -244,495 +143,6 @@ static_assert(
 constexpr std::array<Page, 5> kModPages{
     Page::mod_keys, Page::mod_patrol, Page::mod_guard, Page::mod_tools, Page::mod_chat
 };
-/// The choices of a three-way mod option slider.
-constexpr int32_t kChoiceStops = 3;
-
-/// Returns a key's place among option_keys.
-///
-/// @param code the key's SDL key code
-/// @return its index; 0 for a key not offered
-int32_t option_key_index(uint32_t code) noexcept {
-    for (std::size_t index = 0; index < option_keys.size(); ++index)
-        if (option_keys[index].code == code)
-            return static_cast<int32_t>(index);
-    return 0;
-}
-
-/// Returns the mod option a key setting keeps its key in.
-///
-/// @param options the mod options
-/// @param setting a key setting
-/// @return the key's SDL key code
-uint32_t& key_of(ModOptions& options, Setting setting) noexcept {
-    if (setting == Setting::autoclick_key)
-        return options.autoclick_key;
-    if (setting == Setting::rotate_build_key)
-        return options.rotate_build_key;
-    return options.snap_override_key;
-}
-
-/// Returns the mod option a three-way setting keeps its choice in.
-///
-/// @param options the mod options
-/// @param setting a patrol, guard or background setting
-/// @return the choice, 0 to 2
-uint8_t& choice_of(ModOptions& options, Setting setting) noexcept {
-    switch (setting) {
-    case Setting::patrol_hold:
-        return options.patrol[0];
-    case Setting::patrol_maneuver:
-        return options.patrol[1];
-    case Setting::patrol_roam:
-        return options.patrol[2];
-    case Setting::guard_hold:
-        return options.guard[0];
-    case Setting::guard_maneuver:
-        return options.guard[1];
-    case Setting::guard_roam:
-        return options.guard[2];
-    default:
-        return options.panel_background;
-    }
-}
-
-/// The lowest level that draws units finer and needs the warning hint.
-constexpr AntiAliasing kDemandingLevel = AntiAliasing::x8;
-
-/// Enhanced anti-aliasing's hint while frames are drawn in Full, by the
-/// samples a pixel the graphics card draws the battlefield with: there the
-/// processor's anti-aliasing never runs, and the row's level is the
-/// samples across, as the renderer's texture limit and the memory allow
-/// at the window's size; where they allow fewer, the second line says so.
-constexpr std::array<std::string_view, 2> kFullAntiAliasingOff{
-    "In Full the graphics card draws the view 1:1;", "a level draws it finer for smoother edges."
-};
-constexpr std::string_view kFullAntiAliasingScaled = "and scales them down for smoother edges.";
-constexpr std::string_view kFullAntiAliasingCapped = "the most this window allows, scaled down.";
-constexpr std::array<std::string_view, 2> kFullAntiAliasingTwice{
-    "In Full the card draws 2x2 samples a pixel", kFullAntiAliasingScaled
-};
-constexpr std::array<std::string_view, 2> kFullAntiAliasingFourTimes{
-    "In Full the card draws 4x4 samples a pixel", kFullAntiAliasingScaled
-};
-constexpr std::array<std::string_view, 2> kFullAntiAliasingEightTimes{
-    "In Full the card draws 8x8 samples a pixel", kFullAntiAliasingScaled
-};
-constexpr std::array<std::string_view, 2> kFullAntiAliasingSixteenTimes{
-    "In Full the card draws 16x16 samples a pixel", kFullAntiAliasingScaled
-};
-
-/// A switch setting and the member of EngineSettings, or of its mod
-/// options, it is.
-struct SwitchMember {
-    Setting setting{};               ///< the switch
-    bool EngineSettings::* member{}; ///< its value; null for a mod option's
-    bool ModOptions::* mod_member{}; ///< a mod option's value; null for the engine's
-};
-
-/// Every switch and its value: the one table switch_on and set_switch read.
-constexpr std::array<SwitchMember, 22> kSwitches{{
-    {Setting::wheel_zoom, &EngineSettings::wheel_zoom, nullptr},
-    {Setting::escape_opens_menu, &EngineSettings::escape_opens_menu, nullptr},
-    {Setting::switch_alt, &EngineSettings::switch_alt, nullptr},
-    {Setting::developer_mode, &EngineSettings::developer_mode, nullptr},
-    {Setting::frame_stats, &EngineSettings::frame_stats, nullptr},
-    {Setting::vertical_sync, &EngineSettings::vertical_sync, nullptr},
-    {Setting::native_density, &EngineSettings::native_density, nullptr},
-    {Setting::hud_scaling, &EngineSettings::hud_scaling, nullptr},
-    {Setting::modern_fonts, &EngineSettings::modern_fonts, nullptr},
-    {Setting::text_outline, &EngineSettings::text_outline, nullptr},
-    {Setting::text_shadow, &EngineSettings::text_shadow, nullptr},
-    {Setting::text_background, &EngineSettings::text_background, nullptr},
-    {Setting::unicode_chat, &EngineSettings::unicode_chat, nullptr},
-    {Setting::touch_haptics, &EngineSettings::touch_haptics, nullptr},
-    {Setting::touch_left_handed, &EngineSettings::touch_left_handed, nullptr},
-    {Setting::pad_glide, &EngineSettings::pad_glide, nullptr},
-    {Setting::pad_magnetism, &EngineSettings::pad_magnetism, nullptr},
-    {Setting::pad_left_handed, &EngineSettings::pad_left_handed, nullptr},
-    {Setting::game_files_backed_up, &EngineSettings::game_files_backed_up, nullptr},
-    {Setting::optimize_dt_rows, nullptr, &ModOptions::optimize_dt_rows},
-    {Setting::full_rings, nullptr, &ModOptions::full_rings},
-    {Setting::chat_backdrop, nullptr, &ModOptions::chat_backdrop},
-}};
-
-/// Hardware acceleration's captions, in hardware_acceleration_levels' order.
-constexpr std::array<std::string_view, 3> kAccelerationCaptions{"Off", "Basic", "Full"};
-static_assert(
-    kAccelerationCaptions.size() == hardware_acceleration_levels.size(),
-    "every level of hardware acceleration has its caption"
-);
-/// Menu scaling's captions, in menu_scaling_choices' order.
-constexpr std::array<std::string_view, 3> kMenuScalingCaptions{
-    "Sharp", "Whole steps", "Unfiltered"
-};
-static_assert(
-    kMenuScalingCaptions.size() == menu_scaling_choices.size(),
-    "every way of Menu scaling has its caption"
-);
-/// Explosion flash's captions, in explosion_flash_choices' order.
-constexpr std::array<std::string_view, 3> kExplosionFlashCaptions{"Off", "Reduced", "Full"};
-static_assert(
-    kExplosionFlashCaptions.size() == explosion_flash_choices.size(),
-    "every level of Explosion flash has its caption"
-);
-/// View past the map's edge's captions, in view_past_map_edge_choices' order.
-constexpr std::array<std::string_view, 3> kViewPastMapEdgeCaptions{"Off", "25%", "50%"};
-static_assert(
-    kViewPastMapEdgeCaptions.size() == view_past_map_edge_choices.size(),
-    "every choice of View past the map's edge has its caption"
-);
-/// Zoomed out units' captions, in zoomed_out_units_choices' order.
-constexpr std::array<std::string_view, 3> kZoomedOutUnitsCaptions{"Rendered", "Dots", "Icons"};
-static_assert(
-    kZoomedOutUnitsCaptions.size() == zoomed_out_units_choices.size(),
-    "every way of Zoomed out units has its caption"
-);
-/// Window frame's captions, in window_frame_choices' order.
-constexpr std::array<std::string_view, 2> kWindowFrameCaptions{"Hidden in play", "Always shown"};
-static_assert(
-    kWindowFrameCaptions.size() == window_frame_choices.size(),
-    "every way of Window frame has its caption"
-);
-/// One-finger drag's captions, in touch_drag_choices' order.
-constexpr std::array<std::string_view, 3> kTouchDragCaptions{"Automatic", "Box", "Scroll"};
-static_assert(
-    kTouchDragCaptions.size() == touch_drag_choices.size(),
-    "every way of One-finger drag has its caption"
-);
-/// QUEUE and ADD's captions, in touch_latches_choices' order.
-constexpr std::array<std::string_view, 2> kTouchLatchesCaptions{"Stay on", "One action"};
-static_assert(
-    kTouchLatchesCaptions.size() == touch_latches_choices.size(),
-    "every way of QUEUE and ADD has its caption"
-);
-
-/// Control size's captions, in control_size_choices' order.
-constexpr std::array<std::string_view, 3> kControlSizeCaptions{"Standard", "Large", "Larger"};
-static_assert(
-    kControlSizeCaptions.size() == control_size_choices.size(), "every Control size has its caption"
-);
-/// The schemes, in the order Scheme's strip offers them.
-constexpr std::array<pad_controls::Scheme, 2> kSchemeChoices{
-    pad_controls::Scheme::trackpads, pad_controls::Scheme::sticks
-};
-/// Scheme's captions, in kSchemeChoices' order.
-constexpr std::array<std::string_view, 2> kSchemeCaptions{"Trackpads", "Sticks"};
-/// The right trackpad's ways, in the order Right trackpad's strip offers them.
-constexpr std::array<pad_controls::RightTrackpad, 2> kRightTrackpadChoices{
-    pad_controls::RightTrackpad::relative, pad_controls::RightTrackpad::absolute
-};
-/// Right trackpad's captions, in kRightTrackpadChoices' order: the pointer,
-/// relative and absolute.
-constexpr std::array<std::string_view, 2> kRightTrackpadCaptions{"Relative", "Absolute"};
-/// The accelerations, in the order Pointer acceleration's strip offers them.
-constexpr std::array<pad_controls::Acceleration, 3> kAccelerationChoices{
-    pad_controls::Acceleration::off,
-    pad_controls::Acceleration::low,
-    pad_controls::Acceleration::high
-};
-/// Pointer acceleration's captions, in kAccelerationChoices' order.
-constexpr std::array<std::string_view, 3> kPadAccelerationCaptions{"Off", "Low", "High"};
-/// The right stick's roles, in the order Right stick's strip offers them.
-constexpr std::array<pad_controls::RightStick, 3> kRightStickChoices{
-    pad_controls::RightStick::zoom_and_pages,
-    pad_controls::RightStick::pointer,
-    pad_controls::RightStick::nothing
-};
-/// Right stick's captions, in kRightStickChoices' order: Zoom is zoom and
-/// build pages, which its hint says in full.
-constexpr std::array<std::string_view, 3> kRightStickCaptions{"Zoom", "Pointer", "Nothing"};
-/// The gyro's ways, in the order Gyro pointer's drop-down offers them.
-constexpr std::array<pad_controls::Gyro, 4> kGyroChoices{
-    pad_controls::Gyro::off,
-    pad_controls::Gyro::right_pad_touched,
-    pad_controls::Gyro::right_stick_touched,
-    pad_controls::Gyro::always
-};
-/// Gyro pointer's choices' texts, in kGyroChoices' order.
-constexpr std::array<std::string_view, 4> kGyroCaptions{
-    "Off", "While the right pad is touched", "While the right stick is touched", "Always"
-};
-/// The haptics' strengths, in the order Haptics' strip offers them.
-constexpr std::array<pad_controls::Haptics, 3> kHapticsChoices{
-    pad_controls::Haptics::off, pad_controls::Haptics::light, pad_controls::Haptics::strong
-};
-/// The Controller section's Haptics' captions, in kHapticsChoices' order.
-constexpr std::array<std::string_view, 3> kPadHapticsCaptions{"Off", "Light", "Strong"};
-/// The button prompts, in the order Button prompts' drop-down offers them.
-constexpr std::array<pad_controls::Prompts, 6> kPromptsChoices{
-    pad_controls::Prompts::automatic,
-    pad_controls::Prompts::steam_deck,
-    pad_controls::Prompts::xbox,
-    pad_controls::Prompts::playstation,
-    pad_controls::Prompts::nintendo,
-    pad_controls::Prompts::off
-};
-/// Button prompts' choices' texts, in kPromptsChoices' order.
-constexpr std::array<std::string_view, 6> kPromptsCaptions{
-    "Automatic", "Steam Deck", "Xbox", "PlayStation", "Nintendo", "Off"
-};
-
-/// Maximum zoom out's choices' texts, in zoom_out_limits' order.
-constexpr std::array<std::string_view, 7> kZoomOutCaptions{
-    "Automatic", "Whole map", "1/32", "1/16", "1/8", "1/4", "1/2"
-};
-static_assert(
-    kZoomOutCaptions.size() == zoom_out_limits.size(),
-    "every Maximum zoom out choice has its caption"
-);
-/// After zoom's choices' texts, in zoomed_out_afters' order.
-constexpr std::array<std::string_view, 7> kZoomedOutAfterCaptions{
-    "1/2", "1/3", "1/4", "1/6", "1/8", "1/12", "1/16"
-};
-static_assert(
-    kZoomedOutAfterCaptions.size() == zoomed_out_afters.size(),
-    "every After zoom choice has its caption"
-);
-/// Maximum zoom in's choices' texts, in zoom_in_limits' order.
-constexpr std::array<std::string_view, 4> kZoomInCaptions{"None", "2x", "3x", "4x"};
-static_assert(
-    kZoomInCaptions.size() == zoom_in_limits.size(), "every Maximum zoom in choice has its caption"
-);
-
-/// Returns a choice's place among the choices a strip offers.
-///
-/// @param choices the strip's choices, left to right
-/// @param chosen the choice
-/// @return its index; 0 for a choice not offered
-template <typename Choice, std::size_t Count>
-std::size_t choice_place(const std::array<Choice, Count>& choices, Choice chosen) noexcept {
-    const auto found = std::find(choices.begin(), choices.end(), chosen);
-    return found == choices.end() ? 0 : static_cast<std::size_t>(found - choices.begin());
-}
-
-/// Returns a switch's entry in the table.
-///
-/// @param setting the setting
-/// @return its entry; null for a setting that is not a switch
-const SwitchMember* switch_member(Setting setting) noexcept {
-    for (const SwitchMember& entry : kSwitches)
-        if (entry.setting == setting)
-            return &entry;
-    return nullptr;
-}
-
-/// The texts of Hardware acceleration's status, two lines for each state;
-/// an empty second line is the reach line, which says what the graphics
-/// card does on this machine.
-struct StatusText {
-    AccelerationState state{}; ///< the state
-    std::string_view first;    ///< what runs, or why not
-    std::string_view second;   ///< what draws the view or what to do; empty for the reach
-};
-
-/// The second line of a state the processor draws in.
-constexpr std::string_view kProcessorDraws = "The processor draws and scales the view.";
-/// The first line of the Off states.
-constexpr std::string_view kOff = "Off: the processor draws and scales the view.";
-/// The second line of a state that setting it to Off and back, or Restore
-/// defaults, may lift.
-constexpr std::string_view kRetry = "Set it to Off and back, or restore defaults.";
-/// The second line of a state at a start that passed over a failed driver.
-constexpr std::string_view kDriverSkipped = "A failed graphics driver is skipped.";
-/// The first line of a machine under 2 GiB.
-constexpr std::string_view kNeedsMemory = "Not in use: it needs at least 2 GB of memory.";
-
-/// The second line of a state in which Full was asked for and Basic is in
-/// use, that setting it to Off and back, or Restore defaults, may lift.
-constexpr std::string_view kRetryFull = "Set it to Off and back, or restore defaults.";
-/// The first line of Full in use.
-constexpr std::string_view kFullInUse = "Full in use: the graphics card draws the view.";
-
-/// Every state's status, in AccelerationState's order.
-constexpr std::array<StatusText, 25> kStatusTexts{{
-    {AccelerationState::off_driver_skipped, kOff, kDriverSkipped},
-    {AccelerationState::needs_memory_driver_skipped, kNeedsMemory, kDriverSkipped},
-    {AccelerationState::needs_memory, kNeedsMemory, kProcessorDraws},
-    {AccelerationState::off_by_setting, kOff, "Basic lets the graphics card scale it evenly."},
-    {AccelerationState::off_by_command_line, kOff, "For this run only. The setting is kept."},
-    {AccelerationState::environment_driver,
-     "Not in use: the environment names a driver.",
-     kProcessorDraws},
-    {AccelerationState::too_little_memory,
-     "Not in use: there is too little memory.",
-     kProcessorDraws},
-    {AccelerationState::waiting_for_game_end,
-     "Off for this game: in a shared game, Basic",
-     "takes effect from the next game."},
-    {AccelerationState::engine_error, "Not in use: an error stopped it for this run.", kRetry},
-    {AccelerationState::driver_failed, "Not in use: the graphics driver failed.", kRetry},
-    {AccelerationState::game_stopped, "Not in use: the game stopped while using it.", kRetry},
-    {AccelerationState::no_usable_card,
-     "Not in use: no usable graphics card was found.",
-     kProcessorDraws},
-    {AccelerationState::lacks_feature,
-     "Not in use: the graphics card lacks a feature.",
-     kProcessorDraws},
-    {AccelerationState::cannot_save,
-     "Not in use: the game cannot save its files.",
-     kProcessorDraws},
-    {AccelerationState::next_start,
-     "Takes effect from the next start.",
-     "The processor draws and scales the view until then."},
-    {AccelerationState::full_cannot_save, "Basic in use: the game cannot save its files.", {}},
-    {AccelerationState::full_too_little_memory,
-     "Basic in use: there is too little memory for Full.",
-     {}},
-    {AccelerationState::full_stopped, "Basic in use: Full stopped for this run.", kRetryFull},
-    {AccelerationState::full_failed_before,
-     "Basic in use: Full failed before on this driver.",
-     kRetryFull},
-    {AccelerationState::full_lacks_feature,
-     "Basic in use: the card lacks a feature Full needs.",
-     {}},
-    {AccelerationState::full_waiting_for_game_end,
-     "Basic for this game: in a shared game, Full",
-     "takes effect from the next game."},
-    {AccelerationState::in_use_on_another_driver,
-     "Basic in use, on another driver: one failed.",
-     {}},
-    {AccelerationState::in_use_no_smoothing,
-     "Basic in use; no smoothing when zoomed out here.",
-     {}},
-    {AccelerationState::full_in_use, kFullInUse, {}},
-    {AccelerationState::in_use, "Basic in use.", {}},
-}};
-
-/// Tells whether kStatusTexts holds every state once, in AccelerationState's order.
-///
-/// @return true when each entry's state is its index
-constexpr bool status_texts_in_order() noexcept {
-    for (std::size_t index = 0; index < kStatusTexts.size(); ++index)
-        if (static_cast<std::size_t>(kStatusTexts[index].state) != index)
-            return false;
-    return kStatusTexts.size() == static_cast<std::size_t>(AccelerationState::in_use) + 1;
-}
-
-static_assert(status_texts_in_order(), "every state of Hardware acceleration has its status");
-
-/// The first line of AccelerationState::waiting_for_game_end for Full in a
-/// shared game; kStatusTexts holds Basic's.
-constexpr std::string_view kWaitingForFull = "Off for this game: in a shared game, Full";
-/// The first line of AccelerationState::waiting_for_game_end for Basic in a replay.
-constexpr std::string_view kWaitingInReplay = "Off for this game: in a replay, Basic";
-/// The first line of AccelerationState::waiting_for_game_end for Full in a replay.
-constexpr std::string_view kWaitingForFullInReplay = "Off for this game: in a replay, Full";
-/// The first line of AccelerationState::full_waiting_for_game_end in a
-/// replay; kStatusTexts holds a shared game's.
-constexpr std::string_view kBasicWaitingForFullInReplay = "Basic for this game: in a replay, Full";
-/// The second line of Full in use, by its anti-aliasing: none, and 2, 4, 8
-/// and 16 samples across.
-constexpr std::string_view kFullReach = "Smoothed at every zoom.";
-constexpr std::string_view kFullReachTwice = "Smoothed at every zoom; 2x2 samples a pixel.";
-constexpr std::string_view kFullReachFourfold = "Smoothed at every zoom; 4x4 samples a pixel.";
-constexpr std::string_view kFullReachEightfold = "Smoothed at every zoom; 8x8 samples a pixel.";
-constexpr std::string_view kFullReachSixteenfold = "Smoothed at every zoom; 16x16 samples a pixel.";
-/// The anti-aliasing the lines above name.
-constexpr uint8_t kSupersampleTwice = 2;
-constexpr uint8_t kSupersampleFourfold = 4;
-constexpr uint8_t kSupersampleEightfold = 8;
-constexpr uint8_t kSupersampleSixteenfold = 16;
-
-/// Returns the first line of AccelerationState::waiting_for_game_end: the
-/// match it waits for, and the level that takes effect after it.
-///
-/// @param acceleration the status
-/// @return the line; Basic's for a status that asks for no more
-std::string_view waiting_line(const AccelerationStatus& acceleration) noexcept {
-    if (acceleration.state == AccelerationState::full_waiting_for_game_end)
-        return acceleration.replay ? kBasicWaitingForFullInReplay
-                                   : kStatusTexts[static_cast<std::size_t>(
-                                                      AccelerationState::full_waiting_for_game_end
-                                                  )]
-                                         .first;
-    const bool full = acceleration.asked == HardwareAcceleration::full;
-    if (acceleration.replay)
-        return full ? kWaitingForFullInReplay : kWaitingInReplay;
-    return full ? kWaitingForFull
-                : kStatusTexts[static_cast<std::size_t>(AccelerationState::waiting_for_game_end)]
-                      .first;
-}
-
-/// Tells whether a state is Full in use, whose second line names its
-/// anti-aliasing rather than the reach.
-///
-/// @param state the state
-/// @return true for Full in use
-bool full_in_use(AccelerationState state) noexcept {
-    return state == AccelerationState::full_in_use;
-}
-
-/// Returns the second line of Full in use: smoothed at every zoom, with its
-/// anti-aliasing where there is any.
-///
-/// @param supersample the samples a pixel across; 1 for no anti-aliasing
-/// @return the line
-std::string_view full_line(uint8_t supersample) noexcept {
-    if (supersample >= kSupersampleSixteenfold)
-        return kFullReachSixteenfold;
-    if (supersample >= kSupersampleEightfold)
-        return kFullReachEightfold;
-    if (supersample >= kSupersampleFourfold)
-        return kFullReachFourfold;
-    if (supersample >= kSupersampleTwice)
-        return kFullReachTwice;
-    return kFullReach;
-}
-
-/// Returns the reach line: what the graphics card does on this machine.
-///
-/// @param reach the reach
-/// @return the line
-std::string_view reach_line(AccelerationReach reach) noexcept {
-    switch (reach) {
-    case AccelerationReach::menus:
-        return "It scales the menus and the interface evenly.";
-    case AccelerationReach::zoomed_in:
-        return "It scales the interface and zoomed-in view evenly.";
-    case AccelerationReach::zoomed_out:
-        return "It scales evenly and smooths the zoomed-out view.";
-    case AccelerationReach::nearest_zoomed_out:
-        return "It smooths the zoomed-out view.";
-    case AccelerationReach::nearest_none:
-        return "Here the view is drawn as when it is off.";
-    }
-    return {};
-}
-
-/// Returns a screen size's place among the Screen size slider's stops.
-///
-/// @param size the screen size
-/// @param offered_sizes the stops, in order
-/// @return its index; 0, the first stop's, for a size not offered
-int32_t screen_size_index(ScreenSize size, std::span<const ScreenSize> offered_sizes) noexcept {
-    const auto found = std::find(offered_sizes.begin(), offered_sizes.end(), size);
-    return found == offered_sizes.end() ? 0 : static_cast<int32_t>(found - offered_sizes.begin());
-}
-
-/// Returns a setting's lock, a check's own section's when it gives one.
-///
-/// @param locks the dialog's locks
-/// @param setting the setting
-/// @param section a check's own section; null for the dialog's
-/// @return why it cannot be changed now
-Lock row_lock(const Locks& locks, Setting setting, const SectionHooks* section) {
-    const Lock lock = lock_of(locks, setting);
-    if (section == nullptr || section->lock == nullptr)
-        return lock;
-    return section->lock(section->context, setting, lock);
-}
-
-/// Tells whether a setting's hint lines are its status, as a check's own
-/// section has it when it says.
-///
-/// @param setting the setting
-/// @param section a check's own section; null for the dialog's
-/// @return true when its hint lines are its status
-bool row_hint_is_status(Setting setting, const SectionHooks* section) {
-    if (section == nullptr || section->hint_is_status == nullptr)
-        return hint_is_status(setting);
-    return section->hint_is_status(section->context, setting);
-}
 
 /// Returns a section's place among Dialog::scroll.
 ///
@@ -742,459 +152,15 @@ std::size_t scroll_index(Page page) noexcept {
     return std::min(static_cast<std::size_t>(page), page_count - 1);
 }
 
-/// Returns a whole number of a range's steps, rounded to the nearest.
-///
-/// @param value the value
-/// @param lowest the range's lowest value
-/// @param step the step
-/// @return (value - lowest) / step, rounded half up
-int32_t steps_from(int64_t value, int64_t lowest, int64_t step) noexcept {
-    return static_cast<int32_t>((value - lowest + step / 2) / step);
-}
-
 } // namespace
 
-bool is_slider(Setting setting) noexcept {
-    switch (setting) {
-    case Setting::path_search:
-    case Setting::unit_limit:
-    case Setting::max_frame_rate:
-    case Setting::screen_size:
-    case Setting::snap_override_key:
-    case Setting::autoclick_key:
-    case Setting::rotate_build_key:
-    case Setting::patrol_hold:
-    case Setting::patrol_maneuver:
-    case Setting::patrol_roam:
-    case Setting::guard_hold:
-    case Setting::guard_maneuver:
-    case Setting::guard_roam:
-    case Setting::mex_snap_radius:
-    case Setting::wreck_snap_radius:
-    case Setting::panel_background:
-    case Setting::text_size:
-    case Setting::touch_hold_delay:
-    case Setting::pad_pointer_speed:
-    case Setting::pad_gyro_speed:
-        return true;
-    default:
-        return false;
-    }
-}
-
-Slider slider_of(
-    Setting setting, uint16_t highest_offered_unit, std::span<const ScreenSize> offered_sizes
-) noexcept {
-    switch (setting) {
-    case Setting::path_search:
-        return Slider{highest_path_search_multiplier};
-    case Setting::unit_limit:
-        return Slider{(highest_offered_unit - lowest_unit_limit) / unit_limit_step + 1};
-    case Setting::max_frame_rate:
-        return Slider{
-            static_cast<int32_t>((highest_frame_rate - lowest_frame_rate) / frame_rate_step + 1)
-        };
-    case Setting::screen_size:
-        return Slider{std::max(static_cast<int32_t>(offered_sizes.size()), int32_t{1})};
-    case Setting::snap_override_key:
-    case Setting::autoclick_key:
-    case Setting::rotate_build_key:
-        return Slider{static_cast<int32_t>(option_keys.size())};
-    case Setting::patrol_hold:
-    case Setting::patrol_maneuver:
-    case Setting::patrol_roam:
-    case Setting::guard_hold:
-    case Setting::guard_maneuver:
-    case Setting::guard_roam:
-    case Setting::panel_background:
-        return Slider{kChoiceStops};
-    case Setting::mex_snap_radius:
-    case Setting::wreck_snap_radius:
-        return Slider{most_snap_radius + 1};
-    case Setting::text_size:
-        return Slider{(highest_text_size - lowest_text_size) / text_size_step + 1};
-    case Setting::touch_hold_delay:
-        return Slider{static_cast<int32_t>(
-            (highest_touch_hold_ms - lowest_touch_hold_ms) / touch_hold_step_ms + 1
-        )};
-    case Setting::pad_pointer_speed:
-        return Slider{static_cast<int32_t>(
-            (pad_controls::highest_pointer_speed - pad_controls::lowest_pointer_speed) /
-                pad_controls::pointer_speed_step +
-            1
-        )};
-    case Setting::pad_gyro_speed:
-        return Slider{static_cast<int32_t>(
-            (pad_controls::highest_gyro_speed - pad_controls::lowest_gyro_speed) /
-                pad_controls::gyro_speed_step +
-            1
-        )};
-    default:
-        return Slider{2};
-    }
-}
-
-int32_t stops_of(
-    const EngineSettings& settings,
-    Setting setting,
-    uint16_t highest_offered_unit,
-    std::span<const ScreenSize> offered_sizes
-) noexcept {
-    const auto& options = settings.mod_options;
-    if (setting == Setting::mex_snap_radius)
-        return std::clamp(options.mex_snap_most, int32_t{1}, most_snap_radius) + 1;
-    if (setting == Setting::wreck_snap_radius)
-        return std::clamp(options.wreck_snap_most, int32_t{1}, most_snap_radius) + 1;
-    return slider_of(setting, highest_offered_unit, offered_sizes).stops;
-}
-
-int32_t stop_of(
-    const EngineSettings& settings,
-    Setting setting,
-    uint16_t highest_offered_unit,
-    std::span<const ScreenSize> offered_sizes
-) noexcept {
-    const int32_t last = stops_of(settings, setting, highest_offered_unit, offered_sizes) - 1;
-    int32_t stop = 0;
-    switch (setting) {
-    case Setting::path_search:
-        stop = path_search_multiplier(settings.path_search_nodes) - 1;
-        break;
-    case Setting::unit_limit:
-        stop = steps_from(settings.unit_limit, lowest_unit_limit, unit_limit_step);
-        break;
-    case Setting::max_frame_rate:
-        stop = steps_from(settings.max_frame_rate, lowest_frame_rate, frame_rate_step);
-        break;
-    case Setting::screen_size:
-        stop = screen_size_index(settings.screen_size, offered_sizes);
-        break;
-    case Setting::snap_override_key:
-    case Setting::autoclick_key:
-    case Setting::rotate_build_key: {
-        auto options = settings.mod_options;
-        stop = option_key_index(key_of(options, setting));
-        break;
-    }
-    case Setting::patrol_hold:
-    case Setting::patrol_maneuver:
-    case Setting::patrol_roam:
-    case Setting::guard_hold:
-    case Setting::guard_maneuver:
-    case Setting::guard_roam:
-    case Setting::panel_background: {
-        auto options = settings.mod_options;
-        stop = choice_of(options, setting);
-        break;
-    }
-    case Setting::mex_snap_radius:
-        stop = settings.mod_options.mex_snap_radius;
-        break;
-    case Setting::wreck_snap_radius:
-        stop = settings.mod_options.wreck_snap_radius;
-        break;
-    case Setting::text_size:
-        stop = steps_from(settings.text_size, lowest_text_size, text_size_step);
-        break;
-    case Setting::touch_hold_delay:
-        stop = steps_from(settings.touch_hold_ms, lowest_touch_hold_ms, touch_hold_step_ms);
-        break;
-    case Setting::pad_pointer_speed:
-        stop = steps_from(
-            settings.pad_pointer_speed,
-            pad_controls::lowest_pointer_speed,
-            pad_controls::pointer_speed_step
-        );
-        break;
-    case Setting::pad_gyro_speed:
-        stop = steps_from(
-            settings.pad_gyro_speed, pad_controls::lowest_gyro_speed, pad_controls::gyro_speed_step
-        );
-        break;
-    default:
-        break;
-    }
-    return std::clamp(stop, int32_t{0}, last);
-}
-
-void set_stop(
-    EngineSettings& settings,
-    Setting setting,
-    int32_t stop,
-    uint16_t highest_offered_unit,
-    std::span<const ScreenSize> offered_sizes
-) noexcept {
-    const int32_t clamped = std::clamp(
-        stop, int32_t{0}, stops_of(settings, setting, highest_offered_unit, offered_sizes) - 1
-    );
-    auto& options = settings.mod_options;
-    switch (setting) {
-    case Setting::path_search:
-        settings.path_search_nodes = base_path_search_nodes * (clamped + 1);
-        break;
-    case Setting::unit_limit:
-        settings.unit_limit = static_cast<uint16_t>(lowest_unit_limit + clamped * unit_limit_step);
-        break;
-    case Setting::max_frame_rate:
-        settings.max_frame_rate =
-            lowest_frame_rate + static_cast<uint32_t>(clamped) * frame_rate_step;
-        break;
-    case Setting::screen_size:
-        if (!offered_sizes.empty())
-            settings.screen_size = offered_sizes[static_cast<std::size_t>(clamped)];
-        break;
-    case Setting::snap_override_key:
-    case Setting::autoclick_key:
-    case Setting::rotate_build_key:
-        key_of(options, setting) = option_keys[static_cast<std::size_t>(clamped)].code;
-        break;
-    case Setting::patrol_hold:
-    case Setting::patrol_maneuver:
-    case Setting::patrol_roam:
-    case Setting::guard_hold:
-    case Setting::guard_maneuver:
-    case Setting::guard_roam:
-    case Setting::panel_background:
-        choice_of(options, setting) = static_cast<uint8_t>(clamped);
-        break;
-    case Setting::mex_snap_radius:
-        options.mex_snap_radius = std::min(clamped, std::max(options.mex_snap_most, int32_t{0}));
-        break;
-    case Setting::wreck_snap_radius:
-        options.wreck_snap_radius =
-            std::min(clamped, std::max(options.wreck_snap_most, int32_t{0}));
-        break;
-    case Setting::text_size:
-        settings.text_size = lowest_text_size + clamped * text_size_step;
-        break;
-    case Setting::touch_hold_delay:
-        settings.touch_hold_ms =
-            lowest_touch_hold_ms + static_cast<uint32_t>(clamped) * touch_hold_step_ms;
-        break;
-    case Setting::pad_pointer_speed:
-        settings.pad_pointer_speed =
-            pad_controls::lowest_pointer_speed +
-            static_cast<uint32_t>(clamped) * pad_controls::pointer_speed_step;
-        break;
-    case Setting::pad_gyro_speed:
-        settings.pad_gyro_speed = pad_controls::lowest_gyro_speed +
-                                  static_cast<uint32_t>(clamped) * pad_controls::gyro_speed_step;
-        break;
-    default:
-        break;
-    }
-}
-
-bool is_strip(Setting setting) noexcept {
-    switch (setting) {
-    case Setting::anti_aliasing:
-    case Setting::hardware_acceleration:
-    case Setting::menu_scaling:
-    case Setting::explosion_flash:
-    case Setting::zoomed_out_units:
-    case Setting::view_past_map_edge:
-    case Setting::window_frame:
-    case Setting::touch_drag:
-    case Setting::touch_latches:
-    case Setting::touch_control_size:
-    case Setting::pad_scheme:
-    case Setting::pad_right_trackpad:
-    case Setting::pad_acceleration:
-    case Setting::pad_right_stick:
-    case Setting::pad_haptics:
-        return true;
-    default:
-        return false;
-    }
-}
-
-Strip strip_of(Setting setting) noexcept {
-    switch (setting) {
-    case Setting::anti_aliasing:
-        return Strip{anti_aliasing_levels.size(), level_width};
-    case Setting::hardware_acceleration:
-        return Strip{hardware_acceleration_levels.size(), acceleration_level_width};
-    case Setting::menu_scaling:
-        return Strip{menu_scaling_choices.size(), menu_scaling_level_width};
-    case Setting::explosion_flash:
-        return Strip{explosion_flash_choices.size(), explosion_flash_level_width};
-    case Setting::zoomed_out_units:
-        return Strip{
-            zoomed_out_units_choices.size(), zoomed_out_units_level_width, offered_zoomed_out_units
-        };
-    case Setting::view_past_map_edge:
-        return Strip{view_past_map_edge_choices.size(), view_past_map_edge_level_width};
-    case Setting::window_frame:
-        return Strip{window_frame_choices.size(), window_frame_level_width};
-    case Setting::touch_drag:
-        return Strip{touch_drag_choices.size(), touch_drag_level_width};
-    case Setting::touch_latches:
-        return Strip{touch_latches_choices.size(), touch_latches_level_width};
-    case Setting::touch_control_size:
-        return Strip{control_size_choices.size(), control_size_level_width};
-    case Setting::pad_scheme:
-        return Strip{kSchemeChoices.size(), scheme_level_width};
-    case Setting::pad_right_trackpad:
-        return Strip{kRightTrackpadChoices.size(), right_trackpad_level_width};
-    case Setting::pad_acceleration:
-        return Strip{kAccelerationChoices.size(), pad_acceleration_level_width};
-    case Setting::pad_right_stick:
-        return Strip{kRightStickChoices.size(), right_stick_level_width};
-    case Setting::pad_haptics:
-        return Strip{kHapticsChoices.size(), pad_haptics_level_width};
-    default:
-        return Strip{};
-    }
-}
-
-std::size_t strip_level(const EngineSettings& settings, Setting setting) noexcept {
-    switch (setting) {
-    case Setting::anti_aliasing:
-        return level_index(settings.anti_aliasing);
-    case Setting::hardware_acceleration:
-        return choice_place(hardware_acceleration_levels, settings.hardware_acceleration);
-    case Setting::menu_scaling:
-        return choice_place(menu_scaling_choices, settings.menu_scaling);
-    case Setting::explosion_flash:
-        return choice_place(explosion_flash_choices, settings.explosion_flash);
-    case Setting::zoomed_out_units:
-        return choice_place(zoomed_out_units_choices, settings.zoomed_out_units);
-    case Setting::view_past_map_edge:
-        return choice_place(view_past_map_edge_choices, settings.view_past_map_edge);
-    case Setting::window_frame:
-        return choice_place(window_frame_choices, settings.window_frame);
-    case Setting::touch_drag:
-        return choice_place(touch_drag_choices, settings.touch_drag);
-    case Setting::touch_latches:
-        return choice_place(touch_latches_choices, settings.touch_latches);
-    case Setting::touch_control_size:
-        return choice_place(control_size_choices, settings.touch_control_size);
-    case Setting::pad_scheme:
-        return choice_place(kSchemeChoices, settings.pad_scheme);
-    case Setting::pad_right_trackpad:
-        return choice_place(kRightTrackpadChoices, settings.pad_right_trackpad);
-    case Setting::pad_acceleration:
-        return choice_place(kAccelerationChoices, settings.pad_acceleration);
-    case Setting::pad_right_stick:
-        return choice_place(kRightStickChoices, settings.pad_right_stick);
-    case Setting::pad_haptics:
-        return choice_place(kHapticsChoices, settings.pad_haptics);
-    default:
-        return 0;
-    }
-}
-
-void set_strip_level(EngineSettings& settings, Setting setting, std::size_t level) noexcept {
-    const Strip strip = strip_of(setting);
-    if (strip.levels == 0)
-        return;
-    // A level the strip shows but does not offer changes nothing.
-    if (level >= offered_levels(strip))
-        return;
-    const std::size_t clamped = std::min(level, strip.levels - 1);
-    switch (setting) {
-    case Setting::anti_aliasing:
-        settings.anti_aliasing = anti_aliasing_levels[clamped];
-        break;
-    case Setting::hardware_acceleration:
-        settings.hardware_acceleration = hardware_acceleration_levels[clamped];
-        break;
-    case Setting::menu_scaling:
-        settings.menu_scaling = menu_scaling_choices[clamped];
-        break;
-    case Setting::explosion_flash:
-        settings.explosion_flash = explosion_flash_choices[clamped];
-        break;
-    case Setting::zoomed_out_units:
-        settings.zoomed_out_units = zoomed_out_units_choices[clamped];
-        break;
-    case Setting::view_past_map_edge:
-        settings.view_past_map_edge = view_past_map_edge_choices[clamped];
-        break;
-    case Setting::window_frame:
-        settings.window_frame = window_frame_choices[clamped];
-        break;
-    case Setting::touch_drag:
-        settings.touch_drag = touch_drag_choices[clamped];
-        break;
-    case Setting::touch_latches:
-        settings.touch_latches = touch_latches_choices[clamped];
-        break;
-    case Setting::touch_control_size:
-        settings.touch_control_size = control_size_choices[clamped];
-        break;
-    case Setting::pad_scheme:
-        settings.pad_scheme = kSchemeChoices[clamped];
-        break;
-    case Setting::pad_right_trackpad:
-        settings.pad_right_trackpad = kRightTrackpadChoices[clamped];
-        break;
-    case Setting::pad_acceleration:
-        settings.pad_acceleration = kAccelerationChoices[clamped];
-        break;
-    case Setting::pad_right_stick:
-        settings.pad_right_stick = kRightStickChoices[clamped];
-        break;
-    case Setting::pad_haptics:
-        settings.pad_haptics = kHapticsChoices[clamped];
-        break;
-    default:
-        break;
-    }
-}
-
-std::string_view strip_caption(Setting setting, std::size_t level) noexcept {
-    if (level >= strip_of(setting).levels)
-        return {};
-    switch (setting) {
-    case Setting::anti_aliasing:
-        return level_caption(anti_aliasing_levels[level]);
-    case Setting::menu_scaling:
-        return kMenuScalingCaptions[level];
-    case Setting::explosion_flash:
-        return kExplosionFlashCaptions[level];
-    case Setting::zoomed_out_units:
-        return kZoomedOutUnitsCaptions[level];
-    case Setting::view_past_map_edge:
-        return kViewPastMapEdgeCaptions[level];
-    case Setting::window_frame:
-        return kWindowFrameCaptions[level];
-    case Setting::touch_drag:
-        return kTouchDragCaptions[level];
-    case Setting::touch_latches:
-        return kTouchLatchesCaptions[level];
-    case Setting::touch_control_size:
-        return kControlSizeCaptions[level];
-    case Setting::pad_scheme:
-        return kSchemeCaptions[level];
-    case Setting::pad_right_trackpad:
-        return kRightTrackpadCaptions[level];
-    case Setting::pad_acceleration:
-        return kPadAccelerationCaptions[level];
-    case Setting::pad_right_stick:
-        return kRightStickCaptions[level];
-    case Setting::pad_haptics:
-        return kPadHapticsCaptions[level];
-    default:
-        return kAccelerationCaptions[level];
-    }
-}
-
-bool is_button(Setting setting) noexcept {
-    return setting == Setting::game_files_summary;
-}
-
-bool is_text(Setting setting) noexcept {
-    return setting == Setting::game_files_location || setting == Setting::pad_steam_input_notice;
-}
-
-bool is_switch(Setting setting) noexcept {
-    return !is_slider(setting) && !is_strip(setting) && !is_choice(setting) &&
-           !is_button(setting) && !is_text(setting) && !is_buttons(setting);
-}
-
-bool is_buttons(Setting setting) noexcept {
-    return setting == Setting::user_folder;
+/// Returns a text's width at estimated_character_width a character, as the
+/// rows are placed where no font measures their words.
+///
+/// @param text the text, in UTF-8
+/// @return the width, in source pixels
+int32_t estimated_width(std::string_view text) {
+    return static_cast<int32_t>(oa::ui::kit::character_count(text)) * estimated_character_width;
 }
 
 SourceRect folder_button(const SourceRect& area, std::size_t index) noexcept {
@@ -1215,262 +181,409 @@ std::size_t folder_button_at(const SourceRect& area, int32_t x, int32_t y) noexc
     return folder_button_count;
 }
 
-std::string_view folder_button_text(std::size_t index) noexcept {
-    constexpr std::array<std::string_view, folder_button_count> captions{
-        "SAVES", "SCREENSHOTS", "MODS"
-    };
-    return index < captions.size() ? captions[index] : std::string_view{};
-}
-
-std::string shown_hint_text(
-    const Dialog& dialog,
-    Setting setting,
-    std::size_t line,
-    int32_t width,
-    const std::function<int32_t(std::string_view)>& text_width
-) {
-    const HintLine hint = row_hint(dialog, setting, line);
-    if (setting == Setting::user_folder && line == 0)
-        return dialog.user_folder.empty() ? std::string()
-                                          : path_tail(dialog.user_folder, width, text_width);
-    return std::string(shown_text(hint.text));
-}
-
-bool is_choice(Setting setting) noexcept {
-    return setting == Setting::language || setting == Setting::pad_gyro ||
-           setting == Setting::pad_prompts || setting == Setting::max_zoom_out ||
-           setting == Setting::max_zoom_in || setting == Setting::zoomed_out_after;
-}
-
-int32_t choice_field_width(Setting setting) noexcept {
-    return setting == Setting::pad_gyro ? wide_choice_width : choice_width;
-}
-
-std::span<const oa::data::languages::Language* const> offered_languages() {
-    static const std::vector<const oa::data::languages::Language*> offered = [] {
-        std::vector<const oa::data::languages::Language*> languages;
-        for (const auto& language : oa::data::languages::known_languages())
-            if (oa::data::languages::drawable(language))
-                languages.push_back(&language);
-        return languages;
-    }();
-    return offered;
-}
-
-std::size_t choice_count(const Dialog& dialog, Setting setting) {
-    static_cast<void>(dialog);
-    switch (setting) {
-    case Setting::language:
-        return 1 + offered_languages().size();
-    case Setting::pad_gyro:
-        return kGyroChoices.size();
-    case Setting::pad_prompts:
-        return kPromptsChoices.size();
-    case Setting::max_zoom_out:
-        return zoom_out_limits.size();
-    case Setting::max_zoom_in:
-        return zoom_in_limits.size();
-    case Setting::zoomed_out_after:
-        return zoomed_out_afters.size();
-    default:
-        return 0;
-    }
-}
-
-std::string choice_text(const Dialog& dialog, Setting setting, std::size_t index) {
-    if (index >= choice_count(dialog, setting))
-        return {};
-    if (setting == Setting::pad_gyro)
-        return std::string(shown_text(kGyroCaptions[index]));
-    if (setting == Setting::pad_prompts)
-        return std::string(shown_text(kPromptsCaptions[index]));
-    if (setting == Setting::max_zoom_out)
-        return std::string(shown_text(kZoomOutCaptions[index]));
-    if (setting == Setting::max_zoom_in)
-        return std::string(shown_text(kZoomInCaptions[index]));
-    if (setting == Setting::zoomed_out_after)
-        return std::string(shown_text(kZoomedOutAfterCaptions[index]));
-    if (index == 0) {
-        const auto* system = dialog.system_language;
-        const auto& named = system != nullptr ? *system : oa::data::languages::english();
-        return std::string(shown_text("System default")) + " (" + std::string(named.endonym) + ")";
-    }
-    return std::string(offered_languages()[index - 1]->endonym);
-}
-
-std::string shown_choice_text(
-    const Dialog& dialog,
-    Setting setting,
-    std::size_t index,
-    int32_t width,
-    const std::function<int32_t(std::string_view)>& text_width
-) {
-    static_cast<void>(width);
-    static_cast<void>(text_width);
-    return choice_text(dialog, setting, index);
-}
-
-std::string field_text(
-    const Dialog& dialog,
-    const Row& row,
-    int32_t width,
-    const std::function<int32_t(std::string_view)>& text_width
-) {
-    return shown_choice_text(
-        dialog, row.setting, choice_index(dialog, row.setting), width, text_width
-    );
-}
-
-std::size_t choice_index(const Dialog& dialog, Setting setting) {
-    const EngineSettings& settings = dialog.chosen;
-    if (setting == Setting::pad_gyro)
-        return choice_place(kGyroChoices, settings.pad_gyro);
-    if (setting == Setting::pad_prompts)
-        return choice_place(kPromptsChoices, settings.pad_prompts);
-    if (setting == Setting::max_zoom_out)
-        return choice_place(zoom_out_limits, settings.max_zoom_out);
-    if (setting == Setting::max_zoom_in)
-        return choice_place(zoom_in_limits, settings.max_zoom_in);
-    if (setting == Setting::zoomed_out_after)
-        return choice_place(zoomed_out_afters, settings.zoomed_out_after);
-    if (setting != Setting::language)
-        return 0;
-    const auto offered = offered_languages();
-    for (std::size_t index = 0; index < offered.size(); ++index)
-        if (offered[index]->tag == settings.language)
-            return index + 1;
-    return 0;
-}
-
-void set_choice(Dialog& dialog, Setting setting, std::size_t index) {
-    const std::size_t count = choice_count(dialog, setting);
-    if (count == 0)
-        return;
-    const std::size_t clamped = std::min(index, count - 1);
-    EngineSettings& settings = dialog.chosen;
-    if (setting == Setting::pad_gyro) {
-        settings.pad_gyro = kGyroChoices[clamped];
-        return;
-    }
-    if (setting == Setting::pad_prompts) {
-        settings.pad_prompts = kPromptsChoices[clamped];
-        return;
-    }
-    if (setting == Setting::max_zoom_out) {
-        settings.max_zoom_out = zoom_out_limits[clamped];
-        return;
-    }
-    if (setting == Setting::max_zoom_in) {
-        settings.max_zoom_in = zoom_in_limits[clamped];
-        return;
-    }
-    if (setting == Setting::zoomed_out_after) {
-        settings.zoomed_out_after = zoomed_out_afters[clamped];
-        return;
-    }
-    settings.language = clamped == 0 ? std::string(oa::data::languages::system_choice)
-                                     : std::string(offered_languages()[clamped - 1]->tag);
-    // A language drawn in the modern fonts turns them on, and keeps them on
-    // after it.
-    const oa::data::languages::Language& system = dialog.system_language != nullptr
-                                                      ? *dialog.system_language
-                                                      : oa::data::languages::english();
-    if (oa::data::languages::chosen_language(settings.language, system).needs ==
-        oa::data::languages::TextNeeds::modern_fonts)
-        settings.modern_fonts = true;
-}
-
-int32_t shown_choices(std::size_t choices) noexcept {
-    return static_cast<int32_t>(std::min<std::size_t>(choices, most_shown_choices));
-}
-
-SourceRect choice_list(const SourceRect& field, std::size_t choices) noexcept {
-    const int32_t height = shown_choices(choices) * choice_item_height + 2;
-    int32_t top = field.y + field.height;
-    // A list that would reach below the footer's line opens over its field.
-    if (top + height > footer_rule_row)
-        top = std::max(field.y - height, body_top);
-    return {field.x, top, field.width, height};
-}
-
-SourceRect choice_item(const SourceRect& list, int32_t shown) noexcept {
-    return {
-        list.x + 1, list.y + 1 + shown * choice_item_height, list.width - 2, choice_item_height
-    };
-}
-
 std::string_view shown_text(std::string_view english) {
     return oa::data::languages::interface_text(english);
 }
 
-bool switch_on(const EngineSettings& settings, Setting setting) noexcept {
-    const SwitchMember* entry = switch_member(setting);
-    if (entry == nullptr)
-        return false;
-    return entry->member != nullptr ? settings.*entry->member
-                                    : settings.mod_options.*entry->mod_member;
-}
-
-void set_switch(EngineSettings& settings, Setting setting, bool on) noexcept {
-    const SwitchMember* entry = switch_member(setting);
-    if (entry == nullptr)
-        return;
-    if (entry->member != nullptr)
-        settings.*entry->member = on;
-    else
-        settings.mod_options.*entry->mod_member = on;
-}
-
-Lock lock_of(const Locks& locks, Setting setting) noexcept {
-    switch (setting) {
-    case Setting::path_search:
-        return locks.path_search;
-    case Setting::unit_limit:
-        return locks.unit_limit;
-    case Setting::max_frame_rate:
-        return locks.max_frame_rate;
-    case Setting::hardware_acceleration:
-        return locks.hardware_acceleration;
-    case Setting::vertical_sync:
-        return locks.vertical_sync;
-    case Setting::native_density:
-        return locks.native_density;
-    case Setting::mex_snap_radius:
-        return locks.mex_snap;
-    case Setting::wreck_snap_radius:
-        return locks.wreck_snap;
-    case Setting::text_size:
-        return locks.text_size;
-    case Setting::language:
-        return locks.language;
-    case Setting::modern_fonts:
-        return locks.modern_fonts;
-    case Setting::unicode_chat:
-        return locks.unicode_chat;
-    case Setting::mod:
-        return locks.mod;
-    case Setting::zoomed_out_after:
-        return locks.zoomed_out_after;
-    default:
-        return Lock::none;
+std::string filled(
+    std::string_view english,
+    std::initializer_list<std::pair<std::string_view, std::string_view>> places
+) {
+    const std::string pattern(shown_text(english));
+    std::string text;
+    std::size_t at = 0;
+    while (at < pattern.size()) {
+        const std::size_t open = pattern.find('{', at);
+        const std::size_t close = open == std::string::npos ? open : pattern.find('}', open);
+        if (close == std::string::npos) {
+            text.append(pattern, at, std::string::npos);
+            break;
+        }
+        text.append(pattern, at, open - at);
+        const std::string_view name(pattern.data() + open + 1, close - open - 1);
+        bool found = false;
+        for (const auto& [place, value] : places)
+            if (place == name) {
+                text += value;
+                found = true;
+                break;
+            }
+        if (!found)
+            text.append(pattern, open, close - open + 1);
+        at = close + 1;
     }
+    return text;
 }
 
-bool hint_is_status(Setting setting) noexcept {
-    return setting == Setting::hardware_acceleration;
+std::string cut_text(
+    std::string_view text, int32_t width, const std::function<int32_t(std::string_view)>& text_width
+) {
+    if (text_width(text) <= width)
+        return std::string(text);
+    const std::string ellipsis(path_ellipsis);
+    std::size_t end = text.size();
+    while (end > 0) {
+        --end;
+        while (end > 0 && (static_cast<unsigned char>(text[end]) & 0xC0U) == 0x80U)
+            --end;
+        std::string shown = std::string(text.substr(0, end)) + ellipsis;
+        if (text_width(shown) <= width)
+            return shown;
+    }
+    return ellipsis;
 }
 
 RowContext row_context(const Dialog& dialog) noexcept {
-    return RowContext{dialog.steam_input, dialog.steam_deck_panel_hz};
+    return RowContext{
+        dialog.steam_input,
+        dialog.steam_deck_panel_hz,
+        dialog.library_link && dialog.kind == DialogKind::engine,
+        dialog.file_type_switches
+    };
 }
 
-std::span<const Setting>
-section_settings(Page page, const SectionHooks* section, const RowContext& context) {
-    if (section == nullptr || section->settings == nullptr)
-        return page == Page::controller && context.steam_input
-                   ? std::span<const Setting>(kSteamInputControllerRows)
-                   : page_settings(page);
-    return section->settings(section->context, page);
+/// Tells whether a measure is the stand-in that counts every character the same.
+///
+/// @param measure a text's width
+/// @return true when n and W are both the estimated character width
+bool estimated_measure(const TextWidth& measure) {
+    return measure("n") == estimated_character_width && measure("W") == estimated_character_width;
+}
+
+/// Breaks each hint into lines that fit the section, dropping an empty line.
+/// A path stays on its one shortened line. A notice stays a notice on every
+/// line it wraps to.
+///
+/// @param[in,out] shown the row
+/// @param width the room, in points
+/// @param measure a text's width in the small font
+/// @param path the first line is a folder's path
+void wrap_hints(kit::RowView& shown, int32_t width, const TextWidth& measure, bool path) {
+    std::vector<std::string> lines;
+    std::vector<bool> notices;
+    const int32_t room = std::max(width, int32_t{1});
+    for (std::size_t index = 0; index < shown.hints.size(); ++index) {
+        if (shown.hints[index].empty())
+            continue;
+        const bool notice = index < shown.notices.size() && shown.notices[index];
+        if (path && index == 0) {
+            lines.push_back(std::move(shown.hints[index]));
+            notices.push_back(notice);
+            continue;
+        }
+        std::vector<std::string> wrapped = kit::wrap(shown.hints[index], room, measure);
+        if (wrapped.empty())
+            wrapped.push_back(shown.hints[index]);
+        for (std::string& line : wrapped) {
+            if (line.empty())
+                continue;
+            lines.push_back(std::move(line));
+            notices.push_back(notice);
+        }
+    }
+    if (lines.size() > most_row_lines) {
+        lines.resize(most_row_lines);
+        notices.resize(most_row_lines);
+    }
+    shown.hints = std::move(lines);
+    shown.notices = std::move(notices);
+}
+
+/// Widens a level strip or a drop-down to its widest caption when a real font
+/// measures it wider than the class's box, and keeps it inside the section.
+///
+/// @param[in,out] shown the row
+/// @param available_width the section's width
+/// @param measure a text's width in the small font
+void fit_control(kit::RowView& shown, int32_t available_width, const TextWidth& measure) {
+    if (estimated_measure(measure) || shown.captions.empty() || available_width <= 0)
+        return;
+    if (shown.kind != kit::RowKind::levels && shown.kind != kit::RowKind::choice)
+        return;
+    int32_t widest = 0;
+    for (const std::string& caption : shown.captions)
+        widest = std::max(widest, measure(caption));
+    if (shown.kind == kit::RowKind::levels) {
+        const int32_t count = std::max(shown.count, int32_t{1});
+        const int32_t segment = widest + 8;
+        const int32_t cap = std::max(shown.control_width, (available_width - 48) / count);
+        shown.control_width = std::min(std::max(shown.control_width, segment), cap);
+        return;
+    }
+    shown.control_width =
+        std::min(std::max(shown.control_width, widest + 16), std::max(available_width, int32_t{1}));
+}
+
+/// Widens a switch, a row of buttons or SHOW AGAIN to the caption in the
+/// small font. A label that does not fit beside its control takes the whole
+/// line and the control drops under it. When the label and the lock do not
+/// fit on the label line, on any row, the lock drops under the label and the
+/// label keeps its width: the whole line, or the room beside a control that
+/// stays. An estimated measure leaves the class's boxes, which the layout
+/// tests pin; place_rows makes the same drop from the estimate.
+///
+/// @param[in,out] shown the row
+/// @param available_width the section's width
+/// @param small a text's width in the small font
+/// @param regular a text's width in the regular font; null keeps the label's line
+void fit_measured(
+    kit::RowView& shown, int32_t available_width, const TextWidth& small, const TextWidth* regular
+) {
+    if (estimated_measure(small) || available_width <= 0)
+        return;
+    if (shown.kind == kit::RowKind::toggle && !shown.captions.empty()) {
+        int32_t half = 0;
+        for (const std::string& caption : shown.captions)
+            half = std::max(half, small(caption));
+        shown.control_width = std::max(shown.control_width, kit::switch_width_for(half));
+    }
+    if (shown.kind == kit::RowKind::buttons && !shown.buttons.empty()) {
+        shown.button_widths.clear();
+        for (std::size_t at = 0; at < shown.buttons.size(); ++at) {
+            const int32_t metric = at < folder_button_widths.size()
+                                       ? folder_button_widths[at]
+                                       : oa::ui::kit::compact_metrics.button_width;
+            shown.button_widths.push_back(std::max(metric, small(shown.buttons[at]) + 8));
+        }
+    }
+    if (shown.kind == kit::RowKind::value_and_button && !shown.buttons.empty()) {
+        const int32_t wanted = small(shown.buttons.front()) + 8;
+        if (wanted > shown.control_width)
+            shown.control_width = wanted;
+    }
+    if (!shown.lock.empty()) {
+        const int32_t need = small(shown.lock) + padlock_width + padlock_gap;
+        shown.lock_columns = std::max(need, int32_t{1});
+    }
+    if (regular == nullptr || estimated_measure(*regular))
+        return;
+    if (shown.kind == kit::RowKind::choice && !shown.captions.empty()) {
+        int32_t widest = 0;
+        for (const std::string& caption : shown.captions)
+            widest = std::max(widest, (*regular)(caption));
+        // The closed field keeps its inset and the arrow. An open row keeps
+        // the menu's inset and the margin after the words. The field takes
+        // whichever is wider, and stays inside the section.
+        constexpr int32_t menu_margin = 4;
+        const int32_t field = widest + oa::ui::kit::compact_metrics.choice_text_inset +
+                              oa::ui::kit::compact_metrics.choice_arrow_room;
+        const int32_t menu =
+            widest + oa::ui::kit::compact_metrics.choice_item_text_inset + menu_margin;
+        shown.control_width = std::min(
+            std::max(shown.control_width, std::max(field, menu)),
+            std::max(available_width, int32_t{1})
+        );
+    }
+    if (shown.kind == kit::RowKind::slider && !shown.value.empty()) {
+        // The value is drawn in the regular font. The class's box stays when
+        // the value fits it.
+        const int32_t wanted = (*regular)(shown.value) + 8;
+        if (wanted > oa::ui::kit::compact_metrics.slider_value_width)
+            shown.value_columns = wanted;
+    }
+    if (shown.kind == kit::RowKind::value_and_button && !shown.value.empty()) {
+        const int32_t value_width = (*regular)(shown.value);
+        const int32_t label_w = shown.label.empty() ? 0 : (*regular)(shown.label);
+        const int32_t button = shown.control_width > 0
+                                   ? shown.control_width
+                                   : oa::ui::kit::compact_metrics.button_row_width;
+        const int32_t lock = shown.lock.empty() ? 0
+                                                : (shown.lock_columns > 0
+                                                       ? shown.lock_columns
+                                                       : oa::ui::kit::compact_metrics.lock_width) +
+                                                      label_gap;
+        // The value drops onto the button's line only when it does not fit
+        // beside the label and the button. The lock drops under the label
+        // instead of taking that room, and never takes the button's place.
+        const int32_t without =
+            (label_w > 0 ? label_w + label_gap : 0) + value_width + label_gap + button;
+        if (without > available_width)
+            shown.control_below = true;
+        else if (lock > 0 && without + lock > available_width)
+            shown.lock_below = true;
+    }
+    if (shown.label.empty())
+        return;
+    const int32_t label_width = (*regular)(shown.label);
+    if (label_width <= 0)
+        return;
+    const auto lock_span = [&]() {
+        if (shown.lock.empty())
+            return int32_t{0};
+        return (shown.lock_columns > 0 ? shown.lock_columns
+                                       : oa::ui::kit::compact_metrics.lock_width) +
+               label_gap;
+    };
+    if (shown.kind == kit::RowKind::levels && shown.count > 0 && !shown.control_below) {
+        int32_t least = 1;
+        for (const std::string& caption : shown.captions)
+            least = std::max(least, small(caption) + 8);
+        // Beside the label only. The lock drops under the label when it
+        // does not fit, and never narrows the strip. A caption that does not
+        // fit beside the label takes the line under it.
+        const int32_t room = available_width - label_width - label_gap;
+        const int32_t segment = (room - 2) / shown.count;
+        const int32_t full = std::max((available_width - 2) / shown.count, int32_t{1});
+        if (segment < least) {
+            shown.control_below = true;
+            shown.control_width = std::min(std::max(least, shown.control_width), full);
+        } else if (segment < shown.control_width) {
+            shown.control_width = segment;
+        }
+    }
+    // A label that does not fit beside its control takes the whole line and
+    // the control drops. When the three do not fit but the label and the
+    // control do, the lock drops and the control stays. A slider, a drop-down,
+    // a text field and a text row keep their control off this line, so the
+    // lock drops when the label and the lock alone do not fit, and the label
+    // keeps the line.
+    const int32_t on_line = [&]() {
+        if (shown.kind == kit::RowKind::toggle)
+            return std::max(oa::ui::kit::compact_metrics.switch_width, shown.control_width);
+        if (shown.kind == kit::RowKind::levels)
+            return shown.count * shown.control_width + 2;
+        if (shown.kind == kit::RowKind::buttons && !shown.button_widths.empty()) {
+            int32_t summed = 0;
+            for (std::size_t at = 0; at < shown.button_widths.size(); ++at)
+                summed += shown.button_widths[at] +
+                          (at > 0 ? oa::ui::kit::compact_metrics.folder_button_gap : 0);
+            return summed;
+        }
+        if (shown.kind == kit::RowKind::buttons || shown.kind == kit::RowKind::value_and_button)
+            return shown.control_width > 0 ? shown.control_width
+                                           : oa::ui::kit::compact_metrics.button_row_width;
+        return int32_t{0};
+    }();
+    if (on_line > 0) {
+        const int32_t with_control = label_width + label_gap + on_line;
+        if (shown.control_below) {
+            if (!shown.lock.empty() && label_width + lock_span() > available_width)
+                shown.lock_below = true;
+        } else if (with_control > available_width) {
+            shown.control_below = true;
+            if (!shown.lock.empty() && label_width + lock_span() > available_width)
+                shown.lock_below = true;
+        } else if (!shown.lock.empty() && with_control + lock_span() > available_width) {
+            shown.lock_below = true;
+        }
+    } else if (!shown.lock.empty() && label_width + lock_span() > available_width) {
+        shown.lock_below = true;
+    }
+}
+
+kit::RowView row_view(
+    const Dialog& dialog,
+    Setting setting,
+    Lock lock,
+    bool status,
+    const TextWidth& small_width,
+    int32_t available_width,
+    const TextWidth* regular_width
+) {
+    kit::RowView shown =
+        kit::view_of(row_spec(setting), reading(dialog.chosen, dialog), &shown_text);
+    // The lock the dialog puts on the row, looked up as the dialog has
+    // always drawn it, and a switch a language sets showing On.
+    shown.lock =
+        lock == Lock::none ? std::string() : std::string(shown_text(shown_text(lock_text(lock))));
+    shown.hint_is_status = status;
+    if (lock == Lock::set_by_language)
+        shown.on = true;
+    for (std::size_t line = 0; line < shown.hints.size(); ++line) {
+        if (line == 0 && hint_is_path(setting)) {
+            const std::string path = row_hint(dialog, setting, 0).text;
+            shown.hints[line] =
+                path.empty()
+                    ? std::string()
+                    : std::string(shown_text(path_tail(path, available_width, small_width)));
+            continue;
+        }
+        shown.hints[line] = std::string(shown_text(shown.hints[line]));
+    }
+    if (setting == Setting::language)
+        shown.value = language_closed_field(dialog, std::move(shown.value));
+    const int32_t hint_room = estimated_measure(small_width)
+                                  ? static_cast<int32_t>(sizes_of(dialog).hint_line_characters) *
+                                        kit::estimated_character_width
+                                  : available_width;
+    wrap_hints(shown, hint_room, small_width, hint_is_path(setting));
+    fit_control(shown, available_width, small_width);
+    fit_measured(shown, available_width, small_width, regular_width);
+    return shown;
+}
+
+Rows place_section(
+    const Dialog& dialog,
+    Page page,
+    const Locks& locks,
+    const SectionHooks* section,
+    const TextWidth& small_width,
+    kit::PlacedRows* placed,
+    const Sizes* sizes,
+    const TextWidth* regular_width
+) {
+    const Sizes& sized_here = sizes != nullptr ? *sizes : sizes_of(dialog);
+    if (page == Page::downloads)
+        return downloads::place(dialog, locks, small_width, placed, &sized_here, regular_width);
+    if (page == Page::game_content)
+        return content::place(dialog, locks, small_width, placed);
+    const auto settings = section_settings(page, section, row_context(dialog));
+    std::vector<kit::RowView> views;
+    std::vector<Lock> row_locks;
+    std::vector<bool> statuses;
+    views.reserve(settings.size());
+    for (const Setting setting : settings) {
+        row_locks.push_back(section_lock(locks, setting, section));
+        statuses.push_back(section_hint_is_status(setting, section));
+        views.push_back(row_view(
+            dialog,
+            setting,
+            row_locks.back(),
+            statuses.back(),
+            small_width,
+            sized_here.content_width,
+            regular_width
+        ));
+    }
+    // Developer's own rows lie closer, over its list; while the dialog's
+    // words are drawn in the modern fonts, a hint's lines lie further apart.
+    const bool own_section = section != nullptr && section->settings != nullptr;
+    const Sizes& sized = sized_here;
+    kit::RowPlacement placement;
+    placement.left = sized.content_left;
+    placement.right = sized.content_right;
+    placement.first_top = first_row_top;
+    placement.row_padding =
+        page == Page::developer && !own_section ? developer_row_padding : row_padding;
+    placement.tall = oa::data::languages::interface_language().needs !=
+                     oa::data::languages::TextNeeds::game_fonts;
+    placement.first_control = first_row_control;
+    kit::PlacedRows kit_rows = kit::place_rows(views, placement);
+    Rows rows{};
+    rows.bottom = kit_rows.bottom;
+    rows.rows.reserve(kit_rows.rows.size());
+    for (std::size_t index = 0; index < kit_rows.rows.size(); ++index) {
+        const kit::PlacedRow& placed_row = kit_rows.rows[index];
+        Row& row = rows.rows.emplace_back();
+        row.setting = settings[index];
+        row.control = placed_row.control;
+        row.lock = row_locks[index];
+        row.hint_is_status = statuses[index];
+        row.top = placed_row.top;
+        row.height = placed_row.height;
+        row.label = placed_row.label;
+        row.lock_area = placed_row.lock_area;
+        row.hint_lines = std::min(placed_row.hints.size(), most_row_lines);
+        for (std::size_t line = 0; line < row.hint_lines; ++line)
+            row.hints[line] = placed_row.hints[line];
+        row.control_area = placed_row.control_area;
+        // Only a slider shows a value of its own beside its control.
+        if (placed_row.view.kind == kit::RowKind::slider)
+            row.value = placed_row.value;
+    }
+    if (placed != nullptr)
+        *placed = std::move(kit_rows);
+    return rows;
 }
 
 Rows place_rows(
@@ -1480,102 +593,14 @@ Rows place_rows(
     const SectionHooks* section,
     const RowContext& context
 ) {
-    Rows placed{};
-    int32_t top = first_row_top;
-    const auto settings = section_settings(page, section, context);
-    // While the dialog's words are drawn in the modern fonts, a hint's lines
-    // lie further apart.
-    const bool tall = oa::data::languages::interface_language().needs !=
-                      oa::data::languages::TextNeeds::game_fonts;
-    // Developer's own rows lie closer, over its list.
-    const bool own_section = section != nullptr && section->settings != nullptr;
-    const int32_t row_gap =
-        page == Page::developer && !own_section ? developer_row_padding : row_padding;
-    placed.rows.reserve(settings.size());
-    for (std::size_t index = 0; index < settings.size(); ++index) {
-        Row& row = placed.rows.emplace_back();
-        row.setting = settings[index];
-        row.control = first_row_control + static_cast<int32_t>(index);
-        row.lock = row_lock(locks, row.setting, section);
-        row.hint_is_status = row_hint_is_status(row.setting, section);
-        row.top = top;
-        const int32_t label_top = top + 1 + row_gap;
-        const bool locked = row.lock != Lock::none;
-        // The lock, right-aligned on the label line; the label ends short of it.
-        const SourceRect right_lock{
-            content_right - lock_width, label_top, lock_width, label_line_height
-        };
-        int32_t label_right = content_right;
-        int32_t control_width = 0;
-        if (is_strip(row.setting)) {
-            const Strip strip = strip_of(row.setting);
-            control_width = static_cast<int32_t>(strip.levels) * strip.level_width + 2;
-        } else if (is_switch(row.setting)) {
-            control_width = switch_width;
-        } else if (is_button(row.setting)) {
-            control_width = manage_button_width;
-        } else if (is_buttons(row.setting)) {
-            control_width = folder_buttons_width;
-        }
-        if (control_width == 0 || (locked && row.hint_is_status)) {
-            // A slider's lock, or the lock of a switch or strip whose hint
-            // lines are its status, which stands where its control was.
-            if (locked) {
-                row.lock_area = right_lock;
-                label_right = row.lock_area.x - label_gap;
-            }
-        } else {
-            row.control_area = {
-                content_right - control_width, label_top, control_width, label_line_height
-            };
-            label_right = row.control_area.x - label_gap;
-            // Any other locked control keeps its place, so that its value
-            // shows, with its lock left of it. Its label keeps only the
-            // columns left of the lock: 93 beside a switch, too few beside
-            // the level strip, which no lock reaches.
-            if (locked) {
-                row.lock_area = {
-                    row.control_area.x - label_gap - lock_width,
-                    label_top,
-                    lock_width,
-                    label_line_height
-                };
-                label_right = row.lock_area.x - label_gap;
-            }
-        }
-        row.label = {content_left, label_top, label_right - content_left, label_line_height};
-        row.hint_lines = hint_line_count(row.setting, context);
-        int32_t bottom = label_top + label_line_height + hint_gap;
-        for (std::size_t line = 0; line < row.hint_lines; ++line) {
-            if (line > 0 && tall)
-                bottom += tall_hint_line_gap;
-            row.hints[line] = {content_left, bottom, content_width, hint_line_height};
-            bottom += hint_line_height;
-        }
-        if (is_slider(row.setting)) {
-            bottom += slider_gap;
-            const int32_t value_left = content_right - slider_value_width;
-            row.control_area = {
-                content_left,
-                bottom,
-                value_left - slider_value_gap - content_left,
-                slider_line_height
-            };
-            row.value = {value_left, bottom, slider_value_width, slider_line_height};
-            bottom += slider_line_height;
-        } else if (is_choice(row.setting)) {
-            // A drop-down's field stands on its own line, as a slider's track.
-            bottom += slider_gap;
-            row.control_area = {
-                content_left, bottom, choice_field_width(row.setting), choice_line_height
-            };
-            bottom += choice_line_height;
-        }
-        bottom += row_gap;
-        row.height = bottom - top;
-        top = bottom;
-    }
-    placed.bottom = top;
+    // The rows' places hang on what the dialog shows beyond each setting's
+    // rows: the Steam Input notice and a Steam Deck's rate.
+    Dialog shown;
+    shown.steam_input = context.steam_input;
+    shown.steam_deck_panel_hz = context.steam_deck_panel_hz;
+    shown.library_link = context.library_link;
+    shown.file_type_switches = context.file_type_switches;
+    Rows placed = place_section(shown, page, locks, section, &estimated_width);
     scroll_rows(placed, scroll);
     return placed;
 }
@@ -1601,8 +626,8 @@ int32_t content_height(const Rows& rows, int32_t scroll) noexcept {
     return rows.bottom + scroll + 1 + end_gap - first_row_top;
 }
 
-int32_t scroll_limit(int32_t content_height) noexcept {
-    return std::max(content_height - view.height, int32_t{0});
+int32_t scroll_limit(int32_t content_height, kit::SizeClass size_class) noexcept {
+    return std::max(content_height - sizes_of(size_class).view.height, int32_t{0});
 }
 
 Locks shown_locks(const Dialog& dialog) noexcept {
@@ -1628,36 +653,152 @@ Locks shown_locks(const Dialog& dialog) noexcept {
     if (locks.zoomed_out_after == Lock::none &&
         dialog.chosen.zoomed_out_units != ZoomedOutUnits::dots)
         locks.zoomed_out_after = Lock::needs_dots;
+    // Only a sticky edge has a firmness: Capture never lets the pointer go,
+    // and Free never holds it.
+    if (locks.edge_stickiness == Lock::none && dialog.chosen.window_edge != WindowEdge::sticky)
+        locks.edge_stickiness = Lock::needs_sticky;
     return locks;
 }
 
-ScrolledRows open_rows(const Dialog& dialog) {
-    ScrolledRows open{};
-    if (mods_page(dialog)) {
-        // Mods' list scrolls in a view of its own, over OPEN MODS FOLDER.
-        open.area = mods_scroll(dialog.locks.mod != Lock::none);
-        open.rows = place_mod_rows(dialog, 0);
-        open.content_height = open.rows.bottom - open.area.view.y;
-        open.limit = std::max(open.content_height - open.area.view.height, int32_t{0});
-        open.scroll = std::clamp(dialog.scroll[scroll_index(dialog.page)], int32_t{0}, open.limit);
-        scroll_rows(open.rows, open.scroll);
-        return open;
+/// Grows the section list by a few columns and moves the open section right
+/// by the same, leaving the dialog's right edge where it is.
+///
+/// @param[in,out] sized the sizes
+/// @param extra the columns the list gains
+void grow_list(Sizes& sized, int32_t extra) {
+    if (extra <= 0)
+        return;
+    sized.list_width += extra;
+    sized.list_item_width += extra;
+    sized.list_rule_column += extra;
+    sized.content_left += extra;
+    sized.content_width -= extra;
+    sized.heading.x += extra;
+    sized.heading.width -= extra;
+    sized.view.x += extra;
+    sized.view.width -= extra;
+    sized.view_clip.x += extra;
+    sized.view_clip.width -= extra;
+    sized.section_scroll.view = sized.view;
+    sized.developer_view.x += extra;
+    sized.developer_view.width -= extra;
+    sized.developer_view_clip.x += extra;
+    sized.developer_view_clip.width -= extra;
+    sized.active_only_label.x += extra;
+    sized.active_only_label.width -= extra;
+    sized.restore_profile_button.x += extra;
+    sized.developer_scroll.view = sized.developer_view;
+}
+
+/// Grows a button toward a column it must stay short of.
+///
+/// @param[in,out] button the button
+/// @param text_width the caption's width
+/// @param stop the column the button's right must stay short of
+void grow_button(SourceRect& button, int32_t text_width, int32_t stop) {
+    const int32_t wanted = text_width + 8;
+    if (wanted <= button.width)
+        return;
+    const int32_t room = stop - oa::ui::kit::compact_metrics.button_gap - button.x;
+    button.width = std::min(wanted, std::max(room, button.width));
+}
+
+Sizes fitted_sizes(const Dialog& dialog, const TextWidth* regular, const TextWidth* small) {
+    Sizes sized = sizes_of(dialog);
+    if (regular == nullptr || small == nullptr || estimated_measure(*regular) ||
+        estimated_measure(*small))
+        return sized;
+    int32_t widest = 0;
+    for (const Page page :
+         dialog_pages(dialog.kind, dialog.touch, dialog.game_files, dialog.controller)) {
+        widest = std::max(widest, (*regular)(std::string(shown_text(page_name(page)))));
     }
-    open.rows =
-        place_rows(dialog.page, shown_locks(dialog), 0, dialog.section_hooks, row_context(dialog));
+    const int32_t text_room = sized.list_item_width - list_text_offset - list_text_margin;
+    if (widest > text_room) {
+        // The open section keeps room for a description. A section name that
+        // still does not fit the list takes a shorter word.
+        const int32_t least_content = 270;
+        const int32_t spare = std::max(sized.content_width - least_content, int32_t{0});
+        grow_list(sized, std::min(widest - text_room, spare));
+    }
+    grow_button(
+        sized.restore_button, (*small)(std::string(shown_text(restore_text))), sized.cancel_button.x
+    );
+    grow_button(
+        sized.restore_profile_button,
+        (*small)(std::string(shown_text(restore_profile_text))),
+        sized.content_right
+    );
+    // Cancel grows to the left, short of Restore, so a longer word is whole.
+    const int32_t cancel_width = (*small)(std::string(shown_text(cancel_text))) + 8;
+    if (cancel_width > sized.cancel_button.width) {
+        const int32_t grow = cancel_width - sized.cancel_button.width;
+        const int32_t stop = sized.restore_button.x + sized.restore_button.width +
+                             oa::ui::kit::compact_metrics.button_gap;
+        const int32_t room = std::max(sized.cancel_button.x - stop, int32_t{0});
+        const int32_t take = std::min(grow, room);
+        sized.cancel_button.x -= take;
+        sized.cancel_button.width += take;
+    }
+    const int32_t half = std::max(
+        (*small)(std::string(shown_text(off_text))), (*small)(std::string(shown_text(on_text)))
+    );
+    const int32_t switch_columns = oa::ui::kit::switch_width_for(half);
+    if (switch_columns > sized.active_only_switch.width) {
+        const int32_t grow = switch_columns - sized.active_only_switch.width;
+        sized.active_only_switch.width = switch_columns;
+        sized.active_only_switch.x -= grow;
+        sized.active_only_label.width = std::max(sized.active_only_label.width - grow, int32_t{0});
+    }
+    return sized;
+}
+
+ScrolledRows open_rows(
+    const Dialog& dialog,
+    const TextWidth* small_width,
+    const Sizes* sizes,
+    const TextWidth* regular_width
+) {
+    const Sizes& sized = sizes != nullptr ? *sizes : sizes_of(dialog);
+    const TextWidth& measure = small_width != nullptr ? *small_width : estimated_width;
+    ScrolledRows open{};
+    open.area = sized.section_scroll;
+    open.rows = place_section(
+        dialog,
+        dialog.page,
+        shown_locks(dialog),
+        dialog.section_hooks,
+        measure,
+        nullptr,
+        &sized,
+        regular_width
+    );
     if (developer_page(dialog)) {
         // Developer's rows stay at its top; its list scrolls under them in a
         // view of its own, with the end gap under its last row.
-        open.area = developer_scroll;
-        open.list = place_list(dialog, 0);
-        open.content_height = open.list.bottom + end_gap - developer_view.y;
-        open.limit = std::max(open.content_height - developer_view.height, int32_t{0});
+        open.area = developer_list_scroll(dialog, small_width, &sized, regular_width);
+        int32_t switch_columns = 0;
+        if (small_width != nullptr && !estimated_measure(*small_width)) {
+            const int32_t half = std::max(
+                (*small_width)(std::string(shown_text(off_text))),
+                (*small_width)(std::string(shown_text(on_text)))
+            );
+            switch_columns = oa::ui::kit::switch_width_for(half);
+        }
+        const TextWidth* measured_small =
+            small_width != nullptr && !estimated_measure(*small_width) ? small_width : nullptr;
+        const TextWidth* measured_regular =
+            regular_width != nullptr && !estimated_measure(*regular_width) ? regular_width
+                                                                           : nullptr;
+        open.list = place_list(dialog, 0, switch_columns, measured_small, measured_regular, &sized);
+        open.content_height = open.list.bottom + end_gap - open.area.view.y;
+        open.limit = std::max(open.content_height - open.area.view.height, int32_t{0});
         open.scroll = std::clamp(dialog.scroll[scroll_index(dialog.page)], int32_t{0}, open.limit);
         scroll_list(open.list, open.scroll);
         return open;
     }
     open.content_height = content_height(open.rows, 0);
-    open.limit = scroll_limit(open.content_height);
+    open.limit = scroll_limit(open.content_height, dialog.size_class);
     // While the dialog's words are drawn in the modern fonts, whose
     // ideographs fill a hint line from its top row, the view's top edge
     // cuts no hint line at the end of the scroll, of which a sliver would
@@ -1679,11 +820,41 @@ ScrolledRows open_rows(const Dialog& dialog) {
                     }
                 }
         }
-        open.content_height = open.limit + view.height;
+        open.content_height = open.limit + sized.view.height;
     }
     open.scroll = std::clamp(dialog.scroll[scroll_index(dialog.page)], int32_t{0}, open.limit);
     scroll_rows(open.rows, open.scroll);
     return open;
+}
+
+ScrollArea developer_list_scroll(
+    const Dialog& dialog,
+    const TextWidth* small_width,
+    const Sizes* sizes,
+    const TextWidth* regular_width
+) {
+    const Sizes& sized = sizes != nullptr ? *sizes : sizes_of(dialog);
+    const TextWidth& measure = small_width != nullptr ? *small_width : estimated_width;
+    ScrollArea area = sized.developer_scroll;
+    const Rows rows = place_section(
+        dialog,
+        Page::developer,
+        shown_locks(dialog),
+        dialog.section_hooks,
+        measure,
+        nullptr,
+        &sized,
+        regular_width
+    );
+    const int32_t lower = std::clamp(
+        rows.bottom - sized.developer_list_rule, int32_t{0}, sized.developer_view.height
+    );
+    for (SourceRect* rect : {&area.view, &area.well, &area.hit}) {
+        rect->y += lower;
+        rect->height -= lower;
+    }
+    area.page_step = std::max(area.page_step - lower, hint_line_height);
+    return area;
 }
 
 int32_t scroll_showing(const ScrolledRows& open, std::size_t index) noexcept {
@@ -1738,7 +909,15 @@ int32_t scroll_at(
     return (limit * along + travel / 2) / travel;
 }
 
-SourceRect list_item(Page page, bool touch, bool game_files, bool controller) noexcept {
+SourceRect list_item(
+    Page page, bool touch, bool game_files, bool controller, kit::SizeClass size_class
+) noexcept {
+    // A registered page has no pinned entry. Its list is laid out with the
+    // pages set_registered_pages gave.
+    if (page == Page::registered)
+        return {
+            list_item_left, list_first_top, sizes_of(size_class).list_item_width, list_item_height
+        };
     // Each entry at its place in the list its dialog shows; Touch and
     // Controller, which only a dialog that lists them asks for, keep their
     // own places.
@@ -1749,764 +928,49 @@ SourceRect list_item(Page page, bool touch, bool game_files, bool controller) no
     const auto found = std::find(listed.begin(), listed.end(), page);
     const auto index = found != listed.end() ? static_cast<int32_t>(found - listed.begin())
                                              : page_control(page) - first_page_control;
-    int32_t top = list_first_top + index * (list_item_height + list_item_gap);
-    if (page == Page::developer)
-        top = list_divider().y + 1 + list_divider_margin;
-    return {list_item_left, top, list_item_width, list_item_height};
+    // Developer stays pinned under the divider. The other entries step down
+    // from the list's top. The compact list of every section would cross that
+    // line by the gap it keeps between entries, so that list drops the gap
+    // and the last entry ends on the line. Every shorter list keeps the gap.
+    int32_t top = list_first_top;
+    if (page == Page::developer) {
+        top = list_divider(size_class).y + 1 + list_divider_margin;
+    } else {
+        int32_t flowing = static_cast<int32_t>(listed.size());
+        if (!listed.empty() && listed.back() == Page::developer)
+            --flowing;
+        const int32_t gaps = flowing > 0 ? flowing - 1 : 0;
+        const int32_t gapped_bottom =
+            list_first_top + flowing * list_item_height + gaps * list_item_gap;
+        const int32_t stride = gapped_bottom > list_divider(size_class).y
+                                   ? list_item_height
+                                   : list_item_height + list_item_gap;
+        top = list_first_top + index * stride;
+    }
+    return {list_item_left, top, sizes_of(size_class).list_item_width, list_item_height};
 }
 
-SourceRect list_divider() noexcept {
+SourceRect list_divider(kit::SizeClass size_class) noexcept {
     // Developer stands at the foot of the list, as far under the divider as
     // the first section stands under the list's top.
-    const int32_t row =
-        footer_rule_row - (list_first_top - body_top) - list_item_height - list_divider_margin - 1;
+    const Sizes& sized = sizes_of(size_class);
+    const int32_t row = sized.footer_rule_row - (list_first_top - body_top) - list_item_height -
+                        list_divider_margin - 1;
     return {
         list_item_left + list_divider_inset,
         row,
-        list_item_width - 2 * list_divider_inset,
+        sized.list_item_width - 2 * list_divider_inset,
         1,
     };
 }
 
-SourceRect footer_button(int32_t control) noexcept {
+SourceRect footer_button(int32_t control, kit::SizeClass size_class) noexcept {
+    const Sizes& sized = sizes_of(size_class);
     if (control == restore_control)
-        return restore_button;
+        return sized.restore_button;
     if (control == cancel_control)
-        return cancel_button;
-    return ok_button;
-}
-
-int32_t knob_column(const SourceRect& track, int32_t stop, int32_t stops) noexcept {
-    const int32_t first = track.x + knob_width / 2;
-    const int32_t travel = track.width - knob_width;
-    if (stops < 2)
-        return first;
-    return first +
-           (travel * std::clamp(stop, int32_t{0}, stops - 1) + (stops - 1) / 2) / (stops - 1);
-}
-
-int32_t stop_at(const SourceRect& track, int32_t column, int32_t stops) noexcept {
-    const int32_t first = track.x + knob_width / 2;
-    const int32_t travel = track.width - knob_width;
-    if (stops < 2 || travel <= 0)
-        return 0;
-    const int32_t along = std::clamp(column - first, int32_t{0}, travel);
-    return (along * (stops - 1) + travel / 2) / travel;
-}
-
-std::size_t level_at(const SourceRect& area, const Strip& strip, int32_t column) noexcept {
-    if (strip.levels == 0 || strip.level_width <= 0)
-        return 0;
-    const int32_t along = std::max(column - area.x - 1, int32_t{0}) / strip.level_width;
-    return std::min(static_cast<std::size_t>(along), strip.levels - 1);
-}
-
-std::size_t level_index(AntiAliasing level) noexcept {
-    const auto found = std::find(anti_aliasing_levels.begin(), anti_aliasing_levels.end(), level);
-    if (found == anti_aliasing_levels.end())
-        return 0;
-    return static_cast<std::size_t>(found - anti_aliasing_levels.begin());
-}
-
-std::string_view page_name(Page page) noexcept {
-    switch (page) {
-    case Page::mods:
-        return "Mods";
-    case Page::controls:
-        return "Controls";
-    case Page::common_tweaks:
-        return "Common Tweaks";
-    case Page::graphics:
-        return "Graphics";
-    case Page::language:
-        return "Language";
-    case Page::touch:
-        return "Touch";
-    case Page::controller:
-        return "Controller";
-    case Page::developer:
-        return "Developer";
-    case Page::game_files:
-        return "Game files";
-    case Page::mod_keys:
-        return "Keys";
-    case Page::mod_patrol:
-        return "Patrolling";
-    case Page::mod_guard:
-        return "Guarding";
-    case Page::mod_tools:
-        return "Build tools";
-    case Page::mod_chat:
-        return "Snap & chat";
-    }
-    return {};
-}
-
-std::string_view page_heading(Page page) noexcept {
-    switch (page) {
-    case Page::mods:
-        return "MODS";
-    case Page::controls:
-        return "CONTROLS";
-    case Page::common_tweaks:
-        return "COMMON TWEAKS";
-    case Page::graphics:
-        return "GRAPHICS";
-    case Page::language:
-        return "LANGUAGE";
-    case Page::touch:
-        return "TOUCH";
-    case Page::controller:
-        return "CONTROLLER";
-    case Page::developer:
-        return "DEVELOPER";
-    case Page::game_files:
-        return "GAME FILES";
-    case Page::mod_keys:
-        return "MOD KEYS";
-    case Page::mod_patrol:
-        return "PATROLLING BUILDERS";
-    case Page::mod_guard:
-        return "GUARDING BUILDERS";
-    case Page::mod_tools:
-        return "BUILD TOOLS";
-    case Page::mod_chat:
-        return "SNAP & CHAT";
-    }
-    return {};
-}
-
-std::string_view label_of(Setting setting) noexcept {
-    switch (setting) {
-    case Setting::path_search:
-        return "Pathfinding cycles";
-    case Setting::wheel_zoom:
-        return "Mouse wheel zoom";
-    case Setting::max_zoom_out:
-        return "Maximum zoom out";
-    case Setting::max_zoom_in:
-        return "Maximum zoom in";
-    case Setting::view_past_map_edge:
-        return "View past the map's edge";
-    case Setting::escape_opens_menu:
-        return "Escape opens the game menu";
-    case Setting::switch_alt:
-        return "Select groups without Alt";
-    case Setting::unit_limit:
-        return "Unit limit";
-    case Setting::max_frame_rate:
-        return "Maximum frame rate";
-    case Setting::anti_aliasing:
-        return "Enhanced anti-aliasing";
-    case Setting::screen_size:
-        return "Screen size";
-    case Setting::developer_mode:
-        return "Enable Developer Mode";
-    case Setting::frame_stats:
-        return "Show performance statistics";
-    case Setting::hardware_acceleration:
-        return "Hardware acceleration";
-    case Setting::vertical_sync:
-        return "Vertical sync";
-    case Setting::menu_scaling:
-        return "Menu scaling";
-    case Setting::native_density:
-        return "Native pixel density";
-    case Setting::explosion_flash:
-        return "Explosion flash";
-    case Setting::zoomed_out_units:
-        return "Zoomed out units";
-    case Setting::zoomed_out_after:
-        return "After zoom";
-    case Setting::window_frame:
-        return "Window frame";
-    case Setting::hud_scaling:
-        return "HUD scaling";
-    case Setting::modern_fonts:
-        return "Use modern fonts for game text";
-    case Setting::text_outline:
-        return "Font outline";
-    case Setting::text_shadow:
-        return "Font shadow";
-    case Setting::text_background:
-        return "Game text background";
-    case Setting::unicode_chat:
-        return "Enable Unicode Multiplayer Chat";
-    case Setting::text_size:
-        return "Text size";
-    case Setting::language:
-        return "Language";
-    case Setting::touch_drag:
-        return "One-finger drag";
-    case Setting::touch_hold_delay:
-        return "Hold delay";
-    case Setting::touch_latches:
-        return "QUEUE and ADD";
-    case Setting::touch_haptics:
-        return "Haptics";
-    case Setting::touch_left_handed:
-        return "Left-handed layout";
-    case Setting::touch_control_size:
-        return "Control size";
-    case Setting::pad_scheme:
-        return "Scheme";
-    case Setting::pad_right_trackpad:
-        return "Right trackpad";
-    case Setting::pad_pointer_speed:
-        return "Pointer speed";
-    case Setting::pad_acceleration:
-        return "Pointer acceleration";
-    case Setting::pad_glide:
-        return "Trackpad glide";
-    case Setting::pad_right_stick:
-        return "Right stick";
-    case Setting::pad_magnetism:
-        return "Magnetism (stick pointer)";
-    case Setting::pad_gyro:
-        return "Gyro pointer";
-    case Setting::pad_gyro_speed:
-        return "Gyro speed";
-    case Setting::pad_haptics:
-        return "Haptics";
-    case Setting::pad_prompts:
-        return "Button prompts";
-    case Setting::pad_left_handed:
-        return "Left-handed";
-    case Setting::pad_steam_input_notice:
-        return "Steam Input";
-    case Setting::mod:
-        return "Mod";
-    case Setting::snap_override_key:
-        return "Snap override key";
-    case Setting::autoclick_key:
-        return "Autoclick key";
-    case Setting::rotate_build_key:
-        return "Rotate build key";
-    case Setting::patrol_hold:
-    case Setting::guard_hold:
-        return "Hold position";
-    case Setting::patrol_maneuver:
-    case Setting::guard_maneuver:
-        return "Maneuver";
-    case Setting::patrol_roam:
-    case Setting::guard_roam:
-        return "Roam";
-    case Setting::mex_snap_radius:
-        return "Mex snap radius";
-    case Setting::wreck_snap_radius:
-        return "Wreck snap radius";
-    case Setting::optimize_dt_rows:
-        return "Optimize DT rows";
-    case Setting::full_rings:
-        return "Full rings";
-    case Setting::chat_backdrop:
-        return "Accessible chat";
-    case Setting::panel_background:
-        return "Resource bar background";
-    case Setting::game_files_summary:
-        return "Installed";
-    case Setting::game_files_backed_up:
-        return "Include in device backups";
-    case Setting::game_files_location:
-        return "Where the files are";
-    case Setting::user_folder:
-        return "Your files";
-    }
-    return {};
-}
-
-std::string_view status_line(const AccelerationStatus& acceleration, std::size_t line) noexcept {
-    const auto index = static_cast<std::size_t>(acceleration.state);
-    if (index >= kStatusTexts.size())
-        return {};
-    const StatusText& text = kStatusTexts[index];
-    if (line == 0)
-        return acceleration.state == AccelerationState::waiting_for_game_end ||
-                       acceleration.state == AccelerationState::full_waiting_for_game_end
-                   ? waiting_line(acceleration)
-                   : text.first;
-    if (line == 1) {
-        if (full_in_use(acceleration.state))
-            return full_line(acceleration.supersample);
-        return text.second.empty() ? reach_line(acceleration.reach) : text.second;
-    }
-    return {};
-}
-
-std::string_view hint_line(
-    Setting setting,
-    const EngineSettings& settings,
-    const AccelerationStatus& acceleration,
-    std::size_t line
-) noexcept {
-    // Each hint is broken where it reads best, so each line fits the
-    // section's width in the small font.
-    using Lines = std::array<std::string_view, most_hint_lines>;
-    Lines lines{};
-    switch (setting) {
-    case Setting::path_search:
-        lines = {"More cycles find routes faster but use more CPU.", {}};
-        break;
-    case Setting::wheel_zoom:
-        lines = {"Scroll to zoom the battlefield in and out.", {}};
-        break;
-    case Setting::max_zoom_out: {
-        // What the choice stops at, then what says how units look there.
-        constexpr std::string_view dots = "Graphics' Zoomed out units says how units look.";
-        switch (settings.max_zoom_out) {
-        case ZoomOutLimit::automatic:
-            lines = {
-                "As far as the view always went: 1/6 of normal",
-                "size with Full hardware acceleration, else 1/2."
-            };
-            break;
-        case ZoomOutLimit::whole_map:
-            lines = {"Out until the whole map fits the view.", dots};
-            break;
-        case ZoomOutLimit::one_thirty_second:
-            lines = {"Out to 1/32 of normal size, or the whole map.", dots};
-            break;
-        case ZoomOutLimit::one_sixteenth:
-            lines = {"Out to 1/16 of normal size, or the whole map.", dots};
-            break;
-        case ZoomOutLimit::one_eighth:
-            lines = {"Out to 1/8 of normal size, or the whole map.", dots};
-            break;
-        case ZoomOutLimit::one_quarter:
-            lines = {"Out to 1/4 of normal size, or the whole map.", dots};
-            break;
-        case ZoomOutLimit::one_half:
-            lines = {"Out to 1/2 of normal size, or the whole map.", dots};
-            break;
-        }
-        break;
-    }
-    case Setting::max_zoom_in: {
-        // What the choice stops at, then every way of zooming it holds.
-        constexpr std::string_view every = "The wheel, a pinch and a controller stop there.";
-        switch (settings.max_zoom_in) {
-        case ZoomInLimit::none:
-            lines = {"Never closer than normal size.", every};
-            break;
-        case ZoomInLimit::twice:
-            lines = {"In to 2x normal size at most.", every};
-            break;
-        case ZoomInLimit::three_times:
-            lines = {"In to 3x normal size at most.", every};
-            break;
-        case ZoomInLimit::four_times:
-            lines = {"In to 4x normal size at most.", every};
-            break;
-        }
-        break;
-    }
-    case Setting::view_past_map_edge:
-        // How much of the battlefield may lie past the map, and whether a
-        // zoom keeps to it.
-        switch (settings.view_past_map_edge) {
-        case ViewPastMapEdge::off:
-            lines = {
-                "The view stays on the map, as the game kept it.",
-                "With more than the map in view, it is centred."
-            };
-            break;
-        case ViewPastMapEdge::one_quarter:
-            lines = {
-                "Up to a quarter of the battlefield past the",
-                "map's edges, however the view moves."
-            };
-            break;
-        case ViewPastMapEdge::one_half:
-            lines = {
-                "Up to half the battlefield past the map's edges;",
-                "a zoom keeps the ground under the pointer."
-            };
-            break;
-        }
-        break;
-    case Setting::escape_opens_menu:
-        lines = {"The first press clears the selection,", "the second opens the menu."};
-        break;
-    case Setting::switch_alt:
-        lines = {"A number key selects its group on its own.", {}};
-        break;
-    case Setting::unit_limit:
-        lines = {"Units each player can have.", "Applies from the next game."};
-        break;
-    case Setting::max_frame_rate:
-        lines = {"Lower it to save power.", {}};
-        break;
-    case Setting::anti_aliasing:
-        if (acceleration.full_supersample != 0) {
-            const uint8_t drawn = acceleration.full_supersample;
-            lines = drawn >= 16  ? kFullAntiAliasingSixteenTimes
-                    : drawn >= 8 ? kFullAntiAliasingEightTimes
-                    : drawn >= 4 ? kFullAntiAliasingFourTimes
-                    : drawn >= 2 ? kFullAntiAliasingTwice
-                                 : kFullAntiAliasingOff;
-            // Fewer samples than the row asks: the texture limit or the
-            // memory allows no more at this window's size.
-            if (drawn >= 2 && drawn < static_cast<uint8_t>(settings.anti_aliasing))
-                lines[1] = kFullAntiAliasingCapped;
-        } else if (settings.anti_aliasing == AntiAliasing::x16)
-            lines = {"Units drawn at 16x and scaled down.", "Needs a fast CPU."};
-        else if (
-            static_cast<uint8_t>(settings.anti_aliasing) >= static_cast<uint8_t>(kDemandingLevel)
-        )
-            lines = {"Units drawn at 8x and scaled down.", "Needs a fast CPU."};
-        else
-            lines = {"Units drawn at higher resolution and scaled down", "for smoother edges."};
-        break;
-    case Setting::screen_size:
-        lines = {"Full screen at this size, or a window of it.", "Applies when you press OK."};
-        break;
-    case Setting::developer_mode:
-        lines = {"Your changes to the profile's hacks apply while on.", {}};
-        break;
-    case Setting::frame_stats:
-        lines = {"Frame and tick times over the battlefield.", {}};
-        break;
-    case Setting::hardware_acceleration:
-        // Its hint is its status, which the host keeps up to date.
-        return status_line(acceleration, line);
-    case Setting::vertical_sync:
-        lines = {"Each frame waits for the display: no tearing.", {}};
-        break;
-    case Setting::menu_scaling:
-        // What the way chosen does to the menus.
-        switch (settings.menu_scaling) {
-        case MenuScaling::sharp:
-            lines = {"The menus fill the window, every pixel", "as wide as the next."};
-            break;
-        case MenuScaling::whole_steps:
-            lines = {
-                "The largest whole-number scale that fits:", "smaller menus, every pixel square."
-            };
-            break;
-        case MenuScaling::unfiltered:
-            lines = {"The menus fill the window, unfiltered,", "as the game always drew them."};
-            break;
-        }
-        break;
-    case Setting::native_density:
-        lines = {
-            "The display's own pixel density (Retina on a Mac).", "Applies from the next start."
-        };
-        break;
-    case Setting::explosion_flash:
-        // What the level chosen draws; a mod's profile may draw less.
-        switch (settings.explosion_flash) {
-        case ExplosionFlash::off:
-            lines = {"Explosions do not light up the ground,", "whatever a mod asks for."};
-            break;
-        case ExplosionFlash::reduced:
-            lines = {
-                "Explosions light up the ground at half", "strength, or less where a mod asks."
-            };
-            break;
-        case ExplosionFlash::full:
-            lines = {
-                "Explosions light up the ground as the game", "drew it, or less where a mod asks."
-            };
-            break;
-        }
-        break;
-    case Setting::zoomed_out_units:
-        // What the way chosen draws past After zoom, and what it costs.
-        switch (settings.zoomed_out_units) {
-        case ZoomedOutUnits::rendered:
-        case ZoomedOutUnits::icons:
-            lines = {
-                "Units are drawn as models at every zoom.",
-                "Far out on a large map, needs a fast CPU."
-            };
-            break;
-        case ZoomedOutUnits::dots:
-            lines = {
-                "Past After zoom, each unit is a dot of its",
-                "owner's colour, framed while selected."
-            };
-            break;
-        }
-        break;
-    case Setting::zoomed_out_after: {
-        // Where the dots begin, then what is drawn nearer.
-        constexpr std::string_view nearer = "Closer in, units are drawn as models.";
-        switch (settings.zoomed_out_after) {
-        case ZoomedOutAfter::one_half:
-            lines = {"Dots farther out than 1/2 of normal size.", nearer};
-            break;
-        case ZoomedOutAfter::one_third:
-            lines = {"Dots farther out than 1/3 of normal size.", nearer};
-            break;
-        case ZoomedOutAfter::one_quarter:
-            lines = {"Dots farther out than 1/4 of normal size.", nearer};
-            break;
-        case ZoomedOutAfter::one_sixth:
-            lines = {"Dots farther out than 1/6 of normal size.", nearer};
-            break;
-        case ZoomedOutAfter::one_eighth:
-            lines = {"Dots farther out than 1/8 of normal size.", nearer};
-            break;
-        case ZoomedOutAfter::one_twelfth:
-            lines = {"Dots farther out than 1/12 of normal size.", nearer};
-            break;
-        case ZoomedOutAfter::one_sixteenth:
-            lines = {"Dots farther out than 1/16 of normal size.", nearer};
-            break;
-        }
-        break;
-    }
-    case Setting::window_frame:
-        // When a window shows its frame; full screen has none.
-        switch (settings.window_frame) {
-        case WindowFrame::hidden_in_play:
-            lines = {
-                "A window hides its title bar and borders",
-                "while a game is played; menus show them."
-            };
-            break;
-        case WindowFrame::always_shown:
-            lines = {
-                "A window shows its title bar and borders", "on every screen, a game's included."
-            };
-            break;
-        }
-        break;
-    case Setting::hud_scaling:
-        // The size the game's side column and bars are drawn at.
-        if (settings.hud_scaling)
-            lines = {
-                "The side panel and bars grow with the window,",
-                "up to twice the original game's size."
-            };
-        else
-            lines = {"The side panel and bars keep the original", "game's size on every window."};
-        break;
-    case Setting::modern_fonts:
-        lines = {"Modern fonts for in-game text,", "including internationalization."};
-        break;
-    case Setting::text_outline:
-        lines = {"A dark edge round each letter of modern text.", {}};
-        break;
-    case Setting::text_shadow:
-        lines = {"A dark shadow under modern text.", {}};
-        break;
-    case Setting::text_background:
-        lines = {"A shaded box behind each line of game text.", {}};
-        break;
-    case Setting::unicode_chat:
-        lines = {
-            "Chat in any language with players who have it;", "others see ? for letters they lack."
-        };
-        break;
-    case Setting::language:
-        lines = {"The game's own text and unit names, where its", "data has them in the language."};
-        break;
-    case Setting::text_size:
-        lines = {
-            "The size of game text in the modern fonts.",
-            settings.modern_fonts ? "Larger sizes are easier to read."
-                                  : "The game's own fonts have fixed sizes.",
-        };
-        break;
-    case Setting::touch_drag:
-        // What a drag does now, and what still gives the other.
-        switch (settings.touch_drag) {
-        case TouchDrag::automatic:
-            lines = {"Automatic: a selection box on a tablet,", "scrolling on a phone."};
-            break;
-        case TouchDrag::box:
-            lines = {"A drag draws a selection box;", "two fingers scroll the map."};
-            break;
-        case TouchDrag::scroll:
-            lines = {"A drag scrolls the map;", "hold, then drag, for a selection box."};
-            break;
-        }
-        break;
-    case Setting::touch_hold_delay:
-        lines = {"How long a finger or button is held for a hold.", {}};
-        break;
-    case Setting::touch_latches:
-        lines =
-            settings.touch_latches == TouchLatches::one_action
-                ? Lines{"A tapped QUEUE, ADD or x5 turns off", "after the next order or selection."}
-                : Lines{"A tapped QUEUE, ADD or x5 stays on", "until it is tapped again."};
-        break;
-    case Setting::touch_haptics:
-        lines = {"A short vibration as a touch control acts.", {}};
-        break;
-    case Setting::touch_left_handed:
-        lines = {"The minimap and the thumb controls on the", "right, the orders on the left."};
-        break;
-    case Setting::touch_control_size:
-        lines = {"The size of the touch controls; the game's own", "screens keep theirs."};
-        break;
-    case Setting::pad_scheme:
-        lines = settings.pad_scheme == pad_controls::Scheme::sticks
-                    ? Lines{"The right stick moves the pointer and the left", "stick the map."}
-                    : Lines{
-                          "The right trackpad points and the left one moves",
-                          "the map; a pad without trackpads plays Sticks."
-                      };
-        break;
-    case Setting::pad_right_trackpad:
-        lines = settings.pad_right_trackpad == pad_controls::RightTrackpad::absolute
-                    ? Lines{"Each point of the pad is a point of the view.", {}}
-                    : Lines{"The pointer moves as the thumb slides.", {}};
-        break;
-    case Setting::pad_pointer_speed:
-        lines = {"How far the pointer moves for a slide.", {}};
-        break;
-    case Setting::pad_acceleration:
-        lines = {"A quick slide moves the pointer further.", {}};
-        break;
-    case Setting::pad_glide:
-        lines = {"The pointer keeps moving after a quick flick.", {}};
-        break;
-    case Setting::pad_right_stick:
-        switch (settings.pad_right_stick) {
-        case pad_controls::RightStick::zoom_and_pages:
-            lines = {
-                "Up and down zoom about the pointer; a flick left",
-                "or right turns the build page while building."
-            };
-            break;
-        case pad_controls::RightStick::pointer:
-            lines = {"The right stick moves the pointer, as in the", "Sticks scheme."};
-            break;
-        case pad_controls::RightStick::nothing:
-            lines = {"The right stick does nothing.", {}};
-            break;
-        }
-        break;
-    case Setting::pad_magnetism:
-        lines = {"The stick pointer settles on a lone unit near it.", {}};
-        break;
-    case Setting::pad_gyro:
-        lines = {"Turning the controller fine-tunes the pointer.", {}};
-        break;
-    case Setting::pad_gyro_speed:
-        lines = {"How far the pointer moves as the controller turns.", {}};
-        break;
-    case Setting::pad_haptics:
-        lines = {"Small ticks and bumps felt through the controller.", {}};
-        break;
-    case Setting::pad_prompts:
-        lines = {"The button pictures the controls and rings show.", {}};
-        break;
-    case Setting::pad_left_handed:
-        lines = {
-            "Mirrors the roles: the left pad points, the right",
-            "pad moves the map, triggers and grips swap."
-        };
-        break;
-    case Setting::pad_steam_input_notice:
-        // Its lines are its notice, broken between words (row_hint).
-        break;
-    case Setting::mod:
-        lines = {"A mod from a mods folder, or one picked.", "Applies from the next start."};
-        break;
-    case Setting::snap_override_key:
-        lines = {"Held, a click is not snapped.", {}};
-        break;
-    case Setting::autoclick_key:
-        lines = {"Held, a build click lays a line or a ring.", {}};
-        break;
-    case Setting::rotate_build_key:
-        lines = {"Turns the building being placed.", {}};
-        break;
-    case Setting::patrol_hold:
-    case Setting::patrol_maneuver:
-    case Setting::patrol_roam:
-        lines = {"What patrolling builders do.", "Applies from the next game."};
-        break;
-    case Setting::guard_hold:
-    case Setting::guard_maneuver:
-    case Setting::guard_roam:
-        lines = {"What guarding builders do.", "Applies from the next game."};
-        break;
-    case Setting::mex_snap_radius:
-        lines = {"Cells a metal extractor snaps to metal.", {}};
-        break;
-    case Setting::wreck_snap_radius:
-        lines = {"Cells a reclaim click snaps to a wreck.", {}};
-        break;
-    case Setting::optimize_dt_rows:
-        lines = {"Lines of 2x2 walls build as a double row.", {}};
-        break;
-    case Setting::full_rings:
-        lines = {"Rings include their corners.", {}};
-        break;
-    case Setting::chat_backdrop:
-        lines = {"A dark backdrop under each chat line.", {}};
-        break;
-    case Setting::panel_background:
-        lines = {"Behind the resource bar's text.", {}};
-        break;
-    case Setting::game_files_summary:
-    case Setting::game_files_location:
-        // Their lines are the host's (row_hint): what is installed and its
-        // sizes, and where the files are.
-        break;
-    case Setting::game_files_backed_up:
-        // row_hint names the device in place of {device}.
-        lines = {"After restoring this {device} from a backup,", "add the game files again."};
-        break;
-    case Setting::user_folder:
-        // The first line is the folder's path, which the dialog holds.
-        lines = {std::string_view{}, user_folder_hint_text};
-        break;
-    }
-    return line < lines.size() ? lines[line] : std::string_view{};
-}
-
-std::size_t hint_line_count(Setting setting) noexcept {
-    switch (setting) {
-    case Setting::max_zoom_out:
-    case Setting::max_zoom_in:
-    case Setting::view_past_map_edge:
-    case Setting::escape_opens_menu:
-    case Setting::unit_limit:
-    case Setting::anti_aliasing:
-    case Setting::screen_size:
-    case Setting::hardware_acceleration:
-    case Setting::mod:
-    case Setting::modern_fonts:
-    case Setting::unicode_chat:
-    case Setting::text_size:
-    case Setting::language:
-    case Setting::menu_scaling:
-    case Setting::native_density:
-    case Setting::explosion_flash:
-    case Setting::zoomed_out_units:
-    case Setting::zoomed_out_after:
-    case Setting::window_frame:
-    case Setting::hud_scaling:
-    case Setting::touch_drag:
-    case Setting::touch_latches:
-    case Setting::touch_left_handed:
-    case Setting::touch_control_size:
-    case Setting::pad_scheme:
-    case Setting::pad_right_stick:
-    case Setting::pad_left_handed:
-    case Setting::game_files_summary:
-    case Setting::game_files_backed_up:
-    case Setting::game_files_location:
-    case Setting::user_folder:
-        return 2;
-    case Setting::pad_steam_input_notice:
-        return most_notice_lines;
-    default:
-        return 1;
-    }
-}
-
-std::size_t hint_line_count(Setting setting, const RowContext& context) noexcept {
-    // On a Steam Deck, Maximum frame rate names the screen's rate it starts at.
-    if (setting == Setting::max_frame_rate && context.steam_deck_panel_hz != 0)
-        return hint_line_count(setting) + 1;
-    return hint_line_count(setting);
+        return sized.cancel_button;
+    return sized.ok_button;
 }
 
 EngineSettings slider_settings(const Dialog& dialog) {
@@ -2514,140 +978,6 @@ EngineSettings slider_settings(const Dialog& dialog) {
     if (dialog.window_screen_size)
         shown.screen_size = *dialog.window_screen_size;
     return shown;
-}
-
-std::string value_text(Setting setting, const Dialog& dialog) {
-    const EngineSettings shown = slider_settings(dialog);
-    if (setting == Setting::screen_size && dialog.custom_screen_size &&
-        shown.screen_size == *dialog.custom_screen_size)
-        return std::string(shown_text("Custom"));
-    return value_text(setting, shown);
-}
-
-std::string value_text(Setting setting, const EngineSettings& settings) {
-    switch (setting) {
-    case Setting::path_search:
-        return std::to_string(path_search_multiplier(settings.path_search_nodes)) + "x";
-    case Setting::unit_limit:
-        return std::to_string(settings.unit_limit) + " " + std::string(shown_text("per player"));
-    case Setting::max_frame_rate:
-        return std::to_string(settings.max_frame_rate) + " " + std::string(shown_text("fps"));
-    case Setting::screen_size:
-        return settings.screen_size == desktop_screen_size
-                   ? std::string(shown_text("Desktop"))
-                   : std::to_string(settings.screen_size.width) + " x " +
-                         std::to_string(settings.screen_size.height);
-    case Setting::snap_override_key:
-    case Setting::autoclick_key:
-    case Setting::rotate_build_key: {
-        auto options = settings.mod_options;
-        return std::string(
-            option_keys[static_cast<std::size_t>(option_key_index(key_of(options, setting)))].name
-        );
-    }
-    case Setting::patrol_hold:
-    case Setting::patrol_maneuver:
-    case Setting::patrol_roam: {
-        constexpr std::array<std::string_view, kChoiceStops> names{
-            "Reclaim only", "Both", "Assist only"
-        };
-        auto options = settings.mod_options;
-        return std::string(
-            shown_text(names[std::min<std::size_t>(choice_of(options, setting), 2)])
-        );
-    }
-    case Setting::guard_hold:
-    case Setting::guard_maneuver:
-    case Setting::guard_roam: {
-        constexpr std::array<std::string_view, kChoiceStops> names{"Stay", "Normal", "Scatter"};
-        auto options = settings.mod_options;
-        return std::string(
-            shown_text(names[std::min<std::size_t>(choice_of(options, setting), 2)])
-        );
-    }
-    case Setting::panel_background: {
-        constexpr std::array<std::string_view, kChoiceStops> names{"None", "Text", "Solid"};
-        return std::string(
-            shown_text(names[std::min<std::size_t>(settings.mod_options.panel_background, 2)])
-        );
-    }
-    case Setting::mex_snap_radius:
-        return std::to_string(settings.mod_options.mex_snap_radius) + " " +
-               std::string(shown_text("cells"));
-    case Setting::wreck_snap_radius:
-        return std::to_string(settings.mod_options.wreck_snap_radius) + " " +
-               std::string(shown_text("cells"));
-    case Setting::text_size:
-        return std::to_string(settings.text_size) + "%";
-    case Setting::touch_hold_delay:
-        return std::to_string(settings.touch_hold_ms) + " " + std::string(shown_text("ms"));
-    case Setting::pad_pointer_speed:
-        return std::to_string(settings.pad_pointer_speed) + "%";
-    case Setting::pad_gyro_speed:
-        return std::to_string(settings.pad_gyro_speed) + "%";
-    default:
-        return {};
-    }
-}
-
-HintLine row_hint(const Dialog& dialog, Setting setting, std::size_t line) {
-    switch (setting) {
-    case Setting::user_folder:
-        // The player's own folder, then why a folder could not be opened, as
-        // a notice.
-        if (line == 0)
-            return {dialog.user_folder};
-        if (line == 1 && !dialog.folder_notice.empty())
-            return {dialog.folder_notice, true};
-        break;
-    case Setting::game_files_summary:
-        // What is installed, then its size and the free space.
-        if (line == 0)
-            return {dialog.game_files_summary};
-        return {line == 1 ? dialog.game_files_sizes : std::string{}};
-    case Setting::game_files_location: {
-        const auto lines = break_lines(dialog.game_files_location, hint_line_characters, 2);
-        return {line < lines.size() ? lines[line] : std::string{}};
-    }
-    case Setting::pad_steam_input_notice: {
-        // The notice, in the language shown, between words, as a notice.
-        const auto lines = break_lines(
-            shown_text(steam_input_notice_text), hint_line_characters, most_notice_lines
-        );
-        return {line < lines.size() ? lines[line] : std::string{}, true};
-    }
-    case Setting::max_frame_rate:
-        // On a Steam Deck, a second line names the screen's rate, which
-        // the setting starts at.
-        if (line == 1 && dialog.steam_deck_panel_hz != 0) {
-            constexpr std::string_view rate_field = "{rate}";
-            std::string text(shown_text(steam_deck_rate_text));
-            const auto at = text.find(rate_field);
-            if (at != std::string::npos)
-                text.replace(at, rate_field.size(), std::to_string(dialog.steam_deck_panel_hz));
-            return {text};
-        }
-        break;
-    case Setting::game_files_backed_up: {
-        // The device's own name, or the neutral word, in the line shown.
-        std::string text(shown_text(hint_line(setting, dialog.chosen, dialog.acceleration, line)));
-        constexpr std::string_view device_field = "{device}";
-        const std::string device = dialog.game_files_device.empty()
-                                       ? std::string(shown_text("device"))
-                                       : dialog.game_files_device;
-        for (std::size_t at = text.find(device_field); at != std::string::npos;
-             at = text.find(device_field, at + device.size()))
-            text.replace(at, device_field.size(), device);
-        return {text};
-    }
-    default:
-        break;
-    }
-    return {std::string(hint_line(setting, dialog.chosen, dialog.acceleration, line))};
-}
-
-std::string_view row_label(Setting setting) noexcept {
-    return label_of(setting);
 }
 
 std::vector<std::string>
@@ -2713,9 +1043,11 @@ break_lines(std::string_view text, std::size_t characters, std::size_t most_line
 
 SourceRect dialog_list_item(const Dialog& dialog, Page page) noexcept {
     if (dialog.kind != DialogKind::language_text)
-        return list_item(page, dialog.touch, dialog.game_files, dialog.controller);
+        return list_item(
+            page, dialog.touch, dialog.game_files, dialog.controller, dialog.size_class
+        );
     // A Language dialog lists its one section at the top.
-    return {list_item_left, list_first_top, list_item_width, list_item_height};
+    return {list_item_left, list_first_top, sizes_of(dialog).list_item_width, list_item_height};
 }
 
 std::string_view lock_text(Lock lock) noexcept {
@@ -2740,22 +1072,10 @@ std::string_view lock_text(Lock lock) noexcept {
         return "Set by the language";
     case Lock::needs_dots:
         return "Needs Dots";
-    }
-    return {};
-}
-
-std::string_view level_caption(AntiAliasing level) noexcept {
-    switch (level) {
-    case AntiAliasing::off:
-        return "Off";
-    case AntiAliasing::x2:
-        return "2x";
-    case AntiAliasing::x4:
-        return "4x";
-    case AntiAliasing::x8:
-        return "8x";
-    case AntiAliasing::x16:
-        return "16x";
+    case Lock::needs_sticky:
+        return "Needs Sticky";
+    case Lock::main_menu:
+        return "Choose from the main menu.";
     }
     return {};
 }
@@ -2764,17 +1084,14 @@ std::string_view level_caption(AntiAliasing level) noexcept {
 
 namespace layout = geometry;
 
-namespace {
-
-/// Tells whether a point lies in a rectangle.
-///
-/// @param rect the rectangle
-/// @param x the point's column
-/// @param y the point's row
-/// @return true inside it
-bool contains(const layout::SourceRect& rect, int32_t x, int32_t y) noexcept {
-    return x >= rect.x && y >= rect.y && x < rect.x + rect.width && y < rect.y + rect.height;
+bool layout::list_row_takes_input(const layout::ListRow& row) noexcept {
+    if (row.control == no_control)
+        return false;
+    return row.kind == layout::ListRowKind::area || row.kind == layout::ListRowKind::hack ||
+           !row.locked;
 }
+
+namespace {
 
 /// Tells whether a rectangle lies wholly in another.
 ///
@@ -2798,132 +1115,16 @@ const layout::Row* row_of(const layout::Rows& rows, int32_t control) noexcept {
     return &rows.rows[static_cast<std::size_t>(index)];
 }
 
-/// Tells whether a row of Developer's list takes a press and the focus:
-/// every header, which opens and closes, and a parameter's control while it
-/// can change.
-///
-/// @param row the row
-/// @return true when it does
-bool list_row_takes_input(const layout::ListRow& row) noexcept {
-    if (row.control == no_control)
-        return false;
-    return row.kind == layout::ListRowKind::area || row.kind == layout::ListRowKind::hack ||
-           !row.locked;
-}
-
-/// Returns the rows of Mods that offer ROLL BACK, by their places.
+/// Returns the control a press at a point acts on: the first of the
+/// dialog's display list's controls that a press reaches there (kit::hit).
+/// While a drop-down list is open its items come first.
 ///
 /// @param dialog the dialog
-/// @param open Mods' rows
-/// @return for each placed row, whether it shows ROLL BACK
-std::vector<bool> roll_back_rows(const Dialog& dialog, const layout::ScrolledRows& open) {
-    std::vector<bool> shown(open.rows.rows.size(), false);
-    if (!layout::mods_page(dialog))
-        return shown;
-    const auto rows = mod_rows(dialog);
-    for (std::size_t index = 0; index < shown.size() && index < rows.size(); ++index)
-        shown[index] = layout::offers_roll_back(dialog, rows[index]);
-    return shown;
-}
-
-/// Returns the control under a point that a press can act on.
-///
-/// A row's control answers only on the part the view shows, and a locked
-/// row's takes no press. The scroll bar answers while the section scrolls.
-/// On Developer, its list's rows, Show Active Only and, while Developer Mode
-/// is on, Restore profile values answer too.
-///
-/// @param dialog the dialog
-/// @param open the open section's rows
 /// @param x the point's column
 /// @param y the point's row
 /// @return the control; no_control when none is there
-int32_t
-control_at(const Dialog& dialog, const layout::ScrolledRows& open, int32_t x, int32_t y) noexcept {
-    if (layout::developer_page(dialog)) {
-        if (contains(layout::developer_view, x, y)) {
-            for (const layout::ListRow& row : open.list.rows) {
-                if (list_row_takes_input(row) && contains(row.control_area, x, y))
-                    return row.control;
-            }
-        }
-        if (contains(layout::active_only_switch, x, y))
-            return active_only_control;
-        if (developer::restore_profile_enabled(dialog) &&
-            contains(layout::restore_profile_button, x, y))
-            return restore_profile_control;
-    }
-    // Mods' rows answer in its list's own view; every other section's rows,
-    // Developer's above its list among them, in the view under the heading.
-    if (contains(layout::mods_page(dialog) ? open.area.view : layout::view, x, y)) {
-        // A row's ROLL BACK lies inside the row and answers first.
-        const std::vector<bool> roll_backs = roll_back_rows(dialog, open);
-        for (std::size_t index = 0; index < roll_backs.size(); ++index) {
-            const layout::Row& row = open.rows.rows[index];
-            if (roll_backs[index] && row.lock == Lock::none &&
-                contains(layout::roll_back_button(row), x, y))
-                return layout::roll_back_control(open.rows, index);
-        }
-        for (const layout::Row& row : open.rows.rows) {
-            if (row.lock == Lock::none && contains(row.control_area, x, y))
-                return row.control;
-        }
-    }
-    if (layout::mods_page(dialog) && dialog.locks.mod == Lock::none &&
-        contains(layout::mods_folder_button, x, y))
-        return layout::mods_folder_control(open.rows);
-    if (open.limit > 0 && contains(open.area.hit, x, y))
-        return scroll_bar_control;
-    for (const int32_t control : {restore_control, cancel_control, ok_control}) {
-        if (contains(layout::footer_button(control), x, y))
-            return control;
-    }
-    for (const Page page :
-         dialog_pages(dialog.kind, dialog.touch, dialog.game_files, dialog.controller)) {
-        if (contains(layout::dialog_list_item(dialog, page), x, y))
-            return page_control(page);
-    }
-    return no_control;
-}
-
-/// Returns the controls the keyboard focus moves through, in order: the
-/// open section's rows that can be changed (on Developer, then its list's
-/// rows, Show Active Only and, while Developer Mode is on, Restore profile
-/// values), the footer's buttons left to right, then the sections' entries.
-///
-/// @param dialog the dialog
-/// @param open the open section's rows
-/// @return the controls
-std::vector<int32_t> focus_order(const Dialog& dialog, const layout::ScrolledRows& open) {
-    std::vector<int32_t> order;
-    // A row that only shows text takes no focus; a row of Mods is followed
-    // by its ROLL BACK.
-    const std::vector<bool> roll_backs = roll_back_rows(dialog, open);
-    for (std::size_t index = 0; index < open.rows.rows.size(); ++index) {
-        const layout::Row& row = open.rows.rows[index];
-        if (row.lock == Lock::none && row.control_area.width > 0)
-            order.push_back(row.control);
-        if (row.lock == Lock::none && roll_backs[index])
-            order.push_back(layout::roll_back_control(open.rows, index));
-    }
-    if (layout::developer_page(dialog)) {
-        for (const layout::ListRow& row : open.list.rows) {
-            if (list_row_takes_input(row))
-                order.push_back(row.control);
-        }
-        order.push_back(active_only_control);
-        if (developer::restore_profile_enabled(dialog))
-            order.push_back(restore_profile_control);
-    }
-    if (layout::mods_page(dialog) && dialog.locks.mod == Lock::none)
-        order.push_back(layout::mods_folder_control(open.rows));
-    order.push_back(restore_control);
-    order.push_back(cancel_control);
-    order.push_back(ok_control);
-    for (const Page page :
-         dialog_pages(dialog.kind, dialog.touch, dialog.game_files, dialog.controller))
-        order.push_back(page_control(page));
-    return order;
+int32_t control_under(const Dialog& dialog, int32_t x, int32_t y) {
+    return kit::hit(layout::dialog_list(dialog, nullptr), {x, y}, kit::DisabledControl::passes);
 }
 
 /// Notes where the pointer is, so that the hover can follow the rows a
@@ -2941,12 +1142,11 @@ void note_pointer(Dialog& dialog, int32_t x, int32_t y) noexcept {
 /// Finds the control under the last pointer point again, after a scroll
 /// moved the rows under it; a held press keeps its hover.
 ///
-/// @param[in,out] dialog the dialog
-/// @param open the open section's rows, at the offset the scroll left
-void hover_again(Dialog& dialog, const layout::ScrolledRows& open) noexcept {
+/// @param[in,out] dialog the dialog, at the offset the scroll left
+void hover_again(Dialog& dialog) {
     if (!dialog.pointer_known || dialog.pressed != no_control)
         return;
-    dialog.hovered = control_at(dialog, open, dialog.pointer_x, dialog.pointer_y);
+    dialog.hovered = control_under(dialog, dialog.pointer_x, dialog.pointer_y);
 }
 
 /// Scrolls the open section to an offset, moving its placed rows with it;
@@ -2958,7 +1158,7 @@ void hover_again(Dialog& dialog, const layout::ScrolledRows& open) noexcept {
 ///     the new offset
 /// @param offset the offset, clamped to the section's limit
 /// @return DialogAction::redraw when the section moved, else DialogAction::none
-DialogAction scroll_to(Dialog& dialog, layout::ScrolledRows& open, int32_t offset) noexcept {
+DialogAction scroll_to(Dialog& dialog, layout::ScrolledRows& open, int32_t offset) {
     const int32_t next = std::clamp(offset, int32_t{0}, open.limit);
     dialog.scroll[layout::scroll_index(dialog.page)] = next;
     if (next == open.scroll)
@@ -2967,7 +1167,7 @@ DialogAction scroll_to(Dialog& dialog, layout::ScrolledRows& open, int32_t offse
         layout::scroll_rows(open.rows, next - open.scroll);
     layout::scroll_list(open.list, next - open.scroll);
     open.scroll = next;
-    hover_again(dialog, open);
+    hover_again(dialog);
     return DialogAction::redraw;
 }
 
@@ -2978,7 +1178,7 @@ DialogAction scroll_to(Dialog& dialog, layout::ScrolledRows& open, int32_t offse
 /// @param[in,out] open the open section's rows, left at the offset shown
 /// @param control the control
 /// @return DialogAction::redraw when the section moved, else DialogAction::none
-DialogAction show_row(Dialog& dialog, layout::ScrolledRows& open, int32_t control) noexcept {
+DialogAction show_row(Dialog& dialog, layout::ScrolledRows& open, int32_t control) {
     if (control < first_row_control || dialog.pressed != no_control)
         return DialogAction::none;
     // Developer's rows and its footer's switch and button stay where they
@@ -2987,13 +1187,6 @@ DialogAction show_row(Dialog& dialog, layout::ScrolledRows& open, int32_t contro
         return control < first_hack_list_control
                    ? DialogAction::none
                    : scroll_to(dialog, open, layout::list_scroll_showing(open, control));
-    if (layout::mods_page(dialog) && control >= layout::mods_folder_control(open.rows)) {
-        // A row's ROLL BACK brings its row into view.
-        const int32_t row = layout::roll_back_row(open.rows, control);
-        if (row < 0)
-            return DialogAction::none;
-        return scroll_to(dialog, open, layout::scroll_showing(open, static_cast<std::size_t>(row)));
-    }
     return scroll_to(
         dialog,
         open,
@@ -3001,25 +1194,50 @@ DialogAction show_row(Dialog& dialog, layout::ScrolledRows& open, int32_t contro
     );
 }
 
-/// Moves the focus to the next or previous control, and scrolls its row
-/// into view when it is a row.
+/// Moves the focus to the next or previous control in the display list's
+/// declared order (kit::next_in_tab_order), round from one end to the
+/// other, and scrolls its row into view when it is a row. From a control
+/// not in the order, forward goes to the first and back to the last.
 ///
 /// @param[in,out] dialog the dialog
 /// @param[in,out] open the open section's rows, left at the offset shown
 /// @param forward true for the next control, false for the previous
 /// @return DialogAction::redraw
-DialogAction move_focus(Dialog& dialog, layout::ScrolledRows& open, bool forward) {
-    const auto order = focus_order(dialog, open);
-    const auto found = std::find(order.begin(), order.end(), dialog.focused);
-    if (found == order.end()) {
-        dialog.focused = forward ? order.front() : order.back();
-    } else {
-        const auto count = static_cast<std::ptrdiff_t>(order.size());
-        const std::ptrdiff_t at = found - order.begin();
-        const std::ptrdiff_t next = (at + (forward ? 1 : count - 1)) % count;
-        dialog.focused = order[static_cast<std::size_t>(next)];
-    }
+DialogAction move_in_tab_order(Dialog& dialog, layout::ScrolledRows& open, bool forward) {
+    const int32_t next =
+        kit::next_in_tab_order(layout::dialog_list(dialog, nullptr), dialog.focused, forward);
+    if (next == no_control)
+        return DialogAction::none;
+    dialog.focused = next;
     static_cast<void>(show_row(dialog, open, dialog.focused));
+    reveal_registered_nav(dialog);
+    return DialogAction::redraw;
+}
+
+/// Moves the focus to the control an arrow points at, by where the
+/// display list's controls lie (kit::focus_toward): within the focused
+/// control's scroll area first, the open section's rows or Developer's
+/// list, rows it does not show included; then among the controls
+/// that show. A row it moves onto is scrolled into view (show_row). From no
+/// focus, or a focus on no control the dialog shows, Up shows the focus on
+/// the last control in the declared order and the other arrows on the
+/// first.
+///
+/// @param[in,out] dialog the dialog
+/// @param[in,out] open the open section's rows, left at the offset shown
+/// @param direction the arrow's direction
+/// @return DialogAction::redraw when the focus moved, else DialogAction::none
+DialogAction move_toward(Dialog& dialog, layout::ScrolledRows& open, kit::Direction direction) {
+    const kit::DisplayList list = layout::dialog_list(dialog, nullptr);
+    const int32_t next =
+        kit::control_of(list, dialog.focused) == nullptr
+            ? kit::next_in_tab_order(list, no_control, direction != kit::Direction::up)
+            : kit::focus_toward(list, dialog.focused, direction);
+    if (next == no_control)
+        return DialogAction::none;
+    dialog.focused = next;
+    static_cast<void>(show_row(dialog, open, dialog.focused));
+    reveal_registered_nav(dialog);
     return DialogAction::redraw;
 }
 
@@ -3030,7 +1248,7 @@ DialogAction move_focus(Dialog& dialog, layout::ScrolledRows& open, bool forward
 /// @param[in,out] open the open section's rows, left at the new offset
 /// @param key the key
 /// @return DialogAction::redraw when the section moved, else DialogAction::none
-DialogAction scroll_key(Dialog& dialog, layout::ScrolledRows& open, DialogKey key) noexcept {
+DialogAction scroll_key(Dialog& dialog, layout::ScrolledRows& open, DialogKey key) {
     if (dialog.pressed != no_control)
         return DialogAction::none;
     int32_t next = open.scroll;
@@ -3058,42 +1276,73 @@ DialogAction changed_or_redraw(Dialog& dialog, const EngineSettings& before) noe
     return before == dialog.chosen ? DialogAction::redraw : DialogAction::changed;
 }
 
-/// Moves a row's control one step down or up: a switch to Off or On, a
-/// slider one stop, a level strip one level, a drop-down one choice.
+/// Returns the model of the settings the dialog shows, which its rows change.
+///
+/// @param[in,out] dialog the dialog
+/// @return the model of its chosen settings
+layout::SettingsModel chosen_model(Dialog& dialog) noexcept {
+    return {&dialog.chosen, &dialog};
+}
+
+/// Returns a row as the kit's events read it: its control and the width of
+/// its strip's levels.
+///
+/// @param row the row, placed
+/// @return the kit's placed row
+kit::PlacedRow placed_row(const layout::Row& row) {
+    kit::PlacedRow placed;
+    placed.control = row.control;
+    placed.control_area = row.control_area;
+    placed.view.kind = layout::kind_of(row.setting);
+    placed.view.control_width = layout::row_spec(row.setting).control_width;
+    return placed;
+}
+
+/// Notes that a slider's knob moved: Screen size shows the size chosen from
+/// then on, no longer the window's own.
+///
+/// @param[in,out] dialog the dialog
+/// @param setting the slider's setting
+void knob_moved(Dialog& dialog, Setting setting) noexcept {
+    if (setting == Setting::screen_size)
+        dialog.window_screen_size.reset();
+}
+
+/// Moves a row's control one step down or up through its row spec: a
+/// switch to Off or On, a level strip one level, a drop-down one choice, as
+/// the kit steps them; a slider to the stop next to the one its value is
+/// nearest, held to its ends, so that a value between two stops at an end
+/// moves onto the end stop.
 ///
 /// @param[in,out] dialog the dialog, whose chosen settings change
 /// @param setting the row's setting
 /// @param up true for a step up
 void step(Dialog& dialog, Setting setting, bool up) {
-    EngineSettings& settings = dialog.chosen;
-    if (layout::is_choice(setting)) {
-        const std::size_t choice = layout::choice_index(dialog, setting);
-        if (up)
-            layout::set_choice(dialog, setting, choice + 1);
-        else if (choice > 0)
-            layout::set_choice(dialog, setting, choice - 1);
+    const auto& spec = layout::row_spec(setting);
+    layout::SettingsModel model = chosen_model(dialog);
+    // Left and Right stay among System default and the installed languages.
+    // An available pack is chosen only from the open list.
+    if (setting == Setting::language) {
+        const int32_t installed = layout::language_installed_count();
+        const int32_t current = kit::row_index(spec, model);
+        if (current >= installed) {
+            if (up || installed <= 0)
+                return;
+            layout::set_language(model, installed - 1);
+            return;
+        }
+        const int32_t next = current + (up ? 1 : -1);
+        if (next < 0 || next >= installed)
+            return;
+        layout::set_language(model, next);
         return;
     }
-    const uint16_t highest_offered_unit = dialog.highest_offered_unit;
-    if (layout::is_slider(setting)) {
-        const std::span<const ScreenSize> sizes = dialog.offered_screen_sizes;
-        const int32_t stop =
-            layout::stop_of(layout::slider_settings(dialog), setting, highest_offered_unit, sizes);
-        layout::set_stop(settings, setting, stop + (up ? 1 : -1), highest_offered_unit, sizes);
-        // Once moved, Screen size shows the size chosen.
-        if (setting == Setting::screen_size)
-            dialog.window_screen_size.reset();
+    if (spec.kind != kit::RowKind::slider) {
+        static_cast<void>(kit::step(spec, model, up));
         return;
     }
-    if (layout::is_strip(setting)) {
-        const std::size_t level = layout::strip_level(settings, setting);
-        if (up)
-            layout::set_strip_level(settings, setting, level + 1);
-        else if (level > 0)
-            layout::set_strip_level(settings, setting, level - 1);
-        return;
-    }
-    layout::set_switch(settings, setting, up);
+    kit::set_row_index(spec, model, kit::row_index(spec, model) + (up ? 1 : -1));
+    knob_moved(dialog, setting);
 }
 
 /// An open drop-down list, as it lies now.
@@ -3113,31 +1362,37 @@ std::optional<OpenList> open_list(const Dialog& dialog, const layout::ScrolledRo
     if (dialog.open_list == no_control)
         return std::nullopt;
     const layout::Row* row = row_of(open.rows, dialog.open_list);
-    if (row == nullptr || !layout::is_choice(row->setting) || row->lock != Lock::none)
+    const bool choice =
+        row != nullptr && row->lock == Lock::none &&
+        (row->downloads >= 0 ? downloads::is_choice(*row)
+                             : layout::kind_of(row->setting) == kit::RowKind::choice);
+    if (!choice)
         return std::nullopt;
-    const std::size_t choices = layout::choice_count(dialog, row->setting);
+    const auto choices =
+        row->downloads >= 0
+            ? static_cast<std::size_t>(downloads::choice_count())
+            : static_cast<std::size_t>(kit::row_count(
+                  layout::row_spec(row->setting), layout::reading(dialog.chosen, dialog)
+              ));
     return OpenList{
         row,
-        layout::choice_list(row->control_area, choices),
+        layout::choice_list(row->control_area, choices, dialog.size_class),
         choices,
         layout::shown_choices(choices)
     };
 }
 
-/// Returns the item of an open list under a point.
+/// Returns the item of an open list under a point: the item whose control
+/// the display list puts there (control_under).
 ///
-/// @param dialog the dialog, whose first shown item counts
-/// @param list the list
+/// @param dialog the dialog, its list open
 /// @param x the point's column
 /// @param y the point's row
 /// @return the item, from 0; -1 for a point on no item
-int32_t list_item_at(const Dialog& dialog, const OpenList& list, int32_t x, int32_t y) noexcept {
-    for (int32_t shown = 0; shown < list.shown; ++shown)
-        if (contains(layout::choice_item(list.rect, shown), x, y)) {
-            const int32_t item = dialog.list_first + shown;
-            return item < static_cast<int32_t>(list.choices) ? item : -1;
-        }
-    return -1;
+int32_t list_item_at(const Dialog& dialog, int32_t x, int32_t y) {
+    const int32_t control = control_under(dialog, x, y);
+    return control <= layout::first_menu_item_control ? layout::first_menu_item_control - control
+                                                      : -1;
 }
 
 /// Closes the open list, choosing nothing.
@@ -3169,17 +1424,23 @@ void show_list_item(Dialog& dialog, const OpenList& list, int32_t item) noexcept
 /// @param row the drop-down's row
 /// @return DialogAction::redraw
 DialogAction open_choices(Dialog& dialog, const layout::Row& row) {
-    const std::size_t choices = layout::choice_count(dialog, row.setting);
+    const bool downloads_choice = row.downloads >= 0;
+    const auto& spec =
+        downloads_choice ? layout::row_spec(Setting::language) : layout::row_spec(row.setting);
+    const layout::SettingsModel model = layout::reading(dialog.chosen, dialog);
+    const auto choices = downloads_choice ? static_cast<std::size_t>(downloads::choice_count())
+                                          : static_cast<std::size_t>(kit::row_count(spec, model));
     const OpenList list{
         &row,
-        layout::choice_list(row.control_area, choices),
+        layout::choice_list(row.control_area, choices, dialog.size_class),
         choices,
         layout::shown_choices(choices)
     };
     dialog.open_list = row.control;
     dialog.list_pressed = -1;
     dialog.list_first = 0;
-    dialog.list_marked = static_cast<int32_t>(layout::choice_index(dialog, row.setting));
+    dialog.list_marked =
+        downloads_choice ? downloads::choice_index(dialog) : kit::row_index(spec, model);
     show_list_item(dialog, list, dialog.list_marked);
     return DialogAction::redraw;
 }
@@ -3191,11 +1452,31 @@ DialogAction open_choices(Dialog& dialog, const layout::Row& row) {
 /// @param item the item, from 0
 /// @return DialogAction::changed when the choice moved, else DialogAction::redraw
 DialogAction choose(Dialog& dialog, const OpenList& list, int32_t item) {
+    if (list.row->downloads >= 0) {
+        close_list(dialog);
+        const EngineSettings before = dialog.chosen;
+        downloads::apply_choice(dialog, item);
+        return changed_or_redraw(dialog, before);
+    }
     const Setting setting = list.row->setting;
-    const auto index = static_cast<std::size_t>(item);
+    // A divider and a pack whose downloads are off leave the list open.
+    // Choosing an available pack asks for its download even when its tag
+    // was already the choice, so a failed download can be tried again.
+    if (setting == Setting::language) {
+        const layout::LanguagePick pick = layout::language_pick(dialog, item);
+        if (pick.kind == layout::LanguagePickKind::refused)
+            return DialogAction::redraw;
+        if (pick.kind == layout::LanguagePickKind::download) {
+            close_list(dialog);
+            dialog.chosen.language = pick.tag;
+            dialog.download_request = pick.tag;
+            return DialogAction::download_language;
+        }
+    }
     close_list(dialog);
     const EngineSettings before = dialog.chosen;
-    layout::set_choice(dialog, setting, index);
+    layout::SettingsModel model = chosen_model(dialog);
+    static_cast<void>(kit::choose(layout::row_spec(setting), model, item));
     return changed_or_redraw(dialog, before);
 }
 
@@ -3215,22 +1496,41 @@ list_key(Dialog& dialog, layout::ScrolledRows& open, const OpenList& list, Dialo
     int32_t marked = dialog.list_marked;
     switch (key) {
     case DialogKey::up:
-        --marked;
-        break;
     case DialogKey::down:
-        ++marked;
-        break;
     case DialogKey::page_up:
-        marked -= list.shown;
-        break;
     case DialogKey::page_down:
-        marked += list.shown;
-        break;
     case DialogKey::home:
-        marked = 0;
-        break;
     case DialogKey::end:
-        marked = last;
+        // Language's divider is not an item the keys can mark. A step that
+        // lands on it continues one further in the same direction.
+        if (list.row->setting == Setting::language) {
+            int32_t moved = 0;
+            if (key == DialogKey::up)
+                moved = -1;
+            else if (key == DialogKey::down)
+                moved = 1;
+            else if (key == DialogKey::page_up)
+                moved = -list.shown;
+            else if (key == DialogKey::page_down)
+                moved = list.shown;
+            else if (key == DialogKey::home)
+                moved = -(last + 1);
+            else
+                moved = last + 1;
+            marked = layout::language_mark_toward(dialog, marked, moved);
+        } else if (key == DialogKey::up) {
+            --marked;
+        } else if (key == DialogKey::down) {
+            ++marked;
+        } else if (key == DialogKey::page_up) {
+            marked -= list.shown;
+        } else if (key == DialogKey::page_down) {
+            marked += list.shown;
+        } else if (key == DialogKey::home) {
+            marked = 0;
+        } else {
+            marked = last;
+        }
         break;
     case DialogKey::enter:
     case DialogKey::space:
@@ -3241,7 +1541,7 @@ list_key(Dialog& dialog, layout::ScrolledRows& open, const OpenList& list, Dialo
     case DialogKey::tab:
     case DialogKey::back_tab:
         close_list(dialog);
-        return move_focus(dialog, open, key == DialogKey::tab);
+        return move_in_tab_order(dialog, open, key == DialogKey::tab);
     default:
         return DialogAction::none;
     }
@@ -3251,338 +1551,6 @@ list_key(Dialog& dialog, layout::ScrolledRows& open, const OpenList& list, Dialo
     dialog.list_marked = marked;
     show_list_item(dialog, list, marked);
     return DialogAction::redraw;
-}
-
-/// Returns the question's button under a point.
-///
-/// @param dialog the dialog, its question showing
-/// @param x the point's column
-/// @param y the point's row
-/// @return question_yes_control, question_no_control, or no_control for neither
-int32_t question_button_at(const Dialog& dialog, int32_t x, int32_t y) noexcept {
-    if (contains(layout::question_yes_rect(dialog), x, y))
-        return question_yes_control;
-    if (contains(layout::question_no_rect(dialog), x, y))
-        return question_no_control;
-    return no_control;
-}
-
-/// Answers the question over Mods and puts it away: SWITCH makes the mod
-/// offered the Mod setting and asks the host to switch to it; ROLL BACK asks
-/// the host to roll the row's folder back; CANCEL leaves everything as it
-/// was.
-///
-/// @param[in,out] dialog the dialog
-/// @param yes the answer: SWITCH
-/// @return DialogAction::switch_mod for SWITCH, roll_back_mod for ROLL BACK,
-///         else DialogAction::redraw
-DialogAction answer_question(Dialog& dialog, bool yes) {
-    const int32_t offered = dialog.switch_question;
-    const ModQuestion asked = dialog.mod_question;
-    dialog.switch_question = no_question;
-    dialog.mod_question = ModQuestion::switch_mod;
-    dialog.question_marks_no = false;
-    dialog.hovered = no_control;
-    dialog.pressed = no_control;
-    if (!yes)
-        return DialogAction::redraw;
-    if (asked == ModQuestion::roll_back) {
-        if (offered < 0 || static_cast<std::size_t>(offered) >= dialog.mod_folders.size())
-            return DialogAction::redraw;
-        dialog.roll_back_folder = dialog.mod_folders[static_cast<std::size_t>(offered)];
-        return DialogAction::roll_back_mod;
-    }
-    if (offered >= 0 && static_cast<std::size_t>(offered) < dialog.mod_folders.size())
-        dialog.chosen.mod_folder = dialog.mod_folders[static_cast<std::size_t>(offered)];
-    else
-        dialog.chosen.mod_folder.clear();
-    return DialogAction::switch_mod;
-}
-
-/// Asks the Switch Mod question for a row of Mods; the row of the mod
-/// played, and every row while the page is locked, asks nothing.
-///
-/// @param[in,out] dialog the dialog
-/// @param open Mods' rows
-/// @param control the row's control
-/// @return DialogAction::redraw when the question shows, else DialogAction::none
-DialogAction ask_to_switch(Dialog& dialog, const layout::ScrolledRows& open, int32_t control) {
-    const layout::Row* row = row_of(open.rows, control);
-    if (row == nullptr || row->lock != Lock::none)
-        return DialogAction::none;
-    const auto rows = mod_rows(dialog);
-    const auto index = static_cast<std::size_t>(control - first_row_control);
-    if (index >= rows.size() || rows[index].playing)
-        return DialogAction::none;
-    dialog.switch_question = rows[index].offered;
-    dialog.mod_question = ModQuestion::switch_mod;
-    dialog.question_marks_no = false;
-    dialog.hovered = no_control;
-    dialog.pressed = no_control;
-    dialog.dragging = false;
-    return DialogAction::redraw;
-}
-
-/// Asks the Roll Back Mod question for a row of Mods whose folder keeps an
-/// earlier version; every row while the page is locked asks nothing.
-///
-/// @param[in,out] dialog the dialog
-/// @param open Mods' rows
-/// @param index the row's place
-/// @return DialogAction::redraw when the question shows, else DialogAction::none
-DialogAction ask_to_roll_back(Dialog& dialog, const layout::ScrolledRows& open, std::size_t index) {
-    if (index >= open.rows.rows.size() || open.rows.rows[index].lock != Lock::none)
-        return DialogAction::none;
-    const auto rows = mod_rows(dialog);
-    if (index >= rows.size() || !layout::offers_roll_back(dialog, rows[index]))
-        return DialogAction::none;
-    dialog.switch_question = rows[index].offered;
-    dialog.mod_question = ModQuestion::roll_back;
-    dialog.question_marks_no = false;
-    dialog.hovered = no_control;
-    dialog.pressed = no_control;
-    dialog.dragging = false;
-    return DialogAction::redraw;
-}
-
-/// Takes a key while the question shows: Y answers Yes; N and Escape answer
-/// No; Enter and Space answer the marked button; Left marks No, Right marks
-/// Yes, and Tab and Shift+Tab move the mark to the other button.
-///
-/// @param[in,out] dialog the dialog
-/// @param key the key
-/// @return what the key asks of the host
-DialogAction question_key(Dialog& dialog, DialogKey key) {
-    bool marks_no = dialog.question_marks_no;
-    switch (key) {
-    case DialogKey::yes:
-        return answer_question(dialog, true);
-    case DialogKey::no:
-    case DialogKey::escape:
-        return answer_question(dialog, false);
-    case DialogKey::enter:
-    case DialogKey::space:
-        return answer_question(dialog, !dialog.question_marks_no);
-    case DialogKey::left:
-        marks_no = true;
-        break;
-    case DialogKey::right:
-        marks_no = false;
-        break;
-    case DialogKey::tab:
-    case DialogKey::back_tab:
-        marks_no = !marks_no;
-        break;
-    default:
-        return DialogAction::none;
-    }
-    if (marks_no == dialog.question_marks_no)
-        return DialogAction::none;
-    dialog.question_marks_no = marks_no;
-    return DialogAction::redraw;
-}
-
-/// Copies one setting's value.
-///
-/// @param[in,out] to the settings it is copied into
-/// @param from the settings it is copied from
-/// @param setting the setting
-void copy_setting(EngineSettings& to, const EngineSettings& from, Setting setting) noexcept {
-    switch (setting) {
-    case Setting::path_search:
-        to.path_search_nodes = from.path_search_nodes;
-        break;
-    case Setting::wheel_zoom:
-        to.wheel_zoom = from.wheel_zoom;
-        break;
-    case Setting::max_zoom_out:
-        to.max_zoom_out = from.max_zoom_out;
-        break;
-    case Setting::max_zoom_in:
-        to.max_zoom_in = from.max_zoom_in;
-        break;
-    case Setting::view_past_map_edge:
-        to.view_past_map_edge = from.view_past_map_edge;
-        break;
-    case Setting::escape_opens_menu:
-        to.escape_opens_menu = from.escape_opens_menu;
-        break;
-    case Setting::switch_alt:
-        to.switch_alt = from.switch_alt;
-        break;
-    case Setting::unit_limit:
-        to.unit_limit = from.unit_limit;
-        break;
-    case Setting::max_frame_rate:
-        to.max_frame_rate = from.max_frame_rate;
-        break;
-    case Setting::anti_aliasing:
-        to.anti_aliasing = from.anti_aliasing;
-        break;
-    case Setting::screen_size:
-        to.screen_size = from.screen_size;
-        break;
-    case Setting::developer_mode:
-        to.developer_mode = from.developer_mode;
-        break;
-    case Setting::frame_stats:
-        to.frame_stats = from.frame_stats;
-        break;
-    case Setting::hardware_acceleration:
-        to.hardware_acceleration = from.hardware_acceleration;
-        break;
-    case Setting::vertical_sync:
-        to.vertical_sync = from.vertical_sync;
-        break;
-    case Setting::menu_scaling:
-        to.menu_scaling = from.menu_scaling;
-        break;
-    case Setting::explosion_flash:
-        to.explosion_flash = from.explosion_flash;
-        break;
-    case Setting::zoomed_out_units:
-        to.zoomed_out_units = from.zoomed_out_units;
-        break;
-    case Setting::zoomed_out_after:
-        to.zoomed_out_after = from.zoomed_out_after;
-        break;
-    case Setting::window_frame:
-        to.window_frame = from.window_frame;
-        break;
-    case Setting::hud_scaling:
-        to.hud_scaling = from.hud_scaling;
-        break;
-    case Setting::native_density:
-        to.native_density = from.native_density;
-        break;
-    case Setting::modern_fonts:
-        to.modern_fonts = from.modern_fonts;
-        break;
-    case Setting::text_outline:
-        to.text_outline = from.text_outline;
-        break;
-    case Setting::text_shadow:
-        to.text_shadow = from.text_shadow;
-        break;
-    case Setting::text_background:
-        to.text_background = from.text_background;
-        break;
-    case Setting::unicode_chat:
-        to.unicode_chat = from.unicode_chat;
-        break;
-    case Setting::text_size:
-        to.text_size = from.text_size;
-        break;
-    case Setting::language:
-        to.language = from.language;
-        break;
-    case Setting::touch_drag:
-        to.touch_drag = from.touch_drag;
-        break;
-    case Setting::touch_hold_delay:
-        to.touch_hold_ms = from.touch_hold_ms;
-        break;
-    case Setting::touch_latches:
-        to.touch_latches = from.touch_latches;
-        break;
-    case Setting::touch_haptics:
-        to.touch_haptics = from.touch_haptics;
-        break;
-    case Setting::touch_left_handed:
-        to.touch_left_handed = from.touch_left_handed;
-        break;
-    case Setting::touch_control_size:
-        to.touch_control_size = from.touch_control_size;
-        break;
-    case Setting::pad_scheme:
-        to.pad_scheme = from.pad_scheme;
-        break;
-    case Setting::pad_right_trackpad:
-        to.pad_right_trackpad = from.pad_right_trackpad;
-        break;
-    case Setting::pad_pointer_speed:
-        to.pad_pointer_speed = from.pad_pointer_speed;
-        break;
-    case Setting::pad_acceleration:
-        to.pad_acceleration = from.pad_acceleration;
-        break;
-    case Setting::pad_glide:
-        to.pad_glide = from.pad_glide;
-        break;
-    case Setting::pad_right_stick:
-        to.pad_right_stick = from.pad_right_stick;
-        break;
-    case Setting::pad_magnetism:
-        to.pad_magnetism = from.pad_magnetism;
-        break;
-    case Setting::pad_gyro:
-        to.pad_gyro = from.pad_gyro;
-        break;
-    case Setting::pad_gyro_speed:
-        to.pad_gyro_speed = from.pad_gyro_speed;
-        break;
-    case Setting::pad_haptics:
-        to.pad_haptics = from.pad_haptics;
-        break;
-    case Setting::pad_prompts:
-        to.pad_prompts = from.pad_prompts;
-        break;
-    case Setting::pad_left_handed:
-        to.pad_left_handed = from.pad_left_handed;
-        break;
-    case Setting::pad_steam_input_notice:
-        // A text row, which keeps no setting.
-        break;
-    case Setting::game_files_backed_up:
-        to.game_files_backed_up = from.game_files_backed_up;
-        break;
-    case Setting::game_files_summary:
-    case Setting::game_files_location:
-        // Text rows, which keep no setting.
-        break;
-    case Setting::mod:
-        to.mod_folder = from.mod_folder;
-        to.picked_mod_folder = from.picked_mod_folder;
-        break;
-    case Setting::snap_override_key:
-        to.mod_options.snap_override_key = from.mod_options.snap_override_key;
-        break;
-    case Setting::autoclick_key:
-        to.mod_options.autoclick_key = from.mod_options.autoclick_key;
-        break;
-    case Setting::rotate_build_key:
-        to.mod_options.rotate_build_key = from.mod_options.rotate_build_key;
-        break;
-    case Setting::patrol_hold:
-    case Setting::patrol_maneuver:
-    case Setting::patrol_roam:
-    case Setting::guard_hold:
-    case Setting::guard_maneuver:
-    case Setting::guard_roam:
-    case Setting::panel_background: {
-        auto options = from.mod_options;
-        layout::choice_of(to.mod_options, setting) = layout::choice_of(options, setting);
-        break;
-    }
-    case Setting::mex_snap_radius:
-        to.mod_options.mex_snap_radius = from.mod_options.mex_snap_radius;
-        break;
-    case Setting::wreck_snap_radius:
-        to.mod_options.wreck_snap_radius = from.mod_options.wreck_snap_radius;
-        break;
-    case Setting::optimize_dt_rows:
-        to.mod_options.optimize_dt_rows = from.mod_options.optimize_dt_rows;
-        break;
-    case Setting::full_rings:
-        to.mod_options.full_rings = from.mod_options.full_rings;
-        break;
-    case Setting::chat_backdrop:
-        to.mod_options.chat_backdrop = from.mod_options.chat_backdrop;
-        break;
-    case Setting::user_folder:
-        // It changes no setting.
-        break;
-    }
 }
 
 /// Resets every setting the dialog can change to its default. Each locked
@@ -3616,15 +1584,17 @@ DialogAction restore_defaults(Dialog& dialog) {
         // locked one kept.
         const auto language = layout::section_settings(Page::language, dialog.section_hooks);
         for (const Setting setting : language)
-            if (layout::row_lock(dialog.locks, setting, dialog.section_hooks) == Lock::none)
-                copy_setting(dialog.chosen, dialog.defaults, setting);
+            if (layout::section_lock(dialog.locks, setting, dialog.section_hooks) == Lock::none)
+                layout::copy_row(
+                    setting, chosen_model(dialog), layout::reading(dialog.defaults, dialog)
+                );
         dialog.restored = true;
         return DialogAction::changed;
     }
     EngineSettings restored = dialog.defaults;
     restored.mod_options = before.mod_options;
     // The overrides stay: Restore profile values clears them. The mod
-    // changes only through the Switch Mod question.
+    // changes only through the Library.
     restored.hack_overrides = before.hack_overrides;
     restored.picked_mod_folder = before.picked_mod_folder;
     restored.mod_folder = before.mod_folder;
@@ -3633,15 +1603,20 @@ DialogAction restore_defaults(Dialog& dialog) {
         restored.game_files_backed_up = before.game_files_backed_up;
     for (const Page page :
          dialog_pages(dialog.kind, dialog.touch, dialog.game_files, dialog.controller)) {
-        const auto settings = layout::section_settings(page, dialog.section_hooks);
+        const auto settings =
+            layout::section_settings(page, dialog.section_hooks, geometry::row_context(dialog));
         for (const Setting setting : settings) {
-            if (layout::row_lock(dialog.locks, setting, dialog.section_hooks) != Lock::none)
-                copy_setting(restored, before, setting);
+            if (layout::section_lock(dialog.locks, setting, dialog.section_hooks) != Lock::none)
+                layout::copy_row(setting, {&restored, &dialog}, layout::reading(before, dialog));
         }
     }
     dialog.chosen = restored;
+    // Every install ID goes back on. The check follows the defaults.
+    for (InstallIdChoice& choice : dialog.install_id_chosen)
+        choice.on = true;
     dialog.restored = true;
     ++dialog.forget_renderer_failures;
+    restore_registered_page(dialog);
     return DialogAction::changed;
 }
 
@@ -3663,6 +1638,8 @@ DialogAction accept(Dialog& dialog) noexcept {
 DialogAction cancel(Dialog& dialog) noexcept {
     dialog.open_list = no_control;
     dialog.chosen = dialog.opened;
+    dialog.install_id_chosen = dialog.install_id_opened;
+    dialog.registered_values = dialog.registered_opened;
     dialog.pressed = no_control;
     dialog.dragging = false;
     return DialogAction::cancelled;
@@ -3678,8 +1655,9 @@ DialogAction show_page(Dialog& dialog, Page page) noexcept {
     dialog.list_pressed = -1;
     dialog.page = page;
     dialog.wheel_rows = 0.0F;
-    if (dialog.focused >= first_row_control)
-        dialog.focused = page_control(page);
+    if (dialog.focused >= first_row_control || registered_nav_index(dialog, dialog.focused) >= 0)
+        dialog.focused = page == Page::registered ? registered_nav_control(dialog.registered_page)
+                                                  : page_control(page);
     return DialogAction::redraw;
 }
 
@@ -3694,6 +1672,77 @@ DialogAction open_folder(Dialog& dialog, FolderButton button) noexcept {
     return DialogAction::open_folder;
 }
 
+/// Takes what a row's button asks for: MANAGE… the Game files screen, a
+/// button of Your files its folder, MORE IN THE LIBRARY… the Library's
+/// Languages, REGISTRIES IN THE LIBRARY… the Library's Registries, SHOW
+/// the UI kit gallery, SHOW AGAIN the welcome setup at the next main menu.
+///
+/// @param[in,out] dialog the dialog
+/// @param action the button's action (manage_game_files_action,
+///     first_folder_action and its place, open_library_action,
+///     show_gallery_action or show_welcome_action)
+/// @return what it asks of the host
+DialogAction row_action(Dialog& dialog, kit::ActionId action) noexcept {
+    static_assert(
+        layout::open_library_action != downloads::reset_install_id_action &&
+            layout::open_library_action != downloads::empty_downloads_action &&
+            layout::open_library_action != layout::manage_game_files_action &&
+            (layout::open_library_action < layout::first_folder_action ||
+             layout::open_library_action >=
+                 layout::first_folder_action + static_cast<kit::ActionId>(folder_button_count)),
+        "MORE IN THE LIBRARY… asks for an action no other row's button asks for"
+    );
+    static_assert(
+        layout::show_gallery_action != downloads::reset_install_id_action &&
+            layout::show_gallery_action != downloads::empty_downloads_action &&
+            layout::show_gallery_action != downloads::manage_registries_action &&
+            layout::show_gallery_action != layout::manage_game_files_action &&
+            layout::show_gallery_action != layout::open_library_action &&
+            (layout::show_gallery_action < layout::first_folder_action ||
+             layout::show_gallery_action >=
+                 layout::first_folder_action + static_cast<kit::ActionId>(folder_button_count)),
+        "SHOW asks for an action no other row's button asks for"
+    );
+    static_assert(
+        layout::show_welcome_action != downloads::reset_install_id_action &&
+            layout::show_welcome_action != downloads::empty_downloads_action &&
+            layout::show_welcome_action != downloads::manage_registries_action &&
+            layout::show_welcome_action != layout::manage_game_files_action &&
+            layout::show_welcome_action != layout::open_library_action &&
+            layout::show_welcome_action != layout::show_gallery_action &&
+            (layout::show_welcome_action < layout::first_folder_action ||
+             layout::show_welcome_action >=
+                 layout::first_folder_action + static_cast<kit::ActionId>(folder_button_count)),
+        "SHOW AGAIN asks for an action no other row's button asks for"
+    );
+    if (action == layout::show_welcome_action) {
+        // The preference stays until OK. Cancel drops the dialog, and the
+        // flag with it.
+        dialog.welcome_again = true;
+        return DialogAction::changed;
+    }
+    if (action == layout::show_gallery_action)
+        return DialogAction::show_gallery;
+    if (action == downloads::reset_install_id_action)
+        return DialogAction::reset_install_id;
+    if (action == downloads::empty_downloads_action)
+        return DialogAction::empty_downloads;
+    if (action == layout::manage_game_files_action)
+        return DialogAction::manage_game_files;
+    if (action == layout::open_library_action) {
+        dialog.library_tab = LibraryTab::languages;
+        return DialogAction::open_library;
+    }
+    if (action == downloads::manage_registries_action) {
+        dialog.library_tab = LibraryTab::registries;
+        return DialogAction::open_library;
+    }
+    const kit::ActionId button = action - layout::first_folder_action;
+    if (button < 0 || button >= static_cast<kit::ActionId>(folder_button_count))
+        return DialogAction::none;
+    return open_folder(dialog, static_cast<FolderButton>(button));
+}
+
 /// Presses a button, flips a switch or opens a drop-down's list, as Space
 /// or a click does; in Developer's list, opens or closes an area or a hack.
 ///
@@ -3704,7 +1753,7 @@ DialogAction open_folder(Dialog& dialog, FolderButton button) noexcept {
 DialogAction activate(Dialog& dialog, const layout::ScrolledRows& open, int32_t control) {
     if (control == restore_control)
         return restore_defaults(dialog);
-    if (control == cancel_control)
+    if (control == cancel_control || control == close_x_control)
         return cancel(dialog);
     if (control == ok_control)
         return accept(dialog);
@@ -3714,6 +1763,8 @@ DialogAction activate(Dialog& dialog, const layout::ScrolledRows& open, int32_t 
          dialog_pages(dialog.kind, dialog.touch, dialog.game_files, dialog.controller))
         if (control == page_control(page))
             return show_page(dialog, page);
+    if (const std::optional<DialogAction> registered = activate_registered(dialog, control))
+        return *registered;
     if (layout::developer_page(dialog)) {
         if (control == active_only_control)
             return developer::set_active_only(dialog, !dialog.developer.active_only);
@@ -3722,28 +1773,34 @@ DialogAction activate(Dialog& dialog, const layout::ScrolledRows& open, int32_t 
         if (const layout::ListRow* row = layout::list_row(open.list, control))
             return developer::activate(dialog, *row);
     }
-    if (layout::mods_page(dialog)) {
-        if (control == layout::mods_folder_control(open.rows))
-            return dialog.locks.mod == Lock::none ? open_folder(dialog, FolderButton::mods)
-                                                  : DialogAction::none;
-        if (const int32_t row = layout::roll_back_row(open.rows, control); row >= 0)
-            return ask_to_roll_back(dialog, open, static_cast<std::size_t>(row));
-        return ask_to_switch(dialog, open, control);
-    }
+    // A row takes Space as its row spec says: a switch flips, a drop-down
+    // opens its list, MANAGE… and the marked button of Your files ask the
+    // host to act; a slider, a strip and a row of text take nothing.
     const layout::Row* row = row_of(open.rows, control);
-    if (row != nullptr && row->lock == Lock::none && layout::is_choice(row->setting))
-        return open_choices(dialog, *row);
-    // MANAGE… asks the host to open the Game files screen.
-    if (row != nullptr && row->lock == Lock::none && layout::is_button(row->setting))
-        return DialogAction::manage_game_files;
-    if (row != nullptr && row->lock == Lock::none && layout::is_buttons(row->setting))
-        return open_folder(dialog, dialog.folder_marked);
-    if (row == nullptr || row->lock != Lock::none || !layout::is_switch(row->setting))
+    if (row == nullptr || row->lock != Lock::none)
         return DialogAction::none;
+    if (row->content >= 0)
+        return content::take(dialog, *row);
+    if (row->downloads >= 0) {
+        const EngineSettings before = dialog.chosen;
+        const kit::RowResult result = downloads::activate(dialog, *row);
+        if (result.event == kit::RowEvent::open_menu)
+            return open_choices(dialog, *row);
+        if (result.event == kit::RowEvent::action)
+            return row_action(dialog, result.action);
+        return changed_or_redraw(dialog, before);
+    }
+    const auto& spec = layout::row_spec(row->setting);
     const EngineSettings before = dialog.chosen;
-    layout::set_switch(
-        dialog.chosen, row->setting, !layout::switch_on(dialog.chosen, row->setting)
-    );
+    layout::SettingsModel model = chosen_model(dialog);
+    const kit::RowResult result =
+        kit::activate(spec, model, static_cast<std::size_t>(dialog.folder_marked));
+    if (result.event == kit::RowEvent::open_menu)
+        return open_choices(dialog, *row);
+    if (result.event == kit::RowEvent::action)
+        return row_action(dialog, result.action);
+    if (spec.kind != kit::RowKind::toggle)
+        return DialogAction::none;
     return changed_or_redraw(dialog, before);
 }
 
@@ -3753,125 +1810,19 @@ DialogAction activate(Dialog& dialog, const layout::ScrolledRows& open, int32_t 
 /// @param row the slider's row
 /// @param column the column
 /// @return what it asks of the host
-DialogAction drag_to(Dialog& dialog, const layout::Row& row, int32_t column) noexcept {
+DialogAction drag_to(Dialog& dialog, const layout::Row& row, int32_t column) {
     const EngineSettings before = dialog.chosen;
-    const int32_t stops = layout::stops_of(
-        dialog.chosen, row.setting, dialog.highest_offered_unit, dialog.offered_screen_sizes
-    );
-    layout::set_stop(
-        dialog.chosen,
-        row.setting,
-        layout::stop_at(row.control_area, column, stops),
-        dialog.highest_offered_unit,
-        dialog.offered_screen_sizes
-    );
-    // Once moved, Screen size shows the size chosen.
-    if (row.setting == Setting::screen_size)
-        dialog.window_screen_size.reset();
+    layout::SettingsModel model = chosen_model(dialog);
+    static_cast<void>(kit::drag(layout::row_spec(row.setting), model, placed_row(row), column));
+    knob_moved(dialog, row.setting);
     return changed_or_redraw(dialog, before);
 }
 
-/// A part of the dialog where a press acts on a control.
-struct PressArea {
-    int32_t control{no_control}; ///< the control
-    layout::SourceRect rect{};   ///< where it answers a press
-};
-
-/// Returns the part two rectangles share.
-///
-/// @param a a rectangle
-/// @param b another
-/// @return the rectangle in both; zero wide or high when they do not meet
-layout::SourceRect common_part(const layout::SourceRect& a, const layout::SourceRect& b) noexcept {
-    const int32_t left = std::max(a.x, b.x);
-    const int32_t top = std::max(a.y, b.y);
-    const int32_t right = std::min(a.x + a.width, b.x + b.width);
-    const int32_t bottom = std::min(a.y + a.height, b.y + b.height);
-    return {left, top, std::max(right - left, int32_t{0}), std::max(bottom - top, int32_t{0})};
-}
-
-/// Returns the parts where a press acts on a control now, as control_at
-/// tries them: on Developer its list's rows that take input, Show Active
-/// Only and Restore profile values while it is enabled; the open section's
-/// unlocked rows where the view shows them; the scroll bar while the
-/// section scrolls; the footer's buttons; the sections' entries.
-///
-/// @param dialog the dialog
-/// @param open the open section's rows
-/// @return the parts; a row the view hides has none
-std::vector<PressArea> press_areas(const Dialog& dialog, const layout::ScrolledRows& open) {
-    std::vector<PressArea> areas;
-    const auto add = [&areas](int32_t control, const layout::SourceRect& rect) {
-        if (rect.width > 0 && rect.height > 0)
-            areas.push_back(PressArea{control, rect});
-    };
-    if (layout::developer_page(dialog)) {
-        for (const layout::ListRow& row : open.list.rows)
-            if (list_row_takes_input(row))
-                add(row.control, common_part(row.control_area, layout::developer_view));
-        add(active_only_control, layout::active_only_switch);
-        if (developer::restore_profile_enabled(dialog))
-            add(restore_profile_control, layout::restore_profile_button);
-    }
-    // Mods' rows answer in its list's own view, under which OPEN MODS
-    // FOLDER stands; every other section's rows in the view under the
-    // heading.
-    const layout::SourceRect& rows_view = layout::mods_page(dialog) ? open.area.view : layout::view;
-    const std::vector<bool> roll_backs = roll_back_rows(dialog, open);
-    for (std::size_t index = 0; index < roll_backs.size(); ++index)
-        if (roll_backs[index] && open.rows.rows[index].lock == Lock::none)
-            add(layout::roll_back_control(open.rows, index),
-                common_part(layout::roll_back_button(open.rows.rows[index]), rows_view));
-    for (const layout::Row& row : open.rows.rows)
-        if (row.lock == Lock::none)
-            add(row.control, common_part(row.control_area, rows_view));
-    if (layout::mods_page(dialog) && dialog.locks.mod == Lock::none)
-        add(layout::mods_folder_control(open.rows), layout::mods_folder_button);
-    if (open.limit > 0)
-        add(scroll_bar_control, open.area.hit);
-    for (const int32_t control : {restore_control, cancel_control, ok_control})
-        add(control, layout::footer_button(control));
-    for (const Page page :
-         dialog_pages(dialog.kind, dialog.touch, dialog.game_files, dialog.controller))
-        add(page_control(page), layout::dialog_list_item(dialog, page));
-    return areas;
-}
-
-/// A point of the dialog, in source pixels.
-struct SourcePoint {
-    int32_t x{}; ///< column
-    int32_t y{}; ///< row
-};
-
-/// Returns a rectangle's pixel nearest a point.
-///
-/// @param rect the rectangle, not empty
-/// @param x the point's column
-/// @param y the point's row
-/// @return the point itself inside the rectangle, else the nearest pixel on its edge
-SourcePoint nearest_pixel(const layout::SourceRect& rect, int32_t x, int32_t y) noexcept {
-    return {
-        std::clamp(x, rect.x, rect.x + rect.width - 1),
-        std::clamp(y, rect.y, rect.y + rect.height - 1),
-    };
-}
-
-/// Returns the square of the distance between two points.
-///
-/// @param a a point
-/// @param b another
-/// @return the distance squared, in source pixels squared
-int64_t distance_squared(SourcePoint a, SourcePoint b) noexcept {
-    const int64_t across = int64_t{a.x} - b.x;
-    const int64_t down = int64_t{a.y} - b.y;
-    return across * across + down * down;
-}
-
-/// Returns where a finger's press lands: the finger's own point over a
-/// control, else the nearest point of the nearest control within reach;
-/// while a drop-down list is open, the finger's point over one of its
-/// items, else the nearest point of the nearest item within reach; and
-/// while the Switch Mod question shows, the same of its two buttons.
+/// Returns where a finger's press lands, by the kit's reach (kit::reach)
+/// over the dialog's display list: the finger's own point over a control,
+/// else the nearest point of the nearest control within reach. While a
+/// drop-down list is open only its items are reached, since it takes every
+/// press.
 ///
 /// @param dialog the dialog
 /// @param open the open section's rows
@@ -3879,48 +1830,15 @@ int64_t distance_squared(SourcePoint a, SourcePoint b) noexcept {
 /// @param y the finger's row
 /// @param reach how far a control may lie from the finger, in source pixels
 /// @return the point the press takes; the finger's own with nothing within reach
-SourcePoint finger_target(
+kit::Point finger_landing(
     const Dialog& dialog, const layout::ScrolledRows& open, int32_t x, int32_t y, int32_t reach
 ) {
-    const SourcePoint finger{x, y};
-    if (reach <= 0)
-        return finger;
-    const int64_t within = int64_t{reach} * reach;
-    std::optional<SourcePoint> best;
-    int64_t best_distance = 0;
-    const auto consider = [&](SourcePoint candidate) {
-        const int64_t distance = distance_squared(candidate, finger);
-        if (distance <= within && (!best || distance < best_distance)) {
-            best = candidate;
-            best_distance = distance;
-        }
-    };
-    // The Switch Mod question takes every press: the finger's point over one
-    // of its buttons, else the nearest point of the nearer within reach.
-    if (dialog.switch_question != no_question) {
-        if (question_button_at(dialog, x, y) != no_control)
-            return finger;
-        consider(nearest_pixel(layout::question_yes_rect(dialog), x, y));
-        consider(nearest_pixel(layout::question_no_rect(dialog), x, y));
-        return best.value_or(finger);
-    }
-    if (const auto list = open_list(dialog, open)) {
-        if (list_item_at(dialog, *list, x, y) >= 0)
-            return finger;
-        for (int32_t shown = 0; shown < list->shown; ++shown)
-            if (dialog.list_first + shown < static_cast<int32_t>(list->choices))
-                consider(nearest_pixel(layout::choice_item(list->rect, shown), x, y));
-        return best.value_or(finger);
-    }
-    if (control_at(dialog, open, x, y) != no_control)
-        return finger;
-    // A part another control covers at its nearest pixel is passed over.
-    for (const PressArea& area : press_areas(dialog, open)) {
-        const SourcePoint candidate = nearest_pixel(area.rect, x, y);
-        if (control_at(dialog, open, candidate.x, candidate.y) == area.control)
-            consider(candidate);
-    }
-    return best.value_or(finger);
+    kit::DisplayList list = layout::dialog_list(dialog, nullptr);
+    if (open_list(dialog, open).has_value())
+        std::erase_if(list.controls, [](const kit::Control& control) {
+            return control.id > layout::first_menu_item_control;
+        });
+    return kit::reach(list, {x, y}, reach).at;
 }
 
 /// Tells whether a press is held: on a control, or on an open list's item.
@@ -3933,38 +1851,8 @@ bool press_held(const Dialog& dialog) noexcept {
 
 } // namespace
 
-std::span<const Setting> page_settings(Page page) noexcept {
-    switch (page) {
-    case Page::mods:
-        return layout::kModsRows;
-    case Page::controls:
-        return layout::kControlsRows;
-    case Page::common_tweaks:
-        return layout::kCommonTweaksRows;
-    case Page::graphics:
-        return layout::kGraphicsRows;
-    case Page::language:
-        return layout::kLanguageRows;
-    case Page::touch:
-        return layout::kTouchRows;
-    case Page::controller:
-        return layout::kControllerRows;
-    case Page::developer:
-        return layout::kDeveloperRows;
-    case Page::game_files:
-        return layout::kGameFilesRows;
-    case Page::mod_keys:
-        return layout::kModKeysRows;
-    case Page::mod_patrol:
-        return layout::kModPatrolRows;
-    case Page::mod_guard:
-        return layout::kModGuardRows;
-    case Page::mod_tools:
-        return layout::kModToolsRows;
-    case Page::mod_chat:
-        return layout::kModChatRows;
-    }
-    return {};
+std::string_view page_word(Page page) noexcept {
+    return geometry::page_word(page);
 }
 
 std::span<const Page>
@@ -3991,7 +1879,6 @@ void open_dialog(
     Page page,
     const AccelerationStatus& acceleration,
     uint16_t highest_offered_unit,
-    const ModOffer& mods,
     std::span<const oa::data::mod_profile::HackState> profile_hacks,
     const oa::data::languages::Language* system_language,
     bool touch,
@@ -4004,10 +1891,6 @@ void open_dialog(
     dialog.controller = controller;
     dialog.system_language = system_language;
     dialog.highest_offered_unit = highest_offered_unit;
-    dialog.mod_names.assign(mods.names.begin(), mods.names.end());
-    dialog.mod_folders.assign(mods.folders.begin(), mods.folders.end());
-    dialog.mod_details.assign(mods.details.begin(), mods.details.end());
-    dialog.playing_mod_folder = std::string(mods.playing);
     dialog.opened = current;
     dialog.chosen = current;
     dialog.defaults = defaults;
@@ -4025,6 +1908,24 @@ void open_dialog(
         dialog.developer.profile.assign(profile_hacks.begin(), profile_hacks.end());
     dialog.developer.areas_open.assign(developer_areas().size(), 0);
     dialog.developer.hacks_open.assign(oa::data::mod_profile::standard_hacks().size(), 0);
+}
+
+void set_downloads_offer(Dialog& dialog, const DownloadsOffer& offer) {
+    bool same = dialog.install_id_chosen.size() == offer.install_ids.size();
+    for (std::size_t index = 0; same && index < offer.install_ids.size(); ++index)
+        same = dialog.install_id_chosen[index].registry_id == offer.install_ids[index].registry_id;
+    dialog.downloads = offer;
+    if (same)
+        return;
+    dialog.install_id_chosen.clear();
+    dialog.install_id_opened.clear();
+    dialog.install_id_chosen.reserve(offer.install_ids.size());
+    dialog.install_id_opened.reserve(offer.install_ids.size());
+    for (const InstallIdRow& row : offer.install_ids) {
+        const InstallIdChoice choice{row.registry_id, row.on};
+        dialog.install_id_chosen.push_back(choice);
+        dialog.install_id_opened.push_back(choice);
+    }
 }
 
 void open_mod_options_dialog(
@@ -4139,18 +2040,10 @@ DialogAction dialog_pointer_move(Dialog& dialog, int32_t x, int32_t y) {
         y += dialog.finger_shift_y;
     }
     note_pointer(dialog, x, y);
-    // The question hovers its own buttons only.
-    if (dialog.switch_question != no_question) {
-        const int32_t button = question_button_at(dialog, x, y);
-        if (button == dialog.hovered)
-            return DialogAction::none;
-        dialog.hovered = button;
-        return DialogAction::redraw;
-    }
     layout::ScrolledRows open = layout::open_rows(dialog);
     // An open list marks the item under the pointer.
     if (const auto list = open_list(dialog, open)) {
-        const int32_t item = list_item_at(dialog, *list, x, y);
+        const int32_t item = list_item_at(dialog, x, y);
         if (item < 0 || item == dialog.list_marked)
             return DialogAction::none;
         dialog.list_marked = item;
@@ -4172,12 +2065,13 @@ DialogAction dialog_pointer_move(Dialog& dialog, int32_t x, int32_t y) {
         if (row != nullptr)
             return drag_to(dialog, *row, x);
     }
-    const int32_t hovered = control_at(dialog, open, x, y);
+    const int32_t hovered = control_under(dialog, x, y);
     // Your files lights the button under the pointer.
     const layout::Row* buttons = row_of(open.rows, hovered);
-    const std::size_t button = buttons != nullptr && layout::is_buttons(buttons->setting)
-                                   ? layout::folder_button_at(buttons->control_area, x, y)
-                                   : folder_button_count;
+    const std::size_t button =
+        buttons != nullptr && layout::kind_of(buttons->setting) == kit::RowKind::buttons
+            ? layout::folder_button_at(buttons->control_area, x, y)
+            : folder_button_count;
     if (hovered == dialog.hovered && button == dialog.folder_hovered)
         return DialogAction::none;
     dialog.hovered = hovered;
@@ -4189,31 +2083,27 @@ DialogAction dialog_pointer_down(Dialog& dialog, int32_t x, int32_t y) {
     dialog.finger_shift_x = 0;
     dialog.finger_shift_y = 0;
     note_pointer(dialog, x, y);
-    // The question takes the press: on a button it holds the button.
-    if (dialog.switch_question != no_question) {
-        const int32_t button = question_button_at(dialog, x, y);
-        dialog.hovered = button;
-        dialog.pressed = button;
-        dialog.dragging = false;
-        return button == no_control ? DialogAction::none : DialogAction::redraw;
-    }
     layout::ScrolledRows open = layout::open_rows(dialog);
     // An open list takes the press: on an item it holds the item; anywhere
     // else it closes the list, and the press does nothing more.
     if (const auto list = open_list(dialog, open)) {
         dialog.pressed = no_control;
         dialog.dragging = false;
-        const int32_t item = list_item_at(dialog, *list, x, y);
+        const int32_t item = list_item_at(dialog, x, y);
         if (item >= 0) {
             dialog.list_pressed = item;
             dialog.list_marked = item;
+        } else if (kit::contains(list->rect, {x, y})) {
+            // The divider and the menu's border are inside the menu and are
+            // not items: the press keeps the list open and chooses nothing.
+            dialog.list_pressed = -1;
         } else {
             close_list(dialog);
         }
         return DialogAction::redraw;
     }
     close_list(dialog);
-    const int32_t control = control_at(dialog, open, x, y);
+    const int32_t control = control_under(dialog, x, y);
     dialog.hovered = control;
     dialog.pressed = control;
     dialog.dragging = false;
@@ -4248,19 +2138,23 @@ DialogAction dialog_pointer_down(Dialog& dialog, int32_t x, int32_t y) {
         return developer::drag_to(dialog, *row, x);
     }
     const layout::Row* row = row_of(open.rows, control);
-    if (row != nullptr && layout::is_slider(row->setting)) {
+    // Game Content's rows are not settings. An unset setting is the
+    // pathfinding slider, so a press on Check again must not drag it.
+    if (row != nullptr && row->content < 0 && row->downloads < 0 &&
+        layout::kind_of(row->setting) == kit::RowKind::slider) {
         dialog.dragging = true;
         const DialogAction action = drag_to(dialog, *row, x);
         return action;
     }
     // A press on Your files holds the button under it.
-    if (row != nullptr && layout::is_buttons(row->setting))
+    if (row != nullptr && row->content < 0 && row->downloads < 0 &&
+        layout::kind_of(row->setting) == kit::RowKind::buttons)
         dialog.folder_hovered = layout::folder_button_at(row->control_area, x, y);
     return DialogAction::redraw;
 }
 
 DialogAction dialog_finger_down(Dialog& dialog, int32_t x, int32_t y, int32_t reach) {
-    const SourcePoint target = finger_target(dialog, layout::open_rows(dialog), x, y, reach);
+    const kit::Point target = finger_landing(dialog, layout::open_rows(dialog), x, y, reach);
     const DialogAction action = dialog_pointer_down(dialog, target.x, target.y);
     if (press_held(dialog)) {
         dialog.finger_shift_x = target.x - x;
@@ -4279,24 +2173,12 @@ DialogAction dialog_pointer_up(Dialog& dialog, int32_t x, int32_t y) {
     dialog.finger_shift_x = 0;
     dialog.finger_shift_y = 0;
     note_pointer(dialog, x, y);
-    // A release over the question's button the press held answers it.
-    if (dialog.switch_question != no_question) {
-        const int32_t pressed = dialog.pressed;
-        const int32_t button = question_button_at(dialog, x, y);
-        dialog.pressed = no_control;
-        dialog.hovered = button;
-        if (pressed == no_control)
-            return DialogAction::none;
-        if (button != pressed)
-            return DialogAction::redraw;
-        return answer_question(dialog, button == question_yes_control);
-    }
     const layout::ScrolledRows open = layout::open_rows(dialog);
     // A release over the list item the press held chooses it.
     if (const auto list = open_list(dialog, open)) {
         const int32_t held = dialog.list_pressed;
         dialog.list_pressed = -1;
-        if (held >= 0 && list_item_at(dialog, *list, x, y) == held)
+        if (held >= 0 && list_item_at(dialog, x, y) == held)
             return choose(dialog, *list, held);
         return held >= 0 ? DialogAction::redraw : DialogAction::none;
     }
@@ -4307,55 +2189,58 @@ DialogAction dialog_pointer_up(Dialog& dialog, int32_t x, int32_t y) {
     dialog.scroll_grab = 0;
     if (pressed == no_control)
         return DialogAction::none;
-    const int32_t control = control_at(dialog, open, x, y);
+    const int32_t control = control_under(dialog, x, y);
     dialog.hovered = control;
     if (dragged || control != pressed)
         return DialogAction::redraw;
+    if (const std::optional<DialogAction> registered =
+            press_registered_row(dialog, control, {x, y}))
+        return *registered;
     if (layout::developer_page(dialog)) {
-        if (control == active_only_control)
-            return developer::set_active_only(
-                dialog, x >= layout::active_only_switch.x + layout::active_only_switch.width / 2
-            );
+        if (control == active_only_control) {
+            const layout::SourceRect& active = layout::sizes_of(dialog).active_only_switch;
+            return developer::set_active_only(dialog, x >= active.x + active.width / 2);
+        }
         if (const layout::ListRow* row = layout::list_row(open.list, control))
             return developer::release_on(dialog, *row, x);
     }
-    // A mod row asks the Switch Mod question; OPEN MODS FOLDER opens it.
-    if (layout::mods_page(dialog))
-        return activate(dialog, open, control);
+    // A row takes the release as its row spec says: a switch's half sets
+    // it, a strip's level is chosen, a drop-down opens its list, MANAGE…
+    // and the button of Your files the press held ask the host to act.
     const layout::Row* row = row_of(open.rows, control);
-    if (row != nullptr && layout::is_choice(row->setting))
-        return open_choices(dialog, *row);
-    if (row != nullptr && layout::is_button(row->setting))
-        return DialogAction::manage_game_files;
-    if (row != nullptr && layout::is_buttons(row->setting)) {
+    if (row == nullptr)
+        return activate(dialog, open, control);
+    if (row->content >= 0)
+        return content::take(dialog, *row);
+    if (row->downloads >= 0) {
+        const EngineSettings before = dialog.chosen;
+        const kit::RowResult result = downloads::release(dialog, *row, x, y);
+        if (result.event == kit::RowEvent::open_menu)
+            return open_choices(dialog, *row);
+        if (result.event == kit::RowEvent::action)
+            return row_action(dialog, result.action);
+        return changed_or_redraw(dialog, before);
+    }
+    const auto& spec = layout::row_spec(row->setting);
+    if (spec.kind == kit::RowKind::buttons) {
         // A release over the button the press held opens its folder.
         const std::size_t held = dialog.folder_hovered;
         const std::size_t button = layout::folder_button_at(row->control_area, x, y);
         dialog.folder_hovered = button;
         if (button == folder_button_count || button != held)
             return DialogAction::redraw;
-        return open_folder(dialog, static_cast<FolderButton>(button));
     }
-    if (row != nullptr) {
-        const EngineSettings before = dialog.chosen;
-        if (layout::is_strip(row->setting)) {
-            layout::set_strip_level(
-                dialog.chosen,
-                row->setting,
-                layout::level_at(row->control_area, layout::strip_of(row->setting), x)
-            );
-        } else {
-            const bool on = x >= row->control_area.x + row->control_area.width / 2;
-            layout::set_switch(dialog.chosen, row->setting, on);
-        }
-        return changed_or_redraw(dialog, before);
-    }
-    return activate(dialog, open, control);
+    const EngineSettings before = dialog.chosen;
+    layout::SettingsModel model = chosen_model(dialog);
+    const kit::RowResult result = kit::press(spec, model, placed_row(*row), {x, y});
+    if (result.event == kit::RowEvent::open_menu)
+        return open_choices(dialog, *row);
+    if (result.event == kit::RowEvent::action)
+        return row_action(dialog, result.action);
+    return changed_or_redraw(dialog, before);
 }
 
 DialogAction dialog_key(Dialog& dialog, DialogKey key) {
-    if (dialog.switch_question != no_question)
-        return question_key(dialog, key);
     layout::ScrolledRows open = layout::open_rows(dialog);
     const layout::Rows& rows = open.rows;
     if (const auto list = open_list(dialog, open))
@@ -4366,26 +2251,40 @@ DialogAction dialog_key(Dialog& dialog, DialogKey key) {
         return accept(dialog);
     case DialogKey::escape:
         return cancel(dialog);
-    case DialogKey::down:
     case DialogKey::tab:
-        return move_focus(dialog, open, true);
-    case DialogKey::up:
     case DialogKey::back_tab:
-        return move_focus(dialog, open, false);
+        return move_in_tab_order(dialog, open, key == DialogKey::tab);
+    case DialogKey::up:
+        return move_toward(dialog, open, kit::Direction::up);
+    case DialogKey::down:
+        return move_toward(dialog, open, kit::Direction::down);
     case DialogKey::page_up:
     case DialogKey::page_down:
     case DialogKey::home:
     case DialogKey::end:
         return scroll_key(dialog, open, key);
-    // Y and N answer a question, and do nothing while none shows.
+    // Y and N answer a question, and do nothing while none shows. The
+    // dialog has no text to edit.
     case DialogKey::yes:
     case DialogKey::no:
+    case DialogKey::backspace:
+    case DialogKey::delete_forward:
         return DialogAction::none;
     default:
         break;
     }
     if (dialog.focused == no_control)
-        return move_focus(dialog, open, true);
+        return move_in_tab_order(dialog, open, true);
+    if (key != DialogKey::space) {
+        // Left and Right step a control that takes steps; from any other
+        // they move the focus to the control on that side.
+        const kit::DisplayList list = layout::dialog_list(dialog, nullptr);
+        const kit::Control* focused = kit::control_of(list, dialog.focused);
+        if (focused == nullptr || !focused->steps)
+            return move_toward(
+                dialog, open, key == DialogKey::left ? kit::Direction::left : kit::Direction::right
+            );
+    }
     // A key that acts on a row brings it into view first, so that the
     // player sees what it changed.
     const DialogAction shown = show_row(dialog, open, dialog.focused);
@@ -4401,48 +2300,48 @@ DialogAction dialog_key(Dialog& dialog, DialogKey key) {
         if (const layout::ListRow* row = layout::list_row(open.list, dialog.focused))
             return or_shown(developer::step(dialog, *row, up));
     }
+    if (key == DialogKey::left || key == DialogKey::right) {
+        if (const std::optional<DialogAction> stepped =
+                step_registered_row(dialog, dialog.focused, key == DialogKey::right))
+            return or_shown(*stepped);
+    }
     const layout::Row* row = row_of(rows, dialog.focused);
-    if (row != nullptr && row->lock == Lock::none && layout::is_buttons(row->setting)) {
+    if (row != nullptr && row->content >= 0)
+        return shown;
+    if (row != nullptr && row->downloads >= 0) {
+        if (row->lock != Lock::none)
+            return shown;
+        return or_shown(downloads::step(dialog, *row, up));
+    }
+    const kit::RowKind kind = row != nullptr ? layout::kind_of(row->setting) : kit::RowKind::text;
+    if (row != nullptr && row->lock == Lock::none && kind == kit::RowKind::buttons) {
         // Left and Right move Your files' mark along its buttons.
         const auto marked = static_cast<std::size_t>(dialog.folder_marked);
-        const std::size_t next =
-            up ? std::min(marked + 1, folder_button_count - 1) : (marked == 0 ? 0 : marked - 1);
+        std::size_t next = marked;
+        layout::SettingsModel model = chosen_model(dialog);
+        static_cast<void>(kit::step(layout::row_spec(row->setting), model, up, next));
         if (next == marked)
             return shown;
         dialog.folder_marked = static_cast<FolderButton>(next);
         return DialogAction::redraw;
     }
-    if (row != nullptr) {
-        // A button has no steps.
-        if (row->lock != Lock::none || layout::is_button(row->setting))
-            return shown;
-        const EngineSettings before = dialog.chosen;
-        step(dialog, row->setting, up);
-        return changed_or_redraw(dialog, before);
-    }
-    // Left and Right move along the footer's buttons.
-    constexpr std::array<int32_t, 3> footer{restore_control, cancel_control, ok_control};
-    const auto found = std::find(footer.begin(), footer.end(), dialog.focused);
-    if (found == footer.end())
-        return DialogAction::none;
-    const auto at = static_cast<std::size_t>(found - footer.begin());
-    const std::size_t next = up ? std::min(at + 1, footer.size() - 1) : (at == 0 ? 0 : at - 1);
-    if (next == at)
-        return DialogAction::none;
-    dialog.focused = footer[next];
-    return DialogAction::redraw;
+    if (row == nullptr || row->lock != Lock::none)
+        return shown;
+    const EngineSettings before = dialog.chosen;
+    step(dialog, row->setting, up);
+    return changed_or_redraw(dialog, before);
 }
 
 DialogAction dialog_wheel(Dialog& dialog, int32_t x, int32_t y, float notches) {
-    if (!dialog_contains(x, y) || dialog.pressed != no_control || !std::isfinite(notches) ||
-        dialog.switch_question != no_question)
+    if (!dialog_contains(dialog, x, y) || dialog.pressed != no_control || !std::isfinite(notches))
         return DialogAction::none;
     note_pointer(dialog, x, y);
     layout::ScrolledRows open = layout::open_rows(dialog);
     // An open list keeps the section still and scrolls itself, an item a
     // notch, when it holds more items than it shows.
     if (const auto list = open_list(dialog, open)) {
-        if (!contains(list->rect, x, y) || static_cast<int32_t>(list->choices) <= list->shown)
+        if (!kit::contains(list->rect, {x, y}) ||
+            static_cast<int32_t>(list->choices) <= list->shown)
             return DialogAction::none;
         const int32_t first = std::clamp(
             dialog.list_first - static_cast<int32_t>(std::lround(notches)),
@@ -4454,22 +2353,19 @@ DialogAction dialog_wheel(Dialog& dialog, int32_t x, int32_t y, float notches) {
         dialog.list_first = first;
         return DialogAction::redraw;
     }
-    if (open.limit == 0) {
-        dialog.wheel_rows = 0.0F;
+    if (const std::optional<DialogAction> nav = wheel_registered_nav(dialog, x, y, notches))
+        return *nav;
+    if (const std::optional<DialogAction> registered = wheel_registered_content(dialog, notches))
+        return *registered;
+    // Away from the player scrolls towards the top, wheel_step rows a notch,
+    // the fraction carried to the next turn (kit::wheel_offset). A section
+    // that does not scroll drops what was carried.
+    kit::WheelCarry carry{dialog.wheel_rows};
+    const int32_t next =
+        kit::wheel_offset(carry, notches, layout::wheel_step, open.scroll, open.limit);
+    dialog.wheel_rows = carry.rows;
+    if (open.limit == 0)
         return DialogAction::none;
-    }
-    // Away from the player scrolls towards the top. A turn larger than the
-    // section scrolls to its end.
-    const float reach = static_cast<float>(open.limit) + 1.0F;
-    const float rows = std::clamp(
-        dialog.wheel_rows - notches * static_cast<float>(layout::wheel_step), -reach, reach
-    );
-    const auto whole = static_cast<int32_t>(rows);
-    dialog.wheel_rows = rows - static_cast<float>(whole);
-    const int32_t next = std::clamp(open.scroll + whole, int32_t{0}, open.limit);
-    // What is carried towards an end the section has reached is dropped.
-    if ((next == 0 && dialog.wheel_rows < 0.0F) || (next == open.limit && dialog.wheel_rows > 0.0F))
-        dialog.wheel_rows = 0.0F;
     return scroll_to(dialog, open, next);
 }
 
@@ -4488,14 +2384,6 @@ namespace {
 /// @return true for '/' and '\\'
 bool path_separator(char character) noexcept {
     return character == '/' || character == '\\';
-}
-
-/// Tells whether a byte continues a UTF-8 character rather than starting one.
-///
-/// @param byte the byte
-/// @return true for 10xxxxxx
-bool continuation_byte(char byte) noexcept {
-    return (static_cast<unsigned char>(byte) & 0xC0U) == 0x80U;
 }
 
 } // namespace
@@ -4521,7 +2409,7 @@ std::string path_tail(
     while (last > 0 && !path_separator(path[last - 1]))
         --last;
     for (std::size_t at = last; at < path.size(); ++at) {
-        if (continuation_byte(path[at]))
+        if ((static_cast<unsigned char>(path[at]) & 0xC0U) == 0x80U)
             continue;
         std::string tail = ellipsis + std::string(path.substr(at));
         if (text_width(tail) <= width)
@@ -4532,6 +2420,15 @@ std::string path_tail(
 
 bool dialog_contains(int32_t x, int32_t y) noexcept {
     return x >= 0 && y >= 0 && x < dialog_width && y < dialog_height;
+}
+
+int32_t scroll_limit(const Dialog& dialog) {
+    return layout::open_rows(dialog).limit;
+}
+
+bool dialog_contains(const Dialog& dialog, int32_t x, int32_t y) noexcept {
+    const layout::Sizes& sized = layout::sizes_of(dialog);
+    return x >= 0 && y >= 0 && x < sized.dialog_width && y < sized.dialog_height;
 }
 
 namespace {
@@ -4572,6 +2469,7 @@ void switch_parts(std::vector<LayoutPart>& parts, const layout::SourceRect& area
 void developer_layout(
     const Dialog& dialog, const layout::ScrolledRows& open, std::vector<LayoutPart>& parts
 ) {
+    const layout::Sizes& sized = layout::sizes_of(dialog);
     const auto text_part =
         [&parts](layout::SourceRect rect, std::string text, DialogFont font, int32_t control) {
             parts.push_back(LayoutPart{rect, std::move(text), font, 0, control});
@@ -4615,20 +2513,20 @@ void developer_layout(
         }
     }
     for (LayoutPart& part : rows)
-        if (wholly_in(part.rect, layout::developer_view))
+        if (wholly_in(part.rect, open.area.view))
             parts.push_back(std::move(part));
     // The list's footer, which never scrolls.
     text_part(
-        layout::active_only_label,
+        sized.active_only_label,
         layout::active_only_text(
             active_hack_count(dialog), oa::data::mod_profile::standard_hacks().size()
         ),
         DialogFont::regular,
         no_control
     );
-    switch_parts(parts, layout::active_only_switch, active_only_control);
+    switch_parts(parts, sized.active_only_switch, active_only_control);
     text_part(
-        layout::restore_profile_button,
+        sized.restore_profile_button,
         std::string(layout::restore_profile_text),
         DialogFont::small,
         developer::restore_profile_enabled(dialog) ? restore_profile_control : no_control
@@ -4637,121 +2535,29 @@ void developer_layout(
 
 } // namespace
 
-namespace {
-
-/// Lists Mods' parts: the lock line while it is locked, each row wholly in
-/// the list's view (its badge, title, PLAYING tag, version and
-/// description; the row itself the control a press switches with),
-/// OPEN MODS FOLDER and the lines under it.
-///
-/// @param dialog the dialog
-/// @param open Mods' rows
-/// @param[in,out] parts the parts, which Mods' are added to
-/// @param text_width a regular text's width
-/// @param small_text_width a small text's width
-void mods_layout(
-    const Dialog& dialog,
-    const layout::ScrolledRows& open,
-    std::vector<LayoutPart>& parts,
-    const std::function<int32_t(std::string_view)>& text_width,
-    const std::function<int32_t(std::string_view)>& small_text_width
-) {
-    const auto text = [&parts](layout::SourceRect rect, std::string shown, DialogFont font) {
-        parts.push_back(LayoutPart{rect, std::move(shown), font, 0, no_control});
-    };
-    if (dialog.locks.mod != Lock::none) {
-        // The reason, beside the padlock, over as many of its two lines as
-        // it needs.
-        const auto lines = layout::wrap_text(
-            layout::shown_text(
-                dialog.locks.mod == Lock::command_line ? layout::mod_from_command_line_text
-                                                       : layout::mod_in_game_text
-            ),
-            layout::mods_lock_text.width,
-            small_text_width
-        );
-        for (std::size_t line = 0; line < lines.size() && line < 2; ++line) {
-            layout::SourceRect rect = layout::mods_lock_text;
-            rect.y += static_cast<int32_t>(line) * rect.height;
-            text(rect, lines[line], DialogFont::small);
-        }
-    }
-    const auto rows = mod_rows(dialog);
-    for (std::size_t index = 0; index < open.rows.rows.size() && index < rows.size(); ++index) {
-        const layout::Row& row = open.rows.rows[index];
-        if (!wholly_in(row.control_area, open.area.view))
-            continue;
-        const layout::ModRowText shown = layout::mod_row_text(dialog, rows[index]);
-        parts.push_back(
-            LayoutPart{
-                row.control_area,
-                {},
-                DialogFont::regular,
-                0,
-                row.lock == Lock::none ? row.control : no_control
-            }
-        );
-        // The row's own parts lie inside it; only the row is listed as its
-        // control, and its texts and badge as texts and a mark, and its ROLL
-        // BACK as a control of its own.
-        static_cast<void>(text_width);
-        static_cast<void>(small_text_width);
-        if (layout::offers_roll_back(dialog, rows[index]))
-            parts.push_back(
-                LayoutPart{
-                    layout::roll_back_button(row),
-                    std::string(layout::shown_text(layout::roll_back_text)),
-                    DialogFont::small,
-                    0,
-                    row.lock == Lock::none ? layout::roll_back_control(open.rows, index)
-                                           : no_control
-                }
-            );
-    }
-    parts.push_back(
-        LayoutPart{
-            layout::mods_folder_button,
-            std::string(layout::shown_text(layout::open_mods_folder_text)),
-            DialogFont::small,
-            0,
-            dialog.locks.mod == Lock::none ? layout::mods_folder_control(open.rows) : no_control,
-        }
-    );
-    const std::string_view second =
-        dialog.folder_notice.empty() ? layout::mods_folders_text[1] : dialog.folder_notice;
-    text(
-        layout::mods_note_first,
-        std::string(layout::shown_text(layout::mods_folders_text[0])),
-        DialogFont::small
-    );
-    text(layout::mods_note_second, std::string(layout::shown_text(second)), DialogFont::small);
-}
-
-} // namespace
-
 std::vector<LayoutPart> dialog_layout(const Dialog& dialog, const DialogFonts* fonts) {
     std::vector<LayoutPart> parts;
     // The player's own folder's path is shortened to its place in the fonts, or at
     // an estimated width a character without them.
-    const auto text_width = [fonts](std::string_view text) {
+    const layout::TextWidth text_width = [fonts](std::string_view text) {
         if (fonts != nullptr)
             return dialog_text_width(*fonts, DialogFont::regular, text);
-        int32_t characters = 0;
-        for (const char byte : text)
-            if (!continuation_byte(byte))
-                ++characters;
-        return characters * estimated_character_width;
+        return static_cast<int32_t>(oa::ui::kit::character_count(text)) * estimated_character_width;
     };
     // Your files' path is shortened to its hint line in the small font.
-    const auto small_text_width = [fonts](std::string_view text) {
+    const layout::TextWidth small_text_width = [fonts](std::string_view text) {
         if (fonts != nullptr)
             return dialog_text_width(*fonts, DialogFont::small, text);
-        int32_t characters = 0;
-        for (const char byte : text)
-            if (!continuation_byte(byte))
-                ++characters;
-        return characters * estimated_character_width;
+        return static_cast<int32_t>(oa::ui::kit::character_count(text)) * estimated_character_width;
     };
+    // A real font widens the section list and the footer buttons. An estimate
+    // keeps the class's sizes, which the layout tests pin.
+    const layout::Sizes fitted = layout::fitted_sizes(
+        dialog,
+        fonts != nullptr ? &text_width : nullptr,
+        fonts != nullptr ? &small_text_width : nullptr
+    );
+    const layout::Sizes& sized = fitted;
     // Each text as the dialog shows it, the interface's words in the
     // language shown (layout::shown_text).
     const auto text_part =
@@ -4778,77 +2584,138 @@ std::vector<LayoutPart> dialog_layout(const Dialog& dialog, const DialogFonts* f
         layout::heading_tracking
     );
     const int32_t suffix_left = title_left + layout::title_width + layout::header_gap;
+    int32_t suffix_width = layout::title_suffix_width;
+    if (fonts != nullptr) {
+        const int32_t tracked = dialog_text_width(
+            *fonts, DialogFont::regular, layout::shown_text(layout::title_suffix_text)
+        );
+        // Tracking adds a column after every character but the last.
+        const int32_t gaps = std::max(
+            static_cast<int32_t>(
+                oa::ui::kit::character_count(layout::shown_text(layout::title_suffix_text))
+            ) - 1,
+            int32_t{0}
+        );
+        suffix_width = std::max(suffix_width, tracked + gaps * layout::heading_tracking);
+    }
     text_part(
-        {suffix_left, layout::header_top, layout::title_suffix_width, layout::header_height},
+        {suffix_left, layout::header_top, suffix_width, layout::header_height},
         layout::title_suffix_text,
         DialogFont::regular,
         layout::heading_tracking
     );
-    const layout::SourceRect version{
-        layout::content_right - layout::version_width,
-        layout::header_top,
-        layout::version_width,
-        layout::header_height,
-    };
-    text_part(version, dialog.version, DialogFont::small);
+    control_part(layout::header_close_button(sized), close_x_control);
+    const int32_t shared_left = suffix_left + suffix_width + layout::header_gap;
+    // The version keeps a fixed box beside the close mark. While the shared
+    // game's note is up, the version gives way and the note takes that box,
+    // so the note is not cut against the mark.
     if (dialog.locks.shared_game) {
-        const int32_t shared_left = suffix_left + layout::title_suffix_width + layout::header_gap;
         text_part(
             {shared_left,
              layout::header_top,
-             version.x - layout::version_gap - shared_left,
+             sized.version_right - layout::version_gap - shared_left,
              layout::header_height},
             layout::shared_game_text,
             DialogFont::small
         );
-    }
-
-    // The section list.
-    for (const Page page :
-         dialog_pages(dialog.kind, dialog.touch, dialog.game_files, dialog.controller)) {
-        const layout::SourceRect item = layout::dialog_list_item(dialog, page);
-        parts.push_back(
-            LayoutPart{
-                {item.x + layout::list_text_offset,
-                 item.y,
-                 item.width - layout::list_text_offset - layout::list_text_margin,
-                 item.height},
-                std::string(layout::shown_text(layout::page_name(page))),
-                DialogFont::regular,
-                0,
-                page_control(page),
-            }
+    } else {
+        text_part(
+            {sized.version_right - layout::version_width,
+             layout::header_top,
+             layout::version_width,
+             layout::header_height},
+            dialog.version,
+            DialogFont::small
         );
     }
-    if (dialog.kind == DialogKind::engine)
-        control_part(layout::list_divider(), no_control);
 
-    // The open section.
-    text_part(
-        layout::heading,
-        layout::page_heading(dialog.page),
-        DialogFont::small,
-        layout::heading_tracking
-    );
+    // The section list. Registered pages flow under the engine's sections,
+    // each owner named on its own divider, and the list scrolls.
+    if (registered_nav(dialog))
+        append_registered_nav(dialog, parts, &sized);
+    else {
+        for (const Page page :
+             dialog_pages(dialog.kind, dialog.touch, dialog.game_files, dialog.controller)) {
+            layout::SourceRect item = layout::dialog_list_item(dialog, page);
+            item.width = sized.list_item_width;
+            parts.push_back(
+                LayoutPart{
+                    {item.x + layout::list_text_offset,
+                     item.y,
+                     item.width - layout::list_text_offset - layout::list_text_margin,
+                     item.height},
+                    std::string(layout::shown_text(layout::page_name(page))),
+                    DialogFont::regular,
+                    0,
+                    page_control(page),
+                }
+            );
+        }
+        if (dialog.kind == DialogKind::engine) {
+            layout::SourceRect divider = layout::list_divider(dialog.size_class);
+            divider.width = sized.list_item_width - 2 * layout::list_divider_inset;
+            control_part(divider, no_control);
+        }
+    }
+
+    // The open section. A registered page's heading is its title as registered.
+    if (dialog.page == Page::registered)
+        parts.push_back(
+            LayoutPart{
+                sized.heading,
+                registered_heading(dialog),
+                DialogFont::small,
+                layout::heading_tracking,
+                no_control,
+            }
+        );
+    else
+        text_part(
+            sized.heading,
+            layout::page_heading(dialog.page),
+            DialogFont::small,
+            layout::heading_tracking
+        );
     // The rows: only the parts wholly in the view are listed, so that each
     // listed control is pressed where it is drawn and each text is whole.
-    const layout::ScrolledRows open = layout::open_rows(dialog);
-    const auto row_part = [&parts](LayoutPart part) {
-        if (wholly_in(part.rect, layout::view))
+    const layout::ScrolledRows open = layout::open_rows(
+        dialog,
+        fonts != nullptr ? &small_text_width : nullptr,
+        &sized,
+        fonts != nullptr ? &text_width : nullptr
+    );
+    const auto row_part = [&parts, &sized](LayoutPart part) {
+        if (wholly_in(part.rect, sized.view))
             parts.push_back(std::move(part));
     };
     const auto row_text =
         [&row_part](layout::SourceRect rect, std::string_view text, DialogFont font) {
             row_part(LayoutPart{rect, std::string(layout::shown_text(text)), font, 0, no_control});
         };
-    if (layout::mods_page(dialog))
-        mods_layout(dialog, open, parts, text_width, small_text_width);
-    for (const layout::Row& row : open.rows.rows) {
-        if (layout::mods_page(dialog))
-            break;
+    if (dialog.page == Page::registered)
+        append_registered_content(dialog, parts, &sized);
+    // Every other section's rows as they are drawn, from their row specs:
+    // Developer's stay at its top while its list scrolls.
+    oa::ui::kit::PlacedRows placed;
+    static_cast<void>(layout::place_section(
+        dialog,
+        dialog.page,
+        layout::shown_locks(dialog),
+        dialog.section_hooks,
+        small_text_width,
+        &placed,
+        &sized,
+        fonts != nullptr ? &text_width : nullptr
+    ));
+    oa::ui::kit::scroll(placed, layout::developer_page(dialog) ? 0 : open.scroll);
+    const layout::SettingsModel model = layout::reading(dialog.chosen, dialog);
+    for (std::size_t index = 0; index < placed.rows.size() && index < open.rows.rows.size();
+         ++index) {
+        const layout::Row& row = open.rows.rows[index];
+        const oa::ui::kit::RowView& view = placed.rows[index].view;
         // A locked row's control is drawn but takes no press.
         const int32_t control = row.lock == Lock::none ? row.control : no_control;
-        row_text(row.label, layout::row_label(row.setting), DialogFont::regular);
+        row_part(LayoutPart{row.label, view.label, DialogFont::regular, 0, no_control});
         if (row.lock != Lock::none) {
             const layout::SourceRect text_area{
                 row.lock_area.x + layout::padlock_width + layout::padlock_gap,
@@ -4867,92 +2734,89 @@ std::vector<LayoutPart> dialog_layout(const Dialog& dialog, const DialogFonts* f
             );
             row_text(text_area, layout::lock_text(row.lock), DialogFont::small);
         }
-        for (std::size_t line = 0; line < row.hint_lines; ++line) {
-            const std::string hint = layout::shown_hint_text(
-                dialog, row.setting, line, row.hints[line].width, small_text_width
+        for (std::size_t line = 0; line < row.hint_lines && line < view.hints.size(); ++line)
+            if (!view.hints[line].empty())
+                row_part(
+                    LayoutPart{row.hints[line], view.hints[line], DialogFont::small, 0, no_control}
+                );
+        switch (view.kind) {
+        case oa::ui::kit::RowKind::value_and_button:
+            // MANAGE…: one button.
+            row_part(
+                LayoutPart{row.control_area, view.buttons.front(), DialogFont::small, 0, control}
             );
-            if (!hint.empty())
-                row_text(row.hints[line], hint, DialogFont::small);
+            break;
+        case oa::ui::kit::RowKind::buttons:
+            if (row.control_area.width > 0)
+                for (std::size_t button = 0; button < view.buttons.size(); ++button)
+                    row_part(
+                        LayoutPart{
+                            layout::folder_button(row.control_area, button),
+                            view.buttons[button],
+                            DialogFont::small,
+                            0,
+                            control,
+                        }
+                    );
+            break;
+        case oa::ui::kit::RowKind::levels:
+            if (row.control_area.width > 0)
+                for (std::size_t level = 0; level < view.captions.size(); ++level)
+                    row_part(
+                        LayoutPart{
+                            {row.control_area.x + 1 +
+                                 static_cast<int32_t>(level) * view.control_width,
+                             row.control_area.y + 1,
+                             view.control_width,
+                             row.control_area.height - 2},
+                            view.captions[level],
+                            DialogFont::small,
+                            0,
+                            control,
+                        }
+                    );
+            break;
+        case oa::ui::kit::RowKind::choice: {
+            // The field shows the choice, in the regular font. Language's
+            // field names a pack that is still downloading, and its state.
+            std::string caption =
+                oa::ui::kit::row_caption(layout::row_spec(row.setting), model, view.index);
+            if (row.setting == Setting::language)
+                caption = layout::language_closed_field(dialog, std::move(caption));
+            if (row.downloads >= 0)
+                caption = downloads::choice_caption(downloads::choice_index(dialog));
+            row_part(
+                LayoutPart{row.control_area, std::move(caption), DialogFont::regular, 0, control}
+            );
+            break;
         }
-        if (layout::is_text(row.setting))
-            continue;
-        if (layout::is_button(row.setting)) {
-            row_part(
-                LayoutPart{
-                    row.control_area,
-                    std::string(layout::shown_text(layout::manage_text)),
-                    DialogFont::small,
-                    0,
-                    control,
-                }
-            );
-        } else if (layout::is_buttons(row.setting) && row.control_area.width > 0) {
-            for (std::size_t button = 0; button < folder_button_count; ++button)
-                row_part(
-                    LayoutPart{
-                        layout::folder_button(row.control_area, button),
-                        std::string(layout::shown_text(layout::folder_button_text(button))),
-                        DialogFont::small,
-                        0,
-                        control,
-                    }
-                );
-        } else if (layout::is_strip(row.setting) && row.control_area.width > 0) {
-            const layout::Strip strip = layout::strip_of(row.setting);
-            for (std::size_t level = 0; level < strip.levels; ++level) {
-                row_part(
-                    LayoutPart{
-                        {row.control_area.x + 1 + static_cast<int32_t>(level) * strip.level_width,
-                         row.control_area.y + 1,
-                         strip.level_width,
-                         row.control_area.height - 2},
-                        std::string(layout::shown_text(layout::strip_caption(row.setting, level))),
-                        DialogFont::small,
-                        0,
-                        control,
-                    }
-                );
-            }
-        } else if (layout::is_choice(row.setting)) {
-            // The field shows the choice, in the regular font.
-            row_part(
-                LayoutPart{
-                    row.control_area,
-                    layout::field_text(dialog, row, layout::choice_field_text_room, text_width),
-                    DialogFont::regular,
-                    0,
-                    control,
-                }
-            );
-        } else if (layout::is_slider(row.setting)) {
+        case oa::ui::kit::RowKind::slider:
             row_part(LayoutPart{row.control_area, {}, DialogFont::regular, 0, control});
-            row_text(row.value, layout::value_text(row.setting, dialog), DialogFont::regular);
-        } else if (row.control_area.width > 0) {
-            const int32_t half = (row.control_area.width - 2) / 2;
-            row_part(
-                LayoutPart{
-                    {row.control_area.x + 1,
-                     row.control_area.y + 1,
-                     half,
-                     row.control_area.height - 2},
-                    std::string(layout::shown_text(layout::off_text)),
-                    DialogFont::small,
-                    0,
-                    control,
-                }
-            );
-            row_part(
-                LayoutPart{
-                    {row.control_area.x + 1 + half,
-                     row.control_area.y + 1,
-                     half,
-                     row.control_area.height - 2},
-                    std::string(layout::shown_text(layout::on_text)),
-                    DialogFont::small,
-                    0,
-                    control,
-                }
-            );
+            row_part(LayoutPart{row.value, view.value, DialogFont::regular, 0, no_control});
+            break;
+        case oa::ui::kit::RowKind::toggle:
+            if (row.control_area.width > 0) {
+                const int32_t half = (row.control_area.width - 2) / 2;
+                for (std::size_t side = 0; side < view.captions.size(); ++side)
+                    row_part(
+                        LayoutPart{
+                            {row.control_area.x + 1 + static_cast<int32_t>(side) * half,
+                             row.control_area.y + 1,
+                             half,
+                             row.control_area.height - 2},
+                            view.captions[side],
+                            DialogFont::small,
+                            0,
+                            control,
+                        }
+                    );
+            }
+            break;
+        case oa::ui::kit::RowKind::text_field:
+        case oa::ui::kit::RowKind::link:
+        case oa::ui::kit::RowKind::text:
+            // Where the files are and the Steam Input notice show text alone.
+            break;
         }
     }
     // On Developer, its list and the list's footer under its rows.
@@ -4968,9 +2832,12 @@ std::vector<LayoutPart> dialog_layout(const Dialog& dialog, const DialogFonts* f
         {ok_control, layout::ok_text},
     }};
     for (const auto& [control, caption] : buttons) {
+        const layout::SourceRect rect = control == restore_control  ? sized.restore_button
+                                        : control == cancel_control ? sized.cancel_button
+                                                                    : sized.ok_button;
         parts.push_back(
             LayoutPart{
-                layout::footer_button(control),
+                rect,
                 std::string(layout::shown_text(caption)),
                 DialogFont::small,
                 0,
@@ -4992,92 +2859,75 @@ std::vector<LayoutPart> dialog_layout(const Dialog& dialog, const DialogFonts* f
             const int32_t item = dialog.list_first + shown;
             if (item >= static_cast<int32_t>(list->choices))
                 break;
+            const layout::SourceRect box = layout::choice_item(list->rect, shown);
+            if (list->row->downloads >= 0) {
+                parts.push_back(
+                    LayoutPart{
+                        box,
+                        downloads::choice_caption(item),
+                        DialogFont::regular,
+                        0,
+                        no_control,
+                    }
+                );
+                continue;
+            }
+            const Setting setting = list->row->setting;
+            const std::string caption =
+                oa::ui::kit::row_caption(layout::row_spec(setting), model, item);
+            // The divider is a section heading, not a choice.
+            if (layout::language_item_divider(dialog, setting, item)) {
+                parts.push_back(
+                    LayoutPart{
+                        box,
+                        caption,
+                        DialogFont::small,
+                        layout::heading_tracking,
+                        no_control,
+                    }
+                );
+                continue;
+            }
+            const std::string aside = layout::language_item_aside(dialog, setting, item);
+            if (aside.empty()) {
+                parts.push_back(LayoutPart{box, caption, DialogFont::regular, 0, no_control});
+                continue;
+            }
+            // The same gap the menu draws between a label and its aside, so
+            // the two parts do not meet.
+            constexpr int32_t kMargin = 4;
+            constexpr int32_t kGap = 8;
+            constexpr int32_t kMinLabel = 8;
+            const int32_t inset = kit::compact_metrics.choice_item_text_inset;
+            const int32_t inner_left = box.x + inset;
+            const int32_t inner_right = box.x + box.width - kMargin;
+            int32_t aside_width = text_width(aside);
+            int32_t room = inner_right - inner_left - kMinLabel - kGap;
+            if (room < 1)
+                room = 1;
+            if (aside_width > room)
+                aside_width = room;
+            const int32_t aside_left = inner_right - aside_width;
+            const int32_t label_width = std::max(aside_left - kGap - inner_left, int32_t{0});
             parts.push_back(
                 LayoutPart{
-                    layout::choice_item(list->rect, shown),
-                    layout::shown_choice_text(
-                        dialog,
-                        list->row->setting,
-                        static_cast<std::size_t>(item),
-                        layout::choice_item_text_room,
-                        text_width
-                    ),
+                    {inner_left, box.y, label_width, box.height},
+                    caption,
+                    DialogFont::regular,
+                    0,
+                    no_control,
+                }
+            );
+            parts.push_back(
+                LayoutPart{
+                    {aside_left, box.y, aside_width, box.height},
+                    aside,
                     DialogFont::regular,
                     0,
                     no_control,
                 }
             );
         }
-    }
-    // The question lies over everything else, which is not listed under it.
-    if (dialog.switch_question != no_question) {
-        const auto under_question = [](const LayoutPart& part) {
-            const auto& a = part.rect;
-            const auto& b = layout::question_box;
-            return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height &&
-                   b.y < a.y + a.height;
-        };
-        parts.erase(std::remove_if(parts.begin(), parts.end(), under_question), parts.end());
-        text_part(
-            layout::question_heading,
-            dialog.mod_question == ModQuestion::roll_back ? layout::roll_back_heading_text
-                                                          : layout::switch_heading_text,
-            DialogFont::small
-        );
-        control_part(layout::question_badge, no_control);
-        const layout::ModRowText offered =
-            layout::mod_row_text(dialog, ModRow{dialog.switch_question, false});
-        parts.push_back(
-            LayoutPart{
-                layout::question_title,
-                layout::cut_text(offered.title, layout::question_title.width, text_width),
-                DialogFont::regular,
-                0,
-                no_control,
-            }
-        );
-        parts.push_back(
-            LayoutPart{
-                layout::question_version,
-                layout::cut_text(
-                    layout::question_version_text(dialog, offered),
-                    layout::question_version.width,
-                    small_text_width
-                ),
-                DialogFont::small,
-                0,
-                no_control,
-            }
-        );
-        const auto lines = layout::question_text_lines(dialog, small_text_width);
-        for (std::size_t line = 0; line < lines.size(); ++line) {
-            layout::SourceRect rect = layout::question_first_line;
-            rect.y += static_cast<int32_t>(line) * rect.height;
-            parts.push_back(LayoutPart{rect, lines[line], DialogFont::small, 0, no_control});
-        }
-        parts.push_back(
-            LayoutPart{
-                layout::question_no_rect(dialog),
-                std::string(layout::shown_text(layout::no_text)),
-                DialogFont::small,
-                0,
-                question_no_control,
-            }
-        );
-        parts.push_back(
-            LayoutPart{
-                layout::question_yes_rect(dialog),
-                std::string(
-                    layout::shown_text(
-                        dialog.mod_question == ModQuestion::roll_back ? layout::roll_back_text
-                                                                      : layout::yes_text
-                    )
-                ),
-                DialogFont::small,
-                0,
-                question_yes_control,
-            }
-        );
     }
     return parts;
 }

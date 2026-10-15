@@ -3,11 +3,16 @@
 
 // SDL output textures, viewport sizing and frame presentation.
 #include "mod_install_watch.hpp"
+#include "window_live_size.hpp"
+#include "oa/app/frame_coordinates.hpp"
+#include "oa/app/window_surface.hpp"
 #include "oa/app/runtime.hpp"
 #include "oa/app/game_directory.hpp"
 #include "graphics_report.hpp"
+#include "oa_layer.hpp"
 #include "pad_state.hpp"
 #include "render_host.hpp"
+#include "render_state.hpp"
 #include "render_run.hpp"
 #include "oa/app/input_hints.hpp"
 #include "phone_hud.hpp"
@@ -28,6 +33,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <tuple>
@@ -41,6 +47,28 @@ namespace {
                std::chrono::steady_clock::now() - since
     )
         .count();
+}
+
+/// Tells whether a resize is waiting to be handled.
+///
+/// A size the game has not handled yet is still delivered as that resize,
+/// so laying the match out for it early is the same scale, and is not a
+/// size that arrived with no resize at all.
+///
+/// @return true when a resize or a pixel-size change is queued
+[[nodiscard]] bool resize_event_waiting() {
+    SDL_Event waiting{};
+    if (SDL_PeepEvents(
+            &waiting, 1, SDL_PEEKEVENT, SDL_EVENT_WINDOW_RESIZED, SDL_EVENT_WINDOW_RESIZED
+        ) > 0)
+        return true;
+    return SDL_PeepEvents(
+               &waiting,
+               1,
+               SDL_PEEKEVENT,
+               SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED,
+               SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED
+           ) > 0;
 }
 
 } // namespace
@@ -60,27 +88,95 @@ void Runtime::ensure_texture(int width, int height) {
     }
 }
 
+SDL_Point Runtime::match_canvas_point() const {
+    // On a window at native density a layout pixel is a window point, which
+    // logical presentation stretches over the display's pixels, so the
+    // processor lays out and draws what it does on any other window of that
+    // size; elsewhere a layout pixel is a window pixel.
+    int width = kCanvasWidth;
+    int height = kCanvasHeight;
+    if (sdl_.window != nullptr) {
+        if (native_density_window())
+            SDL_GetWindowSize(sdl_.window, &width, &height);
+        else
+            SDL_GetWindowSizeInPixels(sdl_.window, &width, &height);
+    }
+    // Full screen on the desktop's mode at a screen size of its own draws
+    // the match at that size.
+    const SDL_Point scaled = scaled_frame_size();
+    if (scaled.x > 0 && scaled.y > 0)
+        return scaled;
+    return {width, height};
+}
+
+void Runtime::sync_live_window_size() {
+    if (sdl_.window == nullptr)
+        return;
+    const SDL_WindowFlags flags = SDL_GetWindowFlags(sdl_.window);
+    // Full screen and a maximised or minimised window report their own size
+    // as they change; asking again would move a window the player placed.
+    if ((flags & (SDL_WINDOW_FULLSCREEN | SDL_WINDOW_MAXIMIZED | SDL_WINDOW_MINIMIZED)) != 0)
+        return;
+    int live_width = 0;
+    int live_height = 0;
+    if (!platform_window_content_size(sdl_.window, live_width, live_height))
+        return;
+    if (live_width == nudged_window_width_ && live_height == nudged_window_height_)
+        return;
+    int taken_width = 0;
+    int taken_height = 0;
+    SDL_GetWindowSize(sdl_.window, &taken_width, &taken_height);
+    if (live_width == taken_width && live_height == taken_height)
+        return;
+    std::cout << "open-annihilation: the window is " << live_width << 'x' << live_height
+              << " and had been taken as " << taken_width << 'x' << taken_height << '\n';
+    // Asked once for this size, whether or not the window took it, so a size
+    // it refuses is not asked again every frame.
+    nudged_window_width_ = live_width;
+    nudged_window_height_ = live_height;
+    std::ignore = SDL_SetWindowSize(sdl_.window, live_width, live_height);
+}
+
+void Runtime::follow_window_output() {
+    if (sdl_.renderer == nullptr)
+        return;
+    sync_live_window_size();
+    if (screen_ != Screen::match)
+        return;
+    const SDL_Point canvas = match_canvas_point();
+    if (canvas.x <= 0 || canvas.y <= 0)
+        return;
+    if (canvas.x == followed_canvas_width_ && canvas.y == followed_canvas_height_)
+        return;
+    // A resize still waiting is handled in its turn. A layout that is not
+    // this window, with no resize waiting, was taken from an earlier size.
+    if ((match_layout_.width != canvas.x || match_layout_.height != canvas.y) &&
+        !resize_event_waiting()) {
+        int window_width = 0;
+        int window_height = 0;
+        if (sdl_.window != nullptr)
+            SDL_GetWindowSize(sdl_.window, &window_width, &window_height);
+        std::cout << "open-annihilation: the match was laid out at " << match_layout_.width << 'x'
+                  << match_layout_.height << " for a " << window_width << 'x' << window_height
+                  << " window\n";
+    }
+    apply_output_mode();
+}
+
 void Runtime::apply_output_mode() {
     if (sdl_.renderer == nullptr)
         return;
     if (screen_ == Screen::match) {
-        // On a window at native density a layout pixel is a window point,
-        // which logical presentation stretches over the display's pixels,
-        // so the processor lays out and draws what it does on any other
-        // window of that size; elsewhere a layout pixel is a window pixel.
         const bool native_density = native_density_window();
-        int width = kCanvasWidth, height = kCanvasHeight;
+        const SDL_Point canvas = match_canvas_point();
+        int width = canvas.x;
+        int height = canvas.y;
         // The window's size in points, from which the layout's density, its
         // safe area and (with touch controls) its device class come; none
         // without a window.
         int window_width = 0, window_height = 0;
-        if (sdl_.window != nullptr) {
-            if (native_density)
-                SDL_GetWindowSize(sdl_.window, &width, &height);
-            else
-                SDL_GetWindowSizeInPixels(sdl_.window, &width, &height);
+        if (sdl_.window != nullptr)
             SDL_GetWindowSize(sdl_.window, &window_width, &window_height);
-        }
         // Full screen on the desktop's mode at a screen size of its own
         // draws the match at that size, laid out as a window of it, and
         // scales the frame to the screen.
@@ -108,6 +204,10 @@ void Runtime::apply_output_mode() {
         // only once SDL reports it.
         if (match_layout_.width != laid_out.width || match_layout_.height != laid_out.height)
             match_pointer_known_ = false;
+        // The size just laid out, so a later frame lays out only when the
+        // window's size is no longer this one.
+        followed_canvas_width_ = width;
+        followed_canvas_height_ = height;
         try {
             // A scaled frame is letterboxed, or held in whole steps, as Menu
             // scaling holds the menus' frame.
@@ -148,6 +248,8 @@ void Runtime::apply_output_mode() {
         // it darkens the match's last frame.
         match_layout_ = {};
         match_pointer_known_ = false;
+        followed_canvas_width_ = 0;
+        followed_canvas_height_ = 0;
         scaled_frame_width_ = 0;
         scaled_frame_height_ = 0;
         scaled_frame_mode_ = SDL_SCALEMODE_NEAREST;
@@ -276,6 +378,8 @@ void Runtime::initialize_sdl() {
         sdl_.renderer = SDL_CreateRenderer(sdl_.window, nullptr);
         if (sdl_.renderer == nullptr)
             throw std::runtime_error(std::string("SDL_CreateRenderer: ") + SDL_GetError());
+        // A window this runtime made itself still takes a check's pixel density.
+        apply_asked_pixel_density(sdl_.window);
         const auto facts = report_game_renderer(sdl_.renderer);
         take_renderer_names(facts.renderer, stats_adapter_name(facts));
         oa::base::float_precision::restore_program_float_control();
@@ -445,7 +549,8 @@ void Runtime::destroy_match_layer_textures() {
         SDL_DestroyTexture(match_dialog_side_tex_);
         match_dialog_side_tex_ = nullptr;
     }
-    destroy_engine_settings_textures();
+    if (oa_layer_)
+        oa_layer_->destroy_textures();
     // The touch layer's texture goes with them; the next present makes it again.
     TouchDrawAccess::forget_textures(*this);
     match_dialog_side_tex_w_ = match_dialog_side_tex_h_ = 0;
@@ -592,7 +697,7 @@ void Runtime::compose_match_frame(renderer::Surface& frame) {
     // and the dialogs; the placed regions over the touch controls' sheets.
     compose_touch_layer(frame);
     compose_placed_hud_regions(frame);
-    compose_engine_settings_layer(frame);
+    oa_layer().compose_match(frame);
     if (!match_use_layers_ || oa::ui::frontend_dialogs::dialog_count() == 0 ||
         match_dialog_rgba_.size() != pixels * 4U)
         return;
@@ -767,7 +872,7 @@ void Runtime::finish_match_layers(
         };
         draw_one_to_one(sdl_.renderer, match_dialog_side_tex_, &side, one_to_one);
     }
-    present_engine_settings_layer();
+    oa_layer().present(nullptr);
     if (dialogs)
         draw_one_to_one(sdl_.renderer, match_dialog_tex_, nullptr, nullptr, one_to_one);
     present_software_cursor(true);
@@ -793,6 +898,14 @@ void Runtime::capture_render_target() {
         video_capture_->add_frame(sdl_.renderer);
     if (capture_frame_ == nullptr)
         return;
+    // A check of the OA layer, whose screens and backdrop are drawn in the
+    // window's own pixels, reads back the whole window on the front end, the
+    // letterbox round the picture with it (OaLayer::read_whole_window).
+    std::optional<RenderState> window_pixels;
+    if (screen_ != Screen::match && oa_layer().reads_whole_window()) {
+        window_pixels.emplace(sdl_.renderer);
+        window_pixels->use_window_pixels();
+    }
     SDL_Surface* target = SDL_RenderReadPixels(sdl_.renderer, nullptr);
     SDL_Surface* rgb =
         target != nullptr ? SDL_ConvertSurface(target, SDL_PIXELFORMAT_RGB24) : nullptr;
@@ -816,6 +929,9 @@ void Runtime::capture_render_target() {
 void Runtime::present_software_cursor(bool match_layers) {
     if (!cursors_loaded_ || cursor_image_ == nullptr || frame_without_cursor_)
         return;
+    // A middle-click pan draws its own direction at the pointer.
+    if (middle_pan_shows_direction())
+        return;
     // With touch controls the cursor is hidden while no finger rests, or
     // lifted above the finger on the battlefield.
     float cursor_x = pointer_x_;
@@ -831,16 +947,29 @@ void Runtime::present_software_cursor(bool match_layers) {
     if (!rendered.ok())
         return;
     const auto& frame = *rendered.frame;
-    if (match_cursor_tex_ == nullptr || match_cursor_tex_w_ != static_cast<int>(frame.width) ||
-        match_cursor_tex_h_ != static_cast<int>(frame.height)) {
+    // Above an OA screen the cursor is stamped into a texture the size of
+    // the picture, at the same whole pixels as the cursor in the picture,
+    // and enlarged with the picture, while the whole sprite sits inside that
+    // picture. A texture of the cursor alone, scaled on its own rectangle,
+    // does not land on those pixels. A sprite that crosses the picture, as
+    // the pointer does over a footer in the letterbox, is drawn in the
+    // window's own pixels on the rectangle the picture is drawn in.
+    const bool over_layer = !match_layers && screen_ != Screen::match && oa_layer().shows(false);
+    const int sprite_x = static_cast<int>(cursor_x) - frame.origin_x;
+    const int sprite_y = static_cast<int>(cursor_y) - frame.origin_y;
+    const bool stamp_in_picture = over_layer && sprite_x >= 0 && sprite_y >= 0 &&
+                                  sprite_x + static_cast<int>(frame.width) <= output_texture_w_ &&
+                                  sprite_y + static_cast<int>(frame.height) <= output_texture_h_;
+    const int canvas_w = stamp_in_picture ? output_texture_w_ : static_cast<int>(frame.width);
+    const int canvas_h = stamp_in_picture ? output_texture_h_ : static_cast<int>(frame.height);
+    if (canvas_w <= 0 || canvas_h <= 0)
+        return;
+    if (match_cursor_tex_ == nullptr || match_cursor_tex_w_ != canvas_w ||
+        match_cursor_tex_h_ != canvas_h) {
         if (match_cursor_tex_ != nullptr)
             SDL_DestroyTexture(match_cursor_tex_);
         match_cursor_tex_ = SDL_CreateTexture(
-            sdl_.renderer,
-            SDL_PIXELFORMAT_ARGB8888,
-            SDL_TEXTUREACCESS_STREAMING,
-            static_cast<int>(frame.width),
-            static_cast<int>(frame.height)
+            sdl_.renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, canvas_w, canvas_h
         );
         if (match_cursor_tex_ == nullptr)
             return;
@@ -852,37 +981,117 @@ void Runtime::present_software_cursor(bool match_layers) {
             match_cursor_tex_ = nullptr;
             return;
         }
-        match_cursor_tex_w_ = static_cast<int>(frame.width);
-        match_cursor_tex_h_ = static_cast<int>(frame.height);
+        match_cursor_tex_w_ = canvas_w;
+        match_cursor_tex_h_ = canvas_h;
     }
     void* pixels = nullptr;
     int pitch = 0;
     if (!SDL_LockTexture(match_cursor_tex_, nullptr, &pixels, &pitch))
         return;
     const auto& pal = match_palette_.size() >= 1024 ? match_palette_ : resources_.gui_palette;
-    for (uint32_t row = 0; row < frame.height; ++row) {
-        auto* dst = reinterpret_cast<uint32_t*>(
-            static_cast<uint8_t*>(pixels) + static_cast<std::size_t>(row) * pitch
-        );
-        for (uint32_t column = 0; column < frame.width; ++column) {
-            const auto offset = static_cast<std::size_t>(row) * frame.width + column;
-            if (offset >= frame.coverage.size() || frame.coverage[offset] == 0) {
-                dst[column] = 0;
-                continue;
-            }
-            const auto pal_i = static_cast<std::size_t>(frame.pixels[offset]) * 4U;
-            if (pal_i + 2 >= pal.size()) {
-                dst[column] = 0;
-                continue;
-            }
-            dst[column] = 0xff000000u | (static_cast<uint32_t>(pal[pal_i]) << 16) |
-                          (static_cast<uint32_t>(pal[pal_i + 1]) << 8) |
-                          static_cast<uint32_t>(pal[pal_i + 2]);
+    const auto cursor_texel = [&frame, &pal](std::size_t offset) {
+        if (offset >= frame.coverage.size() || frame.coverage[offset] == 0)
+            return 0u;
+        const auto pal_i = static_cast<std::size_t>(frame.pixels[offset]) * 4U;
+        if (pal_i + 2 >= pal.size())
+            return 0u;
+        return 0xff000000u | (static_cast<uint32_t>(pal[pal_i]) << 16) |
+               (static_cast<uint32_t>(pal[pal_i + 1]) << 8) | static_cast<uint32_t>(pal[pal_i + 2]);
+    };
+    if (stamp_in_picture) {
+        for (int row = 0; row < canvas_h; ++row) {
+            auto* dst = reinterpret_cast<uint32_t*>(
+                static_cast<uint8_t*>(pixels) + static_cast<std::size_t>(row) * pitch
+            );
+            std::fill(dst, dst + canvas_w, 0u);
         }
-        if (!gamma_identity_)
-            gamma_xrgb_row(dst, static_cast<int>(frame.width), gamma_table_);
+        // The same whole pixels tick_and_draw_cursor writes into the picture.
+        const int destination_x = sprite_x;
+        const int destination_y = sprite_y;
+        for (uint32_t row = 0; row < frame.height; ++row) {
+            const int y = destination_y + static_cast<int>(row);
+            if (y < 0 || y >= canvas_h)
+                continue;
+            auto* dst = reinterpret_cast<uint32_t*>(
+                static_cast<uint8_t*>(pixels) + static_cast<std::size_t>(y) * pitch
+            );
+            for (uint32_t column = 0; column < frame.width; ++column) {
+                const int x = destination_x + static_cast<int>(column);
+                if (x < 0 || x >= canvas_w)
+                    continue;
+                dst[x] = cursor_texel(static_cast<std::size_t>(row) * frame.width + column);
+            }
+            if (!gamma_identity_)
+                gamma_xrgb_row(dst, canvas_w, gamma_table_);
+        }
+    } else {
+        for (uint32_t row = 0; row < frame.height; ++row) {
+            auto* dst = reinterpret_cast<uint32_t*>(
+                static_cast<uint8_t*>(pixels) + static_cast<std::size_t>(row) * pitch
+            );
+            for (uint32_t column = 0; column < frame.width; ++column)
+                dst[column] = cursor_texel(static_cast<std::size_t>(row) * frame.width + column);
+            if (!gamma_identity_)
+                gamma_xrgb_row(dst, static_cast<int>(frame.width), gamma_table_);
+        }
     }
     SDL_UnlockTexture(match_cursor_tex_);
+    if (over_layer && !stamp_in_picture) {
+        int logical_w = 0;
+        int logical_h = 0;
+        SDL_RendererLogicalPresentation presentation = SDL_LOGICAL_PRESENTATION_DISABLED;
+        SDL_FRect reckoned{};
+        if (SDL_GetRenderLogicalPresentation(
+                sdl_.renderer, &logical_w, &logical_h, &presentation
+            ) &&
+            presentation != SDL_LOGICAL_PRESENTATION_DISABLED && logical_w > 0 && logical_h > 0 &&
+            SDL_GetRenderLogicalPresentationRect(sdl_.renderer, &reckoned) && reckoned.w > 0.0F &&
+            reckoned.h > 0.0F) {
+            // The picture's filter, read before the window-pixel state drops
+            // the logical presentation this lookup needs.
+            const SDL_ScaleMode picture_mode = standard_frame_scale_mode(output_texture_w_);
+            RenderState window_pixels(sdl_.renderer);
+            window_pixels.use_window_pixels();
+            const SDL_Rect picture = drawn_frame_rect(reckoned);
+            const float scale_x = static_cast<float>(picture.w) / static_cast<float>(logical_w);
+            const float scale_y = static_cast<float>(picture.h) / static_cast<float>(logical_h);
+            const SDL_FRect outside{
+                static_cast<float>(picture.x) + static_cast<float>(sprite_x) * scale_x,
+                static_cast<float>(picture.y) + static_cast<float>(sprite_y) * scale_y,
+                static_cast<float>(frame.width) * scale_x,
+                static_cast<float>(frame.height) * scale_y
+            };
+            const bool filtered = picture_mode != SDL_SCALEMODE_NEAREST;
+            if (filtered)
+                std::ignore = SDL_SetTextureScaleMode(match_cursor_tex_, picture_mode);
+            else
+                std::ignore = SDL_SetTextureScaleMode(match_cursor_tex_, SDL_SCALEMODE_NEAREST);
+            std::ignore = SDL_RenderTexture(sdl_.renderer, match_cursor_tex_, nullptr, &outside);
+            if (filtered && SDL_GetVersion() < SDL_VERSIONNUM(3, 2, 10))
+                std::ignore = SDL_FlushRenderer(sdl_.renderer);
+            if (filtered)
+                std::ignore = SDL_SetTextureScaleMode(match_cursor_tex_, SDL_SCALEMODE_NEAREST);
+            return;
+        }
+    }
+    if (stamp_in_picture) {
+        // The picture's filter, over the picture's whole rectangle, so the
+        // cursor enlarges as it does inside the picture.
+        const SDL_ScaleMode mode = standard_frame_scale_mode(canvas_w);
+        const bool filtered = mode != SDL_SCALEMODE_NEAREST;
+        if (filtered)
+            std::ignore = SDL_SetTextureScaleMode(match_cursor_tex_, mode);
+        else
+            std::ignore = SDL_SetTextureScaleMode(match_cursor_tex_, SDL_SCALEMODE_NEAREST);
+        std::ignore = SDL_RenderTexture(sdl_.renderer, match_cursor_tex_, nullptr, nullptr);
+        // An older SDL draws a queued texture with the scale mode it has
+        // when the queue runs. Put NEAREST back only after this draw has run.
+        if (filtered && SDL_GetVersion() < SDL_VERSIONNUM(3, 2, 10))
+            std::ignore = SDL_FlushRenderer(sdl_.renderer);
+        if (filtered)
+            std::ignore = SDL_SetTextureScaleMode(match_cursor_tex_, SDL_SCALEMODE_NEAREST);
+        return;
+    }
     const SDL_FRect dest{
         cursor_x - static_cast<float>(frame.origin_x),
         cursor_y - static_cast<float>(frame.origin_y),
@@ -891,7 +1100,8 @@ void Runtime::present_software_cursor(bool match_layers) {
     };
     // On a window at native density, and over a scaled frame, the cursor
     // over the match goes to the display's pixels with the match's layers;
-    // a mode the texture refuses leaves it as it was.
+    // any other frame keeps SDL's LINEAR. A mode the texture refuses leaves
+    // it as it was.
     if (native_density_window() || scaled_frame_width_ > 0)
         std::ignore = SDL_SetTextureScaleMode(
             match_cursor_tex_, match_layers ? one_to_one_scale_mode() : SDL_SCALEMODE_LINEAR
@@ -975,6 +1185,11 @@ bool Runtime::frame_pixelart_works() {
 }
 
 void Runtime::render() {
+    // The frame is drawn at the window's size, including a size that changed
+    // with no resize. A headless check and a director lay the match out at a
+    // size of their own; the window must not replace it.
+    if (!options_.headless_check && director_ == nullptr)
+        follow_window_output();
     if (render_run_ && !render_run_->pending_rebuild.empty() && !render_run_->device_lost)
         rebuild_renderer(render_run_->pending_rebuild);
     // A reset device took the front end's texture with it.
@@ -1001,14 +1216,18 @@ void Runtime::render() {
                                       .count());
     }
     // The loading screen went out through the display sink as it was drawn.
-    if (screen_ == Screen::loading)
+    if (screen_ == Screen::loading) {
+        note_shown_frame();
         return;
+    }
     try {
         if (screen_ == Screen::match && match_use_layers_) {
             present_match_layers();
+            note_shown_frame();
             return;
         }
         present_front_end();
+        note_shown_frame();
     } catch (const PresentError& error) {
         note_present_error(error.what(), true);
     }
@@ -1018,27 +1237,80 @@ void Runtime::present_front_end() {
     // A match's surface_ is composed at the display gamma already.
     const auto present_start = std::chrono::steady_clock::now();
     const bool gamma = !gamma_identity_ && screen_ != Screen::match;
+    // A window larger than the picture draws the main menu's OA buttons again
+    // from an icon at least that large, so those squares are put back to the
+    // menu under them first.
+    std::vector<uint8_t> menu_buttons;
+    const bool sharp_menu_buttons = replace_menu_button_pixels(menu_buttons);
+    const uint8_t* source_rgb = sharp_menu_buttons ? menu_buttons.data() : surface_.rgb.data();
     if (frontend_texture_.format() == SDL_PIXELFORMAT_RGB24) {
-        const uint8_t* frame = surface_.rgb.data();
+        const uint8_t* frame = source_rgb;
         std::vector<uint8_t> corrected;
         if (gamma) {
-            corrected = surface_.rgb;
+            corrected.assign(source_rgb, source_rgb + surface_.rgb.size());
             apply_gamma_rgb(corrected.data(), corrected.size() / 3U, 3);
             frame = corrected.data();
         }
         frontend_texture_.update(frame, static_cast<int>(surface_.width * 3U), 3);
+    } else if (sharp_menu_buttons) {
+        renderer::Surface punched = surface_;
+        punched.rgb = menu_buttons;
+        if (gamma)
+            apply_gamma_rgb(punched.rgb.data(), punched.rgb.size() / 3U, 3);
+        upload_rgb24_tiles(frontend_texture_, punched, nullptr);
     } else {
         upload_rgb24_tiles(frontend_texture_, surface_, gamma ? &gamma_table_ : nullptr);
     }
+    // Place the picture from the drawing surface this frame, before the scale
+    // mode is read from that place. A drawable that grew after the window
+    // opened, as a 2× display whose first size was in points, would otherwise
+    // keep the picture in the corner.
+    const int frame_w = output_texture_w_ > 0 ? output_texture_w_ : kCanvasWidth;
+    const int frame_h = output_texture_h_ > 0 ? output_texture_h_ : kCanvasHeight;
+    if (!set_frame_presentation(sdl_.renderer, menu_scaling(), frame_w, frame_h))
+        throw_present_error("SDL logical presentation");
+    int output_w = 0;
+    int output_h = 0;
+    SDL_RendererLogicalPresentation presented_mode = SDL_LOGICAL_PRESENTATION_DISABLED;
+    const bool have_output = SDL_GetRenderOutputSize(sdl_.renderer, &output_w, &output_h) &&
+                             output_w > 0 && output_h > 0;
+    std::ignore =
+        SDL_GetRenderLogicalPresentation(sdl_.renderer, nullptr, nullptr, &presented_mode);
+    const bool whole_steps = presented_mode == SDL_LOGICAL_PRESENTATION_INTEGER_SCALE;
+    const SDL_FRect wanted =
+        have_output ? frame_letterbox(output_w, output_h, frame_w, frame_h, whole_steps)
+                    : SDL_FRect{};
+    SDL_FRect reckoned{};
+    const bool have_rect = SDL_GetRenderLogicalPresentationRect(sdl_.renderer, &reckoned);
+    const bool sdl_places =
+        !have_output ||
+        (have_rect && std::fabs(reckoned.x - wanted.x) <= 0.05F &&
+         std::fabs(reckoned.y - wanted.y) <= 0.05F && std::fabs(reckoned.w - wanted.w) <= 0.05F &&
+         std::fabs(reckoned.h - wanted.h) <= 0.05F);
     // The standard tier's scale mode is found before the frame begins: the
     // first look at the pixel-art mode draws into a target of its own.
     const SDL_ScaleMode standard_mode = standard_frame_scale_mode(output_texture_w_);
-    if (!SDL_RenderClear(sdl_.renderer))
+    // The logical presentation does not match the drawing surface. Draw the
+    // frame into the letterbox ourselves, in the window's own pixels.
+    if (!sdl_places) {
+        std::ignore = SDL_SetRenderLogicalPresentation(
+            sdl_.renderer, 0, 0, SDL_LOGICAL_PRESENTATION_DISABLED
+        );
+        std::ignore = SDL_SetRenderScale(sdl_.renderer, 1.0F, 1.0F);
+        std::ignore = SDL_SetRenderViewport(sdl_.renderer, nullptr);
+        std::ignore = SDL_SetRenderClipRect(sdl_.renderer, nullptr);
+    }
+    // The bars beside the picture are black, whatever colour the renderer
+    // last drew with (the launch's quiet frame leaves its backdrop colour).
+    if (!SDL_SetRenderDrawColor(sdl_.renderer, 0, 0, 0, 255) || !SDL_RenderClear(sdl_.renderer))
         throw_present_error("SDL render");
     // The front end's picture goes through the card's filter where it is one
     // texture; tiles beyond the renderer's limit are drawn as before.
     bool drawn = false;
-    if (accelerated_presentation() && frontend_texture_.single() != nullptr) {
+    if (!sdl_places) {
+        draw_frame(sdl_.renderer, frontend_texture_, standard_mode, &wanted);
+        drawn = true;
+    } else if (accelerated_presentation() && frontend_texture_.single() != nullptr) {
         try {
             draw_accelerated_screen(
                 frontend_texture_.single(),
@@ -1053,6 +1325,29 @@ void Runtime::present_front_end() {
     }
     if (!drawn)
         draw_frame(sdl_.renderer, frontend_texture_, standard_mode);
+    // The icons go over the scaled picture and under the screens, which cover
+    // the buttons while a dialog is open.
+    if (sharp_menu_buttons)
+        present_menu_icon_buttons();
+    // The cursor was left out of the picture so the window-pixel buttons
+    // could replace it. It goes above those buttons.
+    if (menu_button_cursor_held())
+        present_software_cursor(false);
+    // Open Annihilation's own screens go over the picture in the window's own
+    // pixels, and the software cursor over them (tick_and_draw_cursor left it
+    // out of the frame).
+    if (oa_layer().shows(false)) {
+        // The picture's place. When the logical presentation was set aside,
+        // SDL's rectangle is the whole output; the frame was drawn at wanted.
+        if (!sdl_places) {
+            oa_layer().present(&wanted);
+        } else {
+            SDL_FRect picture_area{};
+            if (SDL_GetRenderLogicalPresentationRect(sdl_.renderer, &picture_area))
+                oa_layer().present(&picture_area);
+        }
+        present_software_cursor(false);
+    }
     capture_render_target();
     if (render_fault_due(RenderFaultPoint::present))
         throw PresentError("injected present error");

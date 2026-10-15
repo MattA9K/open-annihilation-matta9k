@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// The Mods page's rows over scratch folders: a profile's name, version and
+// Mod folders' summaries over scratch folders: a profile's name, version and
 // description read without resolving it, a folder without a profile, with a
 // damaged one or one that cannot be listed; and badges of every colour type,
 // scaled down to the badge's side, and refused when damaged, cut short, too
@@ -137,6 +137,7 @@ void a_profile_gives_its_name_version_and_description(const fs::path& scratch) {
     OA_CHECK(summary.version == "3.2");
     OA_CHECK(summary.description == "Cold maps and slow, heavy armies.");
     OA_CHECK(summary.has_profile);
+    OA_CHECK(summary.id == "glacier-front");
     OA_CHECK(summary.badge.width == 64 && summary.badge.height == 64);
     OA_CHECK(well_formed(summary.badge));
     if (summary.badge.width == 64) {
@@ -158,6 +159,7 @@ void a_profile_gives_its_name_version_and_description(const fs::path& scratch) {
     OA_CHECK(refused.version == "2.10");
     OA_CHECK(refused.description == "First line second line");
     OA_CHECK(refused.has_profile);
+    OA_CHECK(refused.id.empty());
     OA_CHECK(empty(refused.badge));
 }
 
@@ -192,7 +194,7 @@ void a_folder_without_a_profile(const fs::path& scratch) {
     OA_CHECK(summary.title == "Extra Maps");
     OA_CHECK(summary.version == "N/A");
     OA_CHECK(summary.description == "No oamod.yaml present");
-    OA_CHECK(!summary.has_profile);
+    OA_CHECK(!summary.has_profile && summary.id.empty());
     OA_CHECK(summary.badge.width == 8 && summary.badge.height == 8 && well_formed(summary.badge));
 
     // A folder that cannot be listed still gives a row.

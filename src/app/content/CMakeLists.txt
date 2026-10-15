@@ -1,0 +1,95 @@
+# SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
+# SPDX-License-Identifier: GPL-3.0-only
+
+# Registries in effect, their cached catalogues and the worker that refreshes
+# them, which installed packages a catalogue has a newer release of, the
+# player's edits to the registries, the download settings kept in
+# preferences, the download queue and the packages' badge pictures. No SDL.
+# The game does not read a registry's download counts.
+add_library(oa-app-content src/service.cpp src/worker.cpp src/refresh.cpp src/cache.cpp
+  src/updates.cpp src/registries_edit.cpp src/settings.cpp src/download_api.cpp
+  src/download.cpp src/pictures.cpp)
+add_library(oa::app::content ALIAS oa-app-content)
+target_include_directories(oa-app-content PUBLIC include)
+target_include_directories(oa-app-content PRIVATE src)
+target_compile_features(oa-app-content PUBLIC cxx_std_20)
+# pictures.hpp hands over the badge oa-app-mod-profile decodes (read_mod_badge).
+target_link_libraries(oa-app-content
+  PUBLIC oa-data-registry oa-data-catalogue oa-netgame-http oa-formats-url oa-options
+    oa-app-package-install oa-platform-preferences oa-ui-engine-settings oa-app-mod-profile
+  PRIVATE oa-formats-oamod oa-formats-json oa-platform-shims oa-base-sha256 oa-base-threads
+    oa-app-user-folder oa-data-mod-profile oa-platform-random)
+set_property(SOURCE src/updates.cpp src/download_api.cpp APPEND PROPERTY COMPILE_DEFINITIONS
+  "OA_ENGINE_VERSION=\"${PROJECT_VERSION}\"")
+
+if(BUILD_TESTING)
+  add_executable(oa-app-content-refresh-rules-test tests/refresh_rules_test.cpp)
+  target_link_libraries(oa-app-content-refresh-rules-test PRIVATE oa-app-content oa-test-support)
+  add_test(NAME app-content-refresh-rules COMMAND oa-app-content-refresh-rules-test)
+  set_tests_properties(app-content-refresh-rules PROPERTIES TIMEOUT 30)
+
+  add_executable(oa-app-content-settings-test tests/settings_test.cpp)
+  target_link_libraries(oa-app-content-settings-test PRIVATE oa-app-content oa-test-support)
+  add_test(NAME app-content-settings COMMAND oa-app-content-settings-test)
+  set_tests_properties(app-content-settings PROPERTIES TIMEOUT 30)
+
+  add_executable(oa-app-content-test tests/service_test.cpp)
+  target_link_libraries(oa-app-content-test
+    PRIVATE oa-app-content oa-netgame-http-fixture oa-base-signing oa-base-sha256 oa-base-threads
+      oa-test-support)
+  add_test(NAME app-content COMMAND oa-app-content-test)
+  set_tests_properties(app-content PROPERTIES TIMEOUT 120)
+
+  # Installed packages matched to catalogue releases, the updates that follow,
+  # and a roll back that brings the older origin record back. No network.
+  add_executable(oa-app-content-updates-test tests/updates_test.cpp)
+  target_link_libraries(oa-app-content-updates-test
+    PRIVATE oa-app-content oa-app-package-install oa-formats-zip oa-base-sha256
+      oa-data-mod-profile oa-platform-shims ZLIB::ZLIB oa-test-support oa-options)
+  add_test(NAME app-content-updates COMMAND oa-app-content-updates-test)
+  set_tests_properties(app-content-updates PROPERTIES TIMEOUT 60)
+
+  add_executable(oa-app-content-registries-test tests/registries_edit_test.cpp)
+  target_link_libraries(oa-app-content-registries-test
+    PRIVATE oa-app-content oa-netgame-http-fixture oa-base-signing oa-base-sha256 oa-base-threads
+      oa-test-support)
+  add_test(NAME app-content-registries COMMAND oa-app-content-registries-test)
+  # The wait is the check's connect, idle, descriptor and catalogue limits
+  # plus a margin (see registries_edit_test.cpp), so the harness limit sits
+  # above that one wait.
+  set_tests_properties(app-content-registries PROPERTIES TIMEOUT 300)
+
+  # The download API's bodies, and the queue against a local fixture.
+  add_executable(oa-app-content-download-api-test tests/download_api_test.cpp)
+  target_link_libraries(oa-app-content-download-api-test PRIVATE oa-app-content oa-test-support)
+  add_test(NAME app-content-download-api COMMAND oa-app-content-download-api-test)
+  set_tests_properties(app-content-download-api PROPERTIES TIMEOUT 30)
+
+  add_executable(oa-app-content-downloads-test tests/download_test.cpp)
+  target_link_libraries(oa-app-content-downloads-test
+    PRIVATE oa-app-content oa-netgame-http-fixture oa-base-signing oa-base-sha256 oa-base-threads
+      oa-test-support)
+  add_test(NAME app-content-downloads COMMAND oa-app-content-downloads-test)
+  set_tests_properties(app-content-downloads PROPERTIES TIMEOUT 180)
+
+  # The badge pictures against a local fixture: a good one, a wrong hash, a
+  # file too large, one the server lacks, one the folder holds read with no
+  # request, and none fetched while a match runs.
+  add_executable(oa-app-content-pictures-test tests/pictures_test.cpp)
+  target_link_libraries(oa-app-content-pictures-test
+    PRIVATE oa-app-content oa-app-mod-profile oa-netgame-http-fixture oa-formats-png
+      oa-base-sha256 oa-test-support oa-options)
+  add_test(NAME app-content-pictures COMMAND oa-app-content-pictures-test)
+  set_tests_properties(app-content-pictures PROPERTIES TIMEOUT 60)
+
+  if(WIN32)
+    foreach(target oa-app-content-refresh-rules-test oa-app-content-settings-test
+        oa-app-content-test oa-app-content-updates-test oa-app-content-registries-test
+        oa-app-content-download-api-test oa-app-content-downloads-test
+        oa-app-content-pictures-test)
+      add_custom_command(TARGET ${target} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} "-DDLLS=$<TARGET_RUNTIME_DLLS:${target}>"
+          "-DDEST=$<TARGET_FILE_DIR:${target}>" -P "${PROJECT_SOURCE_DIR}/tools/copy_runtime.cmake")
+    endforeach()
+  endif()
+endif()

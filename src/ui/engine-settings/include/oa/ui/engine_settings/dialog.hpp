@@ -3,10 +3,12 @@
 
 // The Open Annihilation settings dialog: its sections and rows, what a press,
 // a drag or a key does to them, and how it and the OA button that opens it
-// are drawn. The dialog is laid out in the game's 640x480 source pixels and
-// drawn without the game's art (oa/ui/frontend_renderer/artless.hpp) in the
-// game's own fonts. A host places it, darkens what lies under it, turns its
-// events into dialog pixels and puts the settings it reports in effect.
+// are drawn. The dialog is laid out in points, one point a pixel of the
+// game's 640x480 picture, at its size class (Dialog::size_class: Compact,
+// 0.7.3's 480 by 324, Regular or Large), and drawn without the game's art
+// (oa/ui/frontend_renderer/artless.hpp) in the game's own fonts at a whole
+// scale. A host places it, darkens what lies under it, turns its events into
+// dialog points and puts the settings it reports in effect.
 #pragma once
 
 #include "oa/formats/fnt.hpp"
@@ -16,6 +18,12 @@
 #include "oa/ui/engine_settings.hpp"
 #include "oa/ui/frontend_renderer.hpp"
 #include "oa/ui/frontend_renderer/artless.hpp"
+#include "oa/ui/kit/canvas.hpp"
+#include "oa/ui/kit/input.hpp"
+#include "oa/ui/kit/layout.hpp"
+#include "oa/ui/kit/rows.hpp"
+#include "oa/ui/kit/text.hpp"
+#include "oa/ui/kit/theme.hpp"
 
 #include <array>
 #include <cstddef>
@@ -26,34 +34,42 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
 
 namespace oa::ui::engine_settings {
 
-/// The dialog's width, in source pixels.
-inline constexpr int32_t dialog_width = 480;
-/// The dialog's height, in source pixels.
-inline constexpr int32_t dialog_height = 324;
-/// The OA button's side on the main menu, in source pixels.
-inline constexpr int32_t menu_button_side = 32;
+/// The dialog's width at Compact, in source pixels. Each size class has its
+/// own (oa::ui::kit::metrics_of).
+inline constexpr int32_t dialog_width = oa::ui::kit::compact_metrics.dialog_width;
+/// The dialog's height at Compact, in source pixels.
+inline constexpr int32_t dialog_height = oa::ui::kit::compact_metrics.dialog_height;
+/// The OA button's side on the main menu, in source pixels: one and a half
+/// times the 32 it was.
+inline constexpr int32_t menu_button_side = 48;
 /// The OA button's side in the in-game menu's column, in source pixels.
 inline constexpr int32_t ingame_button_side = 24;
 
 /// The colour the screen under the dialog is darkened with.
-inline constexpr oa::ui::frontend_renderer::Rgb backdrop_color{5, 6, 4};
+inline constexpr oa::ui::frontend_renderer::Rgb backdrop_color =
+    oa::ui::kit::rgb(oa::ui::kit::colour::backdrop);
 /// How far the main menu is darkened under the dialog, in 256ths.
-inline constexpr uint32_t menu_backdrop_opacity = 159;
+inline constexpr uint32_t menu_backdrop_opacity = oa::ui::kit::menu_backdrop_opacity;
 /// How far the in-game menu's column is darkened beside the dialog, in 256ths.
-inline constexpr uint32_t ingame_backdrop_opacity = 128;
+inline constexpr uint32_t ingame_backdrop_opacity = oa::ui::kit::ingame_backdrop_opacity;
 
 /// The dialog's sections, in the order its list shows them: the engine's
 /// settings, then the mod options' (ui.options-dialog), which a dialog of
 /// each kind lists alone.
 enum class Page : uint8_t {
-    mods,          ///< Mods: the mods the game can play, the one played first
     controls,      ///< Controls
-    common_tweaks, ///< Common Tweaks: the player's own folder, the unit limit and pathfinding
-    language,      ///< Language: the language and how game text is drawn
+    common_tweaks, ///< Engine Limits: the unit limit, pathfinding and skirmish players
+    language,      ///< Language & Text: the language and how game text is drawn
     graphics,      ///< Graphics
+    /// User Interface: menu scaling, the window's frame, HUD scaling,
+    /// Interface size, and whether Escape opens the game menu
+    user_interface,
     /// Touch: how the touch controls answer a finger; listed only while the
     /// game has touch controls (Dialog::touch)
     touch,
@@ -65,23 +81,51 @@ enum class Page : uint8_t {
     /// Developer Mode's list of the standard hacks
     developer,
     /// Game files: what is installed, the backups switch and where the
-    /// files are; listed, between Controller and Developer, only where the
+    /// files are; listed, between Controller and Downloads, only where the
     /// platform brings game files in and the dialog is the main menu's
     /// (Dialog::game_files)
     game_files,
+    /// Downloads: when catalogues are checked, each registry's install ID
+    /// and the downloaded files. On the main menu a link opens the Library
+    /// on Registries. Listed after Game files and before Game Content.
+    downloads,
+    /// System: the player's own folder, and, where the game registers file
+    /// types at run time, a switch for each. Listed after Game Content and
+    /// before Developer.
+    system,
+    /// Game Content: each copied bundle, its size and its check, and the
+    /// buttons that check again, copy again or open the games folder.
+    /// Listed after Downloads and before System. Its number follows System's
+    /// so System stays 10.
+    game_content,
     mod_keys,   ///< the mod's keys
     mod_patrol, ///< what patrolling builders do
     mod_guard,  ///< what guarding builders do
     mod_tools,  ///< the build tools and the mex snap
     mod_chat,   ///< the wreck snap, the chat and the resource bar
+    /// One registered page the engine's settings show, laid out from the row
+    /// specs set_registered_pages gave. A mod's options never list one.
+    registered,
 };
 
-/// The number of sections, of every kind of dialog.
-inline constexpr std::size_t page_count = 14;
-/// The most sections a dialog lists: the engine's settings' nine with
-/// Touch, Controller and Game files, six without them; a mod's options have
+/// The number of sections, of every kind of dialog, counting Downloads,
+/// Game Content, System and the registered page.
+inline constexpr std::size_t page_count = 18;
+/// The most sections a dialog lists: the engine's settings' twelve with
+/// Touch, Controller and Game files, nine without them; a mod's options have
 /// five.
-inline constexpr std::size_t most_listed_pages = 9;
+inline constexpr std::size_t most_listed_pages = 12;
+/// Windows and Linux register the five file types at run time, and macOS
+/// chooses whether this copy is the default opener of each, so System lists
+/// a switch for each. iOS takes the types from the app and has no way to
+/// choose a default opener, so System shows a text row. Android does not
+/// register at run time either.
+#if defined(_WIN32) || (defined(__linux__) && !defined(__ANDROID__)) ||                            \
+    (defined(__APPLE__) && !TARGET_OS_IPHONE)
+inline constexpr bool file_types_switchable = true;
+#else
+inline constexpr bool file_types_switchable = false;
+#endif
 
 /// Which settings a dialog shows.
 enum class DialogKind : uint8_t {
@@ -99,19 +143,30 @@ enum class DialogKind : uint8_t {
 ///
 /// @param kind the dialog's kind
 /// @param touch the game has touch controls (Dialog::touch), so that the
-///     engine's settings list Touch between Graphics and Developer
+///     engine's settings list Touch after User Interface and before Downloads
 /// @param game_files the dialog lists Game files (Dialog::game_files),
 ///     after Touch and Controller and before Developer
 /// @param controller a gamepad has sent input in this run
 ///     (Dialog::controller), so that the engine's settings list Controller
 ///     after Touch and before Game files and Developer
-/// @return six sections for the engine's settings, one more for each of
-///     Touch, Controller and Game files listed, nine with all three; five
-///     for a mod's options and one for Language alone, whatever the others
-///     say
+/// @return nine sections for the engine's settings (Controls, Common
+///     Tweaks, Language & Text, Graphics, User Interface, Downloads, Game
+///     Content, System and Developer), one more for each of Touch, Controller
+///     and Game files listed, twelve with all three; five
+///     for a mod's options and one for Language & Text alone, whatever the
+///     others say
 [[nodiscard]] std::span<const Page> dialog_pages(
     DialogKind kind, bool touch = false, bool game_files = false, bool controller = false
 ) noexcept;
+
+/// Returns a section's word: its name in kebab case, the same in every
+/// language, as automation names its entry (`oa.settings.nav.<word>`) and a
+/// stage file may name the section ("language", "user-interface",
+/// "engine-limits").
+///
+/// @param page the section
+/// @return the word
+[[nodiscard]] std::string_view page_word(Page page) noexcept;
 
 /// The settings, as the dialog's rows show them.
 enum class Setting : uint8_t {
@@ -123,14 +178,20 @@ enum class Setting : uint8_t {
     max_zoom_in, ///< Maximum zoom in: a drop-down of None, 2x, 3x and 4x
     /// View past the map's edge: a strip of Off, 25% and 50%
     view_past_map_edge,
+    middle_click_pan,  ///< Middle-click pans: a switch
     escape_opens_menu, ///< Escape opens the game menu: a switch
     switch_alt,        ///< Select groups without Alt: a switch
-    unit_limit,        ///< Unit limit: a slider
-    max_frame_rate,    ///< Maximum frame rate: a slider
-    anti_aliasing,     ///< Enhanced anti-aliasing: a strip of levels
-    screen_size,       ///< Screen size: a slider
-    developer_mode,    ///< Enable Developer Mode: a switch
-    frame_stats,       ///< Show performance statistics: a switch
+    /// Window edge: a strip of Capture, Sticky and Free
+    window_edge,
+    /// Edge stickiness: a slider from 0.0 to 5.0, locked unless Window edge
+    /// is Sticky
+    window_edge_stickiness,
+    unit_limit,     ///< Unit limit: a slider
+    max_frame_rate, ///< Maximum frame rate: a slider
+    anti_aliasing,  ///< Enhanced anti-aliasing: a strip of levels
+    screen_size,    ///< Screen size: a slider
+    developer_mode, ///< Enable Developer Mode: a switch
+    frame_stats,    ///< Show performance statistics: a switch
     /// Hardware acceleration: a strip of Off, Basic and Full whose two hint
     /// lines are its status
     hardware_acceleration,
@@ -177,9 +238,6 @@ enum class Setting : uint8_t {
     /// the game through Steam Input (Dialog::steam_input), saying so; it
     /// changes no setting
     pad_steam_input_notice,
-    /// Mods: the list of the mods the game can play, one row each, which
-    /// switches the game to the one chosen once the player confirms it
-    mod,
     snap_override_key, ///< the mod's snap override key: a slider of option_keys
     autoclick_key,     ///< the mod's autoclick key: a slider of option_keys
     rotate_build_key,  ///< the mod's rotate key: a slider of option_keys
@@ -217,6 +275,35 @@ enum class Setting : uint8_t {
     /// Window frame: a strip of Hidden in play and Always shown
     window_frame,
     hud_scaling, ///< HUD scaling: a switch
+    /// Interface size: a drop-down of Auto, 100%, 200%, 300% and 400%, on
+    /// User Interface
+    interface_size,
+    /// MORE IN THE LIBRARY…: a link under Language's row that opens the
+    /// Library on Languages, listed only while Dialog::library_link is set;
+    /// it changes no setting
+    more_in_library,
+    /// UI kit gallery: Developer's row whose SHOW opens the gallery of every
+    /// part of Open Annihilation's own screens (DialogAction::show_gallery);
+    /// it changes no setting
+    kit_gallery,
+    /// File Type Registration: the heading over the five file-type switches,
+    /// with the group's hint. It changes no setting.
+    file_type_registration,
+    file_type_oamod,    ///< Mod packages (.oamod): a switch
+    file_type_oamap,    ///< Map packs (.oamap): a switch
+    file_type_oalang,   ///< Language packs (.oalang): a switch
+    file_type_oareg,    ///< Registry files (.oareg): a switch
+    file_type_oalaunch, ///< Launch files (.oalaunch): a switch
+    /// File types: the text row iOS shows in place of the switches.
+    /// It changes no setting.
+    file_types_note,
+    /// Skirmish players: a slider of how many player rows the skirmish setup
+    /// shows, the same count the setup's key codes store.
+    skirmish_players,
+    /// Welcome setup: SHOW AGAIN walks through the language, online features
+    /// and the OA buttons again. It changes no setting. During a game the
+    /// button is locked, and the choice is made from the main menu.
+    welcome_setup,
 };
 
 /// Returns the settings a section shows, top to bottom.
@@ -237,12 +324,11 @@ enum class Setting : uint8_t {
 
 /// No control: what Dialog::hovered, pressed and focused hold when they name none.
 inline constexpr int32_t no_control = -1;
-/// The Switch Mod question's SWITCH button, or the Roll Back Mod question's
-/// ROLL BACK, while the question shows (Dialog::switch_question). The question's buttons count down from
-/// no_control, where no section, row or button of the dialog takes a number.
-inline constexpr int32_t question_yes_control = no_control - 1;
-/// The question's CANCEL button, while the question shows.
-inline constexpr int32_t question_no_control = no_control - 2;
+/// The header's close mark. It asks for the same close as Cancel: the
+/// dialog puts back what it opened with, including a change not kept with OK.
+/// An open drop-down's items take the numbers just under no_control, so the
+/// mark keeps a number clear of that run and of the registered list.
+inline constexpr int32_t close_x_control = -9000;
 /// The first section's entry in the list; each section's entry is its
 /// place among its kind of dialog's sections with Touch and Controller
 /// (page_control), whether or not the dialog lists them.
@@ -260,9 +346,9 @@ inline constexpr int32_t scroll_bar_control = ok_control + 1;
 /// The open section's first row's control; the next rows' follow it, one
 /// for each row the section has.
 inline constexpr int32_t first_row_control = scroll_bar_control + 1;
-/// Developer's rows, over its list: Enable Developer Mode, then Show
-/// performance statistics.
-inline constexpr int32_t developer_row_count = 2;
+/// Developer's rows, over its list: Enable Developer Mode, Show
+/// performance statistics, then UI kit gallery.
+inline constexpr int32_t developer_row_count = 3;
 /// Developer's Enable Developer Mode switch, its first row's control.
 inline constexpr int32_t developer_mode_control = first_row_control;
 /// Developer's Show Active Only switch, under its list.
@@ -281,42 +367,45 @@ static_assert(
 );
 static_assert(
     static_cast<std::size_t>(Page::developer) < most_listed_pages &&
-        static_cast<std::size_t>(Page::mod_chat) + 1 == page_count,
-    "every section of the engine's settings has an entry's number, and every section a scroll"
+        static_cast<std::size_t>(Page::registered) + 1 == page_count,
+    "every engine section has an entry's number, and every section a scroll"
 );
+
+/// The first registered page's entry. Each next page's counts down from it,
+/// under an open list's items.
+inline constexpr int32_t first_registered_nav_control = -10000;
+
+/// Returns a registered page's entry's control.
+///
+/// @param index the page's place in the pages set_registered_pages gave, from 0
+/// @return its control's number
+[[nodiscard]] constexpr int32_t registered_nav_control(std::size_t index) noexcept {
+    return first_registered_nav_control - static_cast<int32_t>(index);
+}
 
 /// Returns the control of a section's entry in the list: its place among
 /// its kind of dialog's sections, each section counted whether or not it is
-/// listed, so that Touch is 5, Controller 6, Developer 7 and Game files 8
-/// in every dialog of the engine's settings, and a dialog without Touch has
-/// no control 5, one without Controller no control 6.
+/// listed, so that Touch is 5, Controller 6, Developer 7, Game files 8,
+/// Downloads 9, System 10 and Game Content 11 in every dialog of the engine's settings, and a dialog
+/// without Touch has no control 5, one without Controller no control 6.
+/// The registered page has no entry of this form; its entries are
+/// registered_nav_control.
 ///
 /// @param page the section
-/// @return its control's number
+/// @return its control's number, or no_control for the registered page
 [[nodiscard]] constexpr int32_t page_control(Page page) noexcept {
+    if (page == Page::registered)
+        return no_control;
     const auto index = static_cast<int32_t>(page);
     const auto first_mod = static_cast<int32_t>(Page::mod_keys);
     return first_page_control + (index >= first_mod ? index - first_mod : index);
 }
 
-/// The keys the dialog answers to; a host gives the platform's keys these meanings.
-enum class DialogKey : uint8_t {
-    enter,     ///< OK
-    escape,    ///< Cancel
-    up,        ///< the focus to the control above
-    down,      ///< the focus to the control below
-    left,      ///< the focused control one step down: Off, a lower value
-    right,     ///< the focused control one step up: On, a higher value
-    space,     ///< presses the focused button or flips the focused switch
-    tab,       ///< the focus to the next control
-    back_tab,  ///< the focus to the previous control
-    page_up,   ///< scrolls the open section up by most of its view
-    page_down, ///< scrolls the open section down by most of its view
-    home,      ///< scrolls the open section to its top
-    end,       ///< scrolls the open section to its end
-    yes,       ///< Y: answers the Switch Mod question SWITCH; nothing while it does not show
-    no,        ///< N: answers the Switch Mod question CANCEL; nothing while it does not show
-};
+/// The keys the dialog answers to: the kit's keys, which a host gives the
+/// platform's keys the meanings of. dialog_key says what each does in the
+/// dialog; Backspace and Delete, which edit a kit screen's text, do nothing
+/// here, nor in the dialog's drop-down lists, notices and prompts.
+using DialogKey = oa::ui::kit::Key;
 
 /// The buttons of the Your files row, left to right: each opens a folder of
 /// the player's own folder.
@@ -436,19 +525,56 @@ enum class DialogAction : uint8_t {
     /// MANAGE… was pressed: the host opens the Game files screen and keeps
     /// the dialog open
     manage_game_files,
-    /// SWITCH on the Switch Mod question: keep Dialog::chosen in effect,
-    /// its Mod setting now the mod chosen, save it, close the dialog, and
-    /// reload the game for that mod, back on the main menu
-    switch_mod,
-    /// A button of Your files, or Mods' OPEN MODS FOLDER: open the folder
-    /// Dialog::folder_to_open names in the system's file manager, making it
-    /// first when it is missing; the dialog stays open. A folder that cannot
-    /// be opened is told to the dialog with set_folder_notice.
+    /// A button of Your files: open the folder Dialog::folder_to_open names
+    /// in the system's file manager, making it first when it is missing; the
+    /// dialog stays open. A folder that cannot be opened is told to the
+    /// dialog with set_folder_notice.
     open_folder,
-    /// ROLL BACK on the Roll Back Mod question: swap the folder
-    /// Dialog::roll_back_folder names with the version its .backup keeps;
-    /// the dialog stays open, and a failure is told with set_folder_notice
-    roll_back_mod,
+    /// RESET on an install ID: the host makes a new ID for
+    /// Dialog::install_id_registry and the dialog stays open. Cancel does
+    /// not put the old ID back.
+    reset_install_id,
+    /// EMPTY on Downloaded files: the host removes downloaded files nothing
+    /// is using, and the dialog stays open. Cancel does not put them back.
+    empty_downloads,
+    /// An available language was chosen: download Dialog::download_request,
+    /// keep the dialog open, and apply the language when its pack arrives
+    download_language,
+    /// Kept so a host's switch over every action still compiles. The Library's
+    /// Registries tab asks for its own add, not this.
+    add_registry,
+    /// Kept so a host's switch over every action still compiles. The Library's
+    /// Registries tab asks for its own mirror, not this.
+    add_mirror,
+    /// MORE IN THE LIBRARY… was pressed: the host opens the Library on
+    /// Dialog::library_tab over the dialog, which stays open under it
+    open_library,
+    /// SHOW on Developer's UI kit gallery: the host opens the gallery over
+    /// the dialog, which stays open under it
+    show_gallery,
+    /// CHECK AGAIN on Game Content: the host checks the copy again and the
+    /// dialog stays open
+    check_content,
+    /// COPY AGAIN FROM… on Game Content: the host asks for a place and copies
+    /// from it, and the dialog stays open
+    copy_content_again,
+    /// OPEN FOLDER on Game Content: open the Games folder in the system's
+    /// file manager. The dialog stays open.
+    open_content_folder,
+    /// CANCEL on the bundle being copied: stop that copy. What was already
+    /// in the managed folders stays. The dialog stays open.
+    cancel_content_copy,
+};
+
+/// One of the Library's tabs, as the dialog asks the host to open it
+/// (DialogAction::open_library). It mirrors the Library's own tabs, so that
+/// the dialog needs nothing of the Library.
+enum class LibraryTab : uint8_t {
+    mods,       ///< Mods
+    maps,       ///< Maps
+    languages,  ///< Languages
+    updates,    ///< Updates
+    registries, ///< Registries
 };
 
 /// How the OA button looks.
@@ -472,10 +598,10 @@ struct SectionHooks {
     /// Returns a setting's lock, given the one Dialog::locks puts on it;
     /// null keeps that one.
     Lock (*lock)(void* context, Setting setting, Lock lock){};
-    /// Tells whether a setting's hint lines are its status: a locked switch
-    /// or strip whose hint lines are its status shows its lock where its
-    /// control was, and only its label line fades. Null leaves it as the
-    /// dialog has it.
+    /// Tells whether a setting's hint lines are its status: a locked row
+    /// whose hint lines are its status keeps its control, faded, and fades
+    /// only its label line and that control. Null leaves it as the dialog
+    /// has it.
     bool (*hint_is_status)(void* context, Setting setting){};
 };
 
@@ -515,50 +641,127 @@ struct HackArea {
 
 struct Dialog;
 
-/// What Mods shows of a mod folder besides its title: read from its
-/// oamod.yaml and the oamod.png beside it.
-struct ModDetails {
-    std::string version;     ///< shown at the row's top right; "N/A" without an oamod.yaml
-    std::string description; ///< the row's second line
-    /// The folder holds an oamod.yaml; without one its files layer over the
-    /// game folder's and the game plays by 3.1c's own rules.
-    bool has_profile{true};
-    uint32_t badge_width{};            ///< the badge's columns; 0 shows the blank placeholder
-    uint32_t badge_height{};           ///< the badge's rows
-    std::vector<uint8_t> badge_pixels; ///< RGBA, top row first
-    /// The version the folder holds now, as a roll back names it ("1.0", or
-    /// "1.0 revision 3" beside a kept version of the same version); empty
-    /// when the folder keeps no earlier version, and its row shows no ROLL
-    /// BACK.
-    std::string roll_back_from{};
-    /// The version its .backup keeps, named as roll_back_from is.
-    std::string roll_back_to{};
+/// One language pack a registry offers that is not installed. The host fills
+/// it; the Language page reads it and does not ask the content service or
+/// the fonts itself.
+struct AvailableLanguage {
+    std::string tag;          ///< the pack's tag, as the preference stores it
+    std::string endonym;      ///< its name in itself
+    std::string english_name; ///< its name in English, when the endonym cannot be drawn
+    std::string aside;        ///< the size and coverage shown at the row's right
+    /// The endonym is drawn; false shows english_name. True while the font
+    /// stack is not open, which the host decides.
+    bool endonym_drawable{true};
+    /// A press on the row chooses it. False greys the row: downloads are off.
+    bool choosable{true};
+
+    /// Where a download of this pack stands, from the download queue.
+    enum class State : uint8_t {
+        offered,     ///< listed, and not queued yet: the field shows the name only
+        waiting,     ///< queued, or asking, or paused
+        downloading, ///< bytes are arriving, or the pack is being checked
+        installing,  ///< the pack is being installed
+        failed,      ///< the download failed or was refused
+    };
+
+    State state{State::offered}; ///< where the download stands
+    uint8_t percent{};           ///< how much of a download has arrived, 0 to 100
+    std::string failure;         ///< why it failed; empty otherwise
 };
 
-/// What the question over Mods asks about its row.
-enum class ModQuestion : uint8_t {
-    switch_mod, ///< Switch Mod: SWITCH plays the row's mod
-    roll_back,  ///< Roll Back Mod: ROLL BACK swaps the row's folder and its .backup
-};
-
-/// One row of Mods, in the order Mods lists them: the mod played, then No
-/// Mod when it is not the one played, then every other mod by title.
-struct ModRow {
-    /// The mod folder's place among Dialog::mod_folders; no_mod_row for No Mod.
-    int32_t offered{};
-    bool playing{}; ///< the game plays it now
-};
-
-/// ModRow::offered for No Mod.
-inline constexpr int32_t no_mod_row = -1;
-/// Dialog::switch_question while no question shows.
-inline constexpr int32_t no_question = -2;
-
-/// Returns Mods' rows in the order it lists them.
+/// Returns a pack's size as the Language page shows it: under 1,000,000
+/// bytes, whole kB; under 100 MB, one decimal of MB; otherwise whole MB.
 ///
-/// @param dialog the dialog
-/// @return one row for No Mod and one for each offered mod folder
-[[nodiscard]] std::vector<ModRow> mod_rows(const Dialog& dialog);
+/// @param bytes the pack's size
+/// @return the size, such as "312 kB", "4.0 MB" or "188 MB"
+[[nodiscard]] std::string download_size_text(uint64_t bytes);
+
+/// Returns the aside of an available language.
+///
+/// A reviewed pack from "OA team" shows its size and the download mark.
+/// A reviewed pack from anyone else shows "community", its coverage when it
+/// has one, and its size. A pack that is not reviewed shows "not reviewed"
+/// in place of "community", whoever published it. Downloads off shows
+/// "downloads off" and nothing else.
+///
+/// @param reviewed a built-in registry reviewed the pack
+/// @param publisher who published it
+/// @param coverage the fraction of the game's text the pack has, from 0 to
+///     1; none when the pack gives no coverage
+/// @param bytes the pack's size
+/// @param downloads_on the registry can download
+/// @return the aside
+[[nodiscard]] std::string language_download_aside(
+    bool reviewed,
+    std::string_view publisher,
+    std::optional<double> coverage,
+    uint64_t bytes,
+    bool downloads_on
+);
+
+/// One bundle on Game Content. The host fills the words; the page shows them
+/// as they are, so a product name is not looked up again.
+struct GameContentRow {
+    std::string id;       ///< the bundle's id, a row word such as totala
+    std::string name;     ///< the name shown, as the table writes it
+    std::string size;     ///< the size, already as the page shows it
+    std::string check;    ///< the check, already in the language shown
+    bool warn{};          ///< the check names files that differ
+    bool copying{};       ///< this bundle is being copied; the row offers Cancel
+    bool checking{};      ///< a check is running; `check` is its progress
+    int32_t bar_done{-1}; ///< the bar's filled part; -1 draws no bar
+    int32_t bar_whole{1}; ///< the bar's whole
+};
+
+/// One registry's install ID, as Downloads shows it. The host fills this
+/// from the registries that use an install ID, built-in first, and never
+/// puts a whole ID here: id_text is the short form.
+struct InstallIdRow {
+    std::string registry_id;   ///< the registry's id, kebab-case
+    std::string registry_name; ///< the name a player sees
+    bool on{true};             ///< false only while the stored ID is off
+    std::string id_text;       ///< the short form, or empty when none is stored
+    bool made{};               ///< an ID is stored
+};
+
+/// What Downloads shows besides the check for content updates, which the
+/// host gives with set_downloads_offer. The switches the player moves live
+/// on the dialog, as its chosen settings do, and take effect at OK.
+struct DownloadsOffer {
+    std::vector<InstallIdRow> install_ids; ///< one row per registry that uses an install ID
+    uint64_t kept_bytes{};                 ///< downloaded files kept for resuming and repairs
+    bool downloads_busy{};                 ///< a download is queued, running or paused
+    /// True when this system reads an https registry address as http. The
+    /// check's hint then says so, once.
+    bool https_over_http{};
+};
+
+/// One install-ID switch, as the dialog keeps the player's choice.
+struct InstallIdChoice {
+    std::string registry_id; ///< the registry's id
+    bool on{true};           ///< the switch
+};
+
+/// One registered settings page the engine's dialog lists after its own
+/// sections, under a divider naming its owner. The rows stay the caller's.
+struct RegisteredPage {
+    std::string id;                           ///< the page's word in automation names
+    std::string title;                        ///< the section heading, as registered
+    std::string owner;                        ///< the divider's name, as registered
+    const oa::ui::kit::PreferenceRow* rows{}; ///< the page's rows; the caller keeps them
+    std::size_t row_count{};                  ///< how many rows
+    /// Called by the host once per key OK changed, after the preferences are written.
+    void (*applied)(void* state, const char* key, const char* value){};
+    void* state{}; ///< what applied is called with
+};
+
+/// One key OK changed on a registered page, and who the host tells once it is saved.
+struct RegisteredWrite {
+    std::string key;   ///< the preference key
+    std::string value; ///< the text to store; empty when the key is cleared
+    void (*applied)(void* state, const char* key, const char* value){}; ///< the page's applied
+    void* state{};                                                      ///< the page's state
+};
 
 /// One open dialog. A host reads opened, chosen, defaults, restored, page
 /// and forget_renderer_failures, sets acceleration, and reads and may keep
@@ -571,7 +774,7 @@ struct Dialog {
     Locks locks{};                     ///< what cannot be changed now
     AccelerationStatus acceleration{}; ///< Hardware acceleration's status
     std::string version;               ///< the header's version text
-    Page page{Page::mods};             ///< the section shown
+    Page page{Page::controls};         ///< the section shown
     bool restored{};                   ///< Restore defaults was pressed
     /// The times the player asked, since the dialog opened, for the graphics
     /// card to be tried afresh: each press of Restore defaults, and each
@@ -621,33 +824,6 @@ struct Dialog {
     /// as "Custom"; empty when there is none. The game sets it with the
     /// stops.
     std::optional<ScreenSize> custom_screen_size;
-    /// The names of the offered mod folders, in the order of Inputs::mod_folders.
-    std::vector<std::string> mod_names;
-    /// The offered mod folders' paths, in the same order (Inputs::mod_folders).
-    std::vector<std::string> mod_folders;
-    /// What Mods shows of each offered mod folder, in the same order; a
-    /// folder without one shows its name alone.
-    std::vector<ModDetails> mod_details;
-    /// The mod folder the game plays now, as an absolute UTF-8 path; empty
-    /// for none. Mods lists it first, marked PLAYING.
-    std::string playing_mod_folder;
-    /// The mod the question over Mods asks about (mod_question), as
-    /// ModRow::offered names it (no_mod_row for No Mod): the one the Switch
-    /// Mod question offers to switch to, or the one the Roll Back Mod
-    /// question offers to roll back; no_question while no question shows.
-    /// The question lies over the dialog and takes every pointer event and
-    /// key. A row of Mods whose ModDetails::roll_back_from is set shows a
-    /// ROLL BACK button, whose control is OPEN MODS FOLDER's and one more
-    /// for each row before it and itself.
-    int32_t switch_question{no_question};
-    /// The question's button the keys mark, which Enter and Space press:
-    /// CANCEL when set, else SWITCH or ROLL BACK.
-    bool question_marks_no{};
-    /// What the question asks about the row switch_question names.
-    ModQuestion mod_question{ModQuestion::switch_mod};
-    /// The folder the last DialogAction::roll_back_mod asks to roll back, as
-    /// an absolute UTF-8 path, the row's in mod_folders.
-    std::string roll_back_folder;
     /// The player's own folder, as an absolute UTF-8 path, which the Your
     /// files row shows; the host sets it once the dialog has opened. Empty
     /// shows no path.
@@ -686,6 +862,17 @@ struct Dialog {
     /// open_dialog where the platform brings game files in and the dialog is
     /// the main menu's.
     bool game_files{};
+    /// System lists a switch for each file type. Off, it shows the text row
+    /// instead. The default is this system's own capability
+    /// (file_types_switchable). open_dialog starts from that; a test may set
+    /// it afterwards to draw the other layout. OK reads the settings either
+    /// way.
+    bool file_type_switches{file_types_switchable};
+    /// File Type Registration's hint when macOS kept this copy as the opener
+    /// of a type OK asked it to hand back. Empty shows the usual hint. The
+    /// host sets it for this run, and clears it when every switch matches
+    /// what was asked.
+    std::string file_type_kept_hint{};
     /// The Game files section's summary: "3.1c · Core Contingency · Battle Tactics · music · 1 mod".
     std::string game_files_summary{};
     /// Its sizes line: what the game files use and what is free on the device.
@@ -704,6 +891,19 @@ struct Dialog {
     /// Unicode Multiplayer Chat shows On, locked. A host sets it as the
     /// dialog opens.
     std::vector<std::string> unicode_chat_languages{};
+    /// Language packs the enabled registries offer that are not installed,
+    /// in the order the page lists them under AVAILABLE TO DOWNLOAD. Empty
+    /// draws the page as it did with nothing to download. The host fills it
+    /// as the dialog opens and as the catalogue or a download moves.
+    std::vector<AvailableLanguage> available_languages{};
+    /// The tag DialogAction::download_language asks the host to download.
+    std::string download_request;
+    /// Language lists MORE IN THE LIBRARY… under its row: a host sets it as
+    /// the engine's settings open on the main menu, where the Library can
+    /// open over them; never in a match, and never for Language alone.
+    bool library_link{};
+    /// The tab DialogAction::open_library asks the host to open the Library on.
+    LibraryTab library_tab{LibraryTab::mods};
     /// The row whose drop-down list is open: its control; no_control while
     /// no list is open. An open list takes every pointer event and key.
     int32_t open_list{no_control};
@@ -714,6 +914,45 @@ struct Dialog {
     /// The open list's first item shown, while it holds more items than it
     /// shows.
     int32_t list_first{};
+    /// What Downloads shows, which the host sets with set_downloads_offer
+    /// after the dialog has opened. open_dialog clears it.
+    DownloadsOffer downloads{};
+    /// Each install-ID switch as the player has it, in downloads.install_ids'
+    /// order. A switch takes effect at OK.
+    std::vector<InstallIdChoice> install_id_chosen{};
+    /// Those switches as the dialog opened, which Cancel puts back.
+    std::vector<InstallIdChoice> install_id_opened{};
+    /// The registry the last RESET names.
+    std::string install_id_registry{};
+    /// The size class it is laid out at: its size, padding, section list and
+    /// content column are the class's (oa::ui::kit::metrics_of), and a larger
+    /// class shows more rows, each at its Compact size. A host sets it from
+    /// the room it has; the scroll offsets are held to the class's limits
+    /// wherever they are used.
+    oa::ui::kit::SizeClass size_class{oa::ui::kit::SizeClass::compact};
+    /// Registered pages listed after the engine's sections. Empty leaves the
+    /// list as the engine's own, Developer pinned at its foot.
+    std::vector<RegisteredPage> registered_pages;
+    /// Which registered page is open while page is Page::registered.
+    std::size_t registered_page{};
+    /// The preference values the registered rows show.
+    oa::ui::kit::PreferenceModel registered_values{};
+    /// Those values as the pages were given. Cancel puts them back, and OK
+    /// writes a key whose text differs.
+    oa::ui::kit::PreferenceModel registered_opened{};
+    /// The section list's scroll, in source pixels, while registered pages
+    /// make the list taller than its room.
+    int32_t nav_scroll{};
+    /// The part of a source pixel the wheel has turned over the section list
+    /// and not yet scrolled.
+    float nav_wheel_rows{};
+    /// SHOW AGAIN was pressed. OK forgets that the welcome setup is done, so
+    /// it shows at the next main menu. Cancel leaves the preference.
+    bool welcome_again{};
+    /// Each bundle Game Content lists, in the table's order. The host fills
+    /// it as the dialog opens and when CHECK AGAIN returns. Empty still shows
+    /// the sentence and the three buttons.
+    std::vector<GameContentRow> game_content;
 };
 
 /// Returns every standard hack as Developer Mode shows it: as the profile
@@ -732,10 +971,7 @@ struct Dialog {
 [[nodiscard]] std::size_t active_hack_count(const Dialog& dialog);
 
 /// The font a text of the dialog is drawn in.
-enum class DialogFont : uint8_t {
-    regular, ///< DialogFonts::regular
-    small,   ///< DialogFonts::small
-};
+using DialogFont = oa::ui::kit::FontRole;
 
 /// One part of the dialog as it is drawn now: a text or a control, and the
 /// rectangle it keeps to.
@@ -748,7 +984,7 @@ struct LayoutPart {
 };
 
 /// The fonts the dialog and the OA button draw their texts in.
-struct DialogFonts;
+using DialogFonts = oa::ui::kit::Fonts;
 
 /// Returns the parts the dialog draws now: the header's texts, the list's
 /// entries, the open section's heading, labels, hints, locks, controls and
@@ -765,16 +1001,6 @@ struct DialogFonts;
 /// @return the parts
 [[nodiscard]] std::vector<LayoutPart>
 dialog_layout(const Dialog& dialog, const DialogFonts* fonts = nullptr);
-
-/// The fonts the dialog and the OA button draw their texts in.
-struct DialogFonts {
-    oa::ui::frontend_renderer::TextFont regular; ///< labels, values and buttons
-    oa::ui::frontend_renderer::TextFont small;   ///< the section heading, the hints and the version
-    /// The characters each font draws, for UTF-8 texts such as a language's
-    /// name in itself; the modern fonts draw the others.
-    oa::present::FontCharacters regular_characters{};
-    oa::present::FontCharacters small_characters{}; ///< the small font's
-};
 
 /// Returns a UTF-8 text's width as the dialog draws it: the characters a
 /// font draws at its glyphs' widths, and the others in the modern fonts.
@@ -798,18 +1024,25 @@ dialog_text_width(const DialogFonts& fonts, DialogFont font, std::string_view te
 /// @return the fonts
 [[nodiscard]] DialogFonts load_dialog_fonts(oa::AssetStore& assets);
 
-/// What Mods lists besides No Mod.
-struct ModOffer {
-    /// The offered mod folders' titles, as Mods shows them.
-    std::span<const std::string> names{};
-    /// Their paths, in the same order, as Inputs::mod_folders holds them.
-    std::span<const std::string> folders{};
-    /// What Mods shows of each, in the same order; missing ones show the
-    /// title alone.
-    std::span<const ModDetails> details{};
-    /// The mod folder the game plays now; empty for none.
-    std::string_view playing{};
-};
+/// Gives the engine's dialog the registered pages to list, and the preference
+/// values their rows read. A dialog that is not the engine's settings keeps
+/// none. The rows stay the caller's for as long as the dialog shows them.
+///
+/// @param[in,out] dialog the dialog
+/// @param pages the pages, in the order the list shows them
+/// @param values the stored preferences the rows read and OK writes back
+void set_registered_pages(
+    Dialog& dialog,
+    std::span<const RegisteredPage> pages,
+    const oa::platform::preferences::Values& values
+);
+
+/// Returns the registered keys whose stored text differs from the values the
+/// dialog was given. A key missing from either side compares as empty.
+///
+/// @param dialog the dialog
+/// @return one write for each changed key, in page order then row order
+[[nodiscard]] std::vector<RegisteredWrite> registered_writes(const Dialog& dialog);
 
 /// Opens the dialog over settings in effect.
 ///
@@ -822,7 +1055,6 @@ struct ModOffer {
 /// @param acceleration Hardware acceleration's status
 /// @param highest_offered_unit the unit limit slider's highest stop, in units
 ///     per player (highest_offered_unit_limit)
-/// @param mods the mods Mods lists besides No Mod
 /// @param profile_hacks every standard hack as the profile the game plays
 ///     resolves it, in the registry's order (DeveloperList::profile); empty
 ///     gives every one off, as 3.1c plays it
@@ -846,13 +1078,22 @@ void open_dialog(
     Page page,
     const AccelerationStatus& acceleration = {},
     uint16_t highest_offered_unit = highest_unit_limit,
-    const ModOffer& mods = {},
     std::span<const oa::data::mod_profile::HackState> profile_hacks = {},
     const oa::data::languages::Language* system_language = nullptr,
     bool touch = false,
     bool game_files = false,
     bool controller = false
 );
+
+/// Gives Downloads what it shows. The first call, and any call whose
+/// registries are not the same ids in the same order, copies each row's
+/// switch into the dialog's chosen and opened switches. A later call with
+/// the same registries refreshes the IDs, the sizes and whether downloads
+/// are busy, and leaves the switches as the player has them.
+///
+/// @param[in,out] dialog the dialog
+/// @param offer what Downloads shows
+void set_downloads_offer(Dialog& dialog, const DownloadsOffer& offer);
 
 /// Opens the dialog over a mod's options (ui.options-dialog): its sections
 /// list the mod options alone, and only EngineSettings::mod_options change.
@@ -898,8 +1139,7 @@ void open_language_text_dialog(
 
 /// Tells the dialog why the folder its last DialogAction::open_folder asked
 /// for could not be opened, or that it was; the Your files row's second hint
-/// line, or the line under Mods' list, shows the reason in amber until
-/// another folder opens.
+/// line shows the reason in amber until another folder opens.
 ///
 /// @param[in,out] dialog the dialog
 /// @param reason why it could not be opened, in a few words; empty when it
@@ -923,7 +1163,7 @@ void open_language_text_dialog(
 
 /// The width dialog_layout counts each character of the player's own
 /// folder's path at without the fonts, in source pixels.
-inline constexpr int32_t estimated_character_width = 7;
+inline constexpr int32_t estimated_character_width = oa::ui::kit::estimated_character_width;
 
 /// Gives the dialog Hardware acceleration's status as it is now; a host
 /// calls it each frame while the dialog is open.
@@ -968,8 +1208,7 @@ set_controller_section(Dialog& dialog, bool controller, bool steam_input) noexce
 /// follows its row only, wherever the pointer goes, and the open section
 /// scrolls with the thumb. Over an open drop-down list it marks the item
 /// under it. While a finger's press is held, the point is moved as the
-/// press was (dialog_finger_down). While a question shows, it hovers the
-/// question's buttons only.
+/// press was (dialog_finger_down).
 ///
 /// @param[in,out] dialog the dialog
 /// @param x the pointer's column, in source pixels from the dialog's left edge
@@ -985,9 +1224,7 @@ set_controller_section(Dialog& dialog, bool controller, bool steam_input) noexce
 /// thumb's middle jumps to the pointer, the section scrolls with it and the
 /// drag starts there. While a drop-down list is open, a press on one of its
 /// items holds the item, and a press anywhere else, its field included,
-/// closes the list and does nothing more. While a question shows, a press
-/// on one of its buttons holds the button, and a press anywhere else does
-/// nothing.
+/// closes the list and does nothing more.
 ///
 /// @param[in,out] dialog the dialog
 /// @param x the pointer's column, in source pixels from the dialog's left edge
@@ -998,8 +1235,7 @@ set_controller_section(Dialog& dialog, bool controller, bool steam_input) noexce
 /// Presses with a finger: as dialog_pointer_down, but a press with no
 /// control under it takes the nearest control whose pressable part lies
 /// within `reach` of it, pressed at that part's point nearest the finger;
-/// while a drop-down list is open, the nearest of its items, and while the
-/// Switch Mod question shows, the nearer of its buttons. The press's
+/// while a drop-down list is open, the nearest of its items. The press's
 /// moves and its release are then moved as far as the press was
 /// (Dialog::finger_shift_x and finger_shift_y), so that a release where the
 /// finger landed acts on the control it took. With nothing within reach it
@@ -1017,8 +1253,7 @@ set_controller_section(Dialog& dialog, bool controller, bool steam_input) noexce
 /// acts on it; over a drop-down's field, it opens the field's list, marking
 /// the item chosen. A release over the list item the press held chooses the
 /// item and closes the list. A finger's release is moved as its press was
-/// (dialog_finger_down). A release over the question's button the press
-/// held answers the question.
+/// (dialog_finger_down).
 ///
 /// @param[in,out] dialog the dialog
 /// @param x the pointer's column, in source pixels from the dialog's left edge
@@ -1027,6 +1262,24 @@ set_controller_section(Dialog& dialog, bool controller, bool steam_input) noexce
 [[nodiscard]] DialogAction dialog_pointer_up(Dialog& dialog, int32_t x, int32_t y);
 
 /// Takes a key.
+///
+/// Enter is OK and Escape Cancel, whatever has the focus. Tab and Shift+Tab
+/// move the focus to the next and the previous control in the declared
+/// order, round from one end to the other: the open section's rows that
+/// take a change (on Developer, then its list's rows, Show Active Only and,
+/// while Developer Mode is on, Restore profile values), the footer's
+/// buttons, then the sections' entries. Up and Down move the focus to the
+/// control above or below, by where the controls lie
+/// (oa::ui::kit::focus_toward): the open section's rows and Developer's
+/// list are each searched first from within, rows they do not show
+/// included. Left and
+/// Right step a focused control that takes steps: a switch, a strip, a
+/// slider or a drop-down, Your files' mark, a row of Developer's list, Show
+/// Active Only. From any other control they move the focus to the control
+/// on that side, as Up and Down do. A row's control lies across its row
+/// for the arrows. An arrow that finds no control that way leaves the focus
+/// where it is. From no focus, Up shows the focus on the last control in
+/// the declared order; Down, Left, Right, Tab and Space on the first.
 ///
 /// Page Up, Page Down, Home and End scroll the open section whatever has
 /// the focus, and never move or show it. A key that moves the focus onto a
@@ -1038,11 +1291,7 @@ set_controller_section(Dialog& dialog, bool controller, bool steam_input) noexce
 /// marked item and close the list; Escape closes it unchanged; Tab and
 /// Shift+Tab close it and move the focus. In Developer Mode's list, Space
 /// opens or closes an area or a hack, and Left and Right close and open an
-/// area or turn a hack off and on. While a question shows, the keys answer
-/// it: Y, or Enter or Space while SWITCH is marked, answers SWITCH; N,
-/// Escape, or Enter or Space while CANCEL is marked, answers CANCEL; Left,
-/// Right, Tab and Shift+Tab move the mark. Y and N do nothing else. On
-/// Mods, Space on a row other than the one played asks the question.
+/// area or turn a hack off and on. Y and N do nothing.
 ///
 /// @param[in,out] dialog the dialog
 /// @param key the key's meaning
@@ -1056,7 +1305,7 @@ set_controller_section(Dialog& dialog, bool controller, bool steam_input) noexce
 /// another section shows. A turn outside the dialog, or while a press is
 /// held, does nothing. While a drop-down list is open, a turn over it
 /// scrolls a list that holds more items than it shows, an item a notch,
-/// and the section stays. While a question shows, a turn does nothing.
+/// and the section stays.
 ///
 /// @param[in,out] dialog the dialog
 /// @param x the pointer's column, in source pixels from the dialog's left edge
@@ -1067,16 +1316,33 @@ set_controller_section(Dialog& dialog, bool controller, bool steam_input) noexce
 ///     section scrolled, else DialogAction::none
 [[nodiscard]] DialogAction dialog_wheel(Dialog& dialog, int32_t x, int32_t y, float notches);
 
-/// Tells whether a point lies on the dialog.
+/// Tells whether a point lies on the dialog at Compact.
 ///
 /// @param x the point's column, in source pixels from the dialog's left edge
 /// @param y the point's row, in source pixels from the dialog's top edge
 /// @return true inside its dialog_width by dialog_height
 [[nodiscard]] bool dialog_contains(int32_t x, int32_t y) noexcept;
 
-/// Draws the dialog. Its header shows the Open Annihilation icon, scaled
-/// to 20 by 20 source pixels at the surface's own resolution; without the
-/// icon it shows the OA mark, green letters in a green outlined square.
+/// Returns the most the open section scrolls at the dialog's size class, or
+/// on Developer its list: the rows' height less their view's. A
+/// larger class shows more of the same rows, and scrolls less.
+///
+/// @param dialog the dialog
+/// @return the greatest offset, in points; 0 when the rows fit their view
+[[nodiscard]] int32_t scroll_limit(const Dialog& dialog);
+
+/// Tells whether a point lies on the dialog at its size class.
+///
+/// @param dialog the dialog
+/// @param x the point's column, in points from the dialog's left edge
+/// @param y the point's row, in points from the dialog's top edge
+/// @return true inside its class's width and height
+[[nodiscard]] bool dialog_contains(const Dialog& dialog, int32_t x, int32_t y) noexcept;
+
+/// Draws the dialog at its size class (Dialog::size_class), at the
+/// placement's whole scale. Its header shows the Open Annihilation icon,
+/// scaled to 20 by 20 source pixels at the surface's own resolution; without
+/// the icon it shows the OA mark, green letters in a green outlined square.
 ///
 /// @param[in,out] target the surface
 /// @param placement where the dialog's top left corner lands, and its scale
@@ -1090,6 +1356,50 @@ void draw_dialog(
     const DialogFonts& fonts,
     const oa::ui::frontend_renderer::RgbaPicture& icon
 );
+
+/// Draws the dialog at its size class on a canvas of either form: its
+/// display list (geometry::dialog_list), laid out in the canvas's game
+/// fonts, painted with kit::paint. The crisp form draws what draw_dialog
+/// draws; the smooth form draws the same parts at its own scale.
+///
+/// @param canvas where the dialog's top left corner lands, its fonts and its
+///     icon; without game fonts nothing is drawn
+/// @param dialog the dialog
+void draw_dialog(const oa::ui::kit::Canvas& canvas, const Dialog& dialog);
+
+namespace geometry {
+
+/// Returns what the dialog draws, in the order it draws it, and its
+/// controls, in the order a press tries them, each named for automation:
+/// the window's face, the header, the section list, the open section's
+/// heading and rows (the kit's rows, or Developer's rows, list and
+/// footer), the footer band and buttons, the edge and an open drop-down
+/// list. Tab follows the declared order: the open section's rows that take
+/// a change (on Developer, then its list's rows, Show Active Only and,
+/// while Developer Mode is on, Restore profile values), the footer's
+/// buttons, then the sections' entries. A row's control lies across the
+/// section at its control's line, so that the arrows keep to the column of
+/// rows, and a press reaches the control itself where the view shows it.
+/// The controls that take Left and Right as steps say so; the open
+/// section's rows and Developer's list each have a scroll group, and the
+/// entries and the footer none.
+///
+/// The controls are named for automation, which lists them after oa.
+/// (docs/automation.md): settings.nav.<section>, settings.<row> and its
+/// parts, settings.<row>.<item> while a drop-down is open,
+/// settings.hack-area.<area>, settings.hack.<hack> and its parameters,
+/// settings.active-only, settings.restore-profile-values,
+/// settings.restore-defaults, settings.cancel, settings.ok and
+/// settings.scroll-bar. Each word is one
+/// of the code's, never a text as shown.
+///
+/// @param dialog the dialog
+/// @param fonts the fonts it is drawn in; null measures texts at
+///     estimated_character_width a character
+/// @return the display list
+[[nodiscard]] oa::ui::kit::DisplayList dialog_list(const Dialog& dialog, const DialogFonts* fonts);
+
+} // namespace geometry
 
 /// Draws the OA button: a small bevelled square showing the Open
 /// Annihilation icon, scaled to the button's side less 3 source pixels all
@@ -1130,5 +1440,14 @@ void draw_oa_mark(
     int32_t side,
     const oa::ui::frontend_renderer::RgbaPicture& icon
 );
+
+/// The sentence File Type Registration shows when macOS kept this copy as the
+/// opener of each extension in `dotted` (each with its dot, in switch order).
+/// One type names that type twice. Several name each type, then say to select
+/// one of them. Empty when `dotted` is empty.
+///
+/// @param dotted the extensions that stayed, each with its dot
+/// @return the sentence, in the language shown
+[[nodiscard]] std::string kept_opener_hint(std::span<const std::string_view> dotted);
 
 } // namespace oa::ui::engine_settings

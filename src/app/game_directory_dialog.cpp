@@ -10,6 +10,8 @@
 #include "oa/app/game_directory.hpp"
 #include "oa/app/game_files_hooks.hpp"
 #include "oa/app/platform_hooks.hpp"
+#include "oa/app/user_folder.hpp"
+#include "oa/data/languages/interface_text.hpp"
 #include "oa/platform/game_installs.hpp"
 #include "oa/platform/machine.hpp"
 #include <SDL3/SDL.h>
@@ -31,7 +33,6 @@ namespace {
 constexpr bool kNativeFolderDialog = OA_NATIVE_FOLDER_DIALOG != 0;
 constexpr const char* kMessageTitle = "Open Annihilation";
 #if OA_NATIVE_FOLDER_DIALOG
-constexpr const char* kDialogTitle = "Choose your Total Annihilation folder";
 constexpr Uint32 kDialogPollMs = 50;
 #endif
 
@@ -122,9 +123,13 @@ FolderPick pick_folder(void* context, const fs::path& start, fs::path* chosen, s
         return FolderPick::unavailable;
     }
     // A property SDL cannot store leaves the dialog with SDL's own title,
-    // starting folder or choice of one folder; it still opens.
+    // starting folder or choice of one folder; it still opens. The title
+    // says which folder qualifies. SDL copies it during Show.
+    const std::string title = std::string(
+        oa::data::languages::interface_text("Choose the folder that holds totala1.hpi.")
+    );
     std::ignore =
-        SDL_SetStringProperty(properties, SDL_PROP_FILE_DIALOG_TITLE_STRING, kDialogTitle);
+        SDL_SetStringProperty(properties, SDL_PROP_FILE_DIALOG_TITLE_STRING, title.c_str());
     const auto location = dialog_location(start);
     if (!location.empty()) {
         std::ignore = SDL_SetStringProperty(
@@ -207,6 +212,9 @@ struct NativeHost {
     // Empty when none is known; `data_folder_problem` then says why.
     fs::path data_folder;
     std::string data_folder_problem;
+    /// The player's folder, where the demo is unpacked as a base game.
+    /// Empty when it could not be resolved; the data folder is used then.
+    fs::path user_folder;
     // The mod folder and profile each candidate folder is inspected with.
     ModChoice mod;
     /// The preferences the stored folder and the mod come from; the mod choice points here.
@@ -245,7 +253,8 @@ bool ask_native_user(void* context, Notice kind, std::string_view text, std::str
 
 GameInstall inspect(void* context, const fs::path& folder) {
     const auto& host = *static_cast<NativeHost*>(context);
-    auto install = inspect_game_install(folder, host.data_folder, demo_1997, host.mod);
+    const fs::path& demo_root = host.user_folder.empty() ? host.data_folder : host.user_folder;
+    auto install = inspect_game_install(folder, demo_root, demo_1997, host.mod);
     if (install.demo.outcome == DemoOutcome::unpack_failed && host.data_folder.empty())
         install.demo.problem += " (" + host.data_folder_problem + ")";
     return install;
@@ -330,8 +339,8 @@ void prepare_native_host(
         !fs::is_directory(native.mod.folder, missing)) {
         const auto text = "The mod folder chosen earlier can no longer be found:\n\n" +
                           path_to_utf8(native.mod.folder) +
-                          "\n\nThe game starts without it; choose a mod again in the "
-                          "Open Annihilation settings.";
+                          "\n\nThe game starts without it; choose a mod again with "
+                          "PLAY NOW in the Library.";
         if (tell_gone_mod && unattended)
             std::cerr << "open-annihilation: " << text << '\n';
         else if (tell_gone_mod)
@@ -350,16 +359,36 @@ void prepare_native_host(
             native.data_folder_problem = error.what();
         }
     }
+    try {
+        std::string note;
+        native.user_folder = own_user_folder(
+            options.user_folder,
+            options.preferences_file,
+            preference_file(options.preferences_file),
+            native.values,
+            note
+        );
+    } catch (const std::exception&) {
+        native.user_folder.clear();
+    }
+    if (!native.data_folder.empty()) {
+        const fs::path player =
+            native.user_folder.empty() ? native.data_folder : native.user_folder;
+        // An earlier unpack in demo-1997 is copied once into Games/totala-demo.
+        std::ignore = adopt_legacy_demo(native.data_folder, player);
+    }
 }
 
 } // namespace
 
-std::optional<GameDirectory> find_game_directory(const Options& options, GameFilesNeeded* needed) {
+std::optional<GameDirectory>
+find_game_directory(const Options& options, GameFilesNeeded* needed, bool defer_dialog) {
     GameDirectoryRequest request;
     request.argument = options.game_dir;
     request.choose = options.choose_game_dir;
     request.archives_named = !options.archives.empty();
     request.unattended = unattended_run(options);
+    request.defer_dialog = defer_dialog;
     NativeHost native;
     prepare_native_host(options, request.unattended, true, native);
     if (request.argument.empty())
@@ -372,9 +401,24 @@ std::optional<GameDirectory> find_game_directory(const Options& options, GameFil
                              !options.no_game_files_screen &&
                              (!request.unattended || options.check_game_files);
     // A run someone watches that names no folder looks where Steam, Heroic,
-    // Lutris and Bottles put the game, and may show the in-engine chooser,
-    // before the system's dialog in Steam's Game Mode. Scripted runs resolve
-    // as they always have.
+    // Lutris and Bottles put the game, and shows the in-engine locator.
+    // chooser_first is Steam's Game Mode, where the locator does not offer
+    // the system's dialog. Scripted runs resolve as they always have.
+    // Choosing the demo when it is not copied asks for its installer: the
+    // locator where it can be shown, and the system's picker otherwise.
+    if (request.argument.empty() && !native.user_folder.empty()) {
+        const std::vector<std::string> recorded = copied_content_bundles(native.user_folder);
+        std::vector<std::string_view> copied;
+        copied.reserve(recorded.size());
+        for (const std::string& id : recorded)
+            copied.emplace_back(id);
+        const auto choice = content_choice_from_preferences(native.values, copied, options.content);
+        bool demo_copied = false;
+        for (const std::string& id : recorded)
+            demo_copied = demo_copied || id == "totala-demo";
+        if (choice.base_game == "totala-demo" && !demo_copied)
+            request.demo_only = true;
+    }
     if (!request.unattended && request.argument.empty()) {
         request.found = oa::platform::game_installs::find_candidates(
             oa::platform::game_installs::default_search_roots()

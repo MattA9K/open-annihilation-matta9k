@@ -426,11 +426,216 @@ void check_search(const fs::path& temporary) {
     OA_CHECK(installs::find_candidates(many).size() == installs::most_candidates);
 }
 
+/// Names that cannot hold the game are left unopened. A wrapper whose name ends in .app is
+/// still walked, so a game under its drive_c is found.
+///
+/// @param temporary a folder this check owns
+void check_skipped_folders(const fs::path& temporary) {
+    OA_CHECK(installs::folder_cannot_hold_game("Library"));
+    OA_CHECK(installs::folder_cannot_hold_game("LIBRARY"));
+    OA_CHECK(installs::folder_cannot_hold_game("node_modules"));
+    OA_CHECK(installs::folder_cannot_hold_game(".git"));
+    OA_CHECK(installs::folder_cannot_hold_game("Caches"));
+    OA_CHECK(installs::folder_cannot_hold_game("$RECYCLE.BIN"));
+    OA_CHECK(installs::folder_cannot_hold_game("System Volume Information"));
+    OA_CHECK(installs::folder_cannot_hold_game("__MACOSX"));
+    OA_CHECK(!installs::folder_cannot_hold_game("Game.app"));
+    OA_CHECK(!installs::folder_cannot_hold_game("Downloads"));
+    OA_CHECK(!installs::folder_cannot_hold_game("Documents"));
+    OA_CHECK(!installs::folder_cannot_hold_game("Desktop"));
+    OA_CHECK(!installs::folder_cannot_hold_game("Applications"));
+    OA_CHECK(!installs::folder_cannot_hold_game("drive_c"));
+    OA_CHECK(!installs::folder_cannot_hold_game("windows"));
+    OA_CHECK(!installs::folder_cannot_hold_game("Total Annihilation"));
+
+    const fs::path parent = temporary / "skipped-prefixes";
+    const fs::path hidden = parent / "hidden" / "drive_c" / "Library" / "Total Annihilation";
+    const fs::path wrapper = parent / "wrapper" / "drive_c" / "Game.app" / "Contents" /
+                             "Resources" / "Total Annihilation";
+    make_game_folder(hidden);
+    make_game_folder(wrapper);
+    installs::SearchRoots roots;
+    roots.prefix_parents = {parent};
+    const std::vector<installs::Candidate> found = installs::find_candidates(roots);
+    OA_CHECK(found.size() == 1);
+    if (!found.empty())
+        OA_CHECK(found[0].folder == canonical_of(wrapper));
+}
+
 } // namespace
+
+/// The locator's places, from facts, with empty paths left out. No disk is read.
+void check_locator_places() {
+    installs::LocatorFacts facts;
+    facts.home = "/home/play";
+    facts.desktop = "/home/play/Desktop";
+    facts.downloads = "/home/play/Downloads";
+    facts.applications = "/Applications";
+    facts.volumes = {"/", "/Volumes/TOTALA"};
+    facts.steam = "/home/play/.local/share/Steam/steamapps/compatdata/298030/pfx";
+    facts.heroic = "/home/play/Games/Heroic";
+    const std::vector<installs::LocatorPlace> places = installs::locator_places(facts);
+    OA_CHECK(places.size() == 8);
+    OA_CHECK(places[0].label == "Home" && places[0].group == installs::LocatorGroup::places);
+    OA_CHECK(places[1].label == "Desktop");
+    OA_CHECK(places[2].label == "Downloads");
+    OA_CHECK(places[3].label == "Applications");
+    OA_CHECK(places[4].label == "System" && places[4].group == installs::LocatorGroup::volumes);
+    OA_CHECK(places[5].label == "TOTALA" && places[5].group == installs::LocatorGroup::volumes);
+    OA_CHECK(
+        places[6].label == "Steam · Proton" && places[6].group == installs::LocatorGroup::deck_games
+    );
+    OA_CHECK(places[6].folder == facts.steam);
+    OA_CHECK(places[7].label == "Heroic" && places[7].group == installs::LocatorGroup::deck_games);
+    OA_CHECK(places[7].folder == facts.heroic);
+    OA_CHECK(installs::path_under_home("/home/play", "/home/play") == "~");
+    OA_CHECK(installs::path_under_home("/home/play", "/home/play/Games") == "~/Games");
+    OA_CHECK(
+        installs::path_under_home("/home/play", "/home/play/Games/Total Annihilation") ==
+        "~/Games/Total Annihilation"
+    );
+    OA_CHECK(installs::path_under_home("/home/play", "/Volumes/TOTALA") == "/Volumes/TOTALA");
+    OA_CHECK(installs::path_under_home({}, "/home/play/Games") == "/home/play/Games");
+
+    installs::LocatorFacts deck;
+    deck.deck = true;
+    deck.home = "/home/deck";
+    deck.sd_cards = {"/run/media/mmcblk0p1", "/run/media/extra"};
+    deck.volumes = {"/should-not-show"};
+    deck.lutris = "/home/deck/Games";
+    deck.bottles = "/home/deck/.local/share/bottles/bottles";
+    const std::vector<installs::LocatorPlace> on_deck = installs::locator_places(deck);
+    OA_CHECK(on_deck.size() == 5);
+    OA_CHECK(on_deck[0].label == "Home");
+    OA_CHECK(
+        on_deck[1].label == "microSD card mmcblk0p1" &&
+        on_deck[1].group == installs::LocatorGroup::places
+    );
+    OA_CHECK(on_deck[2].label == "microSD card extra");
+    OA_CHECK(
+        on_deck[3].label == "Lutris" && on_deck[3].group == installs::LocatorGroup::deck_games
+    );
+    OA_CHECK(on_deck[4].label == "Bottles");
+
+    installs::LocatorFacts windows;
+    windows.applications = "C:/Program Files";
+    windows.program_files = true;
+    const std::vector<installs::LocatorPlace> programs = installs::locator_places(windows);
+    OA_CHECK(programs.size() == 1 && programs[0].label == "Program Files");
+
+    OA_CHECK(installs::locator_places({}).empty());
+}
+
+/// A Downloads folder of loose game files and two installers lists the installers, and the
+/// fuller one is the place to preselect.
+///
+/// @param root a temporary folder
+void check_setup_sources(const fs::path& root) {
+    const fs::path downloads = root / "G58-setup" / "Downloads";
+    write_file(downloads / "totala1.hpi", "loose-3.1c");
+    write_file(downloads / "music.mp3", "loose-track");
+    write_file(downloads / "tileset.ufo", "loose-tiles");
+    write_file(downloads / "setup-full.exe", "fuller-installer");
+    write_file(downloads / "setup-thin.exe", "thinner-installer");
+    const auto named_installer = [](const fs::path& file, uint64_t, void*) {
+        const std::string name = file.filename().string();
+        return name == "setup-full.exe" || name == "setup-thin.exe";
+    };
+    const installs::SetupFolderOffer offer =
+        installs::offer_from_folder(downloads, named_installer, nullptr);
+    OA_CHECK(!offer.folder_offered);
+    OA_CHECK(offer.installers.size() == 2);
+
+    const auto no_installer = [](const fs::path&, uint64_t, void*) { return false; };
+    const fs::path copied = root / "G58-setup" / "Total Annihilation";
+    make_game_folder(copied);
+    const installs::SetupFolderOffer copied_offer =
+        installs::offer_from_folder(copied, no_installer, nullptr);
+    OA_CHECK(copied_offer.folder_offered);
+    OA_CHECK(copied_offer.installers.empty());
+
+    const fs::path desktop = root / "G58-setup" / "Desktop";
+    make_game_folder(desktop);
+    OA_CHECK(!installs::offer_from_folder(desktop, no_installer, nullptr).folder_offered);
+    const fs::path documents = root / "G58-setup" / "documents";
+    make_game_folder(documents);
+    OA_CHECK(!installs::offer_from_folder(documents, no_installer, nullptr).folder_offered);
+    const fs::path mixed = root / "G58-setup" / "Mixed";
+    make_game_folder(mixed);
+    write_file(mixed / "setup-full.exe", "inside");
+    const installs::SetupFolderOffer mixed_offer =
+        installs::offer_from_folder(mixed, named_installer, nullptr);
+    OA_CHECK(!mixed_offer.folder_offered);
+    OA_CHECK(mixed_offer.installers.size() == 1);
+
+    OA_CHECK(installs::drop_folder_name("Downloads"));
+    OA_CHECK(installs::drop_folder_name("downloads"));
+    OA_CHECK(installs::drop_folder_name("Desktop"));
+    OA_CHECK(installs::drop_folder_name("Documents"));
+    OA_CHECK(!installs::drop_folder_name("Total Annihilation"));
+    OA_CHECK(!installs::offer_as_installation("Downloads", true, false, false));
+    OA_CHECK(!installs::offer_as_installation("Games", true, true, false));
+    OA_CHECK(!installs::offer_as_installation("Games", false, false, false));
+    OA_CHECK(!installs::offer_as_installation("Games", true, false, true));
+    OA_CHECK(installs::offer_as_installation("Games", true, false, false));
+
+    // The loose folder holds more bundles than either installer. It is still not a row, and
+    // the fuller installer, given second, is the one to preselect.
+    installs::SetupSource loose;
+    loose.token = "downloads";
+    loose.place = installs::SetupPlace::loose;
+    loose.bundle_count = 8;
+    loose.base_rank = 2;
+    loose.expansion_count = 6;
+    installs::SetupSource thin;
+    thin.token = "setup-thin.exe";
+    thin.place = installs::SetupPlace::installer;
+    thin.bundle_count = 2;
+    thin.base_rank = 2;
+    thin.expansion_count = 1;
+    installs::SetupSource full;
+    full.token = "setup-full.exe";
+    full.place = installs::SetupPlace::installer;
+    full.bundle_count = 5;
+    full.base_rank = 2;
+    full.expansion_count = 4;
+    bool saw_full = false;
+    bool saw_thin = false;
+    for (const fs::path& installer : offer.installers) {
+        const std::string name = installer.filename().string();
+        if (name == "setup-full.exe")
+            saw_full = true;
+        if (name == "setup-thin.exe")
+            saw_thin = true;
+        OA_CHECK(name != "totala1.hpi");
+    }
+    OA_CHECK(saw_full && saw_thin);
+    installs::SetupSource demo;
+    demo.token = "demo";
+    demo.place = installs::SetupPlace::installer;
+    demo.bundle_count = 1;
+    demo.base_rank = 1;
+    demo.expansion_count = 0;
+    installs::SetupSource base;
+    base.token = "base";
+    base.place = installs::SetupPlace::installation;
+    base.bundle_count = 1;
+    base.base_rank = 2;
+    base.expansion_count = 0;
+    const std::vector<installs::SetupSource> ranked = installs::rank_setup_sources(
+        {std::move(loose), std::move(thin), std::move(full), std::move(demo), std::move(base)}
+    );
+    OA_CHECK(ranked.size() == 4);
+    OA_CHECK(ranked[0].token == "setup-full.exe");
+    OA_CHECK(ranked[1].token == "setup-thin.exe");
+    OA_CHECK(ranked[2].token == "base");
+    OA_CHECK(ranked[3].token == "demo");
+}
 
 /// Runs the checks.
 int main() {
     check_source_words();
+    check_locator_places();
     check_search_roots();
     check_library_folders();
     check_manifest();
@@ -441,6 +646,8 @@ int main() {
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     try {
         check_search(temporary);
+        check_skipped_folders(temporary);
+        check_setup_sources(temporary);
     } catch (const std::exception& error) {
         std::fprintf(stderr, "check failed: %s\n", error.what());
         ++oa::test::failed_checks();

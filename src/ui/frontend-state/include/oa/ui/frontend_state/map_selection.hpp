@@ -5,7 +5,10 @@
 
 #include "oa/ui/frontend_state/game_entry.hpp"
 #include <cstdint>
+#include <optional>
 #include <span>
+#include <string>
+#include <string_view>
 #include <vector>
 
 namespace oa::ui::frontend_state::map_selection {
@@ -13,6 +16,8 @@ using MenuHandle = game_entry::MenuHandle;
 inline constexpr uint32_t modal_flags = 0x880, menu_input_flags = 0x40, active_cursor_index = 19;
 inline constexpr std::size_t sort_entry_limit = 3000, sort_byte_limit = 96000;
 inline constexpr std::string_view no_maps_message = "There are no skirmish maps to choose from";
+/// Width of the message box that says why a map cannot be chosen, in pixels.
+inline constexpr int32_t refusal_message_width = 320;
 enum class Button { map_names, load, previous_menu };
 
 /// Returns the gadget name of a SELMAP.GUI button.
@@ -105,6 +110,15 @@ class Host {
     /// @param names Sorted map names.
     virtual void bind_map_names(std::span<const std::string> names) = 0;
 
+    /// Orders the names as the list shows them.
+    ///
+    /// The default orders by the name itself, as the game orders its own map
+    /// list. A host that shows a title orders by that title. A grey reason is
+    /// not part of the title, so a map that cannot be played keeps its place.
+    ///
+    /// @param[in,out] names the map names
+    virtual void order_map_names(std::vector<std::string>& names);
+
     /// Installs the MAPNAMES selection-change callback.
     virtual void install_map_selection_callback() = 0;
 
@@ -157,6 +171,20 @@ class Host {
     /// @return Nonzero when the map loads.
     virtual int32_t select_map(std::string_view name) = 0;
 
+    /// Returns why a map cannot be chosen, such as a pack map that does not
+    /// fit the game and the mod played.
+    ///
+    /// @param name Map name.
+    /// @return The reason, in words a player reads; nothing when the map may be chosen.
+    virtual std::optional<std::string> map_refusal(std::string_view name) = 0;
+
+    /// Shows a map that cannot be chosen in the preview: its title, its size
+    /// and players, and why, with no picture.
+    ///
+    /// @param name Map name.
+    /// @param reason Why it cannot be chosen, as map_refusal gave it.
+    virtual void show_refused_map(std::string_view name, std::string_view reason) = 0;
+
     /// Writes the chosen map name to the MapName gadget of the panel below.
     ///
     /// @param menu Menu of the event.
@@ -187,7 +215,7 @@ class Host {
     virtual std::string permitted_player_counts_text() = 0;
 
     /// Returns the selected map's description, in the language shown when
-    /// gamedata\translate.tdf has it in lower case.
+    /// gamedata\\translate.tdf has it in lower case.
     ///
     /// @return The description.
     virtual std::string map_description() = 0;
@@ -261,8 +289,10 @@ void sort_map_names(std::vector<std::string>& names);
 
 /// Opens the SELMAP.GUI map-selection modal.
 ///
-/// Loads the modal and background, binds the sorted map names, selects the
-/// saved map and previews it.
+/// Loads the modal and background, binds the map names in the order
+/// `Host::order_map_names` gives, selects the saved map and previews it.
+/// The game's own maps, installed pack maps and maps offered for download
+/// are one list. A map that cannot be played stays where its name sorts.
 ///
 /// @param[in,out] modal Modal state; becomes active.
 /// @param settings Skirmish settings supplying the saved map name.
@@ -280,6 +310,9 @@ void update_preview(Host& h);
 
 /// Previews the highlighted map without changing the saved map name.
 ///
+/// A map that does not load keeps the earlier preview, unless the host gives
+/// a reason it cannot be chosen: then the host shows the map and the reason.
+///
 /// @param modal Modal state holding the names.
 /// @param[in,out] h Routines the modal calls.
 /// @throws std::out_of_range when the selected row is outside the name list.
@@ -288,7 +321,9 @@ void preview_selection(const ModalState& modal, Host& h);
 /// Handles a map-selection modal event.
 ///
 /// Destroy releases the preview and names; MAPNAMES or LOAD commits the
-/// highlighted map to the saved map name and the MapName gadget below.
+/// highlighted map to the saved map name and the MapName gadget below. A map
+/// the host gives a reason against is not committed: a message box says why
+/// and the saved map stays.
 ///
 /// @param[in,out] modal Modal state.
 /// @param[in,out] settings Skirmish settings; map_name changes on commit.

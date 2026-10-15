@@ -18,22 +18,33 @@
 #include "oa/app/runtime.hpp"
 
 #include "oa/app/asset_files.hpp"
+#include "oa/app/content/downloads.hpp"
+#include "oa/app/content/service.hpp"
+#include "oa/app/content/settings.hpp"
+#include "oa/data/catalogue/catalogue.hpp"
 #include "oa/data/defs/layout.hpp"
+#include "oa/data/registry/descriptor.hpp"
 #include "oa/data/defs/locale.hpp"
 #include "oa/data/languages/translation.hpp"
 #include "oa/platform/locale.hpp"
+#include "oa/platform/text_font.hpp"
 #include "oa/ui/engine_settings.hpp"
 
 #include <SDL3/SDL.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <filesystem>
+#include <optional>
+#include <span>
+#include <tuple>
 #include <fstream>
 #include <iostream>
 #include <iterator>
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 namespace oa::app {
@@ -104,17 +115,91 @@ Runtime::LanguageState& Runtime::language_state() {
     return *language_;
 }
 
+namespace {
+
+/// Drops the spaces and tabs at both ends of a preference.
+///
+/// @param text the text
+/// @return the text inside them
+std::string_view trimmed_preference(std::string_view text) noexcept {
+    while (!text.empty() && (text.front() == ' ' || text.front() == '\t'))
+        text.remove_prefix(1);
+    while (!text.empty() && (text.back() == ' ' || text.back() == '\t' || text.back() == '\r' ||
+                             text.back() == '\n'))
+        text.remove_suffix(1);
+    return text;
+}
+
+/// Tells whether a preference names System default, without regard to case.
+///
+/// @param text the preference
+/// @return true for "system"
+bool names_system(std::string_view text) noexcept {
+    if (text.size() != languages::system_choice.size())
+        return false;
+    for (std::size_t index = 0; index < text.size(); ++index) {
+        char letter = text[index];
+        if (letter >= 'A' && letter <= 'Z')
+            letter = static_cast<char>(letter - 'A' + 'a');
+        if (letter != languages::system_choice[index])
+            return false;
+    }
+    return true;
+}
+
+} // namespace
+
+void Runtime::load_language_packs() {
+    auto& state = language_state();
+    // The packs first, and not their interface texts yet: the catalogue's
+    // own files come before any pack. A pack whose interface.tdf does not
+    // read is still left out.
+    state.engine_packs.clear();
+    state.player_packs.clear();
+    state.mod_packs.clear();
+    if (const char* base = SDL_GetBasePath(); base != nullptr)
+        read_language_packs(
+            path_from_utf8(base) / path_from_utf8(kCatalogueFolder), state.engine_packs, nullptr
+        );
+    if (!user_folder().empty())
+        read_language_packs(
+            user_folder() / path_from_utf8(player_languages_folder), state.player_packs, nullptr
+        );
+    if (plays_mod())
+        read_language_packs(
+            played_mod_folder() / path_from_utf8(languages::mod_languages_folder),
+            state.mod_packs,
+            nullptr
+        );
+    // A mod's packs add text and no language. The player's pack wins over
+    // the engine's when both hold one tag. A catalogue's pack stays
+    // available until one of those lists installs it.
+    register_available_languages();
+    state.system = &languages::preferred_language(oa::platform::locale::preferred_locales());
+    // The catalogue is built again from nothing, in the same order as the
+    // start: the files beside the game, then the engine's packs, the
+    // player's and the mod's.
+    state.catalogue = {};
+    read_interface_catalogue();
+    add_pack_interface_texts(state.engine_packs, state.catalogue);
+    add_pack_interface_texts(state.player_packs, state.catalogue);
+    add_pack_interface_texts(state.mod_packs, state.catalogue);
+}
+
 void Runtime::start_language() {
     auto& state = language_state();
-    state.system = &languages::preferred_language(oa::platform::locale::preferred_locales());
-    // The loaders read every known language's unit texts, and the command
-    // line's word when it names one no entry knows, as 3.1c reads it.
+    load_language_packs();
+    // The loaders read every live language's unit texts, one that is not
+    // installed included, and the command line's word when it names one no
+    // playable entry knows and the list does not already hold, as 3.1c
+    // reads it.
     state.sink_words.clear();
-    for (const languages::Language& language : languages::known_languages())
-        if (!language.game_name.empty())
-            state.sink_words.emplace_back(language.game_name);
+    for (const languages::Language* language : languages::known_languages())
+        if (!language->game_name.empty())
+            state.sink_words.emplace_back(language->game_name);
     const char* word = oa::app::command_line::launch_language(options_.launch);
-    if (word != nullptr && languages::find_by_game_name(word) == nullptr)
+    if (word != nullptr && languages::find_by_game_name(word) == nullptr &&
+        std::find(state.sink_words.begin(), state.sink_words.end(), word) == state.sink_words.end())
         state.sink_words.emplace_back(word);
     state.sink_word_pointers.clear();
     for (const std::string& sink_word : state.sink_words)
@@ -177,32 +262,382 @@ void Runtime::start_language() {
         return nullptr;
     };
     languages::set_translation_hooks(hooks);
-    read_interface_catalogue();
-    // The language packs: the engine's, then the player's, then the mod's,
-    // so that each one's words in the interface catalogue replace those
-    // before it.
-    if (const char* base = SDL_GetBasePath(); base != nullptr)
-        read_language_packs(
-            path_from_utf8(base) / path_from_utf8(kCatalogueFolder),
-            state.engine_packs,
-            &state.catalogue
-        );
-    if (!user_folder().empty())
-        read_language_packs(
-            user_folder() / path_from_utf8(player_languages_folder),
-            state.player_packs,
-            &state.catalogue
-        );
-    if (plays_mod())
-        read_language_packs(
-            played_mod_folder() / path_from_utf8(languages::mod_languages_folder),
-            state.mod_packs,
-            &state.catalogue
-        );
     state.choice = oa::ui::engine_settings::stored_language(
         preference_values_, !options_.preferences_file.has_value()
     );
     apply_language();
+}
+
+void Runtime::reload_language_packs() {
+    // Nothing may keep a pointer into the packs this replaces: the unit
+    // layers, the picture captions and the manifest a chat setting reads.
+    languages::set_unit_pack_layers({});
+    languages::set_interface_language(nullptr, languages::english());
+    auto& state = language_state();
+    state.layers.clear();
+    state.unicode_manifest = nullptr;
+    state.pictures.clear();
+    load_language_packs();
+    apply_language();
+    // A pack that arrived leaves the list of languages to download, and an
+    // open dialog shows it among the installed languages.
+    state.dialog_languages_filled = false;
+    if (auto* dialog = engine_settings_dialog())
+        std::ignore = refresh_settings_languages(*dialog);
+    // The raw setting, not the choice read at start: a tag the registry did
+    // not know then is still the player's choice. A command-line word decides
+    // the run and is left as it is.
+    if (oa::app::command_line::launch_language(options_.launch) == nullptr) {
+        const auto found =
+            preference_values_.find(std::string{oa::ui::engine_settings::key::language});
+        if (found != preference_values_.end()) {
+            const std::string_view raw = trimmed_preference(found->second);
+            if (!names_system(raw)) {
+                if (const languages::Language* language = languages::find_by_tag(raw);
+                    language != nullptr && languages::playable(*language) &&
+                    (state.shown == nullptr || state.shown->tag != language->tag))
+                    set_language_choice(language->tag);
+            }
+        }
+    }
+    const std::size_t installed =
+        state.engine_packs.size() + state.player_packs.size() + state.mod_packs.size();
+    std::cerr << "open-annihilation: language packs read again: " << installed << " installed\n";
+}
+
+namespace {
+
+namespace settings = oa::ui::engine_settings;
+namespace catalogue = oa::data::catalogue;
+
+/// Tells whether two language tags are the same tag.
+///
+/// ASCII letters match in either case, and '_' is '-'. The whole tag
+/// matches, so "pt" is not "pt-BR".
+///
+/// @param left a tag
+/// @param right a tag
+/// @return true when they are one tag
+bool same_language_tag(std::string_view left, std::string_view right) noexcept {
+    if (left.size() != right.size())
+        return false;
+    for (std::size_t index = 0; index < left.size(); ++index) {
+        char a = left[index];
+        char b = right[index];
+        if (a == '_')
+            a = '-';
+        if (b == '_')
+            b = '-';
+        if (a >= 'A' && a <= 'Z')
+            a = static_cast<char>(a - 'A' + 'a');
+        if (b >= 'A' && b <= 'Z')
+            b = static_cast<char>(b - 'A' + 'a');
+        if (a != b)
+            return false;
+    }
+    return true;
+}
+
+/// Tells whether the game can already show a language.
+///
+/// @param tag the tag
+/// @return true when a playable entry has it
+bool already_playable(std::string_view tag) noexcept {
+    const languages::Language* known = languages::find_by_tag(tag);
+    return known != nullptr && languages::playable(*known);
+}
+
+/// Returns how much of a download has arrived, from 0 to 100, rounded down.
+///
+/// @param done the bytes held
+/// @param size the pack's size
+/// @return the percent
+uint8_t download_percent(uint64_t done, uint64_t size) noexcept {
+    if (size == 0)
+        return 0;
+    if (done >= size)
+        return 100;
+    // A catalogue's size is at most 2^32, and done is below it, so this fits.
+    const uint64_t percent = done * 100 / size;
+    return static_cast<uint8_t>(std::min<uint64_t>(percent, 100));
+}
+
+/// Returns the field's state for one queued pack.
+///
+/// @param download where the queue says it stands
+/// @return the state the Language field shows
+settings::AvailableLanguage::State language_download_state(content::DownloadState download) {
+    switch (download) {
+    case content::DownloadState::waiting:
+    case content::DownloadState::asking:
+    case content::DownloadState::challenge:
+    case content::DownloadState::paused_for_match:
+        return settings::AvailableLanguage::State::waiting;
+    case content::DownloadState::downloading:
+    case content::DownloadState::verifying:
+        return settings::AvailableLanguage::State::downloading;
+    case content::DownloadState::handing_over:
+    case content::DownloadState::installing:
+    case content::DownloadState::done:
+        return settings::AvailableLanguage::State::installing;
+    case content::DownloadState::failed:
+    case content::DownloadState::cancelled:
+        return settings::AvailableLanguage::State::failed;
+    }
+    return settings::AvailableLanguage::State::offered;
+}
+
+/// Returns why a queued pack failed, as the hint can show it.
+///
+/// @param item the queued pack
+/// @return the reason
+std::string download_failure_text(const content::DownloadView& item) {
+    if (item.failure != content::DownloadFailure::none)
+        return content::failure_text(item.failure);
+    if (!item.detail.empty())
+        return item.detail;
+    if (item.state == content::DownloadState::cancelled)
+        return "the download was cancelled";
+    return "the download failed";
+}
+
+/// Tells whether two available rows show the same thing.
+///
+/// @param left a row
+/// @param right a row
+/// @return true when the dialog would draw them alike
+bool same_available_row(
+    const settings::AvailableLanguage& left, const settings::AvailableLanguage& right
+) {
+    return left.tag == right.tag && left.endonym == right.endonym &&
+           left.english_name == right.english_name && left.aside == right.aside &&
+           left.endonym_drawable == right.endonym_drawable && left.choosable == right.choosable &&
+           left.state == right.state && left.percent == right.percent &&
+           left.failure == right.failure;
+}
+
+/// Tells whether a registry can download.
+///
+/// A registry the snapshot does not list can: a check's registry is one.
+/// Downloads are off when the registry requires an install id and that id
+/// is off.
+///
+/// @param snapshot the catalogues in effect
+/// @param values the preference values
+/// @param registry the registry id
+/// @return false when its downloads are off
+bool registry_downloads_on(
+    const content::Snapshot& snapshot,
+    const oa::platform::preferences::Values& values,
+    std::string_view registry
+) {
+    for (const content::RegistryView& listed : snapshot.registries) {
+        if (listed.registry.descriptor.id != registry)
+            continue;
+        const bool required =
+            listed.registry.descriptor.install_id == oa::data::registry::InstallIdUse::required;
+        if (required &&
+            content::read_install_id(values, registry).state == content::InstallIdState::off)
+            return false;
+        return true;
+    }
+    return true;
+}
+
+/// The English name a catalogue entry shows when it names none.
+///
+/// @param tag the pack's tag
+/// @param named the catalogue's English name; empty when it names none
+/// @return the name
+std::string catalogue_english_name(std::string_view tag, std::string_view named) {
+    if (!named.empty())
+        return std::string(named);
+    if (const languages::Language* known = languages::find_by_tag(tag);
+        known != nullptr && !known->english_name.empty())
+        return std::string(known->english_name);
+    return std::string(tag);
+}
+
+} // namespace
+
+void Runtime::register_available_languages() {
+    auto& state = language_state();
+    std::vector<languages::LanguageEntry> entries;
+    entries.reserve(state.available.size());
+    for (const CatalogueLanguage& pack : state.available)
+        entries.push_back(pack.entry);
+    languages::set_pack_languages(
+        installed_entries({&state.player_packs, &state.engine_packs}), entries
+    );
+}
+
+void Runtime::refresh_available_languages() {
+    auto& state = language_state();
+    if (state.hold_available || !content_)
+        return;
+    const std::shared_ptr<const content::Snapshot> snapshot = content_service().snapshot();
+    std::vector<CatalogueLanguage> offered;
+    if (snapshot) {
+        for (const content::Entry& listed : snapshot->entries) {
+            if (listed.package == nullptr || listed.package->kind != catalogue::Kind::oalang)
+                continue;
+            const catalogue::Package& package = *listed.package;
+            bool duplicate = false;
+            for (const CatalogueLanguage& kept : offered)
+                if (same_language_tag(kept.entry.tag, package.id))
+                    duplicate = true;
+            if (package.id.empty() || duplicate || already_playable(package.id))
+                continue;
+            CatalogueLanguage pack;
+            pack.registry = listed.registry;
+            pack.reviewed = listed.reviewed;
+            pack.entry.tag = package.id;
+            pack.entry.endonym = package.name;
+            pack.entry.english_name = catalogue_english_name(package.id, package.english_name);
+            pack.entry.word = package.word.empty() ? package.id : package.word;
+            if (package.locales.empty())
+                pack.entry.locales.push_back(package.id);
+            else
+                pack.entry.locales = package.locales;
+            pack.entry.fallbacks = package.fallbacks;
+            pack.entry.needs = package.needs == "game-fonts" ? languages::TextNeeds::game_fonts
+                                                             : languages::TextNeeds::modern_fonts;
+            pack.publisher = package.publisher;
+            pack.coverage = package.coverage;
+            pack.bytes = package.size;
+            offered.push_back(std::move(pack));
+        }
+    }
+    state.available = std::move(offered);
+    state.catalogue_generation = content_service().generation();
+    state.catalogue_seen = true;
+    state.dialog_languages_filled = false;
+    register_available_languages();
+}
+
+void Runtime::refresh_available_languages(std::span<const CatalogueLanguage> offered) {
+    auto& state = language_state();
+    state.available.assign(offered.begin(), offered.end());
+    state.hold_available = true;
+    state.catalogue_seen = true;
+    state.dialog_languages_filled = false;
+    register_available_languages();
+    if (auto* dialog = engine_settings_dialog())
+        std::ignore = refresh_settings_languages(*dialog);
+}
+
+void Runtime::release_available_languages() {
+    auto& state = language_state();
+    state.hold_available = false;
+    state.catalogue_seen = false;
+    refresh_available_languages();
+}
+
+bool Runtime::download_language(std::string_view tag, std::string& failure) {
+    failure.clear();
+    if (language_download_hook_ != nullptr)
+        return language_download_hook_(language_download_hook_context_, tag, failure);
+    const CatalogueLanguage* offered = nullptr;
+    for (const CatalogueLanguage& pack : language_state().available) {
+        if (!same_language_tag(pack.entry.tag, tag))
+            continue;
+        offered = &pack;
+        break;
+    }
+    if (offered == nullptr || offered->registry.empty()) {
+        failure = "the catalogue has no such package";
+        return false;
+    }
+    std::string why;
+    const auto queued = queue_download(
+        offered->registry, offered->entry.tag, content::DownloadReason::install, &why
+    );
+    if (!queued) {
+        failure = why.empty() ? std::string("the catalogue has no such package") : std::move(why);
+        return false;
+    }
+    return true;
+}
+
+void Runtime::note_catalogue_languages() {
+    if (!content_)
+        return;
+    auto& state = language_state();
+    if (state.hold_available)
+        return;
+    if (!state.catalogue_seen || state.catalogue_generation != content_service().generation())
+        refresh_available_languages();
+}
+
+bool Runtime::refresh_settings_languages(settings::Dialog& dialog) {
+    if (!content_)
+        return false;
+    auto& state = language_state();
+    if (!state.hold_available) {
+        const uint64_t catalogues = content_service().generation();
+        if (!state.catalogue_seen || state.catalogue_generation != catalogues)
+            refresh_available_languages();
+    }
+    const uint64_t catalogues = content_service().generation();
+    // Read before the items, so a queue that moves while they are copied is
+    // filled again on the next frame.
+    const uint64_t downloads = content_downloads().generation();
+    if (state.dialog_languages_filled && state.dialog_downloads_generation == downloads &&
+        (state.hold_available || state.catalogue_generation == catalogues))
+        return false;
+
+    const std::shared_ptr<const content::Snapshot> snapshot = content_service().snapshot();
+    const std::vector<content::DownloadView> queued = content_downloads().view();
+    const std::vector<settings::AvailableLanguage> earlier = dialog.available_languages;
+    std::vector<settings::AvailableLanguage> rows;
+    rows.reserve(state.available.size());
+    for (const CatalogueLanguage& pack : state.available) {
+        if (already_playable(pack.entry.tag))
+            continue;
+        settings::AvailableLanguage row;
+        row.tag = pack.entry.tag;
+        row.endonym = pack.entry.endonym;
+        row.english_name = pack.entry.english_name;
+        row.endonym_drawable = modern_fonts_draw(pack.entry.endonym);
+        // A catalogue that has not been read yet still offers the pack. One
+        // the snapshot does not list can be chosen: a check's registry.
+        row.choosable = snapshot == nullptr ||
+                        registry_downloads_on(*snapshot, preference_values_, pack.registry);
+        row.aside = settings::language_download_aside(
+            pack.reviewed, pack.publisher, pack.coverage, pack.bytes, row.choosable
+        );
+        const content::DownloadView* matched = nullptr;
+        for (const content::DownloadView& item : queued) {
+            if (item.target.registry == pack.registry &&
+                same_language_tag(item.target.key, pack.entry.tag))
+                matched = &item;
+        }
+        if (matched != nullptr) {
+            row.state = language_download_state(matched->state);
+            if (row.state == settings::AvailableLanguage::State::downloading)
+                row.percent = download_percent(matched->done, matched->target.size);
+            else if (row.state == settings::AvailableLanguage::State::failed)
+                row.failure = download_failure_text(*matched);
+        } else {
+            for (const settings::AvailableLanguage& old : earlier) {
+                if (!same_language_tag(old.tag, row.tag))
+                    continue;
+                row.state = old.state;
+                row.percent = old.percent;
+                row.failure = old.failure;
+                break;
+            }
+        }
+        rows.push_back(std::move(row));
+    }
+    bool changed = rows.size() != dialog.available_languages.size();
+    for (std::size_t index = 0; !changed && index < rows.size(); ++index)
+        changed = !same_available_row(rows[index], dialog.available_languages[index]);
+    if (changed)
+        dialog.available_languages = std::move(rows);
+    state.dialog_downloads_generation = downloads;
+    state.dialog_languages_filled = true;
+    return changed;
 }
 
 void Runtime::read_interface_catalogue() {
@@ -238,10 +673,18 @@ void Runtime::set_language_choice(std::string_view choice) {
     if (state.choice == choice)
         return;
     state.choice = std::string(choice);
-    apply_language();
-    // The modern fonts draw the new language's commonest characters ahead
-    // of its first screen.
-    warm_game_text();
+    // The notice of the change stays on this thread, after the dialog.
+    const auto apply_and_warm = [this] {
+        apply_language();
+        // The modern fonts lay out the new language's warm-up text ahead of
+        // its first screen.
+        warm_game_text();
+    };
+    if (long_work_running() || options_.headless_check || sdl_.window == nullptr ||
+        sdl_.renderer == nullptr)
+        apply_and_warm();
+    else
+        run_progress("Applying your changes", [apply_and_warm](LongWork&) { apply_and_warm(); });
     show_language_change();
 }
 
@@ -270,11 +713,20 @@ void Runtime::show_language_change() {
 }
 
 void Runtime::apply_language() {
+    if (long_work_running() || options_.headless_check || sdl_.window == nullptr ||
+        sdl_.renderer == nullptr) {
+        apply_language_now();
+        return;
+    }
+    run_progress("Applying your changes", [this](LongWork&) { apply_language_now(); });
+}
+
+void Runtime::apply_language_now() {
     auto& state = language_state();
     const char* word = oa::app::command_line::launch_language(options_.launch);
     const languages::Language* named =
         word != nullptr ? languages::find_by_game_name(word) : nullptr;
-    // The registry's words are string literals, so each word ends in a NUL.
+    // A language's word ends in a NUL and stays for the whole run.
     if (named != nullptr) {
         // 3.1c's command line names a known language: it decides the run's.
         state.shown = named;
@@ -342,6 +794,66 @@ void Runtime::apply_language() {
     languages::set_unit_texts(&state.unit_texts, state.words);
     languages::set_unit_pack_layers(state.layers);
     languages::set_interface_language(&state.catalogue, *state.shown);
+    // Fonts of the packs of the words, in lookup order, and the first
+    // warm-up. A path is taken once. Past most_pack_faces, the rest are
+    // named in one line and left out.
+    const auto loaded_of =
+        [&state](const languages::LanguagePack* pack) -> const LoadedLanguagePack* {
+        for (const auto* group : {&state.mod_packs, &state.player_packs, &state.engine_packs})
+            for (const auto& loaded : *group)
+                if (loaded != nullptr && &loaded->pack == pack)
+                    return loaded.get();
+        return nullptr;
+    };
+    std::vector<PackFontFile> fonts;
+    std::string warmup;
+    std::vector<std::string> left_out;
+    const auto consider = [&](const languages::LanguagePack* pack) {
+        const LoadedLanguagePack* loaded = loaded_of(pack);
+        if (loaded == nullptr)
+            return;
+        if (warmup.empty() && !loaded->warmup.empty())
+            warmup = loaded->warmup;
+        for (const PackFontFile& font : pack_fonts(*loaded)) {
+            const bool held =
+                std::any_of(fonts.begin(), fonts.end(), [&font](const PackFontFile& have) {
+                    return have.file == font.file;
+                });
+            if (held)
+                continue;
+            if (fonts.size() >= oa::platform::text_font::most_pack_faces) {
+                left_out.push_back(path_to_utf8(font.file));
+                continue;
+            }
+            fonts.push_back(font);
+        }
+    };
+    for (const languages::PackLayer& layer : state.layers) {
+        for (const languages::LanguagePack* pack : layer.before_data)
+            consider(pack);
+        for (const languages::LanguagePack* pack : layer.after_data)
+            consider(pack);
+    }
+    if (!left_out.empty()) {
+        std::cerr << "open-annihilation: language fonts left out:";
+        for (const std::string& path : left_out)
+            std::cerr << ' ' << path;
+        std::cerr << '\n';
+    }
+    const bool fonts_changed = fonts.size() != state.fonts.size() ||
+                               !std::equal(
+                                   fonts.begin(),
+                                   fonts.end(),
+                                   state.fonts.begin(),
+                                   [](const PackFontFile& left, const PackFontFile& right) {
+                                       return left.file == right.file && left.role == right.role;
+                                   }
+                               );
+    if (fonts_changed || warmup != state.warmup) {
+        state.fonts = std::move(fonts);
+        state.warmup = std::move(warmup);
+        ++state.fonts_generation;
+    }
 }
 
 const char* Runtime::game_translation(const char* text) const {
@@ -370,6 +882,25 @@ const oa::data::languages::PictureCaptions& Runtime::language_pictures() const {
     return language_ ? language_->pictures : none;
 }
 
+uint64_t Runtime::language_fonts_generation() const noexcept {
+    return language_ ? language_->fonts_generation : 0;
+}
+
+std::string_view Runtime::language_warmup() const {
+    return language_ ? std::string_view(language_->warmup) : std::string_view{};
+}
+
+void Runtime::use_language_fonts(oa::platform::text_font::FontStack& stack) const {
+    stack.remove_pack_faces();
+    if (language_ == nullptr)
+        return;
+    for (const PackFontFile& font : language_->fonts) {
+        if (!stack.add_face(font.file, font.role))
+            std::cerr << "open-annihilation: the language font " << path_to_utf8(font.file)
+                      << " did not open\n";
+    }
+}
+
 std::vector<std::filesystem::path> Runtime::language_pack_folders() const {
     std::vector<fs::path> folders;
     if (!language_)
@@ -390,9 +921,9 @@ const oa::data::languages::PackManifest* Runtime::language_unicode_chat() const 
 
 std::vector<std::string> Runtime::unicode_chat_language_tags() const {
     std::vector<std::string> tags;
-    for (const languages::Language& known : languages::known_languages())
-        if (languages::turns_unicode_chat_on(known, false))
-            tags.emplace_back(known.tag);
+    for (const languages::Language* known : languages::known_languages())
+        if (languages::playable(*known) && languages::turns_unicode_chat_on(*known, false))
+            tags.emplace_back(known->tag);
     if (!language_)
         return tags;
     for (const auto* packs :

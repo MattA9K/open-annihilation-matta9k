@@ -7,6 +7,7 @@
 #include <bit>
 #include <cstring>
 #include <stdexcept>
+#include <utility>
 
 namespace oa::ui::frontend_state::initialization {
 void reset_player_slots(State& state, PlayerStorage& storage, bool keep_chat_positions) {
@@ -383,7 +384,9 @@ void load_preferences(
     p.fx_volume = number("fxvol", 27);
     p.music_volume = number("musicvol", 32);
     bit(p.display_flags, preference_flags::clock, "clock", 0);
-    settings.slot_count = std::bit_cast<int32_t>(number("NumSkirmishPlayers", 4));
+    settings.slot_count = std::bit_cast<int32_t>(
+        number("NumSkirmishPlayers", static_cast<uint32_t>(default_skirmish_player_count))
+    );
     if (settings.slot_count < 0 ||
         static_cast<std::size_t>(settings.slot_count) > settings.slots.size())
         throw std::invalid_argument("NumSkirmishPlayers exceeds the slot storage");
@@ -423,6 +426,21 @@ void load_preferences(
         slot.metal = amount("Metal");
         slot.energy = amount("Energy");
     }
+    // One Player row. The last row that reads Player is the one a skirmish
+    // starts as; each earlier Player row reads Computer. One Player, or none,
+    // is left as stored.
+    int32_t local_row = -1;
+    for (int32_t row = 0; row < settings.slot_count; ++row)
+        if (settings.slots[static_cast<std::size_t>(row)].controller ==
+            game_entry::controller::human)
+            local_row = row;
+    if (local_row >= 0) {
+        for (int32_t row = 0; row < local_row; ++row) {
+            auto& earlier = settings.slots[static_cast<std::size_t>(row)];
+            if (earlier.controller == game_entry::controller::human)
+                earlier.controller = game_entry::controller::computer;
+        }
+    }
     state.play_intro_movie = std::bit_cast<int32_t>(number("PlayMovie", 1));
     const auto depth = number("DisplaymodeDepth", 0);
     set_flag(
@@ -445,6 +463,42 @@ void write_all_missions(const Preferences& p, PreferencesHost& h) {
 
 void write_skirmish_player_count(const game_entry::SkirmishSettings& s, PreferencesHost& h) {
     h.write_number(general_section, "NumSkirmishPlayers", std::bit_cast<uint32_t>(s.slot_count));
+}
+
+void set_skirmish_player_count(
+    game_entry::SkirmishSettings& settings, int32_t count, PreferencesHost& host
+) {
+    if (count < 0 || static_cast<std::size_t>(count) > settings.slots.size())
+        throw std::invalid_argument("skirmish slot count exceeds the slot storage");
+    settings.slot_count = count;
+    for (int32_t index = 0; index < count; ++index) {
+        auto& slot = settings.slots[static_cast<std::size_t>(index)];
+        if (slot.metal >= skirmish_ui::resource_minimum)
+            continue;
+        slot.side = index % 2;
+        slot.color = index;
+        slot.alliance = game_entry::unassigned_alliance;
+        slot.metal = 1000;
+        slot.energy = 1000;
+    }
+    if (count > 0)
+        write_skirmish_player_count(settings, host);
+}
+
+void remember_player_skirmish_settings(
+    const game_entry::SkirmishSettings& live, std::optional<game_entry::SkirmishSettings>& kept
+) {
+    if (!kept)
+        kept = live;
+}
+
+void restore_player_skirmish_settings(
+    game_entry::SkirmishSettings& live, std::optional<game_entry::SkirmishSettings>& kept
+) {
+    if (!kept)
+        return;
+    live = std::move(*kept);
+    kept.reset();
 }
 
 void save_preferences(
@@ -526,6 +580,16 @@ void save_preferences(
     if (settings.slot_count < 0 ||
         static_cast<std::size_t>(settings.slot_count) > settings.slots.size())
         throw std::invalid_argument("skirmish slot count exceeds the slot storage");
+    // One Player row is stored. The last row that reads Player is the one a
+    // skirmish starts as; each earlier Player row is stored as Computer.
+    // The rows passed in stay as they are. A count above zero is stored with
+    // those rows, so the next start reads the same rows. A count of zero is
+    // the settings before a load and is left unstored.
+    int32_t player_row = -1;
+    for (int32_t row = 0; row < settings.slot_count; ++row)
+        if (settings.slots[static_cast<std::size_t>(row)].controller ==
+            game_entry::controller::human)
+            player_row = row;
     for (int32_t index = 0; index < settings.slot_count; ++index) {
         const auto& slot = settings.slots[static_cast<std::size_t>(index)];
         const auto player = "Player" + std::to_string(index);
@@ -534,13 +598,19 @@ void save_preferences(
                 skirmish_section, player + std::string(suffix), std::bit_cast<uint32_t>(value)
             );
         };
-        field("Controller", slot.controller);
+        const int32_t controller =
+            slot.controller == game_entry::controller::human && index != player_row
+                ? game_entry::controller::computer
+                : slot.controller;
+        field("Controller", controller);
         field("Side", slot.side);
         field("Color", slot.color);
         field("AllyGroup", slot.alliance);
         field("Metal", slot.metal);
         field("Energy", slot.energy);
     }
+    if (settings.slot_count > 0)
+        write_skirmish_player_count(settings, h);
     number("PlayMovie", std::bit_cast<uint32_t>(state.play_intro_movie));
 }
 } // namespace oa::ui::frontend_state::initialization

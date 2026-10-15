@@ -1,20 +1,29 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// oa-game command-line parsing of the trace stream, seed, drawing threads,
-// game directory, data folder, window size, frame rate, hardware
-// acceleration, video capture and showcase options (arm-first-mission and
-// skirmish-battle), the Game files screen's check and its companions, and
-// of the options and switches an extension takes; last, --help's listing of
-// the Game files options, read as the program ends.
+// oa-game command-line parsing: every option by its name, the flags that
+// turn on one member each and the options that take a value, before any an
+// extension takes; the trace stream, seed, drawing threads, game directory,
+// data folder, window size, frame rate, hardware acceleration, video capture
+// and showcase options (arm-first-mission and skirmish-battle), the Game
+// files screen's check and its companions, and the options and switches an
+// extension takes; last, --help's listing of every option, read as the
+// program ends. --version's line is checked before that, and a line that
+// carries it is not parsed: the program leaves before any other option runs.
 #include "oa/app/app.hpp"
+#if __has_include("oa_engine_build.hpp")
+#include "oa_engine_build.hpp"
+#endif
+#include "oa/app/version_line.hpp"
 #include "oa/app/extension.hpp"
 #include "oa/app/game_directory.hpp"
 #include "oa/app/command_line.hpp"
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <filesystem>
@@ -301,6 +310,8 @@ void game_files_options() {
         {{"--check-touch-controls"}, "--check-touch-controls"},
         {{"--check-pad-controls"}, "--check-pad-controls"},
         {{"--check-engine-settings"}, "--check-engine-settings"},
+        {{"--check-registered-kit"}, "--check-registered-kit"},
+        {{"--check-kit-gallery"}, "--check-kit-gallery"},
         {{"--check-mod-switch"}, "--check-mod-switch"},
         {{"--check-navigation"}, "--check-navigation"},
         {{"--check-render-tiers"}, "--check-render-tiers"},
@@ -329,11 +340,366 @@ void game_files_options() {
     );
 }
 
+// An option that takes no value and only turns on one member of Options,
+// and the options it needs beside it to be taken.
+struct FlagCase {
+    const char* name{};
+    bool oa::app::Options::* member{};
+    std::vector<const char*> beside;
+};
+
+// The options a headless skirmish drawn frame by frame needs.
+const std::vector<const char*>& frame_rate_run() {
+    static const std::vector<const char*> line{
+        "--headless-check", "--match-ticks", "60", "--frame-rate", "30"
+    };
+    return line;
+}
+
+// Every option that takes no value and only turns on one member.
+const std::vector<FlagCase>& flag_cases() {
+    using oa::app::Options;
+    static const std::vector<FlagCase> cases{
+        {"--choose-game-dir", &Options::choose_game_dir, {}},
+        {"--base-game", &Options::base_game, {}},
+        {"--print-profile", &Options::print_profile, {"--game-dir", "ta"}},
+        {"--accept-unimplemented-hacks",
+         &Options::accept_unimplemented_hacks,
+         {"--game-dir", "ta"}},
+        {"--force-capable", &Options::force_capable, {"--check-render-tiers"}},
+        {"--native-density", &Options::native_density, {}},
+        {"--scroll-camera", &Options::scroll_camera, frame_rate_run()},
+        {"--march", &Options::march, frame_rate_run()},
+        {"--follow", &Options::follow, frame_rate_run()},
+        {"--past-outcome", &Options::campaign_past_outcome, {}},
+        {"--busy-combat", &Options::busy_combat, {"--combat", "4"}},
+        {"--give-orders", &Options::give_orders, {}},
+        {"--reclaim-check", &Options::reclaim_check, {}},
+        {"--skip-intro", &Options::skip_intro, {}},
+        {"--first-run", &Options::first_run, {}},
+        {"--headless-check", &Options::headless_check, {}},
+        {"--mute", &Options::mute, {}},
+        {"--check-match-dialogs", &Options::check_match_dialogs, {}},
+        {"--check-load-save", &Options::check_load_save, {}},
+        {"--check-frontend-controls", &Options::check_frontend_controls, {}},
+        {"--check-scroll-bars", &Options::check_scroll_bars, {}},
+        {"--check-engine-settings", &Options::check_engine_settings, {}},
+        {"--check-registered-kit", &Options::check_registered_kit, {}},
+        {"--check-kit-gallery", &Options::check_kit_gallery, {}},
+        {"--check-user-folder", &Options::check_user_folder, {}},
+        {"--check-mod-switch", &Options::check_mod_switch, {}},
+        {"--check-map-packs", &Options::check_map_packs, {}},
+        {"--check-map-browser", &Options::check_map_browser, {}},
+        {"--check-map-pack-lists", &Options::check_map_pack_lists, {}},
+        {"--check-mod-warning", &Options::check_mod_warning, {}},
+        {"--check-mod-install", &Options::check_mod_install, {}},
+        {"--check-language-install", &Options::check_language_install, {}},
+        {"--check-challenge", &Options::check_challenge, {}},
+        {"--check-registries", &Options::check_registries, {}},
+        {"--check-library", &Options::check_library, {}},
+        {"--check-library-install", &Options::check_library_install, {}},
+        {"--check-library-map-previews", &Options::check_library_map_previews, {}},
+        {"--check-library-content", &Options::check_library_content, {}},
+        {"--check-renderer-ladder", &Options::check_renderer_ladder, {}},
+        {"--check-briefing-narration", &Options::check_briefing_narration, {}},
+        {"--check-match-layers", &Options::check_match_layers, {}},
+        {"--check-render-tiers", &Options::check_render_tiers, {}},
+        {"--check-match-orders", &Options::check_match_orders, {}},
+        {"--check-factory-orders", &Options::check_factory_orders, {}},
+        {"--check-unit-speech", &Options::check_unit_speech, {}},
+        {"--check-download-builds", &Options::check_download_builds, {}},
+        {"--check-stockpile-builds", &Options::check_stockpile_builds, {}},
+        {"--check-unit-page-memory", &Options::check_unit_page_memory, {}},
+        {"--check-side-column", &Options::check_side_column, {}},
+        {"--check-match-bars", &Options::check_match_bars, {}},
+        {"--check-kill-board", &Options::check_kill_board, {}},
+        {"--check-paused-save", &Options::check_paused_save, {}},
+        {"--check-simulation-hash", &Options::check_simulation_hash, {}},
+        {"--check-zoom-memory", &Options::check_zoom_memory, {}},
+        {"--check-language-switch", &Options::check_language_switch, {}},
+        {"--check-language-registry", &Options::check_language_registry, {}},
+        {"--check-language-notice", &Options::check_language_notice, {}},
+        {"--check-first-run", &Options::check_first_run, {}},
+        {"--check-setup-window", &Options::check_setup_window, {}},
+        {"--check-window-place", &Options::check_window_place, {}},
+        {"--check-progress", &Options::check_progress, {}},
+        {"--check-text-fit", &Options::check_text_fit, {}},
+        {"--check-folder-chooser", &Options::check_folder_chooser, {}},
+        {"--check-patrol-reclaim", &Options::check_patrol_reclaim, {}},
+        {"--check-reclaim-cursor", &Options::check_reclaim_cursor, {}},
+        {"--check-build-preview", &Options::check_build_preview, {}},
+        {"--check-pointer-interfaces", &Options::check_pointer_interfaces, {}},
+        {"--check-megamap-clicks", &Options::check_megamap_clicks, {}},
+        {"--check-radar-orders", &Options::check_radar_orders, {}},
+        {"--check-touch-controls", &Options::check_touch_controls, {}},
+        {"--check-pad-controls", &Options::check_pad_controls, {}},
+        {"--check-running-while-inactive", &Options::check_running_while_inactive, {}},
+        {"--touch-controls", &Options::touch_controls, {}},
+        {"--check-game-files", &Options::check_game_files, {}},
+        {"--no-game-files-screen", &Options::no_game_files_screen, {}},
+        {"--check-multiplayer-menu", &Options::check_multiplayer_menu, {}},
+        {"--check-director-view", &Options::check_director_view, {}},
+        {"--check-director-render", &Options::check_director_render, {}},
+        {"--check-interpolation", &Options::check_interpolation, {}},
+        {"--check-unit-playout", &Options::check_unit_playout, {}},
+        {"--trace-input", &Options::trace_input, {}},
+        {"--debug-order-lines", &Options::debug_order_lines, {}},
+    };
+    return cases;
+}
+
+// An option that takes a value, a value it takes, and the options it needs
+// beside it to be taken.
+struct ValueCase {
+    const char* name{};
+    const char* value{};
+    std::vector<const char*> beside;
+};
+
+// Every option that takes a value.
+const std::vector<ValueCase>& value_cases() {
+    static const std::vector<ValueCase> cases{
+        {"--game-dir", "ta", {}},
+        {"--content", "totala", {}},
+        {"--archive", "totala1.hpi", {}},
+        {"--mod", "mods/x/oamod.yaml", {}},
+        {"--mod-dir", "mods/x", {}},
+        {"--snapshot", "frame.ppm", {}},
+        {"--preferences-file", "p.conf", {}},
+        {"--data-dir", "data", {}},
+        {"--user-folder", "own", {}},
+        {"--log-dir", "logs", {}},
+        {"--open", "a.oamod", {}},
+        {"--install-mod", "a.oamod", {}},
+        {"--frames", "10", {}},
+        {"--benchmark", "10", {}},
+        {"--max-fps", "60", {}},
+        {"--display-modes", "none", {"--headless-check"}},
+        {"--frame-rate", "30", {"--headless-check", "--match-ticks", "60"}},
+        {"--frame-log", "run.frames", frame_rate_run()},
+        {"--frame-clock", "0", frame_rate_run()},
+        {"--resolution", "640x480", {}},
+        {"--draw-threads", "2", {}},
+        {"--match-ticks", "60", {}},
+        {"--campaign", "Arm Campaign", {"--mission", "0"}},
+        {"--mission", "0", {"--campaign", "Arm Campaign"}},
+        {"--restart-at", "30", {"--campaign", "Arm Campaign", "--mission", "0"}},
+        {"--combat", "4", {}},
+        {"--stage", "s.stage", {"--headless-check", "--match-ticks", "60"}},
+        {"--save-after", "30", {}},
+        {"--save-file", "a.sav", {}},
+        {"--load", "a.sav", {}},
+        {"--zoom", "2", {}},
+        {"--camera", "10,20", {}},
+        {"--seed", "5", {}},
+        {"--render-fault", "present", {"--check-renderer-ladder"}},
+        {"--check-unit-pages", "whole:ARMCOM", {}},
+        {"--check-unit-language", "fr", {}},
+        {"--game-files-route", "demo", {"--check-game-files"}},
+        {"--game-files-expect", "resumed", {"--check-game-files"}},
+        {"--game-files-source", "folder", {"--check-game-files"}},
+        {"--game-files-free-bytes", "5", {"--check-game-files"}},
+        {"--game-files-copy-rate", "5", {"--check-game-files"}},
+        {"--game-files-stop-after", "5", {"--check-game-files"}},
+        {"--check-content-copy", "docs", {}},
+        {"--check-installer", "setup.bin", {}},
+        {"--generate-script", "game.rec", {}},
+        {"--render-script", "game.oascript", {}},
+        {"--output", "out", {"--render-script", "game.oascript"}},
+        {"--chunks", "1", {"--render-script", "game.oascript"}},
+        {"--stills", "1", {"--render-script", "game.oascript"}},
+        {"--trace-lookups", "lookups.txt", {}},
+        {"--trace-digest", "run.trace", {}},
+        {"--trace-units", "run.units", {"--trace-digest", "run.trace"}},
+        {"--capture-video", "game.mp4", {}},
+        {"--showcase", "arm-first-mission", {}},
+    };
+    return cases;
+}
+
+// The other options: --check-navigation, which takes a group's name when
+// one follows it, and the hardware acceleration flags, which must agree.
+constexpr const char* kOtherOptions[] = {
+    "--version", "--check-navigation", "--hardware-acceleration", "--no-hardware-acceleration"
+};
+
+// An extension that takes every option it is offered, as a flag, and
+// counts them.
+oa::app::Extension greedy_extension(int& offered) {
+    oa::app::Extension table{};
+    table.context = &offered;
+    table.take_option = [](void* context, const char*, const oa::app::OptionValues&, uint32_t&) {
+        ++*static_cast<int*>(context);
+        return true;
+    };
+    return table;
+}
+
+// Every option by its name: one that only turns on its member turns on that
+// member, and one that takes a value takes one and refuses to go without.
+// The engine reads its own options first: an extension is offered none of
+// them, nor a value one of them takes.
+void options_by_name() {
+    int offered = 0;
+    const auto greedy = greedy_extension(offered);
+    for (const auto& [name, member, beside] : flag_cases()) {
+        auto line = beside;
+        line.push_back(name);
+        const std::string refused = rejection(line);
+        expect(refused.empty(), (std::string(name) + " is taken: " + refused).c_str());
+        if (!refused.empty())
+            continue;
+        expect(parse(line).*member, (std::string(name) + " turns on its member").c_str());
+        // OA_DEBUG_ORDER_LINES turns on the order lines without the flag.
+        if (member != &oa::app::Options::debug_order_lines)
+            expect(!(parse(beside).*member), (std::string(name) + " is off without it").c_str());
+        expect(rejection(line, greedy).empty(), name);
+    }
+    for (const auto& [name, value, beside] : value_cases()) {
+        auto line = beside;
+        line.push_back(name);
+        line.push_back(value);
+        const std::string refused = rejection(line);
+        expect(
+            refused.empty(), (std::string(name) + " " + value + " is taken: " + refused).c_str()
+        );
+        expect(
+            rejection({name}) == std::string(name) + " requires a value",
+            (std::string(name) + " requires a value").c_str()
+        );
+        expect(rejection(line, greedy).empty(), name);
+    }
+    expect(
+        rejection({"--check-navigation", "zoom", "--hardware-acceleration=full"}, greedy).empty() &&
+            rejection({"--hardware-acceleration", "--no-hardware-acceleration"}, greedy) ==
+                "--hardware-acceleration and --no-hardware-acceleration cannot be used together",
+        "the other options are the engine's"
+    );
+    expect(offered == 0, "an extension is offered none of the engine's options");
+    expect(
+        rejection({"--extension-only", "--mute"}, greedy).empty() && offered == 1,
+        "an extension is offered an option the engine does not take"
+    );
+    // An option's value is taken as given, even when it looks like an option.
+    const auto named_like_an_option = parse({"--campaign", "--mute", "--mission", "0"});
+    expect(
+        named_like_an_option.campaign == "--mute" && !named_like_an_option.mute,
+        "a value is not read as an option"
+    );
+    // A file to open is a bare argument; one that starts with -- is an option.
+    expect(
+        rejection({"--a.oamod"}) == "unknown option: --a.oamod",
+        "an argument that starts with -- is an option, whatever its extension"
+    );
+}
+
+// A sample of the options that take a value, from every part of the
+// command line, and what they refuse.
+void value_options() {
+    using oa::app::path_from_utf8;
+    const auto files = parse(
+        {"--archive", "a.hpi", "--archive", "b.hpi", "--snapshot", "frame.ppm", "--mod-dir", "m"}
+    );
+    expect(
+        files.archives.size() == 2 && files.archives[0] == path_from_utf8("a.hpi") &&
+            files.archives[1] == path_from_utf8("b.hpi") &&
+            files.snapshot == path_from_utf8("frame.ppm") && files.mod_dir == path_from_utf8("m"),
+        "--archive adds each archive in order, and --snapshot and --mod-dir take their paths"
+    );
+    const auto lengths = parse({"--frames", "10", "--benchmark", "60", "--draw-threads", "3"});
+    expect(
+        lengths.frame_limit == 10u && lengths.benchmark_frames == 60u && lengths.draw_threads == 3u,
+        "--frames, --benchmark and --draw-threads take their counts"
+    );
+    for (const char* frames : {"10000001", "x", "-1", "5 "})
+        expect(
+            rejection({"--frames", frames}) ==
+                "frame counts must be integers from 0 through 10,000,000",
+            frames
+        );
+    expect(
+        rejection({"--resolution", "640"}) == "--resolution expects WIDTHxHEIGHT",
+        "--resolution needs both sides"
+    );
+    const auto mission = parse(
+        {"--campaign", "Arm Campaign", "--mission", "2", "--restart-at", "90", "--past-outcome"}
+    );
+    expect(
+        mission.campaign == "Arm Campaign" && mission.campaign_mission == 2u &&
+            mission.campaign_restart_tick == 90u && mission.campaign_past_outcome,
+        "--campaign, --mission and --restart-at take their mission and tick"
+    );
+    expect(
+        rejection({"--campaign", "Arm Campaign"}) == "--campaign and --mission are used together",
+        "--campaign needs --mission"
+    );
+    expect(
+        rejection({"--restart-at", "90"}) == "--restart-at needs --campaign and --mission",
+        "--restart-at needs a mission"
+    );
+    const auto match = parse(
+        {"--match-ticks",
+         "60",
+         "--combat",
+         "4",
+         "--zoom",
+         "1.5",
+         "--camera",
+         "10,20",
+         "--save-after",
+         "30",
+         "--save-file",
+         "a.sav"}
+    );
+    expect(
+        match.match_ticks == 60u && match.combat_units == 4 && match.match_zoom == 1.5F &&
+            match.camera == std::pair<int, int>{10, 20} && match.save_after == 30u &&
+            match.save_file == path_from_utf8("a.sav"),
+        "the match's options take their values"
+    );
+    expect(
+        parse({"--load", "a.sav"}).load_file == path_from_utf8("a.sav"), "--load takes its save"
+    );
+    for (const char* zoom : {"0", "-1", "x", "2x"})
+        expect(rejection({"--zoom", zoom}) == "--zoom expects a positive number", zoom);
+    expect(rejection({"--camera", "10"}) == "--camera expects X,Z", "--camera needs both axes");
+    const auto unit_checks =
+        parse({"--check-unit-pages", "whole:ARMCOM,CORCOM", "--check-unit-language", "fr"});
+    expect(
+        unit_checks.check_unit_pages == "whole:ARMCOM,CORCOM" &&
+            unit_checks.check_unit_language == "fr" && unit_checks.fixed_clock,
+        "--check-unit-pages and --check-unit-language take their pages and language"
+    );
+    expect(
+        parse({"--trace-lookups", "lookups.txt"}).trace_lookups == path_from_utf8("lookups.txt"),
+        "--trace-lookups takes its file"
+    );
+}
+
 // --help, captured from the standard output, which it ends the program
 // after writing.
 std::ostringstream& help_text() {
     static std::ostringstream text;
     return text;
+}
+
+// Returns every option --help's text names: each word that starts with --.
+std::set<std::string> options_listed(std::string_view text) {
+    const auto in_name = [](char letter) {
+        return (letter >= 'a' && letter <= 'z') || (letter >= '0' && letter <= '9') ||
+               letter == '-';
+    };
+    std::set<std::string> names;
+    for (std::size_t at = 0; at < text.size(); ++at) {
+        if (!text.substr(at).starts_with("--") || (at > 0 && in_name(text[at - 1])))
+            continue;
+        std::size_t end = at + 2;
+        while (end < text.size() && in_name(text[end]))
+            ++end;
+        names.emplace(text.substr(at, end - at));
+        at = end;
+    }
+    return names;
 }
 
 // Reads the captured --help as the program ends, and ends it with the
@@ -364,44 +730,116 @@ void check_help_at_exit() {
            "[--no-game-files-screen] ") != absent,
         "--help lists the check's companions and --no-game-files-screen after --touch-controls"
     );
+    // Every option is listed, and every option listed is one of this test's,
+    // so that an option added to the command line is added to both.
+    const std::set<std::string> listed = options_listed(text);
+    std::set<std::string> known(std::begin(kOtherOptions), std::end(kOtherOptions));
+    for (const auto& flag : flag_cases())
+        known.insert(flag.name);
+    for (const auto& option : value_cases())
+        known.insert(option.name);
+    for (const auto& name : known)
+        expect(listed.contains(name), (name + " is listed by --help").c_str());
+    for (const auto& name : listed)
+        expect(known.contains(name), (name + ", listed by --help, is one of the test's").c_str());
     std::cout.rdbuf(nullptr);
     std::_Exit(failures == 0 ? 0 : 1);
 }
 
+// The version line names the game, the release's platform, the running
+// architecture and the commit, and --version is recognised beside other
+// options so those options are not parsed.
+void version_line_stands_alone() {
+    const std::string line = oa::app::running_engine_version_line();
+    expect(line.starts_with("Open Annihilation "), "the version line names the game");
+    expect(line.find('\n') == std::string::npos, "the version line is a single line");
+    const auto open = line.find('(');
+    const auto comma = line.find(", ", open == std::string::npos ? 0 : open);
+    const auto close = line.rfind(')');
+    expect(
+        open != std::string::npos && comma != std::string::npos && close == line.size() - 1 &&
+            line.find(' ', open) < comma,
+        "the version line names the platform build and the commit"
+    );
+    const std::string commit = line.substr(comma + 2, close - (comma + 2));
+    bool hex = commit.size() == 8;
+    for (const char digit : commit)
+        hex = hex && digit >= '0' && (digit <= '9' || (digit >= 'a' && digit <= 'f'));
+    expect(hex || commit == "unknown", "the commit is eight hex digits, or unknown");
+    const char* argv[] = {"open-annihilation", "--mute", "--version", "--game-dir", "ta"};
+    char* mutable_argv[] = {
+        const_cast<char*>(argv[0]),
+        const_cast<char*>(argv[1]),
+        const_cast<char*>(argv[2]),
+        const_cast<char*>(argv[3]),
+        const_cast<char*>(argv[4]),
+    };
+    expect(
+        oa::app::version_argument_present(5, mutable_argv),
+        "--version is seen beside other options, which are then not parsed"
+    );
+    expect(
+        !oa::app::version_argument_present(2, mutable_argv), "a line without --version is parsed"
+    );
+}
+
 // Writes --help into help_text and ends the program there, which
 // check_help_at_exit reads.
-[[noreturn]] void help_lists_the_game_files_options() {
+[[noreturn]] void help_lists_every_option() {
+    // What check_help_at_exit reads is made before it is registered, so
+    // that it is still there when the program ends.
     std::ignore = help_text();
+    std::ignore = flag_cases();
+    std::ignore = value_cases();
     std::cout.rdbuf(help_text().rdbuf());
     if (std::atexit(check_help_at_exit) != 0) {
         std::fputs("FAILED: the --help check could not be registered\n", stderr);
         std::_Exit(1);
     }
-    std::ignore = parse({"--help"});
-    std::fputs("FAILED: --help did not end the program\n", stderr);
+    // -h with nothing after it is the help flag, as --help is.
+    std::ignore = parse({"-h"});
+    std::fputs("FAILED: -h did not end the program\n", stderr);
     std::_Exit(1);
 }
 
 } // namespace
 
-// --install-mod, a bare .oamod argument, macOS's process serial number and
-// --check-mod-install.
+// --open, --install-mod, bare files of the four types, macOS's process
+// serial number and --check-mod-install.
 void mod_install_options() {
     namespace fs = std::filesystem;
-    const auto opened = parse({"--install-mod", "a.oamod", "B.OAMOD", "-psn_0_123", "german"});
-    expect(opened.install_mods.size() == 2, "--install-mod and a bare .oamod are both packages");
-    expect(
-        opened.install_mods.size() == 2 && opened.install_mods[0].is_absolute() &&
-            opened.install_mods[0].filename() == "a.oamod" &&
-            opened.install_mods[1].filename() == "B.OAMOD",
-        "the packages are absolute, in the order given"
+    const auto opened = parse(
+        {"a.oalang",
+         "B.OAMAP",
+         "c.oareg",
+         "--open",
+         "d.oamod",
+         "--install-mod",
+         "e.oamod",
+         "-psn_0_123",
+         "german"}
     );
-    expect(opened.skip_intro, "a package opened with the game skips the movies");
+    expect(opened.open_files.size() == 5, "--open, --install-mod and bare files are all opened");
+    expect(
+        opened.open_files.size() == 5 && opened.open_files[0].is_absolute() &&
+            opened.open_files[0].filename() == "a.oalang" &&
+            opened.open_files[1].filename() == "B.OAMAP" &&
+            opened.open_files[2].filename() == "c.oareg" &&
+            opened.open_files[3].filename() == "d.oamod" &&
+            opened.open_files[4].filename() == "e.oamod",
+        "the files are absolute, in the order given, and --install-mod still opens one"
+    );
+    expect(opened.skip_intro, "a file opened with the game skips the movies");
     expect(
         std::string_view(opened.launch.language) == "german",
-        "a bare word is still the language, and neither -psn_ nor a package joins it"
+        "a bare word is still the language, and neither -psn_ nor a file joins it"
     );
-    expect(!opened.check_mod_install && !opened.unattended, "a package opened is played");
+    expect(!opened.check_mod_install && !opened.unattended, "a file opened is played");
+    expect(
+        rejection({"--open", "a.oamod", "--headless-check"}).find("needs the game's window") !=
+            std::string::npos,
+        "--open needs the window"
+    );
     expect(
         rejection({"--install-mod", "a.oamod", "--headless-check"})
                 .find("needs the game's window") != std::string::npos,
@@ -409,19 +847,25 @@ void mod_install_options() {
     );
     expect(
         rejection({"x.oamod", "--headless-check"})
-                .find("a .oamod file to install, after --install-mod or on its own,") !=
-            std::string::npos,
-        "a bare package's refusal names both ways of giving it"
+                .find(
+                    "a file to open (.oamod, .oalang, .oamap or .oareg), after --open or on "
+                    "its own,"
+                ) != std::string::npos,
+        "a bare file's refusal names both ways of giving it"
     );
     expect(
         rejection({"x.oamod", "--frames", "10"}).find("is asked about before it installs") !=
             std::string::npos,
-        "a package in a run nobody watches is refused"
+        "a file in a run nobody watches is refused"
+    );
+    expect(
+        rejection({"--open", "a.oalang", "--check-game-files"}).find("--open") != std::string::npos,
+        "the options that refuse each other name --open"
     );
     const auto check = parse({"--check-mod-install", "--install-mod", "missing.oamod"});
     expect(
         check.check_mod_install && check.fixed_clock && check.unattended &&
-            check.install_mods.size() == 1,
+            check.open_files.size() == 1,
         "--check-mod-install answers the questions itself"
     );
     expect(
@@ -431,10 +875,85 @@ void mod_install_options() {
     );
 }
 
+// Each argument is one word of the game's switches, spaces and all: a file
+// whose path has a space in it reaches -c whole, however -c is written, a
+// word after it is still the language, and the line's limit counts the
+// words and one separator between each.
+void switch_words_keep_their_spaces() {
+    namespace cl = oa::app::command_line;
+    std::vector<std::string> files;
+    cl::SwitchHandler handler{};
+    handler.context = &files;
+    handler.take = [](void* context, char letter, const cl::SwitchArguments* arguments, uint32_t*) {
+        if (letter != 'c')
+            return 0;
+        const char* file = *arguments->attached != '\0' ? arguments->attached
+                                                        : arguments->next_token(arguments->tokens);
+        static_cast<std::vector<std::string>*>(context)->emplace_back(
+            file != nullptr ? file : "(none)"
+        );
+        return 1;
+    };
+    oa::app::Extension table{};
+    table.context = &handler;
+    table.switch_handler = [](void* context) -> const cl::SwitchHandler* {
+        return static_cast<const cl::SwitchHandler*>(context);
+    };
+    const std::string spaced_launch = "/Users/me/Launch Files/host.oalaunch";
+    const std::string spaced_settings = "C:\\Program Files\\TA Forever\\totala.ini";
+    const auto took = [&](const std::vector<const char*>& arguments, const std::string& file) {
+        files.clear();
+        try {
+            const auto options = parse(arguments, table);
+            return files == std::vector<std::string>{file} && options.launch.language[0] == '\0';
+        } catch (const std::runtime_error& error) {
+            std::fprintf(stderr, "refused: %s\n", error.what());
+            return false;
+        }
+    };
+    for (const char* letter : {"-c", "-C", "/c", "/C"}) {
+        const std::string attached = letter + spaced_launch;
+        expect(
+            took({letter, spaced_launch.c_str()}, spaced_launch) &&
+                took({letter, spaced_settings.c_str()}, spaced_settings) &&
+                took({attached.c_str()}, spaced_launch),
+            (std::string(letter) + " takes a path with a space in it whole, apart or attached")
+                .c_str()
+        );
+    }
+    files.clear();
+    const auto with_language = parse({"-s", "-c", spaced_launch.c_str(), "german", "-w"}, table);
+    expect(
+        files == std::vector<std::string>{spaced_launch} &&
+            std::string_view(with_language.launch.language) == "german" &&
+            with_language.launch.system_sound == 1,
+        "the word after a spaced path is the language, and the switches around it apply"
+    );
+    files.clear();
+    const auto tabbed = parse({"-c", "Launch\tFiles/host.oalaunch"}, table);
+    expect(
+        files == std::vector<std::string>{"Launch\tFiles/host.oalaunch"} &&
+            tabbed.launch.language[0] == '\0',
+        "a tab inside an argument does not split it either"
+    );
+    // A switch line of 4095 characters is read; one of 4096 is refused.
+    const std::string half(2047, 'a');
+    const std::string longer(2048, 'a');
+    expect(rejection({half.c_str(), half.c_str()}, table).empty(), "a line just under the limit");
+    expect(
+        rejection({half.c_str(), longer.c_str()}, table) ==
+            "the game switches exceed the command-line limit",
+        "the limit counts each word and the separator between them"
+    );
+}
+
 int main() {
     renderer_ladder_options();
     game_files_options();
     mod_install_options();
+    switch_words_keep_their_spaces();
+    options_by_name();
+    value_options();
     const auto plain = parse({"--headless-check"});
     expect(plain.trace_digest.empty() && plain.trace_units.empty(), "no trace without the flag");
     expect(!plain.seed, "no fixed seed without the flag");
@@ -713,10 +1232,18 @@ int main() {
             flag
         );
     expect(parse({"-s", "-w"}).launch.system_sound == 1, "the other game switches still apply");
+    // -h with a word after it is the game's -h NAME, not the help flag.
     expect(
-        rejection({"-rkey"}) ==
-            "-r registers the game for multiplayer, which this game does not need",
-        "-r without an extension"
+        rejection({"-h", "Name"}) == "-h is not handled by this build", "-h NAME is a game switch"
+    );
+    // A language word of any length starts the game with its first 63
+    // characters; the switches after it still apply.
+    const std::string language(80, 'l');
+    const auto long_word = parse({language.c_str(), "-s"});
+    expect(
+        std::string_view(long_word.launch.language).size() == 63 &&
+            long_word.launch.playback_suppressed == 1,
+        "a long language word is not refused"
     );
 
     // An extension's options take their values and imply engine options.
@@ -771,7 +1298,6 @@ int main() {
             rejection({"-t60"}, table) == "-t is not handled by this build",
             "a reserved switch the extension leaves is refused"
         );
-        expect(rejection({"-rkey"}, table) == "-r is the extension's", "the extension words -r");
     }
 
     expect(parse({"--draw-threads", "1"}).draw_threads == 1u, "--draw-threads takes one thread");
@@ -857,6 +1383,26 @@ int main() {
     );
     expect(parse({"--base-game"}).base_game, "--base-game plays without the remembered mod");
     expect(
+        parse({"--content", "totala:campaign,core-contingency"}).content ==
+            "totala:campaign,core-contingency",
+        "--content names a base game and its expansions for the run"
+    );
+    expect(parse({"--content", "totala"}).content == "totala", "--content names a base game alone");
+    expect(
+        rejection({"--content", "totala:ridge"}) == "--content names an unknown expansion: ridge",
+        "--content refuses an unknown expansion"
+    );
+    expect(
+        rejection({"--content", "campaign"}) ==
+            "--content names an expansion as the base game: campaign",
+        "--content refuses an expansion as the base game"
+    );
+    expect(
+        rejection({"--content", "totala-demo:music"}) ==
+            "--content: music does not extend totala-demo",
+        "--content refuses an expansion the base game does not take"
+    );
+    expect(
         rejection({"--base-game", "--mod-dir", "mods/x"}) ==
             "--base-game and --mod-dir cannot be used together",
         "--base-game and --mod-dir exclude each other"
@@ -893,38 +1439,34 @@ int main() {
         parse({}).start_full_screen && parse({"--skip-intro", "--mute"}).start_full_screen,
         "a player's run on Windows starts full screen"
     );
+#else
+    expect(!parse({}).start_full_screen, "a player's run elsewhere starts in a window");
+#endif
     expect(
         !parse({"-d"}).start_full_screen && !parse({"-dx"}).start_full_screen,
         "-d keeps a player's run in a window"
     );
     expect(
+        parse({"-df"}).start_full_screen && parse({"/DF"}).start_full_screen,
+        "-df starts a player's run full screen on every system"
+    );
+    expect(
+        parse({"-d"}).skip_intro && !parse({"-df"}).skip_intro && !parse({}).skip_intro,
+        "-d skips the intro, as 3.1c's window does; -df plays it"
+    );
+    expect(
         !parse({"--headless-check"}).start_full_screen &&
-            !parse({"--frames", "10"}).start_full_screen,
+            !parse({"--frames", "10"}).start_full_screen &&
+            !parse({"-df", "--frames", "10"}).start_full_screen,
         "an unattended run keeps a window"
     );
-#else
-    expect(
-        !parse({}).start_full_screen && !parse({"-d"}).start_full_screen,
-        "only a run on Windows starts full screen"
-    );
-#endif
     std::vector<std::vector<const char*>> scripted_runs{
-        {"--headless-check"},
-        {"--check-navigation"},
-        {"--check-multiplayer-menu"},
-        {"--check-load-save"},
-        {"--check-frontend-controls"},
-        {"--check-scroll-bars"},
-        {"--check-engine-settings"},
-        {"--check-simulation-hash"},
-        {"--check-user-folder"},
-        {"--check-mod-switch"},
-        {"--check-mod-warning"},
-        {"--check-renderer-ladder"},
-        {"--check-briefing-narration"},
-        {"--check-render-tiers"},
-        {"--benchmark", "60"},
-        {"--frames", "120"},
+        {"--headless-check"},        {"--check-navigation"},        {"--check-multiplayer-menu"},
+        {"--check-load-save"},       {"--check-frontend-controls"}, {"--check-scroll-bars"},
+        {"--check-engine-settings"}, {"--check-registered-kit"},    {"--check-kit-gallery"},
+        {"--check-simulation-hash"}, {"--check-user-folder"},       {"--check-mod-switch"},
+        {"--check-mod-warning"},     {"--check-renderer-ladder"},   {"--check-briefing-narration"},
+        {"--check-render-tiers"},    {"--benchmark", "60"},         {"--frames", "120"},
         {"--snapshot", "frame.ppm"},
     };
     for (auto scripted : scripted_runs) {
@@ -1255,6 +1797,7 @@ int main() {
             std::string_view(language_after.launch.language) == "german",
         "a word after --check-navigation that names no group is still the language"
     );
-    // Last: --help ends the program.
-    help_lists_the_game_files_options();
+    // --version's line, then --help, which ends the program.
+    version_line_stands_alone();
+    help_lists_every_option();
 }

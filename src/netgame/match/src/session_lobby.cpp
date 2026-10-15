@@ -117,6 +117,9 @@ void start_session(NetConnection* c, bool hosting, uint32_t local_id, const Play
     c->local_id = local_id;
     packet_layer_start(c->packets, session::session_transport(&c->session));
     c->packets->receiver.players = players;
+    // An OA machine always reads presence records; only OA sends them,
+    // each alone in its frame.
+    c->packets->receiver.presence_records = true;
     // Battle-room traffic is guaranteed.
     (void)session::session_set_guaranteed(&c->session, true);
     c->packets->guaranteed = true;
@@ -156,9 +159,7 @@ bool open(void* context, const mp::Provider* provider, const char* address) {
     }
     if (!sock::host_open(c.host, config))
         return false;
-    dplay::Guid application{};
-    std::memcpy(application.bytes, application_guid, 16);
-    session::session_init_multiplay(&c.session, backend_of(&c), application);
+    session::session_init_multiplay(&c.session, backend_of(&c), c.application);
     session::session_init_defaults(&c.session);
     c.session.publish_without_password = c.rules.clear_session_password;
     c.opened = true;
@@ -514,6 +515,10 @@ bool net_connection_create(NetConnection* c, const SessionLobbyConfig& config) n
     }
     c->host_config = config.host;
     c->host->config = config.host;
+    if (config.application_named)
+        c->application = config.application;
+    else
+        std::memcpy(c->application.bytes, application_guid, 16);
     packet_layer_create(c->packets);
     (void)net_connection_set_packet_rate(c, config.sends_per_second);
     return true;

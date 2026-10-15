@@ -37,6 +37,10 @@
 data from your own copy of the original game. Support for
 **Total Annihilation: Kingdoms** is on the [roadmap](#roadmap).
 
+The main menu shows **Open Annihilation** and this build's version under
+the logo. A mod that names its own version text shows that instead, and
+the demo, whose game data names no revision, shows neither.
+
 No game data is included. You need an installed copy of Total Annihilation
 with the 3.1 update, such as the GOG edition. To explore the project without
 the full game, you can use the content of the free Total Annihilation demo
@@ -60,7 +64,7 @@ from your copy of Total Annihilation and starting the game:
   <tbody>
     <tr><th colspan="3" align="left">Desktop platforms</th></tr>
     <tr><td align="center"><img alt="macOS" src="docs/images/platforms/macos.svg"></td><td>macOS 11 or later, Intel and Apple silicon</td><td><a href="docs/installation/macos.md">Installing on macOS</a></td></tr>
-    <tr><td align="center"><img alt="Windows" src="docs/images/platforms/windows.svg"></td><td>Windows XP SP3 to Windows 11: 64-bit, 32-bit and ARM</td><td><a href="docs/installation/windows.md">Installing on Windows</a></td></tr>
+    <tr><td align="center"><img alt="Windows" src="docs/images/platforms/windows.svg"></td><td>Windows 95 to Windows 11: 64-bit, 32-bit and ARM</td><td><a href="docs/installation/windows.md">Installing on Windows</a></td></tr>
     <tr><td align="center"><img alt="Linux" src="docs/images/platforms/linux.svg"></td><td>Linux: 64-bit PC, 64-bit ARM and 32-bit ARM</td><td><a href="docs/installation/linux.md">Installing on Linux</a></td></tr>
   </tbody>
   <tbody>
@@ -109,12 +113,20 @@ Total Annihilation: Kingdoms:
 
 ## Settings
 
-Open Annihilation's own settings open from the **OA** button at the bottom
-right of the main menu, or under Resume in the in-game menu (F2), and with
-**Cmd+,** on macOS (also **Settings…** in the application menu) or
-**Ctrl+,** elsewhere. [docs/settings.md](docs/settings.md) shows each
+Open Annihilation's own settings open with **Cmd+,** on macOS (also
+**Settings…** in the application menu) or **Ctrl+,** elsewhere, from
+**SETTINGS…** in the Library, and from the **OA** button under Resume in
+the in-game menu (F2). [docs/settings.md](docs/settings.md) shows each
 section of the settings and explains every setting: what it does, its
 default, when it takes effect and when you might change it.
+
+The **OA** button at the bottom right of the main menu opens the Library,
+where mods, map packs and languages are found, installed, updated and
+rolled back without leaving the game: see [docs/library.md](docs/library.md),
+and [docs/downloads.md](docs/downloads.md) for registries and exactly what
+a download sends and records. The first time that menu is reached, a short
+welcome chooses a language, explains online features and points out the
+two buttons: see [docs/first-run.md](docs/first-run.md).
 
 ## Mods
 
@@ -122,18 +134,41 @@ Open Annihilation plays mods as well as 3.1c: a mod describes how it differs
 from 3.1c in one `oamod.yaml` file, and the engine applies the standard
 hacks it names, with no code for any particular mod. See
 [Mod support](docs/mods/README.md) for installing and choosing a mod, the
-profile format and every standard hack.
+profile format and every standard hack. Mods published to a registry are
+installed and updated from [the Library](docs/library.md), and map packs
+add maps the same way ([docs/maps/README.md](docs/maps/README.md)).
 
 ## Network games from the command line
 
 Network play goes through the Multiplayer screens, as in 3.1c, but asks
 for no game disc: START never counts discs. Every OA player still tells the
-other machines it has one, since a 3.1c host counts them, and the battle
-room shows a CD icon only for a player on 3.1c. OA tells its own players
-from those on 3.1c by the setup block each sends (record 0x20): OA writes
-`O` and `A` at +0xAD and +0xAE, bytes 3.1c carries unchanged and never
-reads. An OA build older than this one writes no mark, so its players show
-a CD icon too.
+other machines it has one, since a 3.1c host counts them. In the battle
+room a player on 3.1c shows the CD icon, and an OA player the app icon,
+the plates alone, in its place. The badge is drawn at the window's own
+pixels and scaled to that rectangle with an area filter, so it stays sharp
+at any window size and a clear corner stays clear. A dot on it means that
+player's rules differ from the host's. Where the window cannot draw the
+icon, the frame keeps the small badge it draws in the rectangle. OA tells
+its own players from those on 3.1c by the setup
+block each sends (record 0x20): OA writes `O` and `A` at +0xAD and +0xAE,
+bytes 3.1c carries unchanged and never reads. OA builds before 0.7.4 write
+no mark, so their players show a CD icon too.
+
+Rest the pointer on an OA badge for a moment and that player's card opens:
+their Open Annihilation version, then the platform and architecture on the
+next line (a field left empty is left out, and the line with it when both
+are), their mod and its revision, whether their rules are the host's, how
+many hacks change the game or only the view, Developer Mode, and on the
+host's card the map pack its map comes from. The mark beside the name is
+the same icon. F1 or Return on a player's row, reached with Tab or the
+arrow keys, opens it too, as do View and A on a controller and a tap on
+the badge; Escape closes it. The card shows what that player's machine sent
+in its presence record, which OA sends only to the players whose setup blocks
+carry the mark, each alone in its frame. OA 0.7.4 players carry the mark
+too: they receive the record and ignore it, and their cards say only "Open
+Annihilation (before 0.8)". No 3.1c machine receives one, and a 3.1c
+player sees nothing new. The setup block carries nothing else new:
+the five bytes +0xAF to +0xB3 stay zero, as 0.7.4 sends them.
 
 To host or join a TCP/IP game without the screens, start the game with:
 
@@ -151,10 +186,18 @@ With either:
   game to join when several answer at the address.
 - `--game-password PASSWORD`: with `--host`, the game's password; with
   `--join`, the password sent.
+- `--dplay-guid GUID`: the application GUID this game hosts under and
+  looks for. Without it, the game uses Total Annihilation's own,
+  `{99797420-F5F5-11CF-9827-00A0241496C8}`, so a game stays visible to
+  3.1c and to Open Annihilation started the same way. See
+  [the command line](docs/command-line.md) for the form, and
+  [which games are listed](docs/multiplayer/application-guid.md) for why
+  a launcher's per-mod GUID belongs here.
 
-Each is what you would type in the screens, and the same rules apply: a
-name keeps 16 characters at most, and a password 10. Without them, the
-screens' own entries are used. The intro is skipped, and your saved
+Each is what you would type in the screens, and the same limits apply: a
+name has 16 characters at most, and a password 10, and a longer one is
+refused ([launch settings](docs/command-line.md#launch-settings)). Without
+them, the screens' own entries are used. The intro is skipped, and your saved
 address, name and password stay as they were. The game says on its
 standard output when the battle room opens and who is in it:
 
@@ -340,8 +383,11 @@ file.
    with `--choose-game-dir` to choose again, or with `--game-dir <folder>` to
    use the demo for one run only.
 
-The first time, Open Annihilation checks the file and unpacks the demo's
-game data, about 20 MB, into a `demo-1997` folder in its per-user data folder:
+The first time, Open Annihilation checks the file and copies the demo's
+game data, about 20 MB, into `Games/totala-demo` in the player's Open
+Annihilation folder, with its `.oa-content` record. An earlier unpack in
+`demo-1997` of the per-user data folder is copied from once and left there.
+That earlier folder is:
 
 - **macOS:** `~/Library/Application Support/net.coreprime.open-annihilation`,
   beside its preferences. Earlier versions named it

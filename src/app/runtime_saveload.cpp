@@ -825,10 +825,7 @@ persist::SaveHooks Runtime::SaveLoadState::make_hooks(Bindings* bindings) {
     };
     // The runtime's camera placement.
     hooks.set_camera = [](void* context, int32_t x, int32_t z) {
-        auto* runtime = static_cast<Bindings*>(context)->runtime;
-        runtime->match_camera_x_ = x;
-        runtime->match_camera_z_ = z;
-        runtime->match_camera_flags_ = 0;
+        static_cast<Bindings*>(context)->runtime->set_camera_position(x, z, 0);
     };
     hooks.write_script = [](void* context, oa::Unit* unit, persist::Bank* bank) {
         auto* b = static_cast<Bindings*>(context);
@@ -1075,6 +1072,8 @@ bool Runtime::write_saved_game(
     const bool written = persist::save_write_game(
         &save, &summary, path_to_utf8(path).c_str(), description, game_id, &sink
     );
+    if (written)
+        note_content_beside(path);
     // Between missions the save loads the next mission's information to name
     // it, then binds the finished mission again. The file holds none of that
     // information, so a mission that does not load leaves the save as it is:
@@ -1285,7 +1284,19 @@ bool Runtime::start_saved_game(std::string_view dialog_path) {
     if (refuse_incomplete_mod_start())
         return false;
     try {
-        return load_saved_game(game_file_path(dialog_path, ui::frontend::SavePathUse::read));
+        const fs::path path = game_file_path(dialog_path, ui::frontend::SavePathUse::read);
+        std::string title(dialog_path);
+        ui::frontend::LoadSummary summary;
+        if (read_save_summary(path, summary)) {
+            title.assign(
+                summary.mission.data(), strnlen(summary.mission.data(), summary.mission.size())
+            );
+        }
+        if (title.empty())
+            title = path_to_utf8(path.stem());
+        if (offer_content_switch(path, title, false))
+            return false;
+        return load_saved_game(path);
     } catch (const std::exception& failure) {
         status_ = std::string("Saved game start: ") + failure.what();
         std::cerr << "unsupported operation: " << status_ << '\n';
@@ -1584,6 +1595,10 @@ bool Runtime::load_saved_campaign(
         start_campaign_mission();
     }
     if (!match_ || !campaign_mission_ || screen_ != Screen::match) {
+        // No match was built, so the kept skirmish setup is dropped and the
+        // player's slots are current again.
+        if (!match_)
+            release_player_skirmish_settings();
         status_ = "Saved campaign start failed: " + status_;
         return false;
     }
