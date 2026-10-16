@@ -484,7 +484,7 @@ void Runtime::draw_megamap() {
         bool visible = own;
         if (!visible) {
             try {
-                visible = match_->unit_visible(viewer, unit.id);
+                visible = match_->unit_shown(viewer, unit.id);
             } catch (const std::exception&) {
                 visible = false;
             }

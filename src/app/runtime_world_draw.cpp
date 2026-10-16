@@ -398,7 +398,7 @@ void Runtime::plan_match_projectiles(
         if (weapon == nullptr || shot.burst_remaining != 0)
             continue;
         try {
-            if (!match_->point_visible(
+            if (!match_->point_shown(
                     static_cast<uint8_t>(match_view_player()),
                     oa::sim::match_runtime::fixed_words(shot.position)
                 ))

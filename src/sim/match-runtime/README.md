@@ -278,7 +278,12 @@ Coverage is kept for each of the ten players, while the mapped bits are
 shared. `unit_visible` samples four corners of the unit's footprint and model
 bounds, with the owner, cloak and submerged gates. `point_visible` uses the
 asking player's coverage under line of sight, and the viewpoint player's
-mapped bit under the mapping rule alone.
+mapped bit under the mapping rule alone. Both read the coverage as the
+simulation does, 3.1c's byte, so a cell 256 stamps see is out of sight to
+everything that decides the simulation's results. `unit_shown`,
+`point_shown` and `cell_or_footprint_corner_shown` read the whole count
+instead, for what the player is shown alone: the fog, the radar, the units,
+shots and features drawn, and the pointer and panels over them.
 
 `scan_contacts` builds the viewpoint player's radar picture every 30 ticks:
 it first marks its own and radar-sharing players' units as contacts, then
@@ -297,7 +302,7 @@ shared-radar role needed:
   units;
 - `unit_visible` passes every unit whose owner allies the asking player
   before the cloak and sight tests, which the computer players' sightings,
-  scripts' effects and the drawn units all go through;
+  scripts' effects and, through `unit_shown`, the drawn units all go through;
 - the contact scan marks every unit of such an owner, then runs its passes
   once for each player allying the viewer, in player order and each as the
   viewing player, so jamming in a later ally's pass clears what an earlier

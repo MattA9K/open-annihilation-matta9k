@@ -20,6 +20,14 @@ routines themselves do not throw.
   remembered-sight table; `expire_remembered_sight` lets it lapse through
   `remembered_sight_expired` and `compact_remembered_sight`.
 
+Each player's coverage holds, per sight cell, the count of the stamps that
+see it, in 16 bits. 3.1c keeps that count in a byte, so a cell 256 stamps
+see, as the cells beside a crowd under altitude sight are, reads as out of
+sight. `count_in_sight` reads a count one of two ways: the simulation's
+reading (`SightReading::simulation`) takes the low byte and keeps 3.1c's
+results, and the player's reading (`SightReading::player`) takes the whole
+count, for what the player is shown alone.
+
 Under allied vision (`SightContext::allied_vision`, the hack
 `intel.allied-los-sharing`) every count of a stamp goes to each player in
 use whose row the owner's alliance row names, in player order, then to the

@@ -7,6 +7,7 @@
 #include "oa/app/runtime.hpp"
 #include "oa/ui/console/game_fields.hpp"
 #include "oa/ui/hud/order_panel.hpp"
+#include "oa/sim/visibility_state.hpp"
 
 #include <SDL3/SDL.h>
 
@@ -1019,7 +1020,11 @@ void Runtime::check_order_overlays_over_fog(uint16_t commander, uint16_t scout) 
                 const auto index =
                     static_cast<std::size_t>(z) * static_cast<std::size_t>(sight.width) +
                     static_cast<std::size_t>(column);
-                const bool seen = index < coverage.size() && coverage[index] != 0;
+                const bool seen =
+                    index < coverage.size() &&
+                    oa::sim::visibility_state::count_in_sight(
+                        coverage[index], oa::sim::visibility_state::SightReading::player
+                    );
                 const bool mapped = index < sight.player_bits.size() &&
                                     (sight.player_bits[index] & viewer_bit) != 0;
                 const auto here = !mapped ? Fog::black : seen ? Fog::clear : Fog::gray;

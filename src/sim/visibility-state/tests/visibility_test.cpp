@@ -36,17 +36,17 @@ PlayerSightGrid make_grid(int32_t width, int32_t height, uint8_t viewpoint) {
 // Coverage of the viewer in the grid, every other player in `others`.
 SightContext make_context(
     PlayerSightGrid& grid,
-    std::vector<std::vector<uint8_t>>& others,
+    std::vector<std::vector<uint16_t>>& others,
     std::span<const SightMask> masks,
     uint16_t rules
 ) {
     SightContext context;
     context.grid = &grid;
-    others.assign(OA_PLAYER_COUNT, std::vector<uint8_t>(grid.coverage.size()));
+    others.assign(OA_PLAYER_COUNT, std::vector<uint16_t>(grid.coverage.size()));
     for (std::size_t player = 0; player < OA_PLAYER_COUNT; ++player)
         context.coverage[player] = player == grid.viewpoint_player
-                                       ? std::span<uint8_t>(grid.coverage)
-                                       : std::span<uint8_t>(others[player]);
+                                       ? std::span<uint16_t>(grid.coverage)
+                                       : std::span<uint16_t>(others[player]);
     context.masks = masks;
     context.visibility_flags = rules;
     return context;
@@ -102,7 +102,7 @@ void standard_stamps() {
     auto grid = make_grid(4, 3, 2);
     grid.game = game.get();
     clear_marks(grid);
-    std::vector<std::vector<uint8_t>> others;
+    std::vector<std::vector<uint16_t>> others;
     auto context = make_context(grid, others, masks, update_sight_grid | terrain_mapping);
     CHECK(sight_context_error(context) == nullptr);
 
@@ -128,20 +128,26 @@ void standard_stamps() {
     refresh_area_coverage(stamp, context);
     CHECK(stamp.center_x == 2 && stamp.center_z == 1 && stamp.band == 0);
     // The mask's third column falls off the grid's right edge.
-    CHECK(grid.coverage == std::vector<uint8_t>({0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1}));
+    CHECK(grid.coverage == std::vector<uint16_t>({0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1}));
     CHECK(grid.player_bits[6] == 4 && grid.player_bits[10] == 4 && grid.player_bits[11] == 4);
     CHECK(grid.player_bits[7] == 0 && marked(grid));
 
-    // Adding and removing the same stamp is symmetric, and counts wrap.
+    // Adding and removing the same stamp is symmetric, and counts wrap: the
+    // simulation reads 255 below none, as 3.1c's byte does.
     add_area_coverage(stamp, context);
     CHECK(grid.coverage[6] == 2 && grid.coverage[10] == 2 && grid.coverage[11] == 2);
     remove_area_coverage(stamp, context);
     remove_area_coverage(stamp, context);
-    CHECK(grid.coverage == std::vector<uint8_t>(12));
+    CHECK(grid.coverage == std::vector<uint16_t>(12));
     remove_area_coverage(stamp, context);
-    CHECK(grid.coverage[6] == 255 && grid.coverage[10] == 255 && grid.coverage[7] == 0);
+    CHECK(static_cast<uint8_t>(grid.coverage[6]) == 255 && grid.coverage[7] == 0);
+    CHECK(static_cast<uint8_t>(grid.coverage[10]) == 255);
+    CHECK(count_in_sight(grid.coverage[6], SightReading::simulation));
+    CHECK(count_in_sight(grid.coverage[6], SightReading::player));
+    CHECK(!count_in_sight(grid.coverage[7], SightReading::simulation));
+    CHECK(!count_in_sight(grid.coverage[7], SightReading::player));
     add_area_coverage(stamp, context);
-    CHECK(grid.coverage == std::vector<uint8_t>(12));
+    CHECK(grid.coverage == std::vector<uint16_t>(12));
     // Mapped bits are never taken back.
     CHECK(grid.player_bits[6] == 4);
 
@@ -151,7 +157,7 @@ void standard_stamps() {
     off_grid.center_x = 100;
     off_grid.center_z = 100;
     add_area_coverage(off_grid, context);
-    CHECK(marked(grid) && grid.coverage == std::vector<uint8_t>(12));
+    CHECK(marked(grid) && grid.coverage == std::vector<uint16_t>(12));
     // A stamp hanging off the top-left corner keeps its in-grid cells.
     SightStamp corner = stamp;
     corner.center_x = -1;
@@ -186,7 +192,7 @@ void standard_stamps() {
     mixed.center_z = 0;
     add_area_coverage(mixed, band_context);
     map_area(mixed, band_context);
-    CHECK(banded.coverage == std::vector<uint8_t>({1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}));
+    CHECK(banded.coverage == std::vector<uint16_t>({1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}));
     CHECK(banded.player_bits[0] == 4 && banded.player_bits[2] == 4 && banded.player_bits[5] == 4);
     // A band past the table stamps nothing.
     mixed.band = 2;
@@ -197,7 +203,7 @@ void standard_stamps() {
 void moving_stamps() {
     const SightMask masks[1]{{1, 1, 0, 0, 0, {1}}};
     auto grid = make_grid(4, 3, 0);
-    std::vector<std::vector<uint8_t>> others;
+    std::vector<std::vector<uint16_t>> others;
     auto context = make_context(grid, others, masks, update_sight_grid);
     SightStamp stamp{0, 0, 0, 160, 0, 0, 1 * 0x200000, 65536, 1 * 0x200000};
     refresh_area_coverage(stamp, context);
@@ -238,7 +244,7 @@ void altitude_stamps() {
     std::vector<AltitudeSightPattern> patterns{radius_one, empty_pattern};
     AltitudeSightData altitude{5, 5, heights, patterns};
     auto grid = make_grid(5, 5, 1);
-    std::vector<std::vector<uint8_t>> others;
+    std::vector<std::vector<uint16_t>> others;
     auto context = make_context(
         grid, others, {}, update_sight_grid | altitude_sight_algorithm | terrain_mapping
     );
@@ -270,14 +276,14 @@ void altitude_stamps() {
     );
     // Removing mirrors adding.
     remove_area_coverage(stamp, context);
-    CHECK(grid.coverage == std::vector<uint8_t>(25));
+    CHECK(grid.coverage == std::vector<uint16_t>(25));
     add_area_coverage(stamp, context);
     CHECK(grid.coverage[18] == 1 && grid.coverage[19] == 1);
 
     // Leaving the grid removes the stamp and stores band 0.
     stamp.position_x = 200 << 16;
     update_area_coverage(stamp, context);
-    CHECK(stamp.band == 0 && stamp.center_x == 6 && grid.coverage == std::vector<uint8_t>(25));
+    CHECK(stamp.band == 0 && stamp.center_x == 6 && grid.coverage == std::vector<uint16_t>(25));
     // A stamp stored at altitude 0 is never removed.
     SightStamp ground = stamp;
     ground.position_x = 64 << 16;
@@ -306,10 +312,44 @@ void altitude_stamps() {
     CHECK(low.coverage[17] == 2 && low.coverage[18] == 1);
 }
 
+// Under altitude sight every ray through a cell counts it, so a crowd counts
+// the cells beside it hundreds of times. A cell counted 256 times is out of
+// the simulation's sight, as in 3.1c, but in the player's.
+void crowded_altitude_sight() {
+    std::vector<AltitudeCell> heights(25, AltitudeCell{20, 20});
+    const std::string_view lines[]{"1, 0, 1", "2, 0, 1, 0, 2"};
+    std::vector<AltitudeSightPattern> patterns{build_altitude_pattern(lines), {}};
+    AltitudeSightData altitude{5, 5, heights, patterns};
+    auto grid = make_grid(5, 5, 1);
+    std::vector<std::vector<uint16_t>> others;
+    auto context = make_context(grid, others, {}, update_sight_grid | altitude_sight_algorithm);
+    context.altitude = &altitude;
+    // At altitude 20 + 10 the stamp is cell (2, 2); both north rays start
+    // in the cell above it, and the longer one goes on to the top row.
+    std::vector<SightStamp> crowd(
+        128, SightStamp{1, 0, 0, 32, 10, 0, 64 << 16, 20 << 16, 79 << 16}
+    );
+    for (auto& unit : crowd)
+        refresh_area_coverage(unit, context);
+    CHECK(crowd[0].center_x == 2 && crowd[0].center_z == 2 && crowd[0].band == 30);
+    CHECK(grid.coverage[12] == 128 && grid.coverage[2] == 128 && grid.coverage[7] == 256);
+    CHECK(count_in_sight(grid.coverage[12], SightReading::simulation));
+    CHECK(!count_in_sight(grid.coverage[7], SightReading::simulation));
+    CHECK(count_in_sight(grid.coverage[7], SightReading::player));
+    // One unit more brings the cell back into the simulation's sight.
+    auto last = crowd.back();
+    add_area_coverage(last, context);
+    CHECK(count_in_sight(grid.coverage[7], SightReading::simulation));
+    remove_area_coverage(last, context);
+    for (const auto& unit : crowd)
+        remove_area_coverage(unit, context);
+    CHECK(grid.coverage == std::vector<uint16_t>(25));
+}
+
 void unit_stamps() {
     const SightMask masks[1]{{1, 1, 0, 0, 0, {1}}};
     auto grid = make_grid(4, 3, 0);
-    std::vector<std::vector<uint8_t>> others;
+    std::vector<std::vector<uint16_t>> others;
     auto context = make_context(grid, others, masks, update_sight_grid | terrain_mapping);
     context.minimum_height_cell = 3;
     oa::Player owner{};
@@ -341,7 +381,7 @@ void unit_stamps() {
 void remembered_sight() {
     const SightMask masks[1]{{1, 1, 0, 0, 0, {1}}};
     auto grid = make_grid(4, 3, 2);
-    std::vector<std::vector<uint8_t>> others;
+    std::vector<std::vector<uint16_t>> others;
     auto context = make_context(grid, others, masks, terrain_mapping);
     context.minimum_height_cell = 2;
     EyeballMemory memory;
@@ -376,7 +416,7 @@ void remembered_sight() {
         memory.count == 1 && memory.slots[0].expiry == 100 && memory.slots[0].stamp.center_x == 1
     );
     CHECK(memory.slots[2].expiry == 100);
-    CHECK(grid.coverage == std::vector<uint8_t>({0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}));
+    CHECK(grid.coverage == std::vector<uint16_t>({0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}));
     CHECK(grid.player_bits[11] == 4);
 
     // Compaction keeps the live records in order.
@@ -407,7 +447,7 @@ void remembered_altitude_sight() {
     std::vector<AltitudeSightPattern> patterns{radius_one, {}};
     AltitudeSightData altitude{5, 5, heights, patterns};
     auto grid = make_grid(5, 5, 1);
-    std::vector<std::vector<uint8_t>> others;
+    std::vector<std::vector<uint16_t>> others;
     auto context = make_context(
         grid, others, {}, update_sight_grid | altitude_sight_algorithm | terrain_mapping
     );
@@ -423,7 +463,7 @@ void remembered_altitude_sight() {
         memory.count == 1 && memory.slots[0].stamp.band == 0 &&
         memory.slots[0].stamp.position_y == 65536
     );
-    CHECK(memory.slots[0].expiry == 70 && grid.coverage == std::vector<uint8_t>(25));
+    CHECK(memory.slots[0].expiry == 70 && grid.coverage == std::vector<uint16_t>(25));
     remember_sight(memory, {64 << 16, 0, 128 << 16}, 32, 2, 60, 10, context);
     CHECK(memory.count == 2 && memory.slots[1].stamp.band == 3);
     CHECK(
@@ -435,14 +475,14 @@ void remembered_altitude_sight() {
 void context_errors() {
     const SightMask short_mask[1]{{2, 2, 0, 0, 0, {1}}};
     auto grid = make_grid(4, 3, 0);
-    std::vector<std::vector<uint8_t>> others;
+    std::vector<std::vector<uint16_t>> others;
     auto context = make_context(grid, others, {}, update_sight_grid);
     CHECK(std::string_view(sight_context_error(context)) == "sight mask table is empty");
     context.masks = short_mask;
     CHECK(std::string_view(sight_context_error(context)) == "sight mask pixels are truncated");
     const SightMask mask[1]{{1, 1, 0, 0, 0, {1}}};
     context.masks = mask;
-    std::vector<uint8_t> small(3);
+    std::vector<uint16_t> small(3);
     context.coverage[7] = small;
     CHECK(std::string_view(sight_context_error(context)) == "coverage grid dimensions are invalid");
     context.coverage[7] = {};
@@ -486,7 +526,7 @@ void allied_vision_stamps() {
     game->viewpoint_player = 0;
     auto grid = make_grid(4, 3, 0);
     grid.game = game.get();
-    std::vector<std::vector<uint8_t>> others;
+    std::vector<std::vector<uint16_t>> others;
     auto context = make_context(grid, others, masks, update_sight_grid);
     // Player 1 allies 0 and 2; 0 allies 1 back; 3 allies 1 but 1 does not ally 3.
     game->players[1].alliance[0] = 1;
@@ -567,7 +607,7 @@ void allied_vision_keeps_last_ally() {
     game->players[0].alliance[2] = 1;
     auto grid = make_grid(4, 3, 0);
     grid.game = game.get();
-    std::vector<std::vector<uint8_t>> others;
+    std::vector<std::vector<uint16_t>> others;
     auto context = make_context(grid, others, masks, update_sight_grid | terrain_mapping);
     context.allied_vision = true;
     SightStamp stamp{1, 0, 0, 160, 0, 0, 1 * 0x200000, 65536, 1 * 0x200000};
@@ -644,6 +684,7 @@ int main() {
     standard_stamps();
     moving_stamps();
     altitude_stamps();
+    crowded_altitude_sight();
     unit_stamps();
     remembered_sight();
     remembered_altitude_sight();

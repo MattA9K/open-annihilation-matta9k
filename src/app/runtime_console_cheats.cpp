@@ -551,7 +551,7 @@ std::string Runtime::check_console_cheat_effects(
         for (const auto& slot : match_->world().slots)
             if (slot.unit != nullptr && slot.record.type_index != 0 &&
                 slot.record.owner_index != viewer && (slot.record.flags & OA_UNIT_FLAG_LIVE) != 0 &&
-                !match_->unit_visible(viewer, slot.unit_index))
+                !match_->unit_shown(viewer, slot.unit_index))
                 ++count;
         return count;
     };

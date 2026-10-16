@@ -157,7 +157,7 @@ struct SceneView {
 /// The viewer's sight, from which a stage tells the fog's state at a cell:
 /// the sight grid's cells of fog_cell_pixels map pixels a side.
 struct SightView {
-    std::span<const uint8_t> coverage{};     ///< units of the viewer seeing each cell
+    std::span<const uint16_t> coverage{};    ///< stamps of the viewer seeing each cell
     std::span<const uint16_t> player_bits{}; ///< the players that have mapped each cell
     int32_t width{};                         ///< cells across
     int32_t height{};                        ///< cells down

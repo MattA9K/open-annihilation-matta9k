@@ -1213,7 +1213,7 @@ void test_fog_states() {
     // The sight grid: 4 by 4 cells, cell (1, 1) in sight, cell (2, 2)
     // never mapped, the rest mapped but out of sight.
     constexpr int32_t cells = 4;
-    std::vector<uint8_t> coverage(cells * cells, 0);
+    std::vector<uint16_t> coverage(cells * cells, 0);
     std::vector<uint16_t> player_bits(cells * cells, 1U << 3);
     coverage[1 * cells + 1] = 2;
     player_bits[2 * cells + 2] = 0;
@@ -1228,6 +1228,10 @@ void test_fog_states() {
     constexpr int32_t cell = wr::fog_cell_pixels;
     OA_CHECK(full::cell_fog(sight, cell + 5, cell + 5) == full::CellFog::seen);
     OA_CHECK(full::cell_fog(sight, 5, cell + 5) == full::CellFog::unseen);
+    // A cell 256 stamps see is in the player's sight.
+    coverage[0] = 256;
+    OA_CHECK(full::cell_fog(sight, 5, 5) == full::CellFog::seen);
+    coverage[0] = 0;
     // Out of sight counts before never mapped: the gray goes under the black.
     OA_CHECK(full::cell_fog(sight, 2 * cell + 1, 2 * cell + 1) == full::CellFog::unseen);
     OA_CHECK(full::cell_fog(sight, cells * cell + 1, 1) == full::CellFog::seen);

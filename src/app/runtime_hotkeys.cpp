@@ -679,7 +679,7 @@ bool Runtime::open_unit_info() {
         },
         [](void* user, const oa::Player& viewer, const oa::Unit& unit) {
             try {
-                return static_cast<Runtime*>(user)->match_->unit_visible(viewer.index, unit.id);
+                return static_cast<Runtime*>(user)->match_->unit_shown(viewer.index, unit.id);
             } catch (const std::exception&) {
                 return false;
             }

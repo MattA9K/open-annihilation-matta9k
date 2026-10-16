@@ -69,9 +69,32 @@ struct SpeedHost {
 [[nodiscard]] SpeedResult
 initialize_terrain_speed(SpeedUnit& unit, const TerrainGrid& terrain, SpeedHost* script);
 
+/// How a cell's count of the stamps seeing it is read. 3.1c keeps the count
+/// in a byte, so a cell 256 stamps see reads as out of sight; the counts here
+/// are 16 bits, and each reader takes the reading its result belongs to.
+enum class SightReading : uint8_t {
+    /// 3.1c's byte, the count's low eight bits: everything that decides the
+    /// simulation's results.
+    simulation,
+    /// The whole count: what the player is shown and nothing more, such as
+    /// the fog, the radar and the units and features drawn.
+    player,
+};
+
+/// Tells whether a cell's count puts it in sight.
+///
+/// @param count the cell's count of the stamps seeing it
+/// @param reading the simulation's reading or the player's
+/// @return true when the reading is not zero
+/// @quirk The simulation's reading wraps as 3.1c's byte does: a cell 256 stamps see is out of
+///        its sight, though the player is shown it in sight.
+[[nodiscard]] constexpr bool count_in_sight(uint16_t count, SightReading reading) noexcept {
+    return reading == SightReading::player ? count != 0 : static_cast<uint8_t>(count) != 0;
+}
+
 struct PlayerSightGrid {
     int32_t width{}, height{};
-    std::vector<uint8_t> coverage;
+    std::vector<uint16_t> coverage; ///< the viewpoint player's count of the stamps seeing each cell
     std::vector<uint16_t> player_bits;
     uint8_t viewpoint_player{};
     // Game block whose fog-mask and mapped-radar bits a change to the
@@ -170,13 +193,13 @@ struct EyeballMemory {
 
 // The state the stamp routines read and write: the game's visibility
 // rules and sea level (Game.visibility_flags and Game.sea_level), the stamp
-// tables, each player's coverage bytes (Player.coverage_grid) and the shared
-// mapped words.
+// tables, each player's coverage counts (Player.coverage_grid, read through
+// count_in_sight) and the shared mapped words.
 struct SightContext {
     PlayerSightGrid* grid{};
-    std::span<uint8_t> coverage[OA_PLAYER_COUNT]{}; // by Player.index
-    std::span<const SightMask> masks{};             // the standard sight masks, by band
-    const AltitudeSightData* altitude{};            // altitude heights and los.tdf rays
+    std::span<uint16_t> coverage[OA_PLAYER_COUNT]{}; // by Player.index
+    std::span<const SightMask> masks{};              // the standard sight masks, by band
+    const AltitudeSightData* altitude{};             // altitude heights and los.tdf rays
     uint16_t visibility_flags{};
     uint8_t minimum_height_cell{};
     // Allied vision (intel.allied-los-sharing): a stamp is counted for
@@ -228,7 +251,8 @@ void add_area_coverage(const SightStamp& stamp, SightContext& context) noexcept;
 ///
 /// @param stamp descriptor to remove, at its stored cell and band
 /// @param[in,out] context coverage grids and tables
-/// @quirk The byte counts wrap.
+/// @quirk The counts wrap. The simulation keeps 3.1c's wrapping byte by reading only a count's
+///        low eight bits, and the player's view reads the whole count (count_in_sight).
 void remove_area_coverage(const SightStamp& stamp, SightContext& context) noexcept;
 /// Sets the owner's mapped bit in each cell the stamp sees.
 ///

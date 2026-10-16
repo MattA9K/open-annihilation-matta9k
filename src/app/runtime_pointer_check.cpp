@@ -999,7 +999,7 @@ void Runtime::check_pointer_picks() {
     const auto map_z = [&](uint16_t id) {
         return static_cast<int32_t>(slots[id].unit->position[2] >> 16);
     };
-    const auto sees = [&](uint16_t id) { return match_->unit_visible(local, id); };
+    const auto sees = [&](uint16_t id) { return match_->unit_shown(local, id); };
     const auto listed = [&](uint16_t id) {
         return selection::unit_listed(world, on_screen_lists(), id);
     };

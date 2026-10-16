@@ -162,7 +162,7 @@ void Runtime::check_reclaim_cursor() {
             static_cast<uint32_t>(x * OA_MAP_CELL_PIXELS + 8) << 16U,
             static_cast<uint32_t>(z * OA_MAP_CELL_PIXELS + 8) << 16U
         );
-        return match_->point_visible(
+        return match_->point_shown(
             match_local_player_,
             {static_cast<uint32_t>(x * OA_MAP_CELL_PIXELS + 8) << 16U,
              static_cast<uint32_t>(std::max(height, 0)) << 16U,
@@ -301,7 +301,7 @@ void Runtime::check_reclaim_cursor() {
                 if (hovered_ || hovered_match_unit_ != 0)
                     continue;
                 const auto ground = match_world_point(fx, fy);
-                if (!ground || !match_->point_visible(
+                if (!ground || !match_->point_shown(
                                    match_local_player_,
                                    {static_cast<uint32_t>((*ground)[0]),
                                     static_cast<uint32_t>((*ground)[1]),
@@ -481,7 +481,7 @@ void Runtime::check_reclaim_cursor() {
             static_cast<uint32_t>((*ground)[1]),
             static_cast<uint32_t>((*ground)[2])
         };
-        if (match_->point_visible(match_local_player_, point) ||
+        if (match_->point_shown(match_local_player_, point) ||
             match_->point_mapped(point) != mapped)
             fail(
                 where + " is not out of sight on " +

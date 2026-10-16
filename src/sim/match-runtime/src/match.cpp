@@ -43,12 +43,12 @@ void fill_projection(
     }
 }
 
-// Sight grid fills: a mapped word holds one bit per player, a coverage byte
-// counts the units that see the cell.
+// Sight grid fills: a mapped word holds one bit per player, a coverage word
+// counts the stamps that see the cell.
 constexpr uint16_t mapped_by_nobody = 0x0000;
 constexpr uint16_t mapped_by_all = 0xffff;
-constexpr uint8_t unseen = 0;
-constexpr uint8_t seen_once = 1;
+constexpr uint16_t unseen = 0;
+constexpr uint16_t seen_once = 1;
 
 int16_t low(uint32_t word) {
     return std::bit_cast<int16_t>(static_cast<uint16_t>(word));
@@ -1170,17 +1170,27 @@ void Match::set_activation(sim::unit_spawn::Slot& slot, uint8_t mask, bool enabl
     sim::unit_activation::change(slot.record.state_flags, slot.unit_index, mask, enabled, host);
 }
 
-std::span<const uint8_t> Match::player_coverage(uint8_t owner) const {
+std::span<const uint16_t> Match::player_coverage(uint8_t owner) const {
     if (owner >= other_player_coverage_.size()) {
         fault_.note("coverage owner outside player table");
         return {};
     }
     return owner == input_.viewpoint_player
-               ? std::span<const uint8_t>(sight_.coverage)
-               : std::span<const uint8_t>(other_player_coverage_[owner]);
+               ? std::span<const uint16_t>(sight_.coverage)
+               : std::span<const uint16_t>(other_player_coverage_[owner]);
 }
 
 bool Match::unit_visible(uint8_t player, uint16_t index) const {
+    return unit_in_sight(player, index, sim::visibility_state::SightReading::simulation);
+}
+
+bool Match::unit_shown(uint8_t player, uint16_t index) const {
+    return unit_in_sight(player, index, sim::visibility_state::SightReading::player);
+}
+
+bool Match::unit_in_sight(
+    uint8_t player, uint16_t index, sim::visibility_state::SightReading reading
+) const {
     if (player >= simulation_.players.size()) {
         fault_.note("visibility owner outside player table");
         return false;
@@ -1208,17 +1218,17 @@ bool Match::unit_visible(uint8_t player, uint16_t index) const {
     if (!(unit.flags & OA_UNIT_FLAG_VIEWPOINT_OWNED) &&
         std::bit_cast<int32_t>(point[1]) < static_cast<int32_t>(simulation_.sea_level) * 65536)
         return false;
-    if (point_visible(player, point))
+    if (point_in_sight(player, point, reading))
         return true;
     point[0] += static_cast<uint32_t>(bounds->size_x);
-    if (point_visible(player, point))
+    if (point_in_sight(player, point, reading))
         return true;
     point[2] += static_cast<uint32_t>(bounds->size_z);
     point[1] -= static_cast<uint32_t>(bounds->size_y);
-    if (point_visible(player, point))
+    if (point_in_sight(player, point, reading))
         return true;
     point[0] -= static_cast<uint32_t>(bounds->size_x);
-    return point_visible(player, point);
+    return point_in_sight(player, point, reading);
 }
 
 namespace {
@@ -1240,14 +1250,27 @@ std::optional<std::size_t> sight_cell(
 } // namespace
 
 bool Match::point_visible(uint8_t player, const std::array<uint32_t, 3>& position) const {
+    return point_in_sight(player, position, sim::visibility_state::SightReading::simulation);
+}
+
+bool Match::point_shown(uint8_t player, const std::array<uint32_t, 3>& position) const {
+    return point_in_sight(player, position, sim::visibility_state::SightReading::player);
+}
+
+bool Match::point_in_sight(
+    uint8_t player,
+    const std::array<uint32_t, 3>& position,
+    sim::visibility_state::SightReading reading
+) const {
     const auto coverage = player_coverage(player);
     if ((state().game.visibility_flags & sim::visibility_state::update_sight_grid) == 0)
         return point_mapped(position);
     const auto index = sight_cell(sight_, position);
-    return index && *index < coverage.size() && coverage[*index] != 0;
+    return index && *index < coverage.size() &&
+           sim::visibility_state::count_in_sight(coverage[*index], reading);
 }
 
-bool Match::cell_or_footprint_corner_visible(
+bool Match::cell_or_footprint_corner_shown(
     uint8_t player,
     int16_t cell_x,
     int16_t cell_z,
@@ -1266,8 +1289,8 @@ bool Match::cell_or_footprint_corner_visible(
     };
     const auto x = cell_x * units_per_cell;
     const auto z = cell_z * units_per_cell;
-    return point_visible(player, point(x, z)) ||
-           point_visible(
+    return point_shown(player, point(x, z)) ||
+           point_shown(
                player, point(x + footprint_x * units_per_cell, z + footprint_z * units_per_cell)
            );
 }
@@ -1293,8 +1316,8 @@ sim::visibility_state::SightContext Match::sight_context() {
     context.grid = &sight_;
     for (std::size_t player = 0; player < other_player_coverage_.size(); ++player)
         context.coverage[player] = player == input_.viewpoint_player
-                                       ? std::span<uint8_t>(sight_.coverage)
-                                       : std::span<uint8_t>(other_player_coverage_[player]);
+                                       ? std::span<uint16_t>(sight_.coverage)
+                                       : std::span<uint16_t>(other_player_coverage_[player]);
     context.masks = input_.sight_masks;
     context.altitude = input_.altitude_sight ? &*input_.altitude_sight : nullptr;
     context.visibility_flags = state().game.visibility_flags;

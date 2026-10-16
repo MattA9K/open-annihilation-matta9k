@@ -413,7 +413,7 @@ struct VisibilityGlue {
     uint8_t viewer{};
 
     /// Tells whether the viewer's view draws a unit
-    /// (UnitVisibilityHooks::visible): Match::unit_visible for the viewer;
+    /// (UnitVisibilityHooks::visible): Match::unit_shown for the viewer;
     /// a unit the match cannot answer for counts as drawn.
     ///
     /// @param context the VisibilityGlue
@@ -425,7 +425,7 @@ struct VisibilityGlue {
         if (unit >= slots.size() || slots[unit].unit == nullptr)
             return false;
         try {
-            return glue.match->unit_visible(glue.viewer, unit);
+            return glue.match->unit_shown(glue.viewer, unit);
         } catch (const std::exception&) {
             return true;
         }

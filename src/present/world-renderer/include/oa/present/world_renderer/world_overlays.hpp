@@ -279,11 +279,11 @@ struct DebugSearchCell {
 
 // What the debug grid reads outside the Game block, resolved by the caller.
 struct DebugGridSources {
-    const MapPlot* plots = nullptr;    // Game.map_cells
-    const uint8_t* coverage = nullptr; // viewpoint Player.coverage_grid (sight view)
-    const void* small_font = nullptr;  // smlfont, loaded at start-up
-    int32_t contour_spacing = 0;       // "Contour" debug variable; 0 draws no contours
-    int32_t contour_phase = 0;         // contour phase debug variable
+    const MapPlot* plots = nullptr;     // Game.map_cells
+    const uint16_t* coverage = nullptr; // viewpoint Player.coverage_grid (sight view)
+    const void* small_font = nullptr;   // smlfont, loaded at start-up
+    int32_t contour_spacing = 0;        // "Contour" debug variable; 0 draws no contours
+    int32_t contour_phase = 0;          // contour phase debug variable
     void* user = nullptr;
     /// Opens the movement class grid of the local player's next selected unit.
     ///

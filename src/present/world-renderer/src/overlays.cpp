@@ -3,6 +3,7 @@
 
 #include "oa/present/world_renderer/world_overlays.hpp"
 #include "oa/core/map_plot.h"
+#include "oa/sim/visibility_state.hpp"
 
 #include "oa/present/world_renderer/world_camera.hpp"
 #include "oa/present/world_renderer/world_radar.hpp"
@@ -632,10 +633,13 @@ void overlay_debug_grid(
                 draw_line(raster, surface, p[0], p[1], p[2], p[3], color);
                 draw_line(raster, surface, p[0], p[1], p[6], p[7], color);
                 if (sources.coverage != nullptr &&
-                    sources.coverage
+                    sim::visibility_state::count_in_sight(
+                        sources.coverage
                             [static_cast<int32_t>(viewer.sight_width) *
                                  (row / sight_cells_per_plot_cell) +
-                             column / sight_cells_per_plot_cell] != 0)
+                             column / sight_cells_per_plot_cell],
+                        sim::visibility_state::SightReading::player
+                    ))
                     fill_rect(
                         raster,
                         surface,

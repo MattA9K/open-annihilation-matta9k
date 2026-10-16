@@ -364,7 +364,7 @@ int32_t fog_map_span(uint32_t zoom_fp, int32_t count) noexcept {
 FogGrid build_fog_grid(
     const sim::visibility_state::PlayerSightGrid& sight,
     uint8_t viewer,
-    std::span<const uint8_t> coverage,
+    std::span<const uint16_t> coverage,
     FogOptions options,
     int32_t camera_x,
     int32_t camera_z,
@@ -398,7 +398,10 @@ FogGrid build_fog_grid(
                                static_cast<std::size_t>(x);
             if (index >= cells)
                 continue;
-            const bool in_sight = index < coverage.size() && coverage[index] != 0;
+            const bool in_sight = index < coverage.size() &&
+                                  sim::visibility_state::count_in_sight(
+                                      coverage[index], sim::visibility_state::SightReading::player
+                                  );
             if (!in_sight && options.line_of_sight)
                 mark_cell_corners(grid, FogLayer::unseen, column, row);
             const bool mapped = !options.mapping || (index < sight.player_bits.size() &&

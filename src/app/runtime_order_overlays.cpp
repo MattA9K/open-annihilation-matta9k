@@ -167,7 +167,7 @@ Runtime::OrderOverlayPass Runtime::draw_order_overlays(
         if (viewer == nullptr)
             return false;
         try {
-            return match.unit_visible(viewer->index, unit.id);
+            return match.unit_shown(viewer->index, unit.id);
         } catch (const std::exception&) {
             return false;
         }

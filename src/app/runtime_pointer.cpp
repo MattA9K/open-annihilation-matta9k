@@ -327,7 +327,7 @@ oa::sim::selection::Hooks Runtime::selection_hooks() {
         [](void* context, const World&, const Player& player, const Unit& unit) {
             auto& self = *static_cast<Runtime*>(context);
             try {
-                return self.match_ != nullptr && self.match_->unit_visible(player.index, unit.id);
+                return self.match_ != nullptr && self.match_->unit_shown(player.index, unit.id);
             } catch (const std::exception&) {
                 return false;
             }

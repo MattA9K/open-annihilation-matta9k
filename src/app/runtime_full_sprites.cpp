@@ -9,6 +9,7 @@
 #include "runtime_full.hpp"
 
 #include "oa/present/world_renderer/world_fog.hpp"
+#include "oa/sim/visibility_state.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -248,7 +249,10 @@ CellFog cell_fog(const SightView& sight, int32_t map_x, int32_t map_z) noexcept 
         return CellFog::seen;
     const auto index = static_cast<std::size_t>(cell_z) * static_cast<std::size_t>(sight.width) +
                        static_cast<std::size_t>(cell_x);
-    const bool in_sight = index < sight.coverage.size() && sight.coverage[index] != 0;
+    const bool in_sight = index < sight.coverage.size() &&
+                          oa::sim::visibility_state::count_in_sight(
+                              sight.coverage[index], oa::sim::visibility_state::SightReading::player
+                          );
     if (!in_sight && sight.line_of_sight)
         return CellFog::unseen;
     const bool mapped = !sight.mapping || (index < sight.player_bits.size() &&

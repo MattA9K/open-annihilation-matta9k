@@ -97,7 +97,7 @@ std::size_t stamped_cell(const Fixture& f, const sim::unit_spawn::Slot& slot) {
 /// @param player the player whose coverage is read
 /// @param slot the unit
 /// @return the count
-uint8_t coverage_at(const Fixture& f, uint8_t player, const sim::unit_spawn::Slot& slot) {
+uint16_t coverage_at(const Fixture& f, uint8_t player, const sim::unit_spawn::Slot& slot) {
     return f.match->player_coverage(player)[stamped_cell(f, slot)];
 }
 

@@ -189,13 +189,13 @@ void Runtime::check_megamap_clicks() {
     // minimap and the megamap show it; then the enemy stands where it is.
     for (int step = 0;
          step < kSightTicks && !((slots[enemy].unit->flags & OA_UNIT_FLAG_RADAR_CONTACT) != 0 &&
-                                 match_->unit_visible(local, enemy));
+                                 match_->unit_shown(local, enemy));
          ++step)
         step_match_simulation();
     match_->stop_orders(enemy);
     render_match_surface();
     require(
-        match_->unit_visible(local, enemy) &&
+        match_->unit_shown(local, enemy) &&
             (slots[enemy].unit->flags & OA_UNIT_FLAG_RADAR_CONTACT) != 0,
         "the enemy is not in the mover's sight and on the radar"
     );

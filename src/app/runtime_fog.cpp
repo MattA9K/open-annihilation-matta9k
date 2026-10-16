@@ -43,7 +43,7 @@ void Runtime::apply_match_fog(
         (match_->state().game.graphics_flags & init::preference_flags::dithered_fog) != 0;
     // The fog shows the view player's sight and mapped terrain.
     const auto viewer = match_view_player();
-    std::span<const uint8_t> coverage;
+    std::span<const uint16_t> coverage;
     try {
         coverage = match_->player_coverage(viewer);
     } catch (const std::exception&) {
@@ -242,7 +242,7 @@ bool Runtime::feature_hidden_by_fog(uint16_t feature_index, int32_t cell_x, int3
     }
     const auto& footprint = feature_fog_rules_.footprints[feature_index];
     try {
-        return !match_->cell_or_footprint_corner_visible(
+        return !match_->cell_or_footprint_corner_shown(
             static_cast<uint8_t>(match_view_player()),
             static_cast<int16_t>(cell_x),
             static_cast<int16_t>(cell_z),

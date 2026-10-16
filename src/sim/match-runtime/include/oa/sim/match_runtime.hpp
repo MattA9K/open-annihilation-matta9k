@@ -2333,19 +2333,32 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     /// Returns a player's sight coverage grid.
     ///
     /// @param owner Player index 0..9; another is noted and has no grid.
-    /// @return One byte per sight cell: how many units see it.
-    std::span<const uint8_t> player_coverage(uint8_t owner) const;
-    /// Tells whether a player sees a unit: its own always, a cloaked one
-    /// never, one whose top is under the sea only when flagged shown under
-    /// water; otherwise when one of four corners of its bounds is in sight.
+    /// @return One count per sight cell of the stamps seeing it, read
+    ///     through sim::visibility_state::count_in_sight.
+    std::span<const uint16_t> player_coverage(uint8_t owner) const;
+    /// Tells whether a player sees a unit, as the simulation reads sight:
+    /// its own always, a cloaked one never, one whose top is under the sea
+    /// only when flagged shown under water; otherwise when one of four
+    /// corners of its bounds is in sight.
     ///
     /// @param player Player index; one outside the table is noted and sees
     ///     nothing.
     /// @param unit Unit slot; a type without bounds is noted and not seen.
     /// @return True when seen.
+    /// @quirk A corner's cell counted 256 times is out of sight, as in 3.1c.
     bool unit_visible(uint8_t player, uint16_t unit) const;
-    /// Tells whether a player has line of sight to a point, or under the
-    /// mapping rules alone whether the viewer mapped it.
+    /// Tells whether the player's view shows a unit, as unit_visible tells
+    /// but reading each cell's whole count. Only what the player is shown
+    /// reads it.
+    ///
+    /// @param player Player index; one outside the table is noted and sees
+    ///     nothing.
+    /// @param unit Unit slot; a type without bounds is noted and not seen.
+    /// @return True when shown.
+    bool unit_shown(uint8_t player, uint16_t unit) const;
+    /// Tells whether a player has line of sight to a point, as the
+    /// simulation reads sight, or under the mapping rules alone whether the
+    /// viewer mapped it.
     ///
     /// @param player Player index 0..9.
     /// @param position Signed 16.16 point as bit patterns; the sight cell is
@@ -2353,9 +2366,20 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     /// @return True when seen.
     /// @quirk Under the mapping rules alone the viewpoint player's mapped bit
     ///     is read, whatever player asks.
+    /// @quirk A cell counted 256 times is out of sight, as in 3.1c.
     bool point_visible(uint8_t player, const std::array<uint32_t, 3>& position) const;
-    /// Tells whether a player sees a map cell at a plot height, or the cell a
-    /// footprint further on; the cells are whole 16-unit steps.
+    /// Tells whether the player's view shows a point in sight, as
+    /// point_visible tells but reading the cell's whole count. Only what the
+    /// player is shown reads it.
+    ///
+    /// @param player Player index 0..9.
+    /// @param position Signed 16.16 point as bit patterns; the sight cell is
+    ///     taken at z raised by half the height.
+    /// @return True when shown.
+    bool point_shown(uint8_t player, const std::array<uint32_t, 3>& position) const;
+    /// Tells whether the player's view shows a map cell at a plot height in
+    /// sight, or the cell a footprint further on; the cells are whole
+    /// 16-unit steps.
     ///
     /// @param player Player index 0..9.
     /// @param cell_x Cell x.
@@ -2363,8 +2387,8 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     /// @param footprint_x Footprint width in cells.
     /// @param footprint_z Footprint depth in cells.
     /// @param height Plot height in whole units.
-    /// @return True when either corner is seen.
-    bool cell_or_footprint_corner_visible(
+    /// @return True when either corner is shown.
+    bool cell_or_footprint_corner_shown(
         uint8_t player,
         int16_t cell_x,
         int16_t cell_z,
@@ -3353,7 +3377,7 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     // Whether project_plot_occupants has copied every plot once.
     bool occupants_projected_{};
     sim::visibility_state::PlayerSightGrid sight_;
-    std::array<std::vector<uint8_t>, 10> other_player_coverage_;
+    std::array<std::vector<uint16_t>, 10> other_player_coverage_;
     sim::scenario::Controller scenario_;
     int32_t scenario_gravity_{}; // OTA GlobalHeader gravity, as the scenario holds it
     int32_t lava_world_{};       // OTA GlobalHeader lavaworld, as the scenario holds it
@@ -3750,6 +3774,28 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     void set_movement_layer(
         sim::unit_spawn::Slot& s, sim::ground_orders::GroundRuntime& g, uint8_t layer
     );
+    /// Tells whether a player sees a unit under a reading of the counts,
+    /// for unit_visible and unit_shown.
+    ///
+    /// @param player Player index; one outside the table is noted and sees
+    ///     nothing.
+    /// @param unit Unit slot; a type without bounds is noted and not seen.
+    /// @param reading The simulation's reading of the counts or the player's.
+    /// @return True when seen.
+    bool
+    unit_in_sight(uint8_t player, uint16_t unit, sim::visibility_state::SightReading reading) const;
+    /// Tells whether a player sees a point under a reading of the counts,
+    /// for point_visible and point_shown.
+    ///
+    /// @param player Player index 0..9.
+    /// @param position Signed 16.16 point as bit patterns.
+    /// @param reading The simulation's reading of the counts or the player's.
+    /// @return True when seen.
+    bool point_in_sight(
+        uint8_t player,
+        const std::array<uint32_t, 3>& position,
+        sim::visibility_state::SightReading reading
+    ) const;
     /// Stamps a unit's sight on its owner's grids.
     ///
     /// @param slot Unit; one without a type or owner is noted and stamps

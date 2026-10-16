@@ -1200,9 +1200,7 @@ void Runtime::render_match_surface() {
                 continue;
             const auto shot_position = oa::sim::match_runtime::fixed_words(shot.position);
             try {
-                if (!match_->point_visible(
-                        static_cast<uint8_t>(match_view_player()), shot_position
-                    ))
+                if (!match_->point_shown(static_cast<uint8_t>(match_view_player()), shot_position))
                     continue;
             } catch (const std::exception&) {
                 continue;
@@ -1730,7 +1728,7 @@ void Runtime::render_match_surface() {
             static_cast<uint32_t>(item.position.z)
         };
         try {
-            if (item.sight_gated && !match_->point_visible(match_view_player(), at))
+            if (item.sight_gated && !match_->point_shown(match_view_player(), at))
                 return;
         } catch (const std::exception&) {
             return;
@@ -1862,7 +1860,7 @@ void Runtime::render_match_surface() {
         if (slot.unit_index == 0 || slot.unit == nullptr || slot.record.type_index == 0)
             continue;
         try {
-            if (!match_->unit_visible(static_cast<uint8_t>(match_view_player()), slot.unit_index))
+            if (!match_->unit_shown(static_cast<uint8_t>(match_view_player()), slot.unit_index))
                 continue;
         } catch (const std::exception&) {
             continue;
@@ -2201,7 +2199,7 @@ void Runtime::render_match_surface() {
             continue;
         try {
             if (slot.owner_index != match_view_player() &&
-                !match_->unit_visible(static_cast<uint8_t>(match_view_player()), slot.unit_index))
+                !match_->unit_shown(static_cast<uint8_t>(match_view_player()), slot.unit_index))
                 continue;
         } catch (const std::exception&) {
             continue;

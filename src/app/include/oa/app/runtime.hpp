@@ -9351,7 +9351,7 @@ class Runtime final : public menu::Host,
 
     /// Returns the selection module's services over the running match.
     ///
-    /// Sight is Match::unit_visible; the pointer test is the unit type's root
+    /// Sight is Match::unit_shown; the pointer test is the unit type's root
     /// box, turned by the unit's angles (gameplay_input::hits_root_bounds),
     /// where the frame last drawn showed it: a unit of another machine's
     /// player on its playout (mirrored_pose). The armed command and the order

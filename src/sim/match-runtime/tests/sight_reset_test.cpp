@@ -62,7 +62,7 @@ void rebuild_under_mapping_and_line_of_sight() {
     CHECK(own != enemy);
     auto& grid = f.match->sight_mutable();
     std::fill(grid.player_bits.begin(), grid.player_bits.end(), uint16_t{0x0100});
-    std::fill(grid.coverage.begin(), grid.coverage.end(), uint8_t{5});
+    std::fill(grid.coverage.begin(), grid.coverage.end(), uint16_t{5});
     settle(game);
     f.match->reset_sight_buffers(true);
     for (std::size_t cell = 0; cell < grid.player_bits.size(); ++cell) {
@@ -108,12 +108,12 @@ void rebuild_without_rules() {
     }));
     for (uint8_t player = 0; player < 2; ++player) {
         const auto coverage = f.match->player_coverage(player);
-        CHECK(std::all_of(coverage.begin(), coverage.end(), [](uint8_t count) {
+        CHECK(std::all_of(coverage.begin(), coverage.end(), [](uint16_t count) {
             return count == 1;
         }));
     }
     const auto unseated = f.match->player_coverage(5);
-    CHECK(std::all_of(unseated.begin(), unseated.end(), [](uint8_t count) { return count == 0; }));
+    CHECK(std::all_of(unseated.begin(), unseated.end(), [](uint16_t count) { return count == 0; }));
     // The mapped words answer the visibility test once line of sight is off
     // (the cell test falls back to the mapped-word test).
     CHECK(f.match->point_visible(1, {10u << 16, 0, 10u << 16}));

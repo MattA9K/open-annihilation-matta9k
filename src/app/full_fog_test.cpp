@@ -105,7 +105,7 @@ Atlas build_atlas() {
 /// Synthetic sight over the map: a cell for each tile.
 struct Sight {
     oa::sim::visibility_state::PlayerSightGrid grid;
-    std::vector<uint8_t> coverage;
+    std::vector<uint16_t> coverage;
 
     /// Makes every cell seen and mapped.
     Sight() {

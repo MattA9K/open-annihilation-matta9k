@@ -10,6 +10,7 @@
 #include "oa/present/surface.hpp"
 #include "oa/present/world_renderer/world_camera.hpp"
 #include "oa/present/world_renderer/world_fog.hpp"
+#include "oa/sim/visibility_state.hpp"
 #include "oa/sim/weapon_execution/weapon_keys.hpp"
 
 #include <algorithm>
@@ -158,7 +159,7 @@ void Runtime::refresh_radar_mapped() {
     if (mapping_on || los_on) {
         const auto& sight = match_->sight();
         // A viewer outside the player table has no live coverage.
-        std::span<const uint8_t> live{};
+        std::span<const uint16_t> live{};
         if (los_on && viewer < OA_PLAYER_COUNT)
             live = match_->player_coverage(viewer);
         if (sight.width > 0 && sight.height > 0) {
@@ -170,7 +171,10 @@ void Runtime::refresh_radar_mapped() {
                     const auto cell = static_cast<std::size_t>(gy) * grid_w + gx;
                     if (mapping_on && index < radar_explored_.size() && radar_explored_[index] != 0)
                         radar.sight_bits[cell] = bit;
-                    if (los_on && index < live.size() && live[index] != 0)
+                    if (los_on && index < live.size() &&
+                        oa::sim::visibility_state::count_in_sight(
+                            live[index], oa::sim::visibility_state::SightReading::player
+                        ))
                         radar.coverage[cell] = 1;
                 }
             }
@@ -194,7 +198,7 @@ void Runtime::compose_radar_final() {
     host.point_visible = [](void* user, const oa::FixedVec3& position) {
         auto& self = *static_cast<Runtime*>(user);
         try {
-            return self.match_->point_visible(
+            return self.match_->point_shown(
                 self.match_->state().game.viewpoint_player,
                 {static_cast<uint32_t>(position.x),
                  static_cast<uint32_t>(position.y),

@@ -15,7 +15,7 @@ namespace {
 struct SightMap {
     oa::sim::visibility_state::PlayerSightGrid grid{};
 
-    SightMap(int32_t w, int32_t h, uint8_t seen, uint16_t mapped_bits) {
+    SightMap(int32_t w, int32_t h, uint16_t seen, uint16_t mapped_bits) {
         grid.width = w;
         grid.height = h;
         grid.coverage.assign(static_cast<std::size_t>(w * h), seen);
@@ -92,6 +92,16 @@ void one_unseen_cell_marks_four_corners() {
     const auto no_los = map.build(64, 64, 128, 128, false);
     for (const auto& tile : no_los.tiles)
         OA_CHECK(tile.unseen == 0);
+}
+
+// The fog shows what the player sees: a cell 256 stamps see is in sight,
+// though the simulation's byte reading puts it out of sight as 3.1c does.
+void crowded_cell_is_drawn_in_sight() {
+    SightMap map(16, 16, 1, 0x2);
+    map.grid.coverage[5 * 16 + 4] = 256;
+    const auto grid = map.build(64, 64, 128, 128);
+    for (const auto& tile : grid.tiles)
+        OA_CHECK(tile.unseen == 0 && tile.unmapped == 0);
 }
 
 void unmapped_cells_use_the_black_mask() {
@@ -305,6 +315,7 @@ int main() {
     placement_follows_camera();
     clear_when_everything_is_seen();
     one_unseen_cell_marks_four_corners();
+    crowded_cell_is_drawn_in_sight();
     unmapped_cells_use_the_black_mask();
     mapped_terrain_follows_the_viewer();
     map_border_extends_masks_outward();

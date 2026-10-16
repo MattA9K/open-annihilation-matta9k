@@ -158,7 +158,8 @@ struct FogView {
 ///
 /// @param sight the match's sight grid, whose cells hold a mapped bit for each player
 /// @param viewer the player whose view the fog shows: its mapped bit is read
-/// @param coverage the viewer's per-cell count of units seeing it
+/// @param coverage the viewer's per-cell count of the stamps seeing it, read as the player is
+///        shown it (sim::visibility_state::SightReading::player)
 /// @param options line-of-sight and mapping rules
 /// @param camera_x camera map-pixel X
 /// @param camera_z camera map-pixel Z (screen row)
@@ -168,7 +169,7 @@ struct FogView {
 [[nodiscard]] FogGrid build_fog_grid(
     const sim::visibility_state::PlayerSightGrid& sight,
     uint8_t viewer,
-    std::span<const uint8_t> coverage,
+    std::span<const uint16_t> coverage,
     FogOptions options,
     int32_t camera_x,
     int32_t camera_z,

@@ -1677,7 +1677,7 @@ bool Runtime::present_full_match_layers(bool dialogs) {
             full.projectile_shadow.width != 0 ? &full.projectile_shadow : nullptr;
         full::SpriteStageInputs sprite_inputs;
         sprite_inputs.list = &models.draws;
-        std::span<const uint8_t> coverage;
+        std::span<const uint16_t> coverage;
         try {
             coverage = match_->player_coverage(match_view_player());
         } catch (const std::exception&) {

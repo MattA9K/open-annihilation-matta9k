@@ -1483,7 +1483,7 @@ int Runtime::check_render_tiers() {
                     view, oa::sim::match_runtime::fixed_words(place)
                 );
             };
-            if (!match_->point_visible(
+            if (!match_->point_shown(
                     match_view_player(), oa::sim::match_runtime::fixed_words(place)
                 ))
                 fail("the local unit's place is out of its player's sight");

@@ -292,18 +292,18 @@ void visit_altitude_stamp(
 }
 
 // The steps adding and removing a stamp add to each count it covers; the
-// counts wrap.
-constexpr uint8_t coverage_added = 1;
-constexpr uint8_t coverage_removed = 0xff;
+// counts wrap, and their low byte wraps as 3.1c's byte count does.
+constexpr uint16_t coverage_added = 1;
+constexpr uint16_t coverage_removed = 0xffff;
 
 // Counts the stamp in its owner's coverage.
-void count_area_coverage(const SightStamp& stamp, SightContext& context, uint8_t step) noexcept {
+void count_area_coverage(const SightStamp& stamp, SightContext& context, uint16_t step) noexcept {
     auto& grid = *context.grid;
     if (stamp.owner >= OA_PLAYER_COUNT || context.coverage[stamp.owner].empty())
         return;
     const auto coverage = context.coverage[stamp.owner];
     const auto count = [&](std::size_t cell) {
-        coverage[cell] = static_cast<uint8_t>(coverage[cell] + step);
+        coverage[cell] = static_cast<uint16_t>(coverage[cell] + step);
     };
     if ((context.visibility_flags & altitude_sight_algorithm) != 0) {
         const auto& altitude = *context.altitude;
@@ -326,7 +326,7 @@ bool keeps_allied_coverage(const oa::Game& game, const oa::Player& player) noexc
 // Counts the stamp once more or once less, for its owner alone or, under
 // allied vision, for each player its owner allies and then for the owner.
 // Allied vision leaves the stamp's owner at the last player counted.
-void adjust_area_coverage(SightStamp& stamp, SightContext& context, uint8_t step) noexcept {
+void adjust_area_coverage(SightStamp& stamp, SightContext& context, uint16_t step) noexcept {
     auto& grid = *context.grid;
     if (!context.allied_vision || grid.game == nullptr || stamp.owner >= OA_PLAYER_COUNT) {
         if (stamp.owner == grid.viewpoint_player)
