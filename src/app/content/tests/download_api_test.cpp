@@ -11,6 +11,7 @@
 #include "oa/netgame/http/client.hpp"
 #include "oa/test/check.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <span>
@@ -26,6 +27,22 @@ namespace {
 
 namespace content = oa::app::content;
 namespace sha = oa::base::sha256;
+
+/// Whether a version is three dot-separated numbers, the form of the
+/// engine's project version, so the check holds through every release.
+///
+/// @param version the version
+bool release_version(std::string_view version) {
+    for (int part = 1;; ++part) {
+        const std::size_t dot = version.find('.');
+        const std::string_view number = version.substr(0, dot);
+        if (number.empty() || number.find_first_not_of("0123456789") != std::string_view::npos)
+            return false;
+        if (dot == std::string_view::npos)
+            return part == 3;
+        version.remove_prefix(dot + 1);
+    }
+}
 
 /// The bytes of a text, for a reader.
 std::span<const uint8_t> bytes_of(std::string_view text) {
@@ -323,7 +340,7 @@ void test_results_and_names() {
 #endif
     OA_CHECK(!content::platform_name().empty());
     OA_CHECK(!content::arch_name().empty());
-    OA_CHECK(content::engine_version() == "0.8.1");
+    OA_CHECK(release_version(content::engine_version()));
 }
 
 /// An answer's head, as the client reads it.

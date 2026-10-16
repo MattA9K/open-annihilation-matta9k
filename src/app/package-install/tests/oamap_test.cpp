@@ -561,7 +561,7 @@ void test_refusals(const Scratch& scratch) {
     expect_refused(
         scratch,
         unmet,
-        "needs Open Annihilation 9999.0.0 or later; this is Open Annihilation 0.8.0",
+        "needs Open Annihilation 9999.0.0 or later; this is Open Annihilation ",
         install::Refusal::engine_unmet
     );
 }
