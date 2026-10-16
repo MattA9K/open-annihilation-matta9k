@@ -1410,16 +1410,15 @@ void Runtime::ensure_full_terrain_pages(const oa::PaletteBytes& palette) {
         throw FullCardError("the greyed terrain atlas does not share the terrain's slots");
     // The pages' memory, both atlases', counted by the memory guard before
     // they are made.
-    if (!accelerated_buffer_allowed(
-            policy::AcceleratedBuffer::card_pages,
-            atlas_page_bytes(full.atlas) + atlas_page_bytes(greyed)
-        ))
+    const uint64_t atlas_bytes = atlas_page_bytes(full.atlas) + atlas_page_bytes(greyed);
+    if (!accelerated_buffer_allowed(policy::AcceleratedBuffer::card_pages, atlas_bytes))
         throw FullCardError("the terrain pages: too little memory");
     const auto upload_start = std::chrono::steady_clock::now();
     // The zoomed-out levels' mosaics, read from the atlas while it still
-    // holds its texels. They only spare the card work, so where the memory
-    // guard would not take them the levels are drawn tile by tile, and
-    // nothing is lowered.
+    // holds its texels, before the atlases' pages are made. They only spare
+    // the card work, so the guard judges each with those pages still to come:
+    // where it would not take both, the level is drawn tile by tile, and the
+    // pages keep the memory they were allowed.
     for (std::size_t index = 0; index < ft::mosaic_level_count; ++index) {
         ft::MosaicLevel mosaic = ft::plan_mosaic_level(
             full.atlas.grid_width,
@@ -1427,7 +1426,7 @@ void Runtime::ensure_full_terrain_pages(const oa::PaletteBytes& palette) {
             static_cast<uint8_t>(ft::first_mosaic_level + index),
             page_edge
         );
-        if (mosaic.chunks.empty() || !accelerated_buffer_fits(mosaic_bytes(mosaic)))
+        if (mosaic.chunks.empty() || !accelerated_buffer_fits(atlas_bytes + mosaic_bytes(mosaic)))
             continue;
         if (upload_mosaic_pages(
                 full.executor, full.atlas, mosaic, full.mosaic_pages[index], full.page_bytes
