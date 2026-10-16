@@ -973,7 +973,12 @@ int main() {
         const std::vector<LoggedRequest> log = server.requests();
         OA_CHECK(log.size() == 1);
         const std::string* agent = log[0].header("User-Agent");
-        OA_CHECK(agent != nullptr && *agent == "OpenAnnihilation/0.8.0");
+        // The program's name and its version, whichever version it is.
+        constexpr std::string_view product = "OpenAnnihilation/";
+        OA_CHECK(
+            agent != nullptr && agent->starts_with(product) && agent->size() > product.size() &&
+            agent->find_first_of(" \t") == std::string::npos
+        );
     }
 
     say("user agent set");
