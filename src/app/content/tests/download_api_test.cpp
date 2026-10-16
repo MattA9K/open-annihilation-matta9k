@@ -323,7 +323,7 @@ void test_results_and_names() {
 #endif
     OA_CHECK(!content::platform_name().empty());
     OA_CHECK(!content::arch_name().empty());
-    OA_CHECK(content::engine_version() == "0.8.0");
+    OA_CHECK(content::engine_version() == "0.8.1");
 }
 
 /// An answer's head, as the client reads it.
