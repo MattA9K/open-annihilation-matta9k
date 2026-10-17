@@ -555,6 +555,9 @@ inline constexpr int32_t no_human_player = OA_PLAYER_COUNT;
 /// @param game_id Summary "Game ID"
 /// @param files file boundary
 /// @return false when the bank cannot be created or the file cannot be written
+/// @quirk No account holds the projectiles in flight, so a loaded game starts
+///     with none, as in 3.1c. A stockpiled missile in flight is lost with them:
+///     its weapon's stockpile was spent at launch.
 bool save_write_game(
     SaveContext* save,
     const SummaryHooks* summary,

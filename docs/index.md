@@ -58,6 +58,9 @@ Every document in the repository, by what you want to do.
   follow it.
 - [skirmish.md](skirmish.md): the skirmish setup's one **Player** row,
   which a campaign mission leaves as you set it.
+- [saves.md](saves.md): saved games, recordings and films: the content
+  note beside each, **This save needs other content**, where they are kept,
+  and what a saved game keeps (no shots in flight, as in 3.1c).
 - [controllers.md](controllers.md): playing with a gamepad: the Steam
   Deck's pad pointer (the right trackpad as the mouse, the grips as QUEUE,
   ADD, FORCE and the groups, the order and build rings), sticks only for

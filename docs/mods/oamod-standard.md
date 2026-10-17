@@ -464,7 +464,9 @@ Game folders are never written to.
   under a profile records the profile's id, version, catalogue and hashes,
   and loads only under a profile with the same sim hash; otherwise the
   status line names both. A save without a profile record loads under any
-  profile.
+  profile. Under a profile as without one, a save keeps no shots in flight,
+  stockpiled missiles included, as in 3.1c
+  ([what a saved game keeps](../saves.md#what-a-saved-game-keeps)).
 - **The mod's INI file** (`identity.settings-file`) is read, never written,
   from the first folder that holds it, the mod folder first.
 - **Registry settings** are kept in the engine's own preferences, under the

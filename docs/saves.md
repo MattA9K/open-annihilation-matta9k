@@ -23,3 +23,13 @@ loads a film as a game.
 
 Saved games stay in `Saves/<mod>/`, and recordings and films stay in their
 own folders for that mod.
+
+## What a saved game keeps
+
+A saved game keeps what a 3.1c saved game keeps. Shots in flight are not
+among them: shells, rockets, beams and missiles, nuclear missiles included,
+are gone when the game loads, as in 3.1c. A nuclear missile launched just
+before saving does not land after loading, and its silo does not get it
+back: the round left the silo's stockpile at launch, and the save holds the
+stockpile as it was after the launch. Save before you launch, or after the
+missile lands.
