@@ -297,8 +297,8 @@ int main() {
         require(player.effect_voices() == 0 && !player.playing(), "stop_all ends them all");
 
         // A sound that converts to more than the cache holds is refused
-        // before it is converted, as an effect and as a loop; as a stream it
-        // plays up to a stream's own bound.
+        // before it is converted as an effect; as a loop (a mod's long hum)
+        // and as a stream it plays up to a stream's own bound.
         error.clear();
         require(
             !player.play_resource("sounds/slow.wav", error) &&
@@ -306,8 +306,13 @@ int main() {
             "an effect past the cache is refused"
         );
         require(
-            !player.start_loop_resource("sounds/slow.wav", error),
-            "a loop past the cache is refused"
+            player.start_loop_resource("sounds/slow.wav", error), "a loop past the cache plays"
+        );
+        player.stop_loop();
+        require(
+            !player.start_loop_resource("sounds/slower.wav", error) &&
+                error.find("too long") != std::string::npos,
+            "a loop past its bound is refused"
         );
         require(player.play_stream("sounds/slow.wav", 0, error), "a stream past the cache plays");
         player.stop_stream();

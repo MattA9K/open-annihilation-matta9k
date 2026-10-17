@@ -53,10 +53,10 @@ void refill_loop(void* userdata, OutputStream& stream, int32_t additional) {
 /// largest effect of the game and the mods it was measured against converts
 /// to 6.3 MB.
 constexpr std::size_t max_cached_sound_bytes = std::size_t{8} << 20;
-/// The most a loop track (the main menu's hum) may convert to. A mod's hum
-/// can run minutes (TA: Zero's is 144 s of 22 kHz mono, 25 MB at the mixer's
-/// rate), and one track is kept, so the cap is well above a clip's.
-constexpr std::size_t max_loop_sound_bytes = std::size_t{64} << 20;
+/// The most a loop track (the main menu's hum) may convert to: a stream's
+/// bound, not a cached clip's. A mod's hum can run minutes (TA: Zero's is
+/// 144 s of 22 kHz mono, 25 MB at the mixer's rate), and one track is kept.
+constexpr std::size_t max_loop_sound_bytes = std::size_t{32} << 20;
 /// The most bytes a streamed sound, such as a briefing's narration,
 /// converts to: about three minutes of two channels. The longest narration
 /// of the game converts to 9.0 MB.
