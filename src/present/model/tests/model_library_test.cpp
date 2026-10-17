@@ -7,9 +7,12 @@
 #include "oa/present/palette_tables.hpp"
 #include "oa/test/game_assets.hpp"
 
+#include <chrono>
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <memory>
 #include <new>
 #include <stdexcept>
@@ -400,6 +403,31 @@ void test_texture_library_assets(oa::AssetStore& assets) {
     CHECK(readable > 100);
 }
 
+// An empty textures/*.gaf wins its path and contributes nothing
+// (oamod-standard 4.1): a mod hides an archive's texture GAF with one, and the
+// library loads without it instead of refusing a truncated GAF.
+void test_empty_texture_archive_contributes_nothing() {
+    namespace fs = std::filesystem;
+    const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+    const fs::path root =
+        fs::temp_directory_path() / ("oa-model-library-test-" + std::to_string(stamp));
+    fs::create_directories(root / "textures");
+    {
+        std::ofstream hider(root / "textures" / "hidden.gaf", std::ios::binary);
+    }
+    bool loaded = false;
+    try {
+        oa::AssetStore assets(root);
+        const TextureLibrary library = load_texture_library(assets);
+        loaded = library.archives.empty() && library.sequences.empty();
+    } catch (const std::exception& error) {
+        std::fprintf(stderr, "empty texture archive refused: %s\n", error.what());
+    }
+    CHECK(loaded);
+    std::error_code ignored;
+    fs::remove_all(root, ignored);
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -413,6 +441,7 @@ int main(int argc, char** argv) {
         test_prepare_model_at_reused_address();
         test_release_expired_models();
         test_display_binding();
+        test_empty_texture_archive_contributes_nothing();
     }
     if (failures != 0) {
         std::fprintf(stderr, "%d failure(s)\n", failures);

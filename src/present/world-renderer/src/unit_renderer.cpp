@@ -1232,7 +1232,12 @@ TextureCatalog load_texture_catalog(AssetStore& assets) {
     std::unordered_set<std::string> seen;
     const auto paths = assets.list_effective_in_mount_order("textures", ".gaf");
     const auto load = [&](const std::string& path, bool team_archive) {
-        const auto parsed = formats::gaf::parse(assets.read(path).bytes);
+        const auto data = assets.read(path);
+        // An empty file wins its path and contributes nothing (oamod-standard
+        // 4.1): a mod hides an archive's texture GAF with one.
+        if (data.bytes.empty())
+            return;
+        const auto parsed = formats::gaf::parse(data.bytes);
         if (!parsed.ok())
             throw std::runtime_error(
                 "cannot parse texture archive '" + path + "': " + parsed.error->message

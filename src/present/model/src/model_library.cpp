@@ -99,6 +99,10 @@ TextureLibrary load_texture_library(AssetStore& assets) {
     std::vector<std::pair<const formats::gaf::Archive*, bool>> order;
     const auto load = [&](const std::string& path, bool team) {
         const auto data = assets.read(path);
+        // An empty file wins its path and contributes nothing (oamod-standard
+        // 4.1): a mod hides an archive's texture GAF with one.
+        if (data.bytes.empty())
+            return;
         auto parsed = formats::gaf::parse(data.bytes);
         if (!parsed.ok())
             throw std::runtime_error(
