@@ -1180,6 +1180,10 @@ settings::ExplosionFlash Runtime::explosion_flash() const noexcept {
                             : settings::ExplosionFlash::full;
 }
 
+bool Runtime::smooth_motion() const noexcept {
+    return !engine_settings_ || engine_settings_->current.smooth_motion;
+}
+
 double Runtime::past_map_edge_share() const noexcept {
     return settings::past_map_edge_share(
         engine_settings_ ? engine_settings_->current.view_past_map_edge

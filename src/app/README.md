@@ -1813,9 +1813,11 @@ hosts them on the OA layer.
   state before the last batch of ticks and the state after it that its time
   stands for (`presentation_alpha()`, `next_presentation_alpha`): never
   past the current tick, whole ticks while the match is paused, waits on
-  another machine or catches up, on a check's fixed clock and for a film
-  frame, and 1 again once the frame is drawn, so that every other drawing
-  shows whole ticks. At 30 a second a frame counts its clock unit whole: at
+  another machine or catches up, on a check's fixed clock, for a film
+  frame and while Smooth motion is Off (`smooth_motion()`), when the
+  frames between two ticks repeat the tick's picture at the same rate, and
+  1 again once the frame is drawn, so that every other drawing shows whole
+  ticks. At 30 a second a frame counts its clock unit whole: at
   normal speed and above it shows the state its ticks reached, and below
   normal speed the progress the clock makes by the unit's end, so that
   frames still move evenly between the ticks. The unit drawing adds what it
@@ -1903,8 +1905,11 @@ hosts them on the OA layer.
   shows it whole; that at 120 the camera moves evenly, each frame shows a
   quarter of a tick more, and the unit drawn moves on nearly every frame,
   none carrying more than half the most it moves in a tick; that a
-  tracked unit is drawn at one place of the screen on every frame; and
-  that runs at 30 and 120 from 2 seconds before 2^32 milliseconds, where
+  tracked unit is drawn at one place of the screen on every frame; that
+  with Smooth motion Off a run at 120 writes the same trace and digest
+  with no frame between ticks, the camera moving as evenly and the unit
+  drawn where each tick holds it; and that runs at 30 and 120 from 2
+  seconds before 2^32 milliseconds, where
   the match clock's reading turns over to 0, step on through the turn to
   the same trace and digest, at 30 each frame running a tick but the first
   past the turn. The run
@@ -2592,14 +2597,18 @@ hosts them on the OA layer.
   model instance placed part of the way from the tick before, with a draw
   state of their own, while the match's own pieces are rebuilt as a whole
   tick's draw rebuilds them; projectiles, debris, fragments, particles,
-  health bars, order lines and a tracking camera follow. The director
-  draws its frames between ticks so. The debug grid draws its random
-  numbers from its own generator, never from the match's streams, and
-  draws the numbers a tick's first draw took again on the tick's later
-  draws (`DebugGridRandom`), so that showing it never changes the game and
-  a tick drawn more than once shows one grid. `app-presentation-interpolation`
-  tests the blends and the grid's numbers, and `--check-interpolation`
-  (`runtime_interpolation_check.cpp`) the frames.
+  health bars, order lines and a tracking camera follow. With Smooth
+  motion Off the loop draws every frame at 1, so each shows its tick as
+  it is, a mirrored unit where its playout has it at the tick. The
+  director draws its frames between ticks so, whatever the setting. The
+  debug grid draws its random numbers from its own generator, never from
+  the match's streams, and draws the numbers a tick's first draw took
+  again on the tick's later draws (`DebugGridRandom`), so that showing it
+  never changes the game and a tick drawn more than once shows one grid.
+  `app-presentation-interpolation` tests the blends and the grid's
+  numbers, and `--check-interpolation` (`runtime_interpolation_check.cpp`)
+  the frames, the application loop's among them with Smooth motion On and
+  Off.
 - Units of other machines' players: `advance_match_clock` has the unit
   playout (`src/present/unit-playout`, `Runtime::unit_playout_`) read the
   match after each step, whether the engine or an extension ran it, and the
@@ -2630,7 +2639,9 @@ hosts them on the OA layer.
   about its pace, within two ticks of its simulated place on average, on a
   whole tick's frame too, with the tracking camera and the pick where it is
   drawn; that the local runner and the world are as without the playout;
-  and that, with no such player, every frame is.
+  that with Smooth motion Off every frame draws the runner where its
+  playout has it at the latest tick, the world as with it On; and that,
+  with no such player, every frame is.
 
 ## Touch controls
 

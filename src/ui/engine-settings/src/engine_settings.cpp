@@ -625,6 +625,8 @@ EngineSettings read_settings(
             stored_acceleration(found->second).value_or(settings.hardware_acceleration);
     if (const auto number = stored_number(values, key::vertical_sync))
         settings.vertical_sync = *number > 0;
+    if (const auto number = stored_number(values, key::smooth_motion))
+        settings.smooth_motion = *number > 0;
     if (const auto found = values.find(std::string{key::menu_scaling}); found != values.end())
         settings.menu_scaling =
             menu_scaling_from_text(found->second).value_or(settings.menu_scaling);
@@ -845,6 +847,14 @@ void write_settings(
         switch_text(chosen.vertical_sync),
         chosen.vertical_sync != opened.vertical_sync,
         chosen.vertical_sync == defaults.vertical_sync,
+        restored
+    );
+    store(
+        values,
+        key::smooth_motion,
+        switch_text(chosen.smooth_motion),
+        chosen.smooth_motion != opened.smooth_motion,
+        chosen.smooth_motion == defaults.smooth_motion,
         restored
     );
     store(

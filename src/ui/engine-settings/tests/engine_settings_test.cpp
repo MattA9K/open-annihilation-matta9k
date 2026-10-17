@@ -2361,6 +2361,60 @@ void the_hud_scaling_default_read_and_round_trip() {
     CHECK(values.empty());
 }
 
+/// Smooth motion: On everywhere by default, a light machine and a Steam
+/// Deck included; a file written before it reads On; a number above 0 reads
+/// On and any other number Off; Off written alone and read back, On chosen
+/// again written as 1, and Restore defaults then OK erases the key. It
+/// leaves every other key as it was.
+void the_smooth_motion_default_read_and_round_trip() {
+    CHECK(settings::key::smooth_motion == "open-annihilation.smooth-motion");
+    settings::Inputs own_mac = players_own_on_linux;
+    own_mac.macos = true;
+    settings::Inputs light = players_own_on_linux;
+    light.light_machine = true;
+    settings::Inputs deck = players_own_on_linux;
+    deck.steam_deck_panel_hz = 90;
+    for (const auto& inputs : {settings::Inputs{}, players_own_on_linux, own_mac, light, deck}) {
+        const auto defaults = settings::default_settings(inputs);
+        CHECK(defaults.smooth_motion);
+        CHECK(settings::read_settings({}, inputs, false) == defaults);
+    }
+    CHECK(read_one(settings::key::smooth_motion, "1").smooth_motion);
+    CHECK(read_one(settings::key::smooth_motion, "2").smooth_motion);
+    CHECK(!read_one(settings::key::smooth_motion, "0").smooth_motion);
+    CHECK(!read_one(settings::key::smooth_motion, "-1").smooth_motion);
+    // A text that is no number keeps the default.
+    CHECK(read_one(settings::key::smooth_motion, "off").smooth_motion);
+
+    const auto defaults = settings::default_settings(players_own_on_linux);
+    auto off = defaults;
+    off.smooth_motion = false;
+    Values values;
+    values[std::string{settings::key::explosion_flash}] = "reduced";
+    values["open-annihilation.not-a-setting"] = "kept";
+    const Values others = values;
+    const auto opened = settings::read_settings(values, players_own_on_linux, false);
+    auto chosen = opened;
+    chosen.smooth_motion = false;
+    settings::write_settings(values, opened, chosen, defaults, false);
+    CHECK(values.size() == others.size() + 1);
+    for (const auto& [key, value] : others)
+        CHECK(values.contains(key) && values.at(key) == value);
+    CHECK(values.at(std::string{settings::key::smooth_motion}) == "0");
+    CHECK(!settings::read_settings(values, players_own_on_linux, false).smooth_motion);
+    settings::write_settings(values, chosen, opened, defaults, false);
+    CHECK(values.at(std::string{settings::key::smooth_motion}) == "1");
+    CHECK(settings::read_settings(values, players_own_on_linux, false).smooth_motion);
+
+    Values alone;
+    settings::write_settings(alone, defaults, off, defaults, false);
+    CHECK(alone.size() == 1);
+    CHECK(alone.at(std::string{settings::key::smooth_motion}) == "0");
+    CHECK(settings::read_settings(alone, players_own_on_linux, false) == off);
+    settings::write_settings(alone, off, defaults, defaults, true);
+    CHECK(alone.empty());
+}
+
 /// Interface size: Auto everywhere by default, with the player's own file
 /// and with a named one, a file written before it included; each of its
 /// six words reads its size and round-trips alone, 150 while Use modern
@@ -2681,6 +2735,7 @@ int main() {
     the_edge_stickiness_default_read_and_round_trip();
     the_window_frame_default_read_and_round_trip();
     the_hud_scaling_default_read_and_round_trip();
+    the_smooth_motion_default_read_and_round_trip();
     the_interface_size_default_read_and_round_trip();
     the_zoom_limits_default_read_and_round_trip();
     the_view_past_the_map_edge_defaults_reads_and_round_trips();

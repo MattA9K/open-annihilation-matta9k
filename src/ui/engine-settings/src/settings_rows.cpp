@@ -71,14 +71,16 @@ constexpr std::array<Setting, 3> kEngineLimitsRows{
     Setting::path_search,
     Setting::skirmish_players,
 };
-/// Graphics' rows: how units look zoomed out, and the zoom they look so
+/// Graphics' rows: how the frames are drawn, Smooth motion right under
+/// Vertical sync, then how units look zoomed out, and the zoom they look so
 /// from right under the way.
-constexpr std::array<Setting, 9> kGraphicsRows{
+constexpr std::array<Setting, 10> kGraphicsRows{
     Setting::max_frame_rate,
     Setting::anti_aliasing,
     Setting::screen_size,
     Setting::hardware_acceleration,
     Setting::vertical_sync,
+    Setting::smooth_motion,
     Setting::native_density,
     Setting::explosion_flash,
     Setting::zoomed_out_units,
@@ -1673,6 +1675,19 @@ std::string hud_scaling_hint(const SettingsModel& model, std::size_t line) {
     );
 }
 
+/// Returns a line of Smooth motion's hint, by the switch.
+std::string smooth_motion_hint(const SettingsModel& model, std::size_t line) {
+    // Whether frames between the game's ticks show the way from one to the next.
+    if (model.settings->smooth_motion)
+        return line_of(
+            {"Units, shots and spinning parts move smoothly between the game's ticks."}, line
+        );
+    return line_of(
+        {"Units and shots move 30 times a second, as the game drew them; fast spins may flicker."},
+        line
+    );
+}
+
 /// Returns a line of Text size's hint, by the modern fonts' switch.
 std::string text_size_hint(const SettingsModel& model, std::size_t line) {
     if (line != 0)
@@ -2432,6 +2447,9 @@ constexpr std::array<SettingRow, kSettingCount> kDeclared{{
      ),
      .lock = &Locks::skirmish_players,
      .copy = &copy_field<&E::skirmish_players>},
+    {.setting = S::smooth_motion,
+     .spec = changing(engine_switch<&E::smooth_motion>("smooth-motion", "Smooth motion", {}),
+                      &smooth_motion_hint, &lines<1>)},
     {.setting = S::welcome_setup,
      .spec = welcome_setup_row(),
      .lock = &Locks::welcome_setup},
@@ -2521,6 +2539,7 @@ constexpr std::array<std::string_view, kSettingCount> kSettingNames{
     "file-type-oalaunch",
     "file-types",
     "skirmish-players",
+    "smooth-motion",
     "first-run",
 };
 

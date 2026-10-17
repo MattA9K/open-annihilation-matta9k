@@ -8348,6 +8348,14 @@ class Runtime final : public menu::Host,
     /// @return the setting; Full before the settings are read
     [[nodiscard]] oa::ui::engine_settings::ExplosionFlash explosion_flash() const noexcept;
 
+    /// Returns whether Smooth motion is On: frames between the game's ticks
+    /// show units, their pieces, shots, debris and effects part of the way
+    /// from one tick to the next. Off, each frame shows them where the
+    /// latest tick left them (present_frame_between_ticks).
+    ///
+    /// @return the setting; On before the settings are read
+    [[nodiscard]] bool smooth_motion() const noexcept;
+
     /// Returns the share of the battlefield the view may show past each of
     /// the map's edges, as View past the map's edge sets it
     /// (oa::ui::engine_settings::past_map_edge_share).
@@ -16082,7 +16090,9 @@ class Runtime final : public menu::Host,
     /// Chooses the fraction of a tick the frame about to be drawn shows.
     ///
     /// Whole ticks (1) when the clock did not step, the match is paused, a
-    /// check's fixed clock runs, or a film frame is due; else
+    /// check's fixed clock runs, a film frame is due, or Smooth motion is
+    /// Off (smooth_motion), so that the frames between two ticks repeat the
+    /// latest tick's picture; else
     /// next_presentation_alpha over the clock step, at the frame's time, as
     /// a frame a clock unit when the loop is paced at the tick rate or a
     /// --frame-rate run draws at it.

@@ -5,11 +5,12 @@
 // driven through the SDL presenter's pointer and keys (every section, each
 // setting changed and in effect at once, Vertical sync read back from the
 // renderer, Menu scaling's whole steps in the window's presentation at once,
-// Native pixel density kept for the next start, Explosion flash's Reduced in
-// effect for the next frame drawn, the zoom's limits stepped by the keys on
-// their drop-downs, View past the map's edge's 25% in effect at once,
-// Window edge's strip and Edge stickiness's slider, locked but for Sticky,
-// in effect at once and fitting the 640x480 dialog in English and German,
+// Native pixel density kept for the next start, Smooth motion's Off and
+// Explosion flash's Reduced in effect for the next frame drawn, the zoom's
+// limits stepped by the keys on their drop-downs, View past the map's
+// edge's 25% in effect at once, Window edge's strip and Edge stickiness's
+// slider, locked but for Sticky, in effect at once and fitting the 640x480
+// dialog in English and German,
 // System's five file-type switches fitting it too, OK,
 // Cancel and Restore defaults and the preferences they leave, Developer
 // Mode's overrides in effect and kept), and the main menu
@@ -143,9 +144,12 @@ constexpr std::array<WindowLayout, 5> kWindowLayouts{{
 }};
 static_assert(kWindowLayouts.size() == kWindowSizes.size(), "one layout for each window size");
 
-/// Graphics' scroll limit at Compact, after Menu scaling, Window frame, HUD
-/// scaling and Interface size left for User Interface.
-constexpr int32_t kGraphicsScrollLimit = 336;
+/// Graphics' scroll limit at Compact: its ten rows, Smooth motion among
+/// them, after Menu scaling, Window frame, HUD scaling and Interface size
+/// left for User Interface.
+constexpr int32_t kGraphicsScrollLimit = 395;
+/// Graphics' scroll limit at Large, whose taller view all but holds its rows.
+constexpr int32_t kGraphicsLargeScrollLimit = 35;
 /// Interface size's place on User Interface, from the section's first row.
 constexpr int32_t kInterfaceSizeRow = 3;
 
@@ -364,6 +368,8 @@ std::string_view label_of(settings::Setting setting) {
         return "Hardware acceleration";
     case settings::Setting::vertical_sync:
         return "Vertical sync";
+    case settings::Setting::smooth_motion:
+        return "Smooth motion";
     case settings::Setting::menu_scaling:
         return "Menu scaling";
     case settings::Setting::native_density:
@@ -1173,11 +1179,26 @@ void Runtime::check_engine_settings_dialog() {
         presentation() == SDL_LOGICAL_PRESENTATION_LETTERBOX,
         "Sharp does not letterbox the main menu"
     );
+    // Smooth motion: Off draws the next frame, and every frame after it, at
+    // the latest tick (present_frame_between_ticks), and its hint says so.
+    focus(settings::first_row_control + 5, "Smooth motion");
+    click(settings::first_row_control + 5, "OFF", "Smooth motion's Off");
+    chosen.smooth_motion = false;
+    expect("Smooth motion Off");
+    require(
+        !smooth_motion() &&
+            shows_sentence(
+                settings::dialog_layout(*dialog),
+                "Units and shots move 30 times a second, as the game drew them; fast spins may "
+                "flicker."
+            ),
+        "Smooth motion Off is not what the frames draw, or its hint does not say what Off does"
+    );
     // Native pixel density: On is kept for the next start, and the window
     // keeps the density it opened at.
     const bool dense = native_density_window();
-    focus(settings::first_row_control + 5, "Native pixel density");
-    click(settings::first_row_control + 5, "ON", "Native pixel density's On");
+    focus(settings::first_row_control + 6, "Native pixel density");
+    click(settings::first_row_control + 6, "ON", "Native pixel density's On");
     chosen.native_density = true;
     expect("Native pixel density On");
     require(
@@ -1189,8 +1210,8 @@ void Runtime::check_engine_settings_dialog() {
         "Native pixel density On changed the open window, or does not say when it applies"
     );
     // Explosion flash: Reduced is the level the next frame draws.
-    focus(settings::first_row_control + 6, "Explosion flash");
-    click(settings::first_row_control + 6, "Reduced", "Explosion flash's Reduced");
+    focus(settings::first_row_control + 7, "Explosion flash");
+    click(settings::first_row_control + 7, "Reduced", "Explosion flash's Reduced");
     chosen.explosion_flash = settings::ExplosionFlash::reduced;
     expect("Explosion flash Reduced");
     require(
@@ -1324,6 +1345,7 @@ void Runtime::check_engine_settings_dialog() {
     };
     if (vertical_sync)
         expected_keys.emplace(std::string(settings::key::vertical_sync), "1");
+    expected_keys.emplace(std::string(settings::key::smooth_motion), "0");
     expected_keys.emplace(std::string(settings::key::menu_scaling), "whole-steps");
     expected_keys.emplace(std::string(settings::key::native_density), "1");
     expected_keys.emplace(std::string(settings::key::explosion_flash), "reduced");
@@ -2374,7 +2396,7 @@ void Runtime::check_engine_settings_window_sizes() {
             // Graphics scrolls to its end, the class's own. A wider class wraps
             // each description onto fewer lines and its view is taller, so it
             // scrolls less: Compact's end is its own, Regular scrolls less than
-            // that, and Large fits, so End leaves it where it is.
+            // that, and Large least of all.
             tap(SDLK_END);
             const int32_t end_limit = settings::scroll_limit(*dialog);
             const int32_t scrolled = dialog->scroll[static_cast<std::size_t>(page)];
@@ -2384,8 +2406,8 @@ void Runtime::check_engine_settings_window_sizes() {
             const bool regular_end =
                 expected_layout.size_class == oa::ui::kit::SizeClass::regular && end_limit > 0 &&
                 end_limit < kGraphicsScrollLimit;
-            const bool large_end =
-                expected_layout.size_class == oa::ui::kit::SizeClass::large && end_limit == 0;
+            const bool large_end = expected_layout.size_class == oa::ui::kit::SizeClass::large &&
+                                   end_limit == kGraphicsLargeScrollLimit;
             require(
                 scrolled == end_limit && (compact_end || regular_end || large_end),
                 "End did not scroll Graphics to its end (" + std::to_string(scrolled) + " of " +

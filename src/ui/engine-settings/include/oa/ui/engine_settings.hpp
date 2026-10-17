@@ -88,6 +88,8 @@ inline constexpr std::string_view content_note = "open-annihilation.content-note
 inline constexpr std::string_view hardware_acceleration = "open-annihilation.hardware-acceleration";
 /// 1 or 0 (EngineSettings::vertical_sync).
 inline constexpr std::string_view vertical_sync = "open-annihilation.vertical-sync";
+/// 1 or 0 (EngineSettings::smooth_motion).
+inline constexpr std::string_view smooth_motion = "open-annihilation.smooth-motion";
 /// "sharp", "whole-steps" or "unfiltered" (EngineSettings::menu_scaling).
 inline constexpr std::string_view menu_scaling = "open-annihilation.menu-scaling";
 /// 1 or 0 (EngineSettings::native_density).
@@ -975,6 +977,12 @@ struct EngineSettings {
     /// Each frame waits for the display to be ready for it, so that no frame
     /// tears, and the frame rate keeps just below the display's.
     bool vertical_sync{};
+    /// Units, their moving and spinning pieces, shots, debris and effects
+    /// are drawn part of the way between the game's ticks, so they move
+    /// smoothly at every frame rate. Off, every frame draws them where the
+    /// latest tick left them, as the game drew them 30 times a second. It
+    /// changes only what the frames show, never the game.
+    bool smooth_motion{true};
     /// How the menus are enlarged to the window.
     MenuScaling menu_scaling{MenuScaling::sharp};
     /// The window opens at the display's own pixel density, from the next

@@ -13,9 +13,13 @@
 // frame keeps it on its playout; the tracking camera and the pointer's pick
 // follow where it is drawn; the local runner and the world are as without
 // the playout.
+// With Smooth motion Off each frame draws the mirrored runner where its playout
+// has it at the latest tick, so the frames of a tick show it at one place, and
+// the world is as with it On.
 // With no player taken as another machine's, every frame and the world are as
 // without it.
 #include "oa/app/runtime.hpp"
+#include "engine_settings_state.hpp"
 #include "match_models.hpp"
 #include "presentation_interpolation.hpp"
 
@@ -189,17 +193,20 @@ void Runtime::check_unit_playout() {
         load(Screen::main_menu);
     };
 
-    // The frames' clock, and the tracking, end with the check however it ends.
+    // The frames' clock, the tracking and Smooth motion end with the check
+    // however it ends.
     struct ClockEnd {
         Runtime& runtime;
+        bool smooth{};
 
-        explicit ClockEnd(Runtime& owner) : runtime(owner) {}
+        explicit ClockEnd(Runtime& owner) : runtime(owner), smooth(owner.smooth_motion()) {}
 
         ClockEnd(const ClockEnd&) = delete;
         ClockEnd& operator=(const ClockEnd&) = delete;
 
         ~ClockEnd() {
             runtime.frame_run_clock_ns_.reset();
+            runtime.engine_settings_state().current.smooth_motion = smooth;
             if (runtime.match_tracking_)
                 runtime.stop_match_tracking();
         }
@@ -347,11 +354,13 @@ void Runtime::check_unit_playout() {
                    : match_->world().record.units[runner].position;
     };
 
-    // Passes 1 and 2: the other player taken as another machine's, its
+    // Passes 1, 2 and 3: the other player taken as another machine's, its
     // runner placed as its records arrive; drawn on the playout, then as
-    // without it (MatchPresentation::playout null), frame for frame.
-    const auto run_mirrored = [&](bool on_playout) {
+    // without it (MatchPresentation::playout null), then on the playout with
+    // Smooth motion Off, frame for frame.
+    const auto run_mirrored = [&](bool on_playout, bool smooth) {
         start_skirmish();
+        engine_settings_state().current.smooth_motion = smooth;
         const Trip trip = send_runner();
         const uint8_t other = other_player();
         auto& game = match_->state().game;
@@ -507,13 +516,26 @@ void Runtime::check_unit_playout() {
                 frame_draws_.probe_drawn,
                 "the mirrored runner was not drawn at tick " + std::to_string(tick)
             );
+            if (!smooth) {
+                // Off, the runner is drawn where its playout has it at the
+                // latest tick, on every frame of the tick.
+                const auto at_tick =
+                    mirrored_pose(models, match_->state(), mirrored, {models.presentation.tick, 0});
+                require(
+                    at_tick && frame_draws_.probe_x == at_tick->position.x &&
+                        frame_draws_.probe_z == at_tick->position.z,
+                    "with Smooth motion Off the mirrored runner was not drawn on its playout at "
+                    "tick " +
+                        std::to_string(tick)
+                );
+            }
         }
         const auto& record = match_->world().record.units[trip.runner];
         require(local_from.has_value(), "the runners' measured ticks were not reached");
         pass.pace =
             (static_cast<int64_t>(along(trip, record.position)) - along(trip, *local_from)) /
             kMeasuredTicks;
-        if (!on_playout)
+        if (!on_playout || !smooth)
             return pass;
 
         // The camera tracking the mirrored runner centres where each frame
@@ -632,9 +654,11 @@ void Runtime::check_unit_playout() {
         return pass;
     };
 
-    const RunnerPass shown = run_mirrored(true);
+    const RunnerPass shown = run_mirrored(true, true);
     restart();
-    const RunnerPass plain = run_mirrored(false);
+    const RunnerPass plain = run_mirrored(false, true);
+    restart();
+    const RunnerPass ticked = run_mirrored(true, false);
     restart();
     require(
         shown.frames.size() == plain.frames.size() && !shown.frames.empty(),
@@ -728,7 +752,39 @@ void Runtime::check_unit_playout() {
         "the mirrored runner was not drawn near its simulated place, moved on ahead of it"
     );
 
-    // Passes 3 and 4: the skirmish's fight with no player taken as another
+    // With Smooth motion Off the world is as with it On, frame for frame,
+    // and the mirrored runner, drawn on its playout at each tick, holds its
+    // place over the frames of a tick and moves on once a tick.
+    require(
+        ticked.frames.size() == shown.frames.size(),
+        "the pass with Smooth motion Off drew " + std::to_string(ticked.frames.size()) +
+            " frames, not " + std::to_string(shown.frames.size())
+    );
+    std::vector<int32_t> ticked_places;
+    for (std::size_t index = 0; index < ticked.frames.size(); ++index) {
+        const auto& off = ticked.frames[index];
+        const auto& on = shown.frames[index];
+        require(
+            off.tick == on.tick && off.world == on.world,
+            "Smooth motion Off changed the world at tick " + std::to_string(off.tick)
+        );
+        if (index > 0 && ticked.frames[index - 1].tick == off.tick)
+            require(
+                ticked.frames[index - 1].drawn_along == off.drawn_along,
+                "with Smooth motion Off the mirrored runner moved within tick " +
+                    std::to_string(off.tick)
+            );
+        ticked_places.push_back(off.drawn_along);
+    }
+    const auto at_ticks = summarise(ticked_places, even);
+    report("the mirrored runner on its playout, Smooth motion Off", at_ticks);
+    std::fflush(stdout);
+    require(
+        at_ticks.still * 2 >= at_ticks.steps && at_ticks.largest > 0.0,
+        "with Smooth motion Off the mirrored runner did not move on once a tick"
+    );
+
+    // Passes 4 and 5: the skirmish's fight with no player taken as another
     // machine's. Each frame, and the world, is the same with the playout and
     // without it.
     const auto run_plain = [&](bool on_playout) {

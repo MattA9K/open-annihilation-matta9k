@@ -185,8 +185,8 @@ struct TickPresentation {
 struct FrameTicks {
     /// The frame shows the current state whole: the match clock does not step
     /// (no match, a menu over a match played alone, the outcome), the match is
-    /// paused, or the frame is one that must show the whole tick (a check's
-    /// fixed clock, a film frame).
+    /// paused, the frame is one that must show the whole tick (a check's
+    /// fixed clock, a film frame), or Smooth motion is Off.
     bool whole{};
     int32_t owed{}; ///< steps the clock offered this frame (Timing::pending_steps)
     uint32_t ran{}; ///< ticks the match advanced this frame

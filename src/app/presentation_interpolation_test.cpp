@@ -399,6 +399,11 @@ void test_debris() {
     const auto shown = oa::app::presented_debris(fall, 5, 3, table[3], half_tick);
     CHECK(shown.position.x == 12 * unit_fixed && shown.position.y == 18 * unit_fixed);
     CHECK(shown.spin[0] == 200);
+    // A whole tick, as every frame is drawn with Smooth motion Off, shows the
+    // piece where the tick left it.
+    const auto whole = oa::app::presented_debris(fall, 5, 3, table[3], whole_tick);
+    CHECK(whole.position.x == 14 * unit_fixed && whole.position.y == 16 * unit_fixed);
+    CHECK(whole.spin[0] == 300);
     // A piece of another unit in the slot is another piece.
     oa::app::observe_debris(fall, 6, table);
     table[3].unit = 6;

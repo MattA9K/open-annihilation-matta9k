@@ -67,7 +67,10 @@ up to it, on the clocks as they ran from one tick to the next; a moment past
 it, up to a tick, shows them running on at their rates. A frame drawn part
 of the way from the tick before to the current one passes
 `frame_time_between(tick before, current tick, part)`. Moments that run on
-from frame to frame show the units moving on evenly.
+from frame to frame show the units moving on evenly. With the Smooth motion
+setting Off the runtime draws every frame at the tick last observed, so a
+tick's frames show each unit at one place, and the units move on evenly
+from tick to tick.
 
 ## What it reads and writes
 
@@ -223,9 +226,10 @@ throw nothing.
 `native-unit-playout`) draws it in the application's frames: the skirmish's
 other player taken as another machine's, its records, with the runner's
 speed and route head, arriving within the steps in 3.1c's bursts, its
-runner drawn at 120 frames a second. `app-presentation-interpolation`
-checks that a unit's pieces are placed between their two ticks' poses
-across a jump.
+runner drawn at 120 frames a second, and with the Smooth motion setting
+Off drawn where its playout has it at each tick, the world as with it On.
+`app-presentation-interpolation` checks that a unit's pieces are placed
+between their two ticks' poses across a jump.
 
 ## Limitations
 

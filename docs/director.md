@@ -229,8 +229,9 @@ the next shot; frame *f* shows the game after tick `first shot tick + floor(f
 tickrate / framerate`, lies between two ticks is drawn from the later tick,
 with units (their place, heading and the pieces their scripts move and
 turn), projectiles, debris, fragments and particles shown that part of the
-way from the earlier tick, as the game draws frames between ticks; a frame
-on a whole tick is the tick as it is. With the defaults every other frame
+way from the earlier tick, as the game draws frames between ticks, whatever
+[Smooth motion](settings.md#graphics) says; a frame on a whole tick is the
+tick as it is. With the defaults every other frame
 lies half way between two ticks, so units move 60 times a second, as the
 camera does. The last frames, which would need the tick no frame shows,
 are drawn from the tick they show. Game time is never skipped. A

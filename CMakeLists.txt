@@ -2305,7 +2305,9 @@ if(OA_BUILD_PLATFORM)
       # world and every whole tick's frame as they are, show units, turrets
       # and projectiles part of the way from one tick to the next, and move
       # a unit, and the ground under a camera tracking it, along the even
-      # path frame by frame at 120 frames a second.
+      # path frame by frame at 120 frames a second. Drawn as the application
+      # loop draws them, with Smooth motion Off every frame shows its tick
+      # whole, a tick's frames one picture, and the world is as with it On.
       set(oa_interpolation_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/interpolation")
       file(MAKE_DIRECTORY "${oa_interpolation_dir}")
       add_test(NAME native-interpolation COMMAND oa-game --game-dir "${OA_GAME_DIR}"
@@ -2321,7 +2323,9 @@ if(OA_BUILD_PLATFORM)
       # frames a second where its records alone hold it still and make it
       # jump, on whole ticks too, with the tracking camera and the pointer's
       # pick where it is drawn; the local runner and the world are as without
-      # the playout, and with no such player so is every frame.
+      # the playout, and with no such player so is every frame. With Smooth
+      # motion Off each frame draws the runner where its playout has it at
+      # the latest tick, and the world is as with it On.
       set(oa_unit_playout_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/unit-playout")
       file(MAKE_DIRECTORY "${oa_unit_playout_dir}")
       add_test(NAME native-unit-playout COMMAND oa-game --game-dir "${OA_GAME_DIR}"
@@ -3041,7 +3045,8 @@ endforeach()
         set_tests_properties(native-group-orders PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
         # The Open Annihilation settings leave the game as it plays without
         # them: the seeded skirmish, drawn, writes the same trace stream and
-        # last frame with every key at its default as with no preferences;
+        # last frame with every key at its default as with no preferences,
+        # and with Smooth motion Off at 30 frames a second;
         # the look and input settings and every enhanced anti-aliasing level
         # leave its world alone; Pathfinding cycles at 2x and a unit limit of
         # 500 repeat; and the director render keeps its pinned frames and
@@ -3060,7 +3065,10 @@ endforeach()
         # frame, each frame shows a quarter of a tick more, and a marching
         # unit drawn between ticks moves on nearly every frame, none carrying
         # more than half the most it moves in a tick; a camera tracking the
-        # unit keeps it at one place of the screen on every frame; and from a
+        # unit keeps it at one place of the screen on every frame; at 120 with
+        # Smooth motion Off it writes the same trace stream and reaches the
+        # same digest, no frame drawn between ticks, the camera scrolled as
+        # evenly and the unit drawn where each tick holds it; and from a
         # clock just before 2^32 milliseconds the match steps on through the
         # turn of the clock's reading to 0, at 30 frames a second each frame
         # running a tick but the first past it.

@@ -7818,6 +7818,14 @@
 	it=Piccoli colpi e scosse avvertiti dal controller.;
 	}
 
+[Smooth motion]
+	{
+	de=Flüssige Bewegung;
+	fr=Mouvement fluide;
+	es=Movimiento fluido;
+	it=Movimento fluido;
+	}
+
 [Smoothed at every zoom.]
 	{
 	de=Bei jedem Zoom geglättet.;
@@ -9650,6 +9658,14 @@
 	it=Unità;
 	}
 
+[Units and shots move 30 times a second, as the game drew them; fast spins may flicker.]
+	{
+	de=Einheiten und Schüsse bewegen sich 30-mal pro Sekunde, wie das Spiel sie gezeichnet hat. Schnelle Drehungen können flackern.;
+	fr=Les unités et les tirs bougent 30 fois par seconde, comme le jeu les a dessinés. Les rotations rapides peuvent scintiller.;
+	es=Las unidades y los disparos se mueven 30 veces por segundo, como el juego los dibujó. Los giros rápidos pueden parpadear.;
+	it=Unità e colpi si muovono 30 volte al secondo, come il gioco li ha disegnati. Le rotazioni veloci possono sfarfallare.;
+	}
+
 [Units are drawn as models at every zoom. Far out on a large map, needs a fast CPU.]
 	{
 	de=Einheiten werden bei jedem Zoom als Modelle gezeichnet. Weit draußen auf einer großen Karte, braucht eine schnelle CPU.;
@@ -9688,6 +9704,14 @@
 	fr=Unités que chaque joueur peut avoir. S'applique dès la prochaine partie.;
 	es=Unidades que puede tener cada jugador. Se aplica desde la próxima partida.;
 	it=Unità che ogni giocatore può avere. Si applica dalla prossima partita.;
+	}
+
+[Units, shots and spinning parts move smoothly between the game's ticks.]
+	{
+	de=Einheiten, Schüsse und drehende Teile bewegen sich flüssig zwischen den Ticks des Spiels.;
+	fr=Les unités, les tirs et les pièces qui tournent bougent de façon fluide entre les ticks du jeu.;
+	es=Las unidades, los disparos y las piezas que giran se mueven con fluidez entre los ticks del juego.;
+	it=Unità, colpi e parti rotanti si muovono in modo fluido tra i tick del gioco.;
 	}
 
 [Unpacking the demo's game data ({size})…]
