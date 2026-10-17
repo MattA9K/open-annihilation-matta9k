@@ -293,6 +293,26 @@ int32_t save_unit_record_ids(const Bank* bank, int32_t count, int32_t** ids) {
     return stored;
 }
 
+void save_find_unit_records(Bank* bank, std::span<int32_t> records) {
+    std::fill(records.begin(), records.end(), -1);
+    bank_open_account(bank, save_key::units);
+    int32_t* ids = nullptr;
+    const int32_t stored =
+        save_unit_record_ids(bank, bank_get_int(bank, save_key::unit_count, 0), &ids);
+    for (int32_t index = 0; index < stored && ids[index] == index; ++index) {
+        uint8_t record[unit_record_bytes];
+        if (!bank_open_blob_id(bank, index))
+            break;
+        bank_blob_seek(bank, 0);
+        if (bank_blob_read(bank, record, unit_record_bytes) != unit_record_bytes)
+            break;
+        const uint16_t id = detail::load_le16(record + unit_record::id);
+        if (id < records.size() && records[id] < 0)
+            records[id] = index;
+    }
+    std::free(ids);
+}
+
 void save_read_units(SaveContext* save, Bank* bank) {
     if (!bank_open_account(bank, save_key::units) ||
         bank_get_int(bank, version_field, 0) != unit_snapshot_version)
