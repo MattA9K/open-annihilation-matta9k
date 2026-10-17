@@ -60,6 +60,9 @@ struct MatchPresentation {
     /// its own copies too (the renderer's model_of).
     bool blending{};
     std::vector<UnitMotion> units; ///< by unit slot
+    /// A slot's model instance did not fit its unit (instance_fits_unit) and
+    /// the log has said so: it says so once a match.
+    bool misfit_logged{};
     ShotFlight shots{};
     /// Each live projectile's pose for the frame being drawn, by pool index.
     std::vector<ShotPose> presented_shots;

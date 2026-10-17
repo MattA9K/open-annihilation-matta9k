@@ -134,6 +134,24 @@ oa::Unit unit_at(int32_t x, int32_t z, uint16_t heading) {
     return unit;
 }
 
+void test_instance_fits_unit() {
+    const int owner = 0;
+    const int other = 0;
+    const auto token = reinterpret_cast<uintptr_t>(&owner);
+    const auto instance = oa::sim::model_runtime::make_instance(turret_model(), token);
+    CHECK(oa::app::instance_fits_unit(instance, &owner));
+    // Made for another unit, or for none.
+    CHECK(!oa::app::instance_fits_unit(instance, &other));
+    CHECK(!oa::app::instance_fits_unit(instance, nullptr));
+    CHECK(
+        !oa::app::instance_fits_unit(oa::sim::model_runtime::make_instance(turret_model()), &owner)
+    );
+    // An instance with no pieces fits: it has no model, or one whose hierarchy was refused.
+    CHECK(
+        oa::app::instance_fits_unit(oa::sim::model_runtime::make_instance(nullptr, token), &owner)
+    );
+}
+
 void test_unit_motion() {
     auto instance = oa::sim::model_runtime::make_instance(turret_model());
     CHECK(instance.pieces().size() == 2);
@@ -422,6 +440,7 @@ void test_debug_grid_numbers() {
 int main() {
     test_tick_fraction();
     test_blends();
+    test_instance_fits_unit();
     test_unit_motion();
     test_fast_spin();
     test_shots();

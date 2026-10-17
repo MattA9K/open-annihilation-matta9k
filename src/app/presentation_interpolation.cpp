@@ -300,6 +300,16 @@ int16_t blend_piece_turn(
     return blend_angle(previous, current, fraction);
 }
 
+bool instance_fits_unit(
+    const oa::sim::model_runtime::Instance& instance, const void* owner
+) noexcept {
+    if (owner == nullptr || instance.owner_token() != reinterpret_cast<uintptr_t>(owner))
+        return false;
+    const auto& model = instance.model_handle();
+    const std::size_t pieces = instance.pieces().size();
+    return pieces == 0 || (model != nullptr && pieces == model->objects.size());
+}
+
 void capture_unit_pose(
     const oa::Unit& unit,
     const oa::sim::model_runtime::Instance& instance,

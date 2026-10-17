@@ -600,6 +600,26 @@ void observe_match_tick(MatchModels& models, oa::sim::match_runtime::Match& matc
                 forget_unit(motion);
             continue;
         }
+        // The redraw as the save dialog closed once crashed reading the pieces of
+        // an instance (a mod's game on Linux), for a cause not found: an instance
+        // that is not the unit's own is left out of the motion, and logged once.
+        const auto& instance = runtime->instance->model();
+        const auto* owner = match.spawn_slot(slot).unit;
+        if (!instance_fits_unit(instance, owner)) {
+            if (motion.seen)
+                forget_unit(motion);
+            if (!presentation.misfit_logged) {
+                presentation.misfit_logged = true;
+                std::cerr << "open-annihilation: tick " << tick << ": unit slot " << slot
+                          << "'s model instance is not its own (owner "
+                          << (instance.owner_token() == reinterpret_cast<uintptr_t>(owner)
+                                  ? "its unit"
+                                  : "another")
+                          << ", " << instance.pieces().size()
+                          << " pieces); left out of the motion (logged once a match)\n";
+            }
+            continue;
+        }
         piece_turn_words(*runtime->instance, turns);
         observe_unit(
             motion, tick, runtime->instance_generation, record, runtime->instance->model(), turns

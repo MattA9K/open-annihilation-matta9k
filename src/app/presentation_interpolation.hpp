@@ -158,6 +158,17 @@ struct UnitPose {
     std::vector<PiecePose> pieces; ///< in the instance's piece order
 };
 
+/// Tells whether a slot's model instance is its unit's own, as spawn binds
+/// it: made for the unit (its owner token) with a piece for each object of
+/// its model, or with none (no model, or one whose hierarchy make_instance
+/// refused). The motion reads the pieces of an instance only when it is.
+///
+/// @param instance the slot's model instance
+/// @param owner the slot's unit, as spawn gives the instance its owner token
+/// @return true when the instance fits the unit
+[[nodiscard]] bool
+instance_fits_unit(const oa::sim::model_runtime::Instance& instance, const void* owner) noexcept;
+
 /// Takes a unit's pose.
 ///
 /// @param unit the unit record
