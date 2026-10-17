@@ -9,10 +9,12 @@
 // The source escapes backslash, newline and carriage return. A line whose
 // first word is not one of those fields is kept for a later reader and
 // ignored here. The parser takes bytes and returns a record; it does not
-// open a file.
+// open a file. A bundle is played only once its record names every one of
+// its files.
 #pragma once
 
 #include "oa/base/sha256.hpp"
+#include "oa/data/content_bundles.hpp"
 
 #include <cstdint>
 #include <filesystem>
@@ -96,5 +98,29 @@ struct ContentRecord {
 /// @return the record
 [[nodiscard]] ContentRecord
 read_bundle_folder_record(const std::filesystem::path& folder, std::string* error);
+
+/// Lists the files of a bundle that its record does not name.
+///
+/// The record names a file once the copy has stored it, or has recorded it
+/// as not in the source. Names are compared without regard to ASCII case.
+/// A copy that stopped part way has not named the files after the one it
+/// stopped at, and a copy whose source holds a file under the file's name
+/// at another size does not name that file.
+///
+/// @param bundle the bundle
+/// @param record the record in the bundle's folder
+/// @return the copy names of the files not named, in the bundle's order
+[[nodiscard]] std::vector<std::string_view>
+files_not_recorded(const Bundle& bundle, const ContentRecord& record);
+
+/// Tells whether a record is the bundle's own and names all its files.
+///
+/// Only such a bundle is played. A bundle with no files never is.
+///
+/// @param bundle the bundle
+/// @param record the record in the bundle's folder
+/// @return true when the record is valid, names this bundle and names every
+///     one of its files
+[[nodiscard]] bool record_complete(const Bundle& bundle, const ContentRecord& record);
 
 } // namespace oa::data::content_bundles

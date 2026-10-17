@@ -1462,8 +1462,10 @@ bool describe_source(
                 for (std::size_t index = 0; index < listed.size(); ++index) {
                     if (used[index] != 0 || !names_match(listed[index].name, file))
                         continue;
-                    if (listed[index].size != file.size)
+                    if (listed[index].size != file.size) {
                         missing.different_size = true;
+                        missing.source_size = listed[index].size;
+                    }
                 }
                 described.missing.push_back(std::move(missing));
             }
@@ -1559,7 +1561,7 @@ bool managed_base_present(const fs::path& user_folder, std::span<const bundles::
         const fs::path record_path =
             bundle_folder(user_folder, bundle) / std::string(content_record_name);
         const ContentRecord record = read_content_record(record_path, nullptr);
-        if (record.valid && record.bundle_id == bundle.id && !record.files.empty())
+        if (bundles::record_complete(bundle, record))
             return true;
     }
     return false;
@@ -1874,7 +1876,7 @@ CopyResult copy_content(ContentSource& source, const CopyRequest& request) {
                     break;
                 }
             }
-            if (!held || missing.different_size)
+            if (!held)
                 continue;
             const bundles::Bundle* bundle = nullptr;
             const bundles::ContentFile* table_file = nullptr;
@@ -1892,6 +1894,17 @@ CopyResult copy_content(ContentSource& source, const CopyRequest& request) {
             }
             if (bundle == nullptr || table_file == nullptr || !safe_copy_name(missing.copy_name))
                 continue;
+            // Left out of the record, so the bundle is not played until a
+            // copy from another source names the file.
+            if (missing.different_size) {
+                const std::string line = missing.copy_name + " of " +
+                                         std::string(bundle->english_name) +
+                                         " was not copied: the source holds it at " +
+                                         std::to_string(missing.source_size) + " bytes, not " +
+                                         std::to_string(table_file->size);
+                say_line(request.news, line.c_str());
+                continue;
+            }
             const fs::path record_path =
                 bundle_folder(request.user_folder, *bundle) / std::string(content_record_name);
             ContentRecord record = read_content_record(record_path, &problem);

@@ -408,26 +408,6 @@ bundle_directory(const fs::path& user, const oa::data::content_bundles::Bundle& 
            std::string(bundle.extends[0]) / id;
 }
 
-[[nodiscard]] bool record_covers(
-    const oa::data::content_bundles::Bundle& bundle,
-    const oa::data::content_bundles::ContentRecord& record
-) {
-    if (bundle.files.empty())
-        return false;
-    for (const auto& entry : bundle.files) {
-        bool found = false;
-        for (const oa::data::content_bundles::ContentRecordFile& item : record.files) {
-            if (equal_ignoring_case(item.copy_name, entry.copy_name)) {
-                found = true;
-                break;
-            }
-        }
-        if (!found)
-            return false;
-    }
-    return true;
-}
-
 [[nodiscard]] std::vector<std::string> recorded_content_bundles(const fs::path& user) {
     std::vector<std::string> ids;
     std::error_code failure;
@@ -438,9 +418,7 @@ bundle_directory(const fs::path& user, const oa::data::content_bundles::Bundle& 
             oa::data::content_bundles::read_bundle_folder_record(
                 bundle_directory(user, bundle), nullptr
             );
-        if (!record.valid || record.bundle_id != bundle.id)
-            continue;
-        if (!record_covers(bundle, record))
+        if (!oa::data::content_bundles::record_complete(bundle, record))
             continue;
         ids.emplace_back(bundle.id);
     }
@@ -1072,6 +1050,45 @@ std::optional<GameDirectory> compose_managed_content(
     directory.mod_folder = std::move(mod);
     directory.mod_layered = !directory.mod_folder.empty();
     return directory;
+}
+
+std::string
+managed_copy_problem(const ManagedMount& request, const oa::platform::preferences::Values& values) {
+    namespace bundles = oa::data::content_bundles;
+    const std::vector<std::string> recorded = recorded_content_bundles(request.user_folder);
+    std::vector<std::string_view> copied;
+    copied.reserve(recorded.size());
+    for (const std::string& id : recorded)
+        copied.emplace_back(id);
+    const auto choice = content_choice_from_preferences(values, copied, request.content);
+    if (!choice.error.empty())
+        return choice.error;
+    const bundles::Bundle* base = bundles::find_bundle(choice.base_game);
+    if (base == nullptr || base->kind != bundles::Kind::base_game)
+        return "Open Annihilation does not know the base game " + choice.base_game + ".";
+    const fs::path folder = bundle_directory(request.user_folder, *base);
+    const std::string game(base->english_name);
+    const std::string where = path_to_utf8(folder);
+    const bundles::ContentRecord record = bundles::read_bundle_folder_record(folder, nullptr);
+    if (!record.valid || record.bundle_id != base->id || record.files.empty())
+        return "Open Annihilation has not copied " + game + " into " + where +
+               ". Start Open Annihilation again to copy it.";
+    const std::vector<std::string_view> missing = bundles::files_not_recorded(*base, record);
+    if (!missing.empty()) {
+        std::string names;
+        for (const std::string_view name : missing) {
+            if (!names.empty())
+                names += ", ";
+            names += name;
+        }
+        return "Open Annihilation's copy of " + game + " in " + where +
+               " is not finished: " + names + (missing.size() == 1 ? " was" : " were") +
+               " not copied. Start Open Annihilation again to finish it. If the place you copy "
+               "from holds a file at another size, copy from another place.";
+    }
+    return "Open Annihilation's copy of " + game + " in " + where +
+           " holds no archive the game can mount. Delete that folder and start Open "
+           "Annihilation again to copy the game afresh.";
 }
 
 bool roots_hold_movies(std::span<const fs::path> roots) {

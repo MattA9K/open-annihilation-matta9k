@@ -202,6 +202,12 @@ countdown. Moving the pointer does not. When the check finds a difference,
 the rows say so and **Continue** waits for a press. **Quit** or **Skip**
 is still there.
 
+A copy that stopped part way opens this setup again at the next start, and
+a copy from the same place goes on from the files already copied. The
+setup does not open once the base game's
+copy names every one of its files. A start that then cannot play the copy
+says why and stops ([a copy that does not finish](troubleshooting.md#the-copy-of-the-game-does-not-finish)).
+
 ## Online features
 
 ![Online features: a picture of the Library's Active tab, the heading ONLINE FEATURES, three lines about downloads, the install ID panel, and the choices Turn on online features and Not now.](images/first-run/online.png)

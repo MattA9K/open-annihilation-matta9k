@@ -785,7 +785,8 @@ if(BUILD_TESTING)
   set_tests_properties(app-game-files-import-data PROPERTIES TIMEOUT 300)
   oa_demo_installer_tests(app-game-files-import-data)
   # The managed copy of a fixture install: an interrupted copy resumed, the
-  # source left unchanged, and the content-copy check.
+  # source left unchanged, and the content-copy check. A base game left
+  # incomplete is not taken as copied.
   add_executable(oa-app-content-copy-test src/app/content_copy_test.cpp)
   target_link_libraries(oa-app-content-copy-test PRIVATE oa-app-game-files oa-platform-shims
     oa-test-support oa-options)

@@ -3,7 +3,9 @@
 
 // The managed copy over a fixture install: a stopped copy continues, the
 // source keeps its bytes and times, a Wineskin drive_c is preferred to a
-// decoy of the same size, and a run nobody is watching does not copy.
+// decoy of the same size, and a run nobody is watching does not copy. A
+// base game whose copy stopped, or whose source holds a file at another
+// size, is not taken as copied.
 #include "oa/app/content_copy.hpp"
 #include "oa/base/sha256.hpp"
 #include "oa/platform/file_clone.hpp"
@@ -279,6 +281,9 @@ void test_resume(const fs::path& scratch) {
     const oa::app::CopyResult first = oa::app::copy_content(source, request);
     OA_CHECK(first.status == oa::app::CopyStatus::stopped);
     OA_CHECK(first.files_copied == 1);
+    // The record names rev31.gp3 alone. The base game cannot be played yet,
+    // so the next start offers the copy again rather than taking it as made.
+    OA_CHECK(!oa::app::managed_base_present(user, oa::app::copy_check_bundles()));
     const fs::path partial =
         user / std::string(oa::app::managed_games_folder) / "totala" / "Data" / "2.zrb.part";
     std::error_code failure;
@@ -323,6 +328,46 @@ void test_resume(const fs::path& scratch) {
             failure
         )
     );
+}
+
+/// A source that holds a base game's file at another size: the copy leaves
+/// it out, says so, and the base game is not taken as copied until a copy
+/// from another source names it.
+void test_source_size_differs(const fs::path& scratch) {
+    const fs::path install = scratch / "install";
+    const fs::path user = scratch / "user";
+    write_cased_install(install);
+    place_file(install / "data" / "2.ZRB", "a movie of another size\n");
+    oa::app::FolderContentSource source(install, oa::app::copy_check_bundles());
+    std::ostringstream news;
+    oa::app::CopyRequest request = byte_request(user);
+    request.news = &news;
+    const oa::app::CopyResult copied = oa::app::copy_content(source, request);
+    OA_CHECK(copied.status == oa::app::CopyStatus::finished);
+    OA_CHECK(copied.files_copied == 2);
+    const auto files = oa::app::copy_check_files();
+    const std::string left_out = "open-annihilation: Data/2.zrb of Total Annihilation was not "
+                                 "copied: the source holds it at 24 bytes, not " +
+                                 std::to_string(files[1].bytes.size()) + "\n";
+    OA_CHECK(news.str().find(left_out) != std::string::npos);
+    std::string error;
+    const fs::path totala = user / std::string(oa::app::managed_games_folder) / "totala";
+    const oa::app::ContentRecord record =
+        oa::app::read_content_record(totala / std::string(oa::app::content_record_name), &error);
+    OA_CHECK(record.valid);
+    for (const oa::app::ContentRecordFile& item : record.files)
+        OA_CHECK(item.copy_name != "Data/2.zrb");
+    std::error_code failure;
+    OA_CHECK(!fs::exists(totala / "Data" / "2.zrb", failure));
+    OA_CHECK(!oa::app::managed_base_present(user, oa::app::copy_check_bundles()));
+
+    const fs::path whole = scratch / "whole";
+    write_cased_install(whole);
+    oa::app::FolderContentSource other(whole, oa::app::copy_check_bundles());
+    const oa::app::CopyResult finished = oa::app::copy_content(other, byte_request(user));
+    OA_CHECK(finished.status == oa::app::CopyStatus::finished);
+    OA_CHECK(finished.files_copied == 1);
+    OA_CHECK(oa::app::managed_base_present(user, oa::app::copy_check_bundles()));
 }
 
 void test_wineskin(const fs::path& scratch) {
@@ -1062,6 +1107,7 @@ int main() {
     test_decisions();
     const fs::path scratch = oa::test::make_scratch_directory("G02-content-copy");
     test_resume(scratch / "resume");
+    test_source_size_differs(scratch / "size-differs");
     test_wineskin(scratch / "wineskin");
     test_space(scratch / "space");
     test_record(scratch / "record");

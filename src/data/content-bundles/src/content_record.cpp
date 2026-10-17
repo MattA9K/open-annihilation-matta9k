@@ -167,6 +167,22 @@ void set_error(std::string* error, std::string_view text) {
         *error = std::string(text);
 }
 
+[[nodiscard]] char fold_ascii(char byte) noexcept {
+    if (byte >= 'A' && byte <= 'Z')
+        return static_cast<char>(byte - 'A' + 'a');
+    return byte;
+}
+
+[[nodiscard]] bool same_name(std::string_view one, std::string_view other) noexcept {
+    if (one.size() != other.size())
+        return false;
+    for (std::size_t index = 0; index < one.size(); ++index) {
+        if (fold_ascii(one[index]) != fold_ascii(other[index]))
+            return false;
+    }
+    return true;
+}
+
 } // namespace
 
 ContentRecord parse_content_record(std::string_view text) {
@@ -320,6 +336,29 @@ ContentRecord read_bundle_folder_record(const std::filesystem::path& folder, std
     ContentRecord parsed = parse_content_record(text);
     parsed.present = true;
     return parsed;
+}
+
+std::vector<std::string_view>
+files_not_recorded(const Bundle& bundle, const ContentRecord& record) {
+    std::vector<std::string_view> missing;
+    for (const ContentFile& file : bundle.files) {
+        bool named = false;
+        for (const ContentRecordFile& item : record.files) {
+            if (same_name(item.copy_name, file.copy_name)) {
+                named = true;
+                break;
+            }
+        }
+        if (!named)
+            missing.push_back(file.copy_name);
+    }
+    return missing;
+}
+
+bool record_complete(const Bundle& bundle, const ContentRecord& record) {
+    if (!record.valid || record.bundle_id != bundle.id || bundle.files.empty())
+        return false;
+    return files_not_recorded(bundle, record).empty();
 }
 
 } // namespace oa::data::content_bundles

@@ -379,6 +379,8 @@ struct MissingContentFile {
     /// The source has this name at a different size. It is not filled from
     /// another file, and it is not recorded as absent.
     bool different_size{};
+    /// The size the source holds the name at, in bytes, when `different_size`.
+    uint64_t source_size{};
 };
 
 /// What a source holds, before anything is copied.
@@ -567,8 +569,10 @@ struct CopyRequest {
     void* progress_context{};
     /// Set to stop between files and between chunks. Null never stops.
     std::atomic<bool>* stop{};
-    /// Receives one line when a copy starts and one when it finishes.
-    /// Null stays quiet, as a copy that finds the files already there does.
+    /// Receives one line when a copy starts and one when it finishes, and
+    /// one for each file it does not copy because the source holds that name
+    /// at another size. Null stays quiet, as a copy that finds the files
+    /// already there does.
     std::ostream* news{};
 };
 
@@ -602,11 +606,13 @@ struct CopyRequest {
 /// Reports whether the player's folder already holds a managed base game.
 ///
 /// An expansion on its own does not count. A record that names the base game
-/// and at least one file does.
+/// and every one of its files, copied or not in the source, does: that base
+/// game can be played. A copy that stopped part way does not, so the setup
+/// offers the copy again and the copy continues where it stopped.
 ///
 /// @param user_folder the player's folder
 /// @param bundles the table whose base games are looked for
-/// @return true when one of those base games has a record
+/// @return true when one of those base games has a complete record
 [[nodiscard]] bool managed_base_present(
     const std::filesystem::path& user_folder,
     std::span<const oa::data::content_bundles::Bundle> bundles

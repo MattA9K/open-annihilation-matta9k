@@ -479,6 +479,22 @@ struct ManagedMount {
     const ManagedMount& request, const oa::platform::preferences::Values& values
 );
 
+/// Says why the chosen base game cannot be mounted from the player's folder,
+/// for a start that stops there.
+///
+/// Names the base game and its folder, and what is wrong: it was never
+/// copied, its copy stopped part way and these files were not copied, or
+/// its folder holds no archive the game can mount. Each ends with what the
+/// player can do: a start shows the setup again while the copy is missing
+/// or not finished, and a copy whose files are gone is copied afresh once
+/// its folder is deleted.
+///
+/// @param request the player's folder and `--content`
+/// @param values the preferences the stored choice is read from
+/// @return the message, in English
+[[nodiscard]] std::string
+managed_copy_problem(const ManagedMount& request, const oa::platform::preferences::Values& values);
+
 /// Reports whether any of the folders holds a movie.
 ///
 /// A movie is a file whose extension is `.zrb`, in a directory named `data`.

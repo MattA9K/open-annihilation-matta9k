@@ -7,7 +7,8 @@
 // archives. The base game alone mounts its own archives. Music and movies
 // are found in the bundle folders, and a name's case does not matter.
 // Expansions with no mod report no mod folder. A mod folder is reported
-// on its own, including while an expansion is mounted with it.
+// on its own, including while an expansion is mounted with it. A copy that
+// stopped part way is not mounted, and what is missing is named.
 
 #include "oa/app/content_copy.hpp"
 #include "oa/app/game_directory.hpp"
@@ -18,12 +19,14 @@
 #include "oa/test/scratch_directory.hpp"
 #include "oa/ui/engine_settings.hpp"
 
+#include <algorithm>
 #include <cctype>
 #include <cstddef>
 #include <cstdio>
 #include <exception>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -104,18 +107,25 @@ void write_bytes(const fs::path& path, const std::vector<uint8_t>& bytes) {
            id;
 }
 
-/// Writes a record that lists every file of a bundle.
+/// Writes a record that lists the first files of a bundle, as a copy that
+/// stopped after them leaves it, or every file.
 ///
 /// @param folder the bundle folder
 /// @param bundle the bundle
-void write_record(const fs::path& folder, const bundles::Bundle& bundle) {
+/// @param count how many of its files the record lists; every file by default
+void write_record(
+    const fs::path& folder,
+    const bundles::Bundle& bundle,
+    std::size_t count = std::numeric_limits<std::size_t>::max()
+) {
     fs::create_directories(folder);
     std::ofstream out(folder / ".oa-content");
     const std::string hash(64, '0');
     out << "oa-content 1\n";
     out << "bundle " << bundle.id << '\n';
     out << "source G05\n";
-    for (const bundles::ContentFile& file : bundle.files) {
+    for (const bundles::ContentFile& file :
+         bundle.files.first(std::min(count, bundle.files.size()))) {
         out << "file " << file.copy_name << '\n';
         out << "size 1\n";
         out << "modified 1\n";
@@ -377,6 +387,52 @@ void check_composed_mount(const fs::path& scratch) {
     OA_CHECK(copied_content_bundles(partial).empty());
 }
 
+/// A copy that stopped part way is not mounted, and the start that stops
+/// there names the files that were not copied. A base game never copied,
+/// and a copy whose archives are gone, are named too.
+void check_unfinished_copy(const fs::path& scratch) {
+    const bundles::Bundle* totala = bundles::find_bundle("totala");
+    OA_CHECK(totala != nullptr);
+    if (totala == nullptr)
+        return;
+    const oa::platform::preferences::Values values;
+    ManagedMount request{};
+    request.user_folder = scratch / "unfinished-player";
+    const fs::path folder = managed_folder(request.user_folder, *totala);
+    const std::string where = path_to_utf8(folder);
+    OA_CHECK(!compose_managed_content(request, values).has_value());
+    OA_CHECK(
+        managed_copy_problem(request, values) ==
+        "Open Annihilation has not copied Total Annihilation 3.1c into " + where +
+            ". Start Open Annihilation again to copy it."
+    );
+
+    write_record(folder, *totala, 2);
+    write_bytes(folder / "rev31.gp3", archive_bytes());
+    write_bytes(folder / "totala1.hpi", archive_bytes());
+    OA_CHECK(!compose_managed_content(request, values).has_value());
+    OA_CHECK(copied_content_bundles(request.user_folder).empty());
+    OA_CHECK(
+        managed_copy_problem(request, values) ==
+        "Open Annihilation's copy of Total Annihilation 3.1c in " + where +
+            " is not finished: totala2.hpi, Data/1.zrb, Data/2.zrb, Data/5.zrb were not "
+            "copied. Start Open Annihilation again to finish it. If the place you copy from "
+            "holds a file at another size, copy from another place."
+    );
+
+    ManagedMount emptied{};
+    emptied.user_folder = scratch / "emptied-player";
+    const fs::path emptied_folder = managed_folder(emptied.user_folder, *totala);
+    write_record(emptied_folder, *totala);
+    OA_CHECK(!compose_managed_content(emptied, values).has_value());
+    OA_CHECK(
+        managed_copy_problem(emptied, values) ==
+        "Open Annihilation's copy of Total Annihilation 3.1c in " + path_to_utf8(emptied_folder) +
+            " holds no archive the game can mount. Delete that folder and start Open "
+            "Annihilation again to copy the game afresh."
+    );
+}
+
 void check_case(const fs::path& scratch) {
     const bundles::Bundle* totala = bundles::find_bundle("totala");
     OA_CHECK(totala != nullptr);
@@ -407,6 +463,7 @@ int main() {
     const fs::path scratch = oa::test::make_scratch_directory("G05-content-mount");
     try {
         check_composed_mount(scratch);
+        check_unfinished_copy(scratch);
         check_case(scratch);
     } catch (const std::exception& failure) {
         std::fprintf(stderr, "content mount: %s\n", failure.what());

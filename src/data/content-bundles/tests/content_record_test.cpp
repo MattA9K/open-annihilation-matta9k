@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // The .oa-content record: a round trip, a record this reader does not
-// understand, and a field it skips.
+// understand, a field it skips, and whether it names every file of its
+// bundle.
 
 #include "oa/data/content_bundles/record.hpp"
 #include "oa/test/check.hpp"
@@ -13,15 +14,21 @@
 #include <limits>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <vector>
 
 namespace {
 
+using oa::data::content_bundles::Bundle;
+using oa::data::content_bundles::ContentFile;
 using oa::data::content_bundles::ContentRecord;
 using oa::data::content_bundles::ContentRecordFile;
+using oa::data::content_bundles::files_not_recorded;
 using oa::data::content_bundles::format_content_record;
 using oa::data::content_bundles::parse_content_record;
 using oa::data::content_bundles::managed_games_folder;
 using oa::data::content_bundles::read_bundle_folder_record;
+using oa::data::content_bundles::record_complete;
 
 constexpr std::string_view kHash =
     "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0";
@@ -189,6 +196,54 @@ void test_in_progress() {
     OA_CHECK(header.source == "disc");
 }
 
+// A bundle is played once its record names every file, copied or not in
+// the source, in any case. A copy that stopped after its first file names
+// that file alone.
+void test_complete() {
+    static constexpr std::string_view rev_sources[]{"rev31.gp3"};
+    static constexpr std::string_view zrb_sources[]{"Data/2.zrb"};
+    static constexpr std::string_view hpi_sources[]{"totala1.hpi"};
+    static const ContentFile files[]{
+        {"rev31.gp3", rev_sources, 14, {}},
+        {"Data/2.zrb", zrb_sources, 12, {}},
+        {"totala1.hpi", hpi_sources, 9, {}},
+    };
+    const Bundle bundle{
+        "totala", "Total Annihilation", oa::data::content_bundles::Kind::base_game, {}, {}, files
+    };
+    ContentRecord record;
+    record.valid = true;
+    record.bundle_id = "totala";
+    ContentRecordFile stored;
+    stored.copy_name = "REV31.GP3";
+    record.files.push_back(stored);
+    const std::vector<std::string_view> stopped = files_not_recorded(bundle, record);
+    OA_CHECK((stopped == std::vector<std::string_view>{"Data/2.zrb", "totala1.hpi"}));
+    OA_CHECK(!record_complete(bundle, record));
+
+    ContentRecordFile absent;
+    absent.copy_name = "totala1.hpi";
+    absent.not_in_source = true;
+    record.files.push_back(absent);
+    ContentRecordFile movie;
+    movie.copy_name = "data/2.ZRB";
+    record.files.push_back(movie);
+    OA_CHECK(files_not_recorded(bundle, record).empty());
+    OA_CHECK(record_complete(bundle, record));
+
+    ContentRecord other = record;
+    other.bundle_id = "campaign";
+    OA_CHECK(!record_complete(bundle, other));
+    ContentRecord unread = record;
+    unread.valid = false;
+    OA_CHECK(!record_complete(bundle, unread));
+    const Bundle empty{
+        "totala", "Total Annihilation", oa::data::content_bundles::Kind::base_game, {}, {}, {}
+    };
+    OA_CHECK(files_not_recorded(empty, record).empty());
+    OA_CHECK(!record_complete(empty, record));
+}
+
 void test_folder() {
     const std::filesystem::path folder = oa::test::make_scratch_directory("G25-content-record");
     std::error_code failure;
@@ -232,6 +287,7 @@ int main() {
     test_unknown_field();
     test_not_in_source();
     test_in_progress();
+    test_complete();
     test_folder();
     return oa::test::check_exit_status();
 }
