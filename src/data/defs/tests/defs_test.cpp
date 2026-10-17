@@ -939,17 +939,21 @@ void catalog_build_lists_and_download_menu() {
     CHECK(tables.records == nullptr && tables.count == 0 && tables.blocks.count == 0);
 }
 
-/// Loads one builder's list of 1100 CANBUILD entries, and two download entries
-/// for it, under a set of build-list limits.
+/// Loads one builder's list of CANBUILD entries, and two download entries for
+/// it, under a set of build-list limits.
 ///
 /// @param lists the build-list limits
 /// @param[out] count the builder's build_id_count after the CANBUILD pass
 /// @param[out] with_downloads its build_id_count after the download menus
 /// @param[out] in_order whether the kept entries are the first ones, in order
+/// @param listed the CANBUILD entries, at most 1100
 void load_long_build_list(
-    const data::limits::BuildLists& lists, uint32_t& count, uint32_t& with_downloads, bool& in_order
+    const data::limits::BuildLists& lists,
+    uint32_t& count,
+    uint32_t& with_downloads,
+    bool& in_order,
+    uint32_t listed = 1100
 ) {
-    constexpr uint32_t listed = 1100;
     std::string sidedata = "[CANBUILD]{[BUILDER]{";
     char entry[48];
     for (uint32_t index = 0; index < listed; ++index) {
@@ -967,11 +971,14 @@ void load_long_build_list(
     const Files files = memory.view();
     UnitDefTables tables;
     unit_def_tables_init(&tables);
-    CHECK(unit_def_tables_allocate(&tables, listed + 2));
+    // Every unit the entries and the download menus name exists, however few
+    // entries the list names.
+    constexpr uint32_t named = 1100;
+    CHECK(unit_def_tables_allocate(&tables, named + 2));
     oa::base::text::copy_terminated(tables.records[1].unit_name, "BUILDER");
     tables.records[1].type_id = 1;
     tables.records[1].flags = OA_UNIT_DEF_FLAG_BUILDER;
-    for (uint32_t index = 0; index < listed; ++index) {
+    for (uint32_t index = 0; index < named; ++index) {
         UnitDef& unit = tables.records[index + 2];
         std::snprintf(unit.unit_name, sizeof unit.unit_name, "U%04u", index);
         unit.type_id = static_cast<uint16_t>(index + 2);
@@ -994,11 +1001,17 @@ void catalog_build_lists_follow_limits() {
     // 3.1c keeps 30 CANBUILD entries; the download menus add one more.
     load_long_build_list({}, count, with_downloads, in_order);
     CHECK(count == 30 && in_order && with_downloads == 31);
-    // A raised copy keeps 36, and still one download entry more.
+    // A raised copy keeps 36. The download menus add entries only while a list
+    // holds fewer than 31, so they add nothing to it.
     load_long_build_list(
         {36, data::limits::BuildListOverflow::truncate}, count, with_downloads, in_order
     );
-    CHECK(count == 36 && in_order && with_downloads == 37);
+    CHECK(count == 36 && in_order && with_downloads == 36);
+    // To a shorter list under the same copy they add entries until it holds 31.
+    load_long_build_list(
+        {36, data::limits::BuildListOverflow::truncate}, count, with_downloads, in_order, 30
+    );
+    CHECK(count == 30 && in_order && with_downloads == 31);
     // The largest copy a profile may name.
     load_long_build_list(
         {data::limits::highest_build_list_copy, data::limits::BuildListOverflow::truncate},
@@ -1007,12 +1020,14 @@ void catalog_build_lists_follow_limits() {
         in_order
     );
     CHECK(count == data::limits::highest_build_list_copy && in_order);
-    CHECK(with_downloads == data::limits::highest_build_list_copy + 1);
-    // A list that keeps every entry stops at the largest copy too.
+    CHECK(with_downloads == data::limits::highest_build_list_copy);
+    // A list that keeps every entry stops at the largest copy too, and takes
+    // one download entry more.
     load_long_build_list(
         {30, data::limits::BuildListOverflow::dynamic}, count, with_downloads, in_order
     );
     CHECK(count == data::limits::highest_build_list_copy && in_order);
+    CHECK(with_downloads == data::limits::highest_build_list_copy + 1);
 }
 
 void gamedata_tables_follow_tableinfo() {

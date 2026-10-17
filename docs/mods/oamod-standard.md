@@ -844,6 +844,9 @@ What each limit holds:
   on the machine that owns the unit.
 - **`build-list-entries`**: how many build-list entries a unit keeps.
   `truncate` drops the rest; `dynamic` keeps every entry, up to 1,024.
+  The download menus add their units to a list only while it holds fewer
+  than 31 entries, whatever `copy` keeps; under `dynamic` they add them
+  until it holds one entry more than it keeps.
 - **`model-composite`**: the size of the buffer a model is drawn into.
   Without `clamp-oversize` the buffer grows to fit a larger model, as in
   3.1c; with it the buffer keeps its size and a larger model is cut to it

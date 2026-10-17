@@ -26,6 +26,28 @@ build_list_entries(const data::limits::BuildLists& lists) noexcept {
     return data::limits::build_list_kept(lists) + 1;
 }
 
+/// The type ids a builder's list holds before the download menus stop adding theirs:
+/// they add entries only while it holds fewer.
+inline constexpr uint32_t download_build_list_limit = 31;
+
+/// Returns how many type ids a builder's list may hold once the download menus have
+/// added theirs.
+///
+/// The download menus add entries while a list holds fewer than 31, whatever its
+/// CANBUILD copy keeps, so a raised copy that keeps 31 entries or more takes none of
+/// theirs. A list that keeps every entry (BuildListOverflow::dynamic) takes them until
+/// it holds build_list_entries.
+///
+/// @param lists the build-list limits
+/// @return the most type ids a list holds after the download menus
+[[nodiscard]] constexpr uint32_t
+download_build_list_entries(const data::limits::BuildLists& lists) noexcept {
+    const uint32_t entries = build_list_entries(lists);
+    if (lists.overflow == data::limits::BuildListOverflow::dynamic)
+        return entries;
+    return entries < download_build_list_limit ? entries : download_build_list_limit;
+}
+
 inline constexpr uint32_t download_menu_entries = 5;
 inline constexpr uint32_t download_unit_name_capacity = 0x20;
 
@@ -175,8 +197,8 @@ void mark_downloadable_units(UnitDefTables* tables) noexcept;
 
 /// Appends each download menu unit to the build list of the builder its UNITMENU names.
 ///
-/// Type ids are appended in file and section order while the list has room
-/// (build_list_entries); names are not deduplicated and unknown ones are skipped.
+/// Type ids are appended in file and section order while the list holds fewer than
+/// download_build_list_entries; names are not deduplicated and unknown ones are skipped.
 ///
 /// @param[in,out] tables unit tables with build lists and loaded download menus
 /// @param lists the build-list limits the lists were loaded with
