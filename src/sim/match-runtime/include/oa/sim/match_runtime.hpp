@@ -2695,8 +2695,11 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     /// (-health * 100 / maximum health + previous 30-tick health percentage)
     /// / 2, each division truncated, clamped to 1..100; its Killed script
     /// runs with it and returns the percentage and the wreck level it dies
-    /// with. An unfinished unit leaves no wreck whatever the script picks. A
-    /// last attacker whose player's slot is free credits nobody.
+    /// with. A type with no maximum health (MaxDamage 0), for which 3.1c has
+    /// no percentage, takes a quotient of 0, so such a unit dies at half its
+    /// previous percentage, at least 1. An unfinished unit leaves no wreck
+    /// whatever the script picks. A last attacker whose player's slot is free
+    /// credits nobody.
     ///
     /// Then MultiplayerHooks::unit_killed shares the death of a unit
     /// simulated here, its orders are cleared, teardown_dead_unit tears it

@@ -406,12 +406,11 @@ inline constexpr std::size_t default_order_budget = 100000;
 /// The step stops where it finds the fault and leaves the rest of its work
 /// undone; what it did before stays done.
 enum class StepFault : uint8_t {
-    none,                ///< the step ran to its end
-    order_budget_spent,  ///< a queue walk or a scheduler took more steps than its budget
-    order_not_queued,    ///< the order to rotate is not in the primary queue
-    untyped_unit,        ///< the unit has no type
-    zero_maximum_health, ///< the unit's type has a maximum health of zero
-    orders_short,        ///< the order lists do not cover the unit pool
+    none,               ///< the step ran to its end
+    order_budget_spent, ///< a queue walk or a scheduler took more steps than its budget
+    order_not_queued,   ///< the order to rotate is not in the primary queue
+    untyped_unit,       ///< the unit has no type
+    orders_short,       ///< the order lists do not cover the unit pool
 };
 
 /// Tests whether a unit's owner is present and simulated here (status 1 or 2).
@@ -554,13 +553,16 @@ self_heal_rate(const data::match_rules::RepairHealtimeSelfHeal& rule, int16_t he
 /// schedulers and movement with height correction, and last the death of a unit
 /// flagged to die.
 ///
+/// The health percentage is health * 100 / the type's maximum health, clamped
+/// to 0..100. A type with no maximum health (MaxDamage 0), for which 3.1c has
+/// no reading, takes a quotient of 0: such a unit reads 0%.
+///
 /// @param world world the unit lives in
 /// @param[in,out] queue the unit's order lists
 /// @param[in,out] unit unit to tick
 /// @param host operations owned by other systems
-/// @return untyped_unit when the unit's type is read and it has none,
-///         zero_maximum_health when the percentage divides by a zero maximum
-///         health, a fault of the order schedulers, else none
+/// @return untyped_unit when the unit's type is read and it has none, a fault
+///         of the order schedulers, else none
 StepFault update_unit(oa::World& world, OrderQueue& queue, oa::Unit& unit, Host& host);
 /// Ticks every active player's units and the periodic viewpoint follow.
 ///
@@ -570,7 +572,7 @@ StepFault update_unit(oa::World& world, OrderQueue& queue, oa::Unit& unit, Host&
 /// @param orders order lists indexed by unit slot
 /// @param host operations owned by other systems
 /// @return orders_short, with nothing done, when `orders` does not cover the
-///         unit pool; the first fault of a unit's tick, which ends the update
-///         there; else none
+///         unit pool; the first fault of a unit's tick, which ends that unit's
+///         update while the other units are still updated; else none
 StepFault update_units(oa::World& world, std::span<OrderQueue> orders, Host& host);
 } // namespace oa::sim::simulation_state

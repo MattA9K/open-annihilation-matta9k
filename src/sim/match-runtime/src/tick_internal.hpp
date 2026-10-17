@@ -787,6 +787,10 @@ class TickHost final : public sim::simulation_state::Host,
     /// its orders and hands them to the kill handler, then runs the
     /// commander rule's sweep when the dead commander was simulated here.
     ///
+    /// The Killed percentage divides by the type's maximum health; a type with
+    /// none (MaxDamage 0), for which 3.1c has no percentage, takes a quotient
+    /// of 0, so its unit dies as any other on its first hit.
+    ///
     /// @param record Dying unit; one no longer live is skipped.
     /// @param kind DeathKind value of the death, or 0 for a unit whose slot
     ///     another player's new unit takes.

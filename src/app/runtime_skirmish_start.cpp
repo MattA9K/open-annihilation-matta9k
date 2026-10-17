@@ -751,6 +751,8 @@ void Runtime::bootstrap_match(const MatchBootstrap& bootstrap) {
     spawn_types_.reserve(unit_count + 1);
     spawn_type_names_.reserve(unit_count + 1);
     set_load_progress(2, 5);
+    // The names of the types logged for having no MaxDamage, each once a match.
+    std::vector<std::string> types_without_health;
     for (std::size_t type_id = 1; type_id <= unit_count; ++type_id) {
         oa::UnitDef& record = unit_table.records[type_id];
         char fbi_path[oa::data::defs::path_capacity];
@@ -809,6 +811,15 @@ void Runtime::bootstrap_match(const MatchBootstrap& bootstrap) {
             std::cerr << "open-annihilation: invalid unit script " << loaded.script_path << ": "
                       << loaded.script_error.message << "; " << loaded.unit_name
                       << " plays without a script\n";
+        // A type with no MaxDamage reads 0% health and dies on its first hit.
+        if (record.max_damage == 0) {
+            const auto& name = loaded.unit_name;
+            if (std::ranges::find(types_without_health, name) == types_without_health.end()) {
+                types_without_health.push_back(name);
+                std::cerr << "open-annihilation: " << fbi_path << ": " << name
+                          << " has no MaxDamage; it dies on its first hit\n";
+            }
+        }
         loaded_commander_types_.push_back(std::move(loaded));
         // After the FBI: the model's height, the GUI page count and
         // the page-zero bit; the COB stays with the runtime type.

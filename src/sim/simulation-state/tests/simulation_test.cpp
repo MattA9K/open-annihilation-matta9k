@@ -416,5 +416,41 @@ int main() {
                 (hit.unit == 1 || hit.unit == 2) && hit.amount == 7 && hit.kind == water_damage_kind
             );
     }
+
+    // At the 30-tick reading a unit whose type has no maximum health reads 0%
+    // with no fault. A unit whose update faults (here one with no type) ends
+    // only its own update: the units after it are still updated, and the pass
+    // returns the first fault.
+    {
+        TestWorld pass(5, 3);
+        auto& world = *pass;
+        world.game.tick = 60;
+        auto& owner = pass.player(0);
+        owner.in_use = 1;
+        owner.status = 1;
+        pass.range(0, 1, 4);
+        pass.defs[1].max_damage = 0;
+        pass.defs[2].max_damage = 200;
+        // Slot 1 has no maximum health, slot 2 no type, slots 3 and 4 200.
+        const std::array<uint32_t, 4> types{1, 2, 2, 2};
+        for (std::size_t slot = 1; slot < 5; ++slot) {
+            auto& unit = pass.units[slot];
+            unit.type_index = static_cast<int16_t>(types[slot - 1]);
+            unit.def = slot == 2 ? oa::oa_ref32{0} : oa::oa_ref_from_index(types[slot - 1]);
+            unit.owner = oa::oa_ref_from_index(0);
+            unit.health = slot == 1 ? 0 : 100;
+            unit.health_percent = 80;
+        }
+        Fixture host;
+        CHECK(update_units(world, pass.orders, host) == StepFault::untyped_unit);
+        CHECK(world.game.active_unit_count == 4);
+        CHECK(pass.units[1].previous_health_percent == 80 && pass.units[1].health_percent == 0);
+        CHECK(pass.units[2].health_percent == 80);
+        for (std::size_t slot = 3; slot < 5; ++slot)
+            CHECK(
+                pass.units[slot].previous_health_percent == 80 &&
+                pass.units[slot].health_percent == 50
+            );
+    }
     std::cout << "simulation state tests passed\n";
 }

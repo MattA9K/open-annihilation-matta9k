@@ -390,10 +390,11 @@ StepFault update_unit(oa::World& w, OrderQueue& q, oa::Unit& u, Host& h) {
         if (!def)
             return StepFault::untyped_unit;
         const auto maximum = def->max_damage;
-        if (!maximum)
-            return StepFault::zero_maximum_health;
         // The division treats the sign-extended health*100 as an unsigned word.
-        const auto quotient = static_cast<uint32_t>(static_cast<int32_t>(u.health) * 100) / maximum;
+        // A type with no maximum health takes a quotient of 0.
+        const auto quotient =
+            maximum != 0 ? static_cast<uint32_t>(static_cast<int32_t>(u.health) * 100) / maximum
+                         : 0u;
         const auto percent = std::clamp(std::bit_cast<int32_t>(quotient), 0, 100);
         u.previous_health_percent = u.health_percent;
         u.health_percent = static_cast<uint8_t>(percent);
@@ -438,6 +439,9 @@ StepFault update_units(oa::World& w, std::span<OrderQueue> orders, Host& h) {
     if (orders.size() != w.unit_slot_count)
         return StepFault::orders_short;
     w.game.active_unit_count = 0;
+    // A unit's fault ends that unit's update only; the pass goes on with the
+    // other units and returns the first fault.
+    auto first_fault = StepFault::none;
     for (auto& p : w.game.players) {
         if (!player_active(p))
             continue;
@@ -451,8 +455,8 @@ StepFault update_units(oa::World& w, std::span<OrderQueue> orders, Host& h) {
                 if (p.in_use && (p.status == 1 || p.status == 2))
                     h.tick_weapon_aim(u);
                 const auto fault = update_unit(w, orders[oa::world_unit_slot(&w, &u)], u, h);
-                if (fault != StepFault::none)
-                    return fault;
+                if (first_fault == StepFault::none)
+                    first_fault = fault;
             }
         }
         if ((w.game.session_flags & live_multiplayer_game) && p.in_use &&
@@ -469,6 +473,6 @@ StepFault update_units(oa::World& w, std::span<OrderQueue> orders, Host& h) {
             h.follow_next_selected(0);
         }
     }
-    return StepFault::none;
+    return first_fault;
 }
 } // namespace oa::sim::simulation_state

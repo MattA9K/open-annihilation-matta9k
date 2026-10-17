@@ -344,17 +344,13 @@ void TickHost::kill_unit(oa::Unit& record, uint8_t kind) {
         killed_percent = 0;
         killed_flag = 0;
     } else {
+        // A type with no maximum health takes a quotient of 0.
         const auto maximum = u.type->maximum_health;
-        if (!maximum) {
-            match.fault_.note("Killed health divisor is zero");
-            return;
-        }
+        const auto quotient =
+            maximum != 0 ? (static_cast<int32_t>(u.health) * -100) / static_cast<int32_t>(maximum)
+                         : 0;
         killed_percent =
-            static_cast<int32_t>(
-                (static_cast<int32_t>(u.health) * -100) / static_cast<int32_t>(maximum) +
-                static_cast<int32_t>(u.previous_health_percent)
-            ) /
-            2;
+            static_cast<int32_t>(quotient + static_cast<int32_t>(u.previous_health_percent)) / 2;
         if (killed_percent < 1)
             killed_percent = 1;
         if (killed_percent > 100)
