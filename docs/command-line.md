@@ -373,7 +373,7 @@ Network play's own checks, the last rows, are in every build.
 | `--check-registered-kit` | Drives a settings page, a screen, a notice and a prompt registered from inside the engine. |
 | `--check-kit-gallery` | Opens the UI kit's gallery at three window sizes. |
 | `--check-user-folder` | Drives your Open Annihilation folder and its buttons in Settings. |
-| `--check-mod-switch` | Switches the mod ten times and checks the memory in use stays level. |
+| `--check-mod-switch` | Switches the mod thirteen times and checks the memory in use stays level. |
 | `--check-map-packs` | Checks which maps of two map packs the skirmish list shows. |
 | `--check-map-pack-lists` | Installs a map pack while both map lists exist. |
 | `--check-map-browser` | Checks the map browser at four window sizes. |

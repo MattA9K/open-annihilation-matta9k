@@ -810,8 +810,9 @@ bool run_game_files_until_resolved(
 /// question ended the run: main() starts the game afresh for the mod stored.
 constexpr int kSoftRestartStatus = -1;
 
-/// The switches --check-mod-switch makes.
-constexpr uint32_t kModSwitches = 10;
+/// The switches --check-mod-switch makes: four rounds of the mods it takes
+/// turns with.
+constexpr uint32_t kModSwitches = 13;
 
 /// The mods --check-mod-switch takes turns with: No Mod and two test profiles.
 constexpr std::size_t kModSwitchTurns = 3;
@@ -819,8 +820,8 @@ constexpr std::size_t kModSwitchTurns = 3;
 /// The growth of the host heap's bytes in use --check-mod-switch allows
 /// between two runs that play the same mod, in bytes. Runs that play the
 /// same mod hold the same blocks, to within the length of a few strings, so
-/// a leak of 11 KiB or more a switch exceeds it over the six switches or
-/// more between the runs compared.
+/// a leak of 11 KiB or more a switch exceeds it over the six switches
+/// between the runs compared.
 constexpr uint64_t kModSwitchHeapNoise = uint64_t{64} * 1024;
 
 /// What the host heap holds as each run of --check-mod-switch starts on the
@@ -847,14 +848,17 @@ class ModSwitchMemory {
                   << sample.working_set / 1024 << " KiB\n";
     }
 
-    /// Compares each run of the last round of switches with the first run
-    /// after the first start that played the same mod: none may hold more
-    /// than kModSwitchHeapNoise more on the host heap, as a run would that
-    /// kept what an earlier run allocated. The first start is left out: it
-    /// holds blocks of its own, which the first switch frees. The
-    /// working set is not compared, since it counts the free memory the
-    /// allocator keeps, which grows over the switches by an amount that
-    /// changes from one start of the check to the next.
+    /// Compares each run of the last round of switches with the run of the
+    /// second round that played the same mod, six switches earlier: none may
+    /// hold more than kModSwitchHeapNoise more on the host heap, as a run
+    /// would that kept what an earlier run allocated. The first start is
+    /// left out: it holds blocks of its own, which the first switch frees.
+    /// So is the first round after it: on some machines the allocator is
+    /// still warming up there, and a run of that round holds up to 100 KiB
+    /// less than every later run of the same mod. The working set is not
+    /// compared, since it counts the free memory the allocator keeps, which
+    /// grows over the switches by an amount that changes from one start of
+    /// the check to the next.
     ///
     /// @return 0 when the heap's use stayed level, or the system does not
     ///     report it; 1 when it grew, or not every switch was made
@@ -870,12 +874,12 @@ class ModSwitchMemory {
         }
         uint64_t worst = 0;
         for (std::size_t run = samples_.size() - kModSwitchTurns; run < samples_.size(); ++run) {
-            const uint64_t first = samples_[1 + (run - 1) % kModSwitchTurns];
-            worst = std::max(worst, samples_[run] > first ? samples_[run] - first : 0);
+            const uint64_t settled = samples_[1 + kModSwitchTurns + (run - 1) % kModSwitchTurns];
+            worst = std::max(worst, samples_[run] > settled ? samples_[run] - settled : 0);
         }
         std::cout << "mod switch check: " << kModSwitches
                   << " switches; the last round holds at most " << worst / 1024
-                  << " KiB more on the heap than the first round after the first start\n";
+                  << " KiB more on the heap than the second round after the first start\n";
         if (worst > kModSwitchHeapNoise) {
             std::cout << "mod switch check: FAILED, the heap's use grows with the switches\n";
             return 1;

@@ -116,7 +116,7 @@ settings' Your files buttons through a recorded opener, and the `Mods`
 folder's mods offered to the Library. With `--snapshot` it writes the
 notice and the Your files row beside the snapshot. `native-mod-switch`
 (`--check-mod-switch`) writes two test profiles into that folder's `Mods`
-and switches the mod ten times through the Library, with PLAY NOW, and
+and switches the mod thirteen times through the Library, with PLAY NOW, and
 SWITCH OFF and its Switch Mod question for no mod, each a soft restart on
 the same window: each run plays the mod chosen, shown as played, and what
 the heap holds in live allocations as the last

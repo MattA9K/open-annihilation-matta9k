@@ -46,8 +46,9 @@ namespace library = oa::ui::library;
 
 namespace {
 
-/// The switches the check makes before its last run.
-constexpr uint32_t kSwitches = 10;
+/// The switches the check makes before its last run: four rounds of the
+/// mods it takes turns with (main.cpp's kModSwitches, which judges them).
+constexpr uint32_t kSwitches = 13;
 
 /// The run whose turn is the first SWITCH OFF: the third, from the second
 /// test profile to no mod. Its question is put away with CANCEL once before
