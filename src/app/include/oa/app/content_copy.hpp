@@ -532,14 +532,16 @@ enum class CopyStatus : uint8_t {
     stopped,  ///< the stop flag was honoured; a partial file is left to resume
     no_space, ///< the disk does not have room, or it filled
     failed,   ///< the copy could not be finished
-    /// The source holds a base game's archive at another size than the
-    /// table's, as a mod or another program leaves it. Nothing is copied.
+    /// The source holds an archive of a base game or of an expansion at
+    /// another size than the table's, as a mod or another program leaves
+    /// it. Nothing is copied.
     changed,
 };
 
-/// A base game's archive the source holds at another size than the table's.
+/// An archive of a base game or of an expansion that the source holds at
+/// another size than the table's.
 struct ChangedContentFile {
-    /// The base game's id.
+    /// The id of the base game or the expansion it belongs to.
     std::string bundle_id;
     /// The name the table stores it under.
     std::string copy_name;
@@ -610,13 +612,12 @@ struct CopyRequest {
 /// managed folders, or a destination that would be written inside the source,
 /// copies nothing.
 ///
-/// A source that holds a base game's archive under its name at another size
-/// has been changed, by a mod or another program: nothing is copied or
-/// recorded, and the copy ends `changed`, naming those archives. A movie or
-/// a track the source holds at another size is recorded as not in the
-/// source, with that size, and the copy goes on. An expansion's archive at
-/// another size is left out and not recorded, so that expansion is not
-/// played until a copy from another source names it.
+/// A source that holds an archive of a base game or of an expansion under
+/// its name at another size has been changed, by a mod or another program:
+/// nothing is copied or recorded, and the copy ends `changed`, naming every
+/// such archive. A bundle the source holds none of is not there and stops
+/// nothing. A movie or a track the source holds at another size is recorded
+/// as not in the source, with that size, and the copy goes on.
 ///
 /// @param source the files to read
 /// @param request where they go, and when to stop

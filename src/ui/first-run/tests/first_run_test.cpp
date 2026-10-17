@@ -1672,8 +1672,8 @@ void check_changed_question() {
     base.whole = 1000;
     session.model.copy.bundles.push_back(base);
     session.model.copy.changed = {
-        {"rev31.gp3", 5481300, 5481280},
-        {"totala2.hpi", 101234567, 98009698},
+        {"rev31.gp3", "Total Annihilation 3.1c", 5481300, 5481280},
+        {"ccdata.ccx", "Core Contingency", 25871600, 25871597},
     };
 
     const oa::ui::kit::Question question =
@@ -1682,8 +1682,10 @@ void check_changed_question() {
     OA_CHECK(question.paragraphs.size() == 4);
     OA_CHECK(
         question.paragraphs.size() == 4 &&
-        question.paragraphs[1].text == "rev31.gp3 is 5481300 bytes. In 3.1c it is 5481280." &&
-        question.paragraphs[2].text == "totala2.hpi is 101234567 bytes. In 3.1c it is 98009698."
+        question.paragraphs[1].text ==
+            "rev31.gp3, from Total Annihilation 3.1c, is 5481300 bytes. It should be 5481280." &&
+        question.paragraphs[2].text ==
+            "ccdata.ccx, from Core Contingency, is 25871600 bytes. It should be 25871597."
     );
     OA_CHECK(question.buttons.size() == 2);
     OA_CHECK(question.buttons.size() == 2 && question.buttons[0].caption == "Choose another place");
@@ -1709,7 +1711,7 @@ void check_changed_question() {
         return;
     OA_CHECK(choose->name == "first-run.copying.changed.choose");
     OA_CHECK(leave->name == "first-run.copying.changed.leave");
-    OA_CHECK(text->text.find("totala2.hpi is 101234567 bytes") != std::string::npos);
+    OA_CHECK(text->text.find("ccdata.ccx, from Core Contingency") != std::string::npos);
     OA_CHECK(oa::ui::kit::wholly_in(choose->rect, scene.question));
     OA_CHECK(oa::ui::kit::wholly_in(leave->rect, scene.question));
     OA_CHECK(choose->rect.x < leave->rect.x);
@@ -1756,6 +1758,20 @@ void check_changed_question() {
     OA_CHECK(skip != nullptr && skip->text == "Skip");
     session.interaction.focused = oa::ui::first_run::changed_leave_id;
     OA_CHECK(oa::ui::first_run::key(session, scene, oa::ui::kit::Key::enter).ask == Ask::skip);
+
+    // Past changed_files_shown archives, one fewer is named and the rest
+    // are counted.
+    Model many = session.model;
+    for (int32_t index = 0; index < 6; ++index)
+        many.copy.changed.push_back({"tactics1.hpi", "Battle Tactics", 9, 8});
+    const oa::ui::kit::Question long_list =
+        oa::ui::first_run::changed_question(many, oa::ui::kit::SizeClass::compact);
+    const std::size_t named = oa::ui::first_run::changed_files_shown - 1;
+    OA_CHECK(long_list.paragraphs.size() == named + 3);
+    OA_CHECK(
+        long_list.paragraphs.size() == named + 3 &&
+        long_list.paragraphs[named + 1].text == "And 3 more; the log has them all."
+    );
 
     // Without changed archives the step is its own again.
     session.model.copy.changed.clear();

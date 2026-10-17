@@ -7890,12 +7890,12 @@
 	it=Alcuni file in {location} sono cambiati dall'inizio della copia. I file che coincidono vengono tenuti. Il resto viene copiato di nuovo.;
 	}
 
-[Some of its files are not the size they are in Total Annihilation 3.1c. A mod or another program may have changed them.]
+[Some of its files are not the size they are in Total Annihilation 3.1c and its expansions. A mod or another program may have changed them.]
 	{
-	de=Einige seiner Dateien haben nicht die Größe, die sie in Total Annihilation 3.1c haben. Ein Mod oder ein anderes Programm hat sie vielleicht verändert.;
-	fr=Certains de ses fichiers n'ont pas la taille qu'ils ont dans Total Annihilation 3.1c. Un mod ou un autre programme les a peut-être modifiés.;
-	es=Algunos de sus archivos no tienen el tamaño que tienen en Total Annihilation 3.1c. Puede que un mod u otro programa los haya cambiado.;
-	it=Alcuni dei suoi file non hanno la dimensione che hanno in Total Annihilation 3.1c. Forse un mod o un altro programma li ha modificati.;
+	de=Einige seiner Dateien haben nicht die Größe, die sie in Total Annihilation 3.1c und seinen Erweiterungen haben. Ein Mod oder ein anderes Programm hat sie vielleicht verändert.;
+	fr=Certains de ses fichiers n'ont pas la taille qu'ils ont dans Total Annihilation 3.1c et ses extensions. Un mod ou un autre programme les a peut-être modifiés.;
+	es=Algunos de sus archivos no tienen el tamaño que tienen en Total Annihilation 3.1c y sus expansiones. Puede que un mod u otro programa los haya cambiado.;
+	it=Alcuni dei suoi file non hanno la dimensione che hanno in Total Annihilation 3.1c e nelle sue espansioni. Forse un mod o un altro programma li ha modificati.;
 	}
 
 [Squad Assignment]
@@ -11602,20 +11602,20 @@
 	it={file} non è l'edizione della demo di Total Annihilation (1997) che Open Annihilation riconosce. Gli installer del gioco completo sono programmi Windows, che Open Annihilation non esegue mai: installa il gioco su un computer, poi copia la sua cartella.;
 	}
 
-[{file} is {size} bytes. In 3.1c it is {expected}.]
-	{
-	de={file} hat {size} Bytes. In 3.1c sind es {expected}.;
-	fr={file} fait {size} octets. Dans la 3.1c, il en fait {expected}.;
-	es={file} ocupa {size} bytes. En la 3.1c ocupa {expected}.;
-	it={file} è di {size} byte. Nella 3.1c è di {expected}.;
-	}
-
 [{file} left out: {size} bytes, not {expected}]
 	{
 	de={file} ausgelassen: {size} Bytes statt {expected};
 	fr={file} laissé de côté : {size} octets au lieu de {expected};
 	es={file} omitido: {size} bytes en lugar de {expected};
 	it={file} escluso: {size} byte invece di {expected};
+	}
+
+[{file}, from {bundle}, is {size} bytes. It should be {expected}.]
+	{
+	de={file} aus {bundle} hat {size} Bytes. Es sollten {expected} sein.;
+	fr={file}, de {bundle}, fait {size} octets. Il devrait en faire {expected}.;
+	es={file}, de {bundle}, ocupa {size} bytes. Debería ocupar {expected}.;
+	it={file}, di {bundle}, è di {size} byte. Dovrebbe essere di {expected}.;
 	}
 
 [{filter} ({count})]

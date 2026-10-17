@@ -205,18 +205,24 @@ countdown. Moving the pointer does not. When the check finds a difference,
 the rows say so and **Continue** waits for a press. **Quit** or **Skip**
 is still there.
 
-![The copying step stopped before it began: a question over it says Your Total Annihilation has been changed, names rev31.gp3 and totala1.hpi with their sizes there and in 3.1c, and offers Choose another place and Quit.](images/first-run/changed.png)
+![The copying step stopped before it began: a question over it says Your Total Annihilation has been changed, names rev31.gp3 from Total Annihilation 3.1c and ccdata.ccx from Core Contingency with their sizes there and the sizes they should be, and offers Choose another place and Quit.](images/first-run/changed.png)
 
-When the place chosen holds one of the base game's archives (`rev31.gp3`,
-`totala1.hpi`, `totala2.hpi`, or the demo's `TADemo.hpi`) at another size
-than Total Annihilation 3.1c's, as a mod or another program leaves it, the
-copy stops before it begins and nothing is copied. A question over the
-step, "Your Total Annihilation has been changed", names each such archive
-with its size there and in 3.1c, and says that Open Annihilation needs a
-fresh Total Annihilation install, without mods, to set up its copy.
-**Choose another place**, in the accent and marked, returns to the game
-step, and so does Escape. Beside it is the walk's **Quit** or **Skip**.
-While the question shows, only its buttons take the keys and the pointer.
+When the place chosen holds an archive at another size than Total
+Annihilation 3.1c's, as a mod or another program leaves it, the copy
+stops before it begins and nothing is copied. That is one of the base
+game's archives (`rev31.gp3`, `totala1.hpi`, `totala2.hpi`, or the demo's
+`TADemo.hpi`), or an archive of an expansion the place holds, such as
+Core Contingency's `ccdata.ccx` or Battle Tactics' `tactics1.hpi`. An
+expansion the place holds none of is simply not there, and stops nothing.
+A question over the step, "Your Total Annihilation has been changed",
+names each such archive in one list, with the base game or the expansion
+it is from, its size there and the size it should be, and says that Open
+Annihilation needs a fresh Total Annihilation install, without mods, to
+set up its copy. Past six archives it names five and counts the rest,
+which the game's log names. **Choose another place**, in the accent and
+marked, returns to the game step, and so does Escape. Beside it is the
+walk's **Quit** or **Skip**. While the question shows, only its buttons
+take the keys and the pointer.
 
 A copy that stopped part way opens this setup again at the next start, and
 a copy from the same place goes on from the files already copied. The

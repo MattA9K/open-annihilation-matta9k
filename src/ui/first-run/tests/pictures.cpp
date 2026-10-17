@@ -543,9 +543,9 @@ oa::ui::first_run::Session copying_session(bool checked) {
     return session;
 }
 
-/// The copying step stopped by a changed install: the folder chosen holds
-/// two of the base game's archives at other sizes, so the step asks where
-/// to copy from instead.
+/// The copying step stopped by a changed install: the folder chosen holds an
+/// archive of the base game and one of Core Contingency at other sizes, so
+/// the step asks where to copy from instead.
 ///
 /// @return the session
 oa::ui::first_run::Session changed_session() {
@@ -563,8 +563,8 @@ oa::ui::first_run::Session changed_session() {
         bundle.done = 0;
     }
     copy.changed = {
-        {"rev31.gp3", 5604424, 5481280},
-        {"totala1.hpi", 33012988, 32311035},
+        {"rev31.gp3", "Total Annihilation 3.1c", 5604424, 5481280},
+        {"ccdata.ccx", "Core Contingency", 26214713, 25871597},
     };
     return session;
 }

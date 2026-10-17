@@ -2790,18 +2790,32 @@ kit::Question changed_question(const Model& model, kit::SizeClass size_class) {
     question.title = show("Your Total Annihilation has been changed");
     question.paragraphs.push_back(
         {show(
-             "Some of its files are not the size they are in Total Annihilation 3.1c. A mod or "
-             "another program may have changed them."
+             "Some of its files are not the size they are in Total Annihilation 3.1c and its "
+             "expansions. A mod or another program may have changed them."
          ),
          false}
     );
-    for (const ChangedFile& file : model.copy.changed) {
+    const std::vector<ChangedFile>& changed = model.copy.changed;
+    const std::size_t named =
+        changed.size() > changed_files_shown ? changed_files_shown - 1 : changed.size();
+    for (std::size_t at = 0; at < named; ++at) {
+        const ChangedFile& file = changed[at];
         question.paragraphs.push_back(
             {filled(
-                 "{file} is {size} bytes. In 3.1c it is {expected}.",
+                 "{file}, from {bundle}, is {size} bytes. It should be {expected}.",
                  {{"file", file.name},
+                  {"bundle", show(file.bundle)},
                   {"size", std::to_string(file.size)},
                   {"expected", std::to_string(file.expected)}}
+             ),
+             false}
+        );
+    }
+    if (named < changed.size()) {
+        question.paragraphs.push_back(
+            {filled(
+                 "And {n} more; the log has them all.",
+                 {{"n", std::to_string(changed.size() - named)}}
              ),
              false}
         );

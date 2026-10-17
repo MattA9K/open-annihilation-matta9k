@@ -1590,14 +1590,16 @@ CopyResult copy_content(ContentSource& source, const CopyRequest& request) {
             result.error = player_error(problem.empty() ? "the folder could not be read" : problem);
             return result;
         }
-        // A base game's archive at another size: the place was changed, by
-        // a mod or another program. Nothing is copied or recorded, so no
-        // half-done copy is taken as made.
+        // An archive of a base game or of an expansion at another size: the
+        // place was changed, by a mod or another program. Nothing is copied
+        // or recorded, so no half-done copy is taken as made. Such a file is
+        // one of its bundle's files held under its name, so the bundle is
+        // there; a bundle the place holds none of has nothing to stop on.
         for (const MissingContentFile& missing : described.missing) {
             if (!missing.different_size || !archive_copy_name(missing.copy_name))
                 continue;
             for (const bundles::Bundle& bundle : request.bundles) {
-                if (bundle.id != missing.bundle_id || bundle.kind != bundles::Kind::base_game)
+                if (bundle.id != missing.bundle_id)
                     continue;
                 for (const bundles::ContentFile& file : bundle.files) {
                     if (file.copy_name != missing.copy_name)
@@ -1608,17 +1610,18 @@ CopyResult copy_content(ContentSource& source, const CopyRequest& request) {
                     changed.source_size = missing.source_size;
                     changed.size = file.size;
                     result.changed.push_back(std::move(changed));
+                    const std::string line = missing.copy_name + " of " +
+                                             std::string(bundle.english_name) +
+                                             " is not copied: the source holds it at " +
+                                             std::to_string(missing.source_size) + " bytes, not " +
+                                             std::to_string(file.size);
+                    say_line(request.news, line.c_str());
                 }
             }
         }
         if (!result.changed.empty()) {
             std::string sizes;
             for (const ChangedContentFile& changed : result.changed) {
-                const std::string line = changed.copy_name +
-                                         " is not copied: the source holds it at " +
-                                         std::to_string(changed.source_size) + " bytes, not " +
-                                         std::to_string(changed.size);
-                say_line(request.news, line.c_str());
                 sizes += sizes.empty() ? "" : "; ";
                 sizes += changed.copy_name + " is " + std::to_string(changed.source_size) +
                          " bytes, not " + std::to_string(changed.size);
@@ -1946,25 +1949,15 @@ CopyResult copy_content(ContentSource& source, const CopyRequest& request) {
             }
             if (bundle == nullptr || table_file == nullptr || !safe_copy_name(missing.copy_name))
                 continue;
+            // A movie or a track at another size is recorded as not in the
+            // source, with the size the source holds it at, and the bundle
+            // plays without it. An archive at another size stopped the copy
+            // above.
             if (missing.different_size) {
-                const std::string sizes = ": the source holds it at " +
-                                          std::to_string(missing.source_size) + " bytes, not " +
-                                          std::to_string(table_file->size);
-                // An expansion's archive is left out of the record, so the
-                // expansion is not played until a copy from another source
-                // names it. A base game's stopped the copy above.
-                if (archive_copy_name(missing.copy_name)) {
-                    const std::string line = missing.copy_name + " of " +
-                                             std::string(bundle->english_name) + " was not copied" +
-                                             sizes;
-                    say_line(request.news, line.c_str());
-                    continue;
-                }
-                // A movie or a track is recorded as not in the source, with
-                // the size the source holds it at, and the bundle plays
-                // without it.
-                const std::string line = missing.copy_name + " of " +
-                                         std::string(bundle->english_name) + " is left out" + sizes;
+                const std::string line =
+                    missing.copy_name + " of " + std::string(bundle->english_name) +
+                    " is left out: the source holds it at " + std::to_string(missing.source_size) +
+                    " bytes, not " + std::to_string(table_file->size);
                 say_line(request.news, line.c_str());
             }
             const fs::path record_path =

@@ -11,8 +11,9 @@
 // The header leaves out the mark and the name in a window and keeps them
 // full screen. The game step's title reads the new words, and Locate
 // another… holds its words with room on every side in every language. The
-// question a changed install asks over the copying step fits the window in
-// every language, with none of its text cut and nothing in it overlapping.
+// question a changed install asks over the copying step, naming archives of
+// the base game and of expansions together, fits the window in every
+// language, with none of its text cut and nothing in it overlapping.
 //
 // Usage: oa-ui-first-run-sizes-test INTERFACE_TDF CHINESE_TDF, the engine's
 // languages/interface.tdf and this folder's zh-Hans-setup.tdf.
@@ -719,10 +720,13 @@ void check_step(
 }
 
 /// The copying step stopped by a changed install: three archives of the base
-/// game at other sizes, the most text the question carries.
+/// game and one each of Core Contingency and Battle Tactics at other sizes,
+/// or with `many` the rest of Battle Tactics' archives too, more than the
+/// question names one by one.
 ///
+/// @param many the install's every Battle Tactics archive was changed
 /// @return the session
-first_run::Session changed_session() {
+first_run::Session changed_session(bool many) {
     first_run::Session session = full_copy_session(CopyStage::started);
     first_run::CopyView& copy = session.model.copy;
     copy.running = false;
@@ -736,10 +740,17 @@ first_run::Session changed_session() {
         row.done = 0;
     }
     copy.changed = {
-        {"rev31.gp3", 5481301, 5481280},
-        {"totala1.hpi", 132311035, 32311035},
-        {"totala2.hpi", 198009698, 98009698},
+        {"rev31.gp3", "Total Annihilation 3.1c", 5481301, 5481280},
+        {"totala1.hpi", "Total Annihilation 3.1c", 132311035, 32311035},
+        {"totala2.hpi", "Total Annihilation 3.1c", 198009698, 98009698},
+        {"ccdata.ccx", "Core Contingency", 125871597, 25871597},
+        {"tactics1.hpi", "Battle Tactics", 121030743, 21030743},
     };
+    if (many) {
+        for (const char* name :
+             {"tactics2.hpi", "tactics3.hpi", "tactics4.hpi", "tactics5.hpi", "tactics6.hpi"})
+            copy.changed.push_back({name, "Battle Tactics", 128276703, 28276703});
+    }
     return session;
 }
 
@@ -1086,10 +1097,12 @@ int main(int argc, char** argv) {
         for (const Window& window : kWindows) {
             for (const bool windowed : {true, false}) {
                 for (const Leave leave : {Leave::quit, Leave::skip}) {
-                    first_run::Session session = changed_session();
-                    session.model.windowed = windowed;
-                    session.model.leave = leave;
-                    check_changed(fonts.get(), window, session, language.tag);
+                    for (const bool many : {false, true}) {
+                        first_run::Session session = changed_session(many);
+                        session.model.windowed = windowed;
+                        session.model.leave = leave;
+                        check_changed(fonts.get(), window, session, language.tag);
+                    }
                 }
             }
         }

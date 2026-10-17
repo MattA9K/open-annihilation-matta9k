@@ -2859,12 +2859,22 @@ bool setup_begin_copy(const fs::path& user_folder, const first_run::Model& model
             held.view.hashing = false;
             held.view.bytes_landed = bytes_done;
             // A changed install copies nothing. The step asks where to copy
-            // from instead, naming the archives that stopped it.
+            // from instead, naming the archives that stopped it and, in
+            // English, what each belongs to; the step shows that name in the
+            // language in use.
             if (result.status == CopyStatus::changed) {
-                for (const ChangedContentFile& changed : result.changed)
+                const std::span<const bundles::Bundle> table =
+                    copy.kind == SourceKind::fixture ? copy_check_bundles() : bundles::bundles();
+                for (const ChangedContentFile& changed : result.changed) {
+                    std::string owner = changed.bundle_id;
+                    for (const bundles::Bundle& bundle : table) {
+                        if (bundle.id == changed.bundle_id)
+                            owner = std::string(bundle.english_name);
+                    }
                     held.view.changed.push_back(
-                        {changed.copy_name, changed.source_size, changed.size}
+                        {changed.copy_name, std::move(owner), changed.source_size, changed.size}
                     );
+                }
                 held.changed = true;
                 return;
             }

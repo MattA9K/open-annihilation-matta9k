@@ -208,13 +208,18 @@ struct CopyBundle {
     bool note{false};
 };
 
-/// An archive of the base game that the place copied from holds at another
-/// size than Total Annihilation 3.1c's, as a mod or another program leaves
-/// it. Such an archive stops the copy before anything is copied.
+/// An archive of the base game or of an expansion that the place copied
+/// from holds at another size than Total Annihilation 3.1c's, as a mod or
+/// another program leaves it. Such an archive stops the copy before
+/// anything is copied.
 struct ChangedFile {
-    std::string name{};  ///< the archive's name, as the game stores it
+    std::string name{}; ///< the archive's name, as the game stores it
+    /// The English name of the base game or the expansion it belongs to,
+    /// such as "Core Contingency"; the question shows it in the language in
+    /// use.
+    std::string bundle{};
     uint64_t size{};     ///< its size in the place copied from, in bytes
-    uint64_t expected{}; ///< its size in Total Annihilation 3.1c, in bytes
+    uint64_t expected{}; ///< the size it should be, in bytes
 };
 
 /// The copying step's progress. The host keeps it current.
@@ -439,13 +444,21 @@ inline constexpr kit::ControlId card_id = 20;
 /// The first source row. Source n is source_id + n.
 inline constexpr kit::ControlId source_id = 40;
 
+/// The most changed archives the question names one by one. With more, it
+/// names one fewer and counts the rest, which the game's log names, so the
+/// question fits the setup's smallest window in every language.
+inline constexpr std::size_t changed_files_shown = 6;
+
 /// The question the copying step asks when the place copied from holds an
-/// archive of the base game at another size than Total Annihilation 3.1c's.
+/// archive of the base game or of an expansion at another size than Total
+/// Annihilation 3.1c's.
 ///
 /// It says the game's files there have been changed, as a mod or another
-/// program changes them, names each archive with its size there and in
-/// 3.1c, says that Open Annihilation needs a fresh install without mods to
-/// set up its copy and that nothing was copied, and asks where to go next.
+/// program changes them, names each archive with the base game or the
+/// expansion it is from, its size there and the size it should be, says
+/// that Open Annihilation needs a fresh install without mods to set up its
+/// copy and that nothing was copied, and asks where to go next. Past
+/// changed_files_shown archives the rest are counted in one line.
 /// Choose another place, marked and in the accent, goes back to the game
 /// step, and so do Escape and No; the walk's Quit or Skip is beside it. Its
 /// words are in the language shown.

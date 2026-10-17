@@ -55,16 +55,19 @@ does the game's log, in a line such as `open-annihilation: Data/2.zrb of
 Total Annihilation 3.1c is left out: the source holds it at 41000000 bytes,
 not 41229000`.
 
-An archive of the base game at another size (`rev31.gp3`, `totala1.hpi`,
-`totala2.hpi`) means that Total Annihilation has been changed, as a mod
-or another program changes it. The copy stops before it begins and
-copies nothing, and the copying step says so and names each archive with
-its size there and in 3.1c ([the question it asks](first-run.md#copying)).
-Choose another place to copy from: a fresh install of Total Annihilation
-without mods, or the game's disc or installer. A copy from that place
-then finishes as usual. An expansion's archive at another size is left
-out, with a line in the log, and that expansion is not played until a
-copy from another place brings it.
+An archive at another size, of the base game (`rev31.gp3`,
+`totala1.hpi`, `totala2.hpi`) or of an expansion the place holds (such
+as Core Contingency's `ccdata.ccx`), means that Total Annihilation has
+been changed, as a mod or another program changes it. The copy stops
+before it begins and copies nothing, and the copying step says so and
+names each archive, with what it is from, its size there and the size it
+should be ([the question it asks](first-run.md#copying)). The log names
+each one too, in a line such as `open-annihilation: ccdata.ccx of Core
+Contingency is not copied: the source holds it at 26214713 bytes, not
+25871597`. Choose another place to copy from: a fresh install of Total
+Annihilation without mods, or the game's disc or installer. A copy from
+that place then finishes as usual. An expansion the place holds none of
+is simply not copied, and stops nothing.
 
 When the base game cannot be played for any reason, the start says why
 in a box and in the log, and names the files that were not copied. If
