@@ -152,7 +152,7 @@ struct Console {
     bool cheats_enabled{};
     bool sfx_flag{};             // "SFX": the emitter pool refuses new particle emitters
     int32_t contour_values[2]{}; // "Contour" spacing and phase in heights << 8
-    bool ai_plan_matches{};      // the last "plan" directive named this difficulty
+    bool ai_plan_matches{};      // the last "plan" named this difficulty; console_init sets it
     /// Energy and metal "ATM" adds to the viewed player: 1000, or a mod's
     /// console.atm-amount (console_apply_rules).
     float atm_amount{};

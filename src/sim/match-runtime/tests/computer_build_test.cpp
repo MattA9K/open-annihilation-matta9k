@@ -47,8 +47,8 @@ enum Type : uint16_t { vehicle = 1, collector, relay, silo, missile, type_count 
 // its weapon stockpiles.
 constexpr uint16_t build_lists[] = {0, 2, collector, relay, 0, 0, 1, missile, 0};
 
-// A leading line before any plan applies only once a pass has left the plan
-// flag set; the medium plan halves the relay's weight.
+// A leading line before any plan applies, as the plan flag starts set; it
+// weights the collector to a tenth. The medium plan halves the relay's weight.
 constexpr const char* profile = R"(// test profile
 weight ARMSOLAR 0.1
 plan medium
@@ -251,9 +251,9 @@ void computer_builds_from_its_profile_and_lists() {
     const auto* k =
         sim::ai::computer_player_knowledge(sim::ai::match_computer_players(*f.match), computer);
     CHECK(k != nullptr);
-    // The leading weight line ran before any plan matched; the medium plan
+    // The leading weight line applied before the plans; the medium plan
     // weighted and capped the relay.
-    CHECK(k->weight_percent[collector] == 100);
+    CHECK(k->weight_percent[collector] == 10);
     CHECK(k->weight_percent[relay] == 50 && k->limits[relay] == 0);
     CHECK(sim::ai::match_computer_players(*f.match)->types[vehicle].build_count == 2);
     CHECK(built);

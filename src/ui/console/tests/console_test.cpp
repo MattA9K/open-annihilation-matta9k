@@ -813,10 +813,12 @@ void test_name_matching() {
 void test_ai_profile() {
     Fixture f;
     f.game().difficulty = OA_DIFFICULTY_MEDIUM;
-    f.run("weight ARMSOLAR 50", console::command_class::ai_profile);
-    CHECK(g_rec.calls.empty());
+    // The plan flag starts matched, as a game starts with it.
+    CHECK(f.con.ai_plan_matches);
     f.run("plan easy hard", console::command_class::ai_profile);
     CHECK(!f.con.ai_plan_matches);
+    f.run("weight ARMSOLAR 50", console::command_class::ai_profile);
+    CHECK(g_rec.calls.empty());
     f.run("plan easy medium", console::command_class::ai_profile);
     CHECK(f.con.ai_plan_matches);
     // ai.difficulty-names: with Easy and Hard swapped, difficulty 0 answers to "hard".

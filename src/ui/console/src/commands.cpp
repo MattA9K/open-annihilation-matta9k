@@ -1690,6 +1690,9 @@ bool console_init(Console* console, World* world, const ConsoleHost* host) noexc
     console->world = world;
     console->host = host;
     console->atm_amount = kAtmAmount;
+    // The AI directives' plan flag is matched as a game starts: the game's
+    // starts matched, and the start's directive passes leave it matched.
+    console->ai_plan_matches = true;
     bool ok = services::command_table_register(&console->commands, kOptionCommands);
     ok = services::command_table_register(&console->commands, kCheatCommands) && ok;
     ok = services::command_table_register(&console->commands, kDeveloperCommands) && ok;
