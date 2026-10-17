@@ -1015,6 +1015,20 @@ void Runtime::run_frame(bool& running) {
 }
 
 void Runtime::dispatch_event(SDL_Event& event, bool& running) {
+    // With --trace-input, an event of the window or a display is traced once
+    // the game, the full-screen switch and Window edge have answered it, so
+    // the line shows how the pointer is held after it. The guard is made
+    // first, so that it goes last.
+    struct WindowTraceGuard {
+        Runtime& runtime;
+        std::string_view reason;
+
+        ~WindowTraceGuard() {
+            if (!reason.empty())
+                runtime.trace_window(reason);
+        }
+    } window_trace{*this, options_.trace_input ? traced_window_event(event) : std::string_view()};
+
     // Every return, the full-screen one included, settles Window edge after
     // keep_pointer_on_screen has had its say.
     struct WindowEdgeGuard {

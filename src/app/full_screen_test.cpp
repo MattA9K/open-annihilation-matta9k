@@ -9,9 +9,10 @@
 // pointer is kept on the game's screen, where a window that leaves full
 // screen goes on its display, and windows of SDL's dummy video driver
 // switched to full screen and back, losing and regaining the focus and
-// coming back onto the display, and one opened at native density; and the
+// coming back onto the display, and one opened at native density; the
 // window's title bar and borders asked for as the game goes from its menus
-// to a game, its game menu and full screen.
+// to a game, its game menu and full screen; and the line --trace-input
+// writes of the window, its display and the pointer.
 #include "oa/app/full_screen.hpp"
 
 #include <SDL3/SDL.h>
@@ -422,6 +423,112 @@ void test_pointer_bounds_events() {
         CHECK(oa::app::changes_pointer_bounds(window_event(type)));
     for (const auto type : unchanging)
         CHECK(!oa::app::changes_pointer_bounds(window_event(type)));
+}
+
+// The line --trace-input writes of the window: a window lying exactly over
+// its display, one whose top rows lie above it, and the pointer over the
+// window, outside it on its display and on another display.
+void test_window_trace() {
+    using oa::app::PointerPlace;
+    using oa::app::pointer_place;
+    using oa::app::window_edges;
+    constexpr SDL_Rect display{0, 0, 1920, 1080};
+    CHECK(window_edges({0, 0, 1920, 1080}, display).covers());
+    // Eight rows above the display's top: the pointer cannot reach the
+    // window's top row, though the bottom eight rows are free of it.
+    const auto above = window_edges({0, -8, 1920, 1080}, display);
+    CHECK(!above.covers());
+    CHECK(above.left == 0 && above.top == -8 && above.right == 0 && above.bottom == 8);
+    // A window on a second display left of and above the first.
+    const auto beside = window_edges({-1500, -200, 1280, 720}, {-1600, -300, 1600, 900});
+    CHECK(beside.left == 100 && beside.top == 100 && beside.right == 220 && beside.bottom == 80);
+    // The window holds its left and top edges' points, not its right and
+    // bottom edges'.
+    constexpr SDL_Rect windowed{100, 50, 800, 600};
+    CHECK(pointer_place(100.0F, 50.0F, windowed, display) == PointerPlace::window);
+    CHECK(pointer_place(899.5F, 649.5F, windowed, display) == PointerPlace::window);
+    CHECK(pointer_place(900.0F, 300.0F, windowed, display) == PointerPlace::display);
+    CHECK(pointer_place(500.0F, 0.0F, windowed, display) == PointerPlace::display);
+    CHECK(pointer_place(500.0F, -1.0F, windowed, display) == PointerPlace::elsewhere);
+    CHECK(pointer_place(1920.0F, 500.0F, windowed, display) == PointerPlace::elsewhere);
+
+    oa::app::WindowTrace trace{};
+    trace.reason = "leave";
+    trace.window = display;
+    trace.pixel_width = 1920;
+    trace.pixel_height = 1080;
+    trace.display = 1;
+    trace.bounds = display;
+    trace.usable = {0, 0, 1920, 1040};
+    trace.scale = 1.25F;
+    trace.flags = SDL_WINDOW_FULLSCREEN | SDL_WINDOW_INPUT_FOCUS | SDL_WINDOW_MOUSE_GRABBED;
+    trace.pointer_x = 960.0F;
+    trace.pointer_y = 0.0F;
+    CHECK(
+        oa::app::window_trace_line(trace) ==
+        "input window leave window=0,0,1920x1080 pixels=1920x1080 display=1 "
+        "bounds=0,0,1920x1080 usable=0,0,1920x1040 scale=1.25 edges=covers "
+        "flags=full-screen,input-focus,grabbed keep=yes mouse-rect=none pointer=960,0 "
+        "pointer-on=window"
+    );
+    // On a display mode of its own, eight rows above the display, the
+    // pointer on a display above.
+    trace.reason = "full-screen-entered";
+    trace.window = {0, -8, 1920, 1080};
+    trace.exclusive = true;
+    trace.flags |= SDL_WINDOW_MOUSE_FOCUS;
+    trace.pointer_y = -20.0F;
+    CHECK(
+        oa::app::window_trace_line(trace) ==
+        "input window full-screen-entered window=0,-8,1920x1080 pixels=1920x1080 display=1 "
+        "bounds=0,0,1920x1080 usable=0,0,1920x1040 scale=1.25 "
+        "edges=left:0,top:-8,right:0,bottom:8 "
+        "flags=full-screen,exclusive,input-focus,mouse-focus,grabbed keep=yes "
+        "mouse-rect=none pointer=960,-20 pointer-on=elsewhere"
+    );
+    // A borderless window, without the focus, held in a part of itself; a
+    // display mode asked for counts only in full screen.
+    trace.reason = "focus-lost";
+    trace.window = windowed;
+    trace.flags = SDL_WINDOW_BORDERLESS | SDL_WINDOW_RESIZABLE;
+    trace.mouse_rect = SDL_Rect{0, 0, 800, 600};
+    trace.scale = 1.0F;
+    trace.pointer_x = 1000.0F;
+    trace.pointer_y = 10.5F;
+    CHECK(
+        oa::app::window_trace_line(trace) ==
+        "input window focus-lost window=100,50,800x600 pixels=1920x1080 display=1 "
+        "bounds=0,0,1920x1080 usable=0,0,1920x1040 scale=1 "
+        "edges=left:100,top:50,right:1020,bottom:430 flags=borderless keep=no "
+        "mouse-rect=0,0,800x600 pointer=1000,10.5 pointer-on=display"
+    );
+    trace.flags = 0;
+    CHECK(oa::app::window_trace_line(trace).find(" flags=none ") != std::string::npos);
+
+    // The events traced, and others not.
+    const auto event_of = [](SDL_EventType type) {
+        SDL_Event event{};
+        event.type = type;
+        return event;
+    };
+    CHECK(oa::app::traced_window_event(event_of(SDL_EVENT_WINDOW_MOUSE_LEAVE)) == "leave");
+    CHECK(oa::app::traced_window_event(event_of(SDL_EVENT_WINDOW_MOUSE_ENTER)) == "enter");
+    CHECK(oa::app::traced_window_event(event_of(SDL_EVENT_WINDOW_FOCUS_GAINED)) == "focus-gained");
+    CHECK(
+        oa::app::traced_window_event(event_of(SDL_EVENT_WINDOW_ENTER_FULLSCREEN)) ==
+        "full-screen-entered"
+    );
+    CHECK(
+        oa::app::traced_window_event(event_of(SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED)) ==
+        "scale-changed"
+    );
+    CHECK(
+        oa::app::traced_window_event(event_of(SDL_EVENT_DISPLAY_CURRENT_MODE_CHANGED)) ==
+        "display-mode-changed"
+    );
+    CHECK(oa::app::traced_window_event(event_of(SDL_EVENT_WINDOW_EXPOSED)).empty());
+    CHECK(oa::app::traced_window_event(event_of(SDL_EVENT_MOUSE_MOTION)).empty());
+    CHECK(oa::app::traced_window_event(event_of(SDL_EVENT_KEY_DOWN)).empty());
 }
 
 // Pumps the window's events through the switch, as the game's loop does.
@@ -1131,6 +1238,7 @@ int main() {
     test_window_place_checked();
     test_pointer_bounds();
     test_pointer_bounds_events();
+    test_window_trace();
     test_window();
     test_pointer_window();
     test_window_back_on_display();
@@ -1148,7 +1256,8 @@ int main() {
         "full screen: the window opens at native density only when asked, Alt+Enter switches, "
         "the mode asked for is kept, the pointer stays on the screen while the window has the "
         "focus, a window leaving full screen comes back onto its display, at a size asked "
-        "for, a saved place round-trips, and the window's frame follows the game"
+        "for, a saved place round-trips, the window's frame follows the game, and the "
+        "trace line tells the window's place on its display and the pointer's"
     );
     return 0;
 }

@@ -2117,7 +2117,15 @@ hosts them on the OA layer.
   start does not keep a desktop place. `app-full-screen` asks for the
   frame in each case and through a game, its game menu and full screen,
   and checks that a saved place round-trips, including a window whose
-  display has gone.
+  display has gone. With `--trace-input`, the window writes one line as a
+  match begins and after each event of the window or a display
+  (`traced_window_event`, `Runtime::trace_window` in `runtime_present.cpp`,
+  called from `dispatch_event` once the event and Window edge are settled):
+  its place against its display's bounds and usable area, its state, how
+  the pointer is held and where the pointer is (`window_trace_line`,
+  `window_edges`, `pointer_place`), so that a log tells why an edge stopped
+  scrolling ([`--trace-input`](../../docs/command-line.md#--trace-input));
+  `app-full-screen` checks the lines.
 - `runtime_hud.cpp`, `runtime_match_hud.cpp`: the HUD.
 - `runtime_messages.cpp`: the in-game message log (`Game.chat_lines`) drawn
   over the battlefield, and the speed and message part of `--check-navigation`.

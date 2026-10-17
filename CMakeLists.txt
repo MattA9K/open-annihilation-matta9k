@@ -970,8 +970,9 @@ if(BUILD_TESTING)
     # driver switched and back;
     # the pointer held on the window in full screen with the focus and let go
     # in a window or without the focus; a window that leaves full screen
-    # brought back onto its display, at a size asked for, and a window asked
-    # for a size kept on its display.
+    # brought back onto its display, at a size asked for, a window asked for
+    # a size kept on its display, and the line --trace-input writes of the
+    # window's place on its display and the pointer's.
     add_executable(oa-app-full-screen-test src/app/full_screen_test.cpp src/app/full_screen.cpp)
     target_link_libraries(oa-app-full-screen-test PRIVATE oa-app-headers SDL3::SDL3 oa-options)
     add_test(NAME app-full-screen COMMAND oa-app-full-screen-test)

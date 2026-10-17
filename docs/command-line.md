@@ -434,9 +434,74 @@ one, for the engine's developers.
 | `--trace-digest FILE` | Writes a digest of the match at each tick. |
 | `--trace-units FILE` | Adds a line for each unit to it. It needs `--trace-digest`. |
 | `--trace-lookups FILE` | Writes every game file and listing the run looks up. |
-| `--trace-input` | Prints each press of the pointer's buttons, and where it lands, on standard error. |
+| `--trace-input` | Prints each press of the pointer's buttons, and where it lands, each move of the pointer over a match, and the game's window, its display and the pointer as a match begins and at each change of the window or a display, on standard error. [Below](#--trace-input). |
 | `--debug-order-lines` | Draws each construction beam as a plain line, to debug it. |
 | `--draw-threads N` | The threads that draw, from 1 through 32. |
+
+#### `--trace-input`
+
+```sh
+open-annihilation --trace-input
+```
+
+On Windows, add `--trace-input` at the end of the game shortcut's Target,
+or run `open-annihilation.exe --trace-input` from a command prompt in the
+game's folder. The lines go to standard error, which the game writes into
+its log (or into the folder `--log-dir` names).
+
+Each move of the pointer over a match writes one line:
+
+```text
+input match pointer x=960 y=0 hud=none
+```
+
+`x` and `y` are the pointer's place on the match's screen, in its pixels
+from the top-left corner, and `hud` the HUD button under it. The view
+scrolls toward an edge while the pointer is on that edge's outermost column
+or row: `x=0` at the left, `y=0` at the top, the screen's width or height
+less one at the right or the bottom.
+
+The game's window writes one line as a match begins and after each event
+of the window or a display, once the game has answered it:
+
+```text
+input window leave window=0,0,1920x1080 pixels=1920x1080 display=1 bounds=0,0,1920x1080 usable=0,0,1920x1040 scale=1.25 edges=covers flags=full-screen,input-focus,grabbed keep=yes mouse-rect=none pointer=960,0 pointer-on=window
+```
+
+| Word | What it says |
+|---|---|
+| `input window` and a word | What the line is for: `match` as a match begins, or the event: `shown`, `hidden`, `moved`, `resized`, `pixel-size-changed`, `minimised`, `maximised`, `restored`, `enter` and `leave` (the pointer entering and leaving the window), `focus-gained` and `focus-lost` (the input focus), `full-screen-entered`, `full-screen-left`, `display-changed` (moved to another display), `scale-changed`, `safe-area-changed`, and a display's `display-added`, `display-removed`, `display-moved`, `display-turned`, `display-desktop-mode-changed`, `display-mode-changed`, `display-scale-changed` and `display-usable-area-changed`. |
+| `window=x,y,WxH` | The window's contents: their top-left corner on the desktop and their size, in the window system's units. |
+| `pixels=WxH` | The contents' size in pixels. |
+| `display=N` | The display the window is on. |
+| `bounds=x,y,WxH` | Where that display lies on the desktop, and its size. |
+| `usable=x,y,WxH` | The part of the display without the taskbar, the menu bar or the dock. |
+| `scale=S` | The display's scale: `1.25` at 125%. |
+| `edges=covers`, or `edges=left:L,top:T,right:R,bottom:B` | How far each edge of the window lies inside the display. `covers` is a window lying exactly over it, as full screen does. A number below 0 lies past the display's edge, where the pointer cannot reach that edge of the window. |
+| `flags=` | The window's state: `full-screen`; `exclusive`, full screen on a display mode of its own; `maximised`, `minimised`, `hidden`, `borderless`; `input-focus`, the keyboard's focus; `mouse-focus`, the pointer in the window; `grabbed`, the window holding the pointer in itself; `mouse-capture`, a button held. `none` is none of them. |
+| `keep=yes` or `keep=no` | Whether full screen keeps the pointer on the window now: in full screen with the input focus. |
+| `mouse-rect=x,y,WxH` or `mouse-rect=none` | The part of the window the pointer is held in; `none` is the whole window. |
+| `pointer=x,y` | The pointer's place on the desktop. |
+| `pointer-on=` | `window` over the window, `display` outside it on its display, `elsewhere` off that display. |
+
+When the view stops scrolling at one edge in full screen, the window's
+lines should show `edges=covers`, `full-screen`, `input-focus`,
+`mouse-focus` and `grabbed` among the flags, and `keep=yes`, and the match
+pointer lines should reach that edge's column or row. Then:
+
+- A `leave` line as the pointer reaches the edge, with `pointer-on=window`
+  and `edges=covers`: the pointer is still over the window's place, but
+  another window lies over the game there, such as a taskbar or a tool bar
+  on that edge, or an overlay. The pointer's moves go to that window, and
+  the view scrolls again only once the pointer is back over the game.
+- A `leave` line with `pointer-on=elsewhere`: the pointer has left the
+  window's display across that edge, onto another display. Without
+  `grabbed` or `keep=yes` the window was not holding the pointer.
+- No `leave`, but `edges` gives that side a number below 0: the window lies
+  past its display there, so the pointer cannot reach the window's
+  outermost row or column on that side; with `top:-8` the match pointer
+  lines stop at `y=8`. A line after `scale-changed` or
+  `display-mode-changed` shows when the window moved there.
 
 ## Ways to launch a game
 

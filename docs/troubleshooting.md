@@ -27,3 +27,14 @@ the network failure. "Core Prime asked for a check the game cannot do. Try
 again later." means the server answered with a check meant for a web
 browser, which the game never answers: try again later
 ([when a download fails](downloads.md#when-a-download-fails)).
+
+## The view stops scrolling at one edge
+
+If moving the pointer to one edge of the screen stops scrolling the view,
+while the other edges still do, start the game with `--trace-input`, play
+until it happens, push the pointer against that edge, and send the game's
+log. Its lines say where the game's window lies on its display, whether the
+window holds the pointer, and whether the pointer left the window there
+([what the lines mean](command-line.md#--trace-input)). Say also where
+your taskbar is, whether a tool bar or overlay shows at that edge, and how
+your displays are arranged.

@@ -372,6 +372,8 @@ void Runtime::enter_match_view() {
         );
     }
     apply_output_mode();
+    // With --trace-input, the window and the pointer as the match begins.
+    trace_window("match");
     select_local_commander();
     apply_match_hud_for_selection();
     render_match_surface();

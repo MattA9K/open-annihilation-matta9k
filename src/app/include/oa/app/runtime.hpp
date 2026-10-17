@@ -7951,6 +7951,15 @@ class Runtime final : public menu::Host,
     ///         no screen may see
     bool take_full_screen_event(const SDL_Event& event);
 
+    /// With `--trace-input`, writes the game's window as window_trace_line
+    /// says on standard error: where it lies on its display, its state, how
+    /// the pointer is held and where the pointer is. Without the option, or
+    /// without a window, it writes nothing.
+    ///
+    /// @param reason what the line is for: a window or display event's word
+    ///        (traced_window_event), or "match" as a match begins
+    void trace_window(std::string_view reason);
+
     /// Makes a streaming texture of a pixel format and size, recreating it
     /// when the format or the size changed. An alpha format is drawn with no
     /// blending, as an opaque layer.
