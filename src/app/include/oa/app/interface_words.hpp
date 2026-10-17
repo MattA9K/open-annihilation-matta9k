@@ -311,9 +311,11 @@ inline constexpr std::string_view interface_words[] = {
     "unknown",
     "x5",
     "{count} files differ",
+    "{count} files left out for their size: {files}",
     "{count} of {total} files differ",
     "{held} of {total} tracks",
     "{file} cannot be installed.",
+    "{file} left out: {size} bytes, not {expected}",
     "{folder} is a folder of your own, not {name}. Move or rename it, then RETRY.",
     "{name} from {installed} is installed. Replace it with {name} from {new}? The one from "
     "{installed} is kept, and ROLL BACK brings it back.",

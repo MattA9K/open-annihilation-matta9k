@@ -48,13 +48,26 @@ already copied and goes on from there. The base game is played only once
 every one of its files is copied, or known to be missing from the place it
 was copied from.
 
-A file that place holds at another size than Total Annihilation 3.1c's is
-not copied. The game's log names it, in a line such as `open-annihilation:
-Data/2.zrb of Total Annihilation 3.1c was not copied: the source holds it at
-41000000 bytes, not 41229000`, and the copying step counts it among the
-files that differ. When the base game cannot be played for this or any
-other reason, the start says why in a box and in the log, and names the
-files that were not copied. Copy from another place that holds them, such
-as the game's own disc or installer. If the files of a finished copy are
-gone, delete the folder the box names (under Open Annihilation › Games in
-your Documents folder) and start the game again to copy it afresh.
+A movie the place copied from holds at another size than Total
+Annihilation 3.1c's is left out, and the game plays without it. The
+copying step's line for the base game names it with both sizes, and so
+does the game's log, in a line such as `open-annihilation: Data/2.zrb of
+Total Annihilation 3.1c is left out: the source holds it at 41000000 bytes,
+not 41229000`.
+
+An archive of the base game at another size (`rev31.gp3`, `totala1.hpi`,
+`totala2.hpi`) means that Total Annihilation has been changed, as a mod
+or another program changes it. The copy stops before it begins and
+copies nothing, and the copying step says so and names each archive with
+its size there and in 3.1c ([the question it asks](first-run.md#copying)).
+Choose another place to copy from: a fresh install of Total Annihilation
+without mods, or the game's disc or installer. A copy from that place
+then finishes as usual. An expansion's archive at another size is left
+out, with a line in the log, and that expansion is not played until a
+copy from another place brings it.
+
+When the base game cannot be played for any reason, the start says why
+in a box and in the log, and names the files that were not copied. If
+the files of a finished copy are gone, delete the folder the box names
+(under Open Annihilation › Games in your Documents folder) and start the
+game again to copy it afresh.

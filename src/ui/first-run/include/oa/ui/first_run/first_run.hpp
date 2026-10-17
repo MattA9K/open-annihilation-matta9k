@@ -9,10 +9,12 @@
 
 #pragma once
 
+#include "oa/ui/kit/components_more.hpp"
 #include "oa/ui/kit/first_run.hpp"
 #include "oa/ui/kit/input.hpp"
 #include "oa/ui/library/library.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -206,6 +208,15 @@ struct CopyBundle {
     bool note{false};
 };
 
+/// An archive of the base game that the place copied from holds at another
+/// size than Total Annihilation 3.1c's, as a mod or another program leaves
+/// it. Such an archive stops the copy before anything is copied.
+struct ChangedFile {
+    std::string name{};  ///< the archive's name, as the game stores it
+    uint64_t size{};     ///< its size in the place copied from, in bytes
+    uint64_t expected{}; ///< its size in Total Annihilation 3.1c, in bytes
+};
+
 /// The copying step's progress. The host keeps it current.
 struct CopyView {
     std::string from{};                ///< where the bytes are read from
@@ -222,6 +233,10 @@ struct CopyView {
     uint32_t check_done{};             ///< files the check has considered
     uint32_t check_total{};            ///< files the check will consider
     bool bytes_landed{};               ///< the bytes finished, whether or not the check did
+    /// The archives that stopped the copy, in the game's order. While there
+    /// are any, the step asks over itself (changed_question) whether to
+    /// choose another place to copy from or to leave.
+    std::vector<ChangedFile> changed{};
 };
 
 /// What the steps show. The host keeps it current.
@@ -380,6 +395,15 @@ struct Scene {
     /// The step's list while it scrolls: its view, its scroll bar, and how
     /// far it is moved up. The view is empty when the whole list fits.
     kit::ScrollArea list_scroll{};
+    /// The first item of the dim under a question over the step; 0 when no
+    /// question is. The step's own parts, its title among them, are drawn
+    /// first. The question's buttons are the list's only controls then.
+    std::size_t over_from{};
+    /// The question over the step, centred in the window; empty when none is.
+    kit::Rect question{};
+    /// The question's parts, in points from its top left corner, drawn there
+    /// over the dim.
+    kit::DisplayList question_list{};
 };
 
 /// The left footer button: Skip, or Quit when the host set Leave::quit.
@@ -404,10 +428,32 @@ inline constexpr kit::ControlId off_id = 9;
 inline constexpr kit::ControlId start_id = 10;
 /// Locate another…
 inline constexpr kit::ControlId locate_id = 11;
+/// Choose another place, on the question a changed install asks.
+inline constexpr kit::ControlId changed_choose_id = 12;
+/// That question's Quit, or Skip when the host set Leave::skip.
+inline constexpr kit::ControlId changed_leave_id = 13;
+/// That question's text, which takes no press and which automation reads.
+inline constexpr kit::ControlId changed_text_id = 14;
 /// The first language card. Card n is card_id + n.
 inline constexpr kit::ControlId card_id = 20;
 /// The first source row. Source n is source_id + n.
 inline constexpr kit::ControlId source_id = 40;
+
+/// The question the copying step asks when the place copied from holds an
+/// archive of the base game at another size than Total Annihilation 3.1c's.
+///
+/// It says the game's files there have been changed, as a mod or another
+/// program changes them, names each archive with its size there and in
+/// 3.1c, says that Open Annihilation needs a fresh install without mods to
+/// set up its copy and that nothing was copied, and asks where to go next.
+/// Choose another place, marked and in the accent, goes back to the game
+/// step, and so do Escape and No; the walk's Quit or Skip is beside it. Its
+/// words are in the language shown.
+///
+/// @param model the walk's leave word and the copy's changed archives
+/// @param size_class the class the question is laid out at
+/// @return the question; its buttons are Choose another place, then Quit or Skip
+[[nodiscard]] kit::Question changed_question(const Model& model, kit::SizeClass size_class);
 
 /// Tells whether a download is running, so Next stays disabled.
 ///

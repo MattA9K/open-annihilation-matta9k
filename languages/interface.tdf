@@ -1690,6 +1690,14 @@
 	it=Scegli una mappa;
 	}
 
+[Choose another place]
+	{
+	de=Anderen Ort wählen;
+	fr=Choisir un autre emplacement;
+	es=Elegir otro lugar;
+	it=Scegli un altro posto;
+	}
+
 [Choose from the main menu.]
 	{
 	de=Wähle es im Hauptmenü.;
@@ -6170,6 +6178,14 @@
 	it=Open Annihilation potrebbe non poter più leggere {location}. Scegli di nuovo la cartella per continuare. Ciò che è stato copiato viene tenuto.;
 	}
 
+[Open Annihilation needs a fresh Total Annihilation install, without mods, to set up its copy. Nothing has been copied. Choose another place to copy from.]
+	{
+	de=Open Annihilation braucht eine frische Installation von Total Annihilation ohne Mods, um seine Kopie anzulegen. Es wurde nichts kopiert. Wähle einen anderen Ort, von dem kopiert wird.;
+	fr=Open Annihilation a besoin d'une installation neuve de Total Annihilation, sans mods, pour créer sa copie. Rien n'a été copié. Choisis un autre emplacement d'où copier.;
+	es=Open Annihilation necesita una instalación nueva de Total Annihilation, sin mods, para crear su copia. No se ha copiado nada. Elige otro lugar desde el que copiar.;
+	it=Open Annihilation ha bisogno di un'installazione nuova di Total Annihilation, senza mod, per creare la sua copia. Non è stato copiato nulla. Scegli un altro posto da cui copiare.;
+	}
+
 [Open Annihilation opens a launch file's battle room from the main menu. Go back to the main menu, then open the file again.]
 	{
 	de=Open Annihilation öffnet den Gefechtsraum einer Startdatei vom Hauptmenü aus. Geh zurück zum Hauptmenü und öffne die Datei dann erneut.;
@@ -7872,6 +7888,14 @@
 	fr=Certains fichiers dans {location} ont changé depuis le début de la copie. Les fichiers qui correspondent sont gardés. Le reste est copié à nouveau.;
 	es=Algunos archivos en {location} cambiaron desde que empezó la copia. Los archivos que coinciden se conservan. El resto se copia de nuevo.;
 	it=Alcuni file in {location} sono cambiati dall'inizio della copia. I file che coincidono vengono tenuti. Il resto viene copiato di nuovo.;
+	}
+
+[Some of its files are not the size they are in Total Annihilation 3.1c. A mod or another program may have changed them.]
+	{
+	de=Einige seiner Dateien haben nicht die Größe, die sie in Total Annihilation 3.1c haben. Ein Mod oder ein anderes Programm hat sie vielleicht verändert.;
+	fr=Certains de ses fichiers n'ont pas la taille qu'ils ont dans Total Annihilation 3.1c. Un mod ou un autre programme les a peut-être modifiés.;
+	es=Algunos de sus archivos no tienen el tamaño que tienen en Total Annihilation 3.1c. Puede que un mod u otro programa los haya cambiado.;
+	it=Alcuni dei suoi file non hanno la dimensione che hanno in Total Annihilation 3.1c. Forse un mod o un altro programma li ha modificati.;
 	}
 
 [Squad Assignment]
@@ -10298,6 +10322,14 @@
 	it=La tua cartella Mods non ha un nome di cartella libero per esso.;
 	}
 
+[Your Total Annihilation has been changed]
+	{
+	de=Dein Total Annihilation wurde verändert;
+	fr=Ton Total Annihilation a été modifié;
+	es=Tu Total Annihilation ha sido modificado;
+	it=Il tuo Total Annihilation è stato modificato;
+	}
+
 [Your changes to the profile's hacks apply while on.]
 	{
 	de=Deine Änderungen an den Varianten des Profils gelten, solange es an ist.;
@@ -11386,6 +11418,14 @@
 	it={count} file sono diversi;
 	}
 
+[{count} files left out for their size: {files}]
+	{
+	de={count} Dateien wegen ihrer Größe ausgelassen: {files};
+	fr={count} fichiers laissés de côté à cause de leur taille : {files};
+	es={count} archivos omitidos por su tamaño: {files};
+	it={count} file esclusi per la loro dimensione: {files};
+	}
+
 [{count} h ago]
 	{
 	de=vor {count} h;
@@ -11560,6 +11600,22 @@
 	fr={file} n'est pas l'édition de la démo de Total Annihilation (1997) qu'Open Annihilation reconnaît. Les installateurs du jeu complet sont des programmes Windows, qu'Open Annihilation n'exécute jamais : installe le jeu sur un ordinateur, puis copie son dossier.;
 	es={file} no es la edición de la demo de Total Annihilation (1997) que reconoce Open Annihilation. Los instaladores del juego completo son programas de Windows, que Open Annihilation nunca ejecuta: instala el juego en un ordenador y luego copia su carpeta.;
 	it={file} non è l'edizione della demo di Total Annihilation (1997) che Open Annihilation riconosce. Gli installer del gioco completo sono programmi Windows, che Open Annihilation non esegue mai: installa il gioco su un computer, poi copia la sua cartella.;
+	}
+
+[{file} is {size} bytes. In 3.1c it is {expected}.]
+	{
+	de={file} hat {size} Bytes. In 3.1c sind es {expected}.;
+	fr={file} fait {size} octets. Dans la 3.1c, il en fait {expected}.;
+	es={file} ocupa {size} bytes. En la 3.1c ocupa {expected}.;
+	it={file} è di {size} byte. Nella 3.1c è di {expected}.;
+	}
+
+[{file} left out: {size} bytes, not {expected}]
+	{
+	de={file} ausgelassen: {size} Bytes statt {expected};
+	fr={file} laissé de côté : {size} octets au lieu de {expected};
+	es={file} omitido: {size} bytes en lugar de {expected};
+	it={file} escluso: {size} byte invece di {expected};
 	}
 
 [{filter} ({count})]

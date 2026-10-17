@@ -93,6 +93,13 @@ inline constexpr std::string_view interface_words[] = {
     "of",
     "{done} of {total} · {percent}%",
     "{step} · {index} OF {count}",
+    "Choose another place",
+    "Open Annihilation needs a fresh Total Annihilation install, without mods, to set up its copy. "
+    "Nothing has been copied. Choose another place to copy from.",
+    "Some of its files are not the size they are in Total Annihilation 3.1c. A mod or another "
+    "program may have changed them.",
+    "Your Total Annihilation has been changed",
+    "{file} is {size} bytes. In 3.1c it is {expected}.",
 };
 
 } // namespace oa::ui::first_run

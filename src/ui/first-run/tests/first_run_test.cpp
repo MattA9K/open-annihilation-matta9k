@@ -4,8 +4,9 @@
 // The first-run gate, and the coach marks at Compact, Regular and Large; the
 // chosen language card alone marked as the carousel turns; the header's
 // mark and name left out in a window; the Locate step's title and button;
-// the setup's scale on a window; and the game and copying steps' lists,
-// which scroll when they do not fit and follow the row they show.
+// the setup's scale on a window; the game and copying steps' lists,
+// which scroll when they do not fit and follow the row they show; and the
+// question a changed install asks over the copying step.
 
 #include "oa/ui/first_run/first_run.hpp"
 
@@ -1652,6 +1653,118 @@ void check_source_list_scrolls() {
 }
 } // namespace
 
+/// The question a changed install asks over the copying step: it names
+/// each archive with both sizes, only its buttons take the keys and the
+/// pointer, Choose another place has the focus and goes back to the game
+/// step, as Escape does, and the walk's Quit or Skip leaves.
+void check_changed_question() {
+    oa::ui::kit::Frame frame;
+    frame.area = {0, 0, 960, 540};
+    frame.size_class = oa::ui::kit::SizeClass::regular;
+    Session session;
+    session.model.walk = Walk::setup;
+    session.model.leave = Leave::quit;
+    session.model.step = Step::copying;
+    session.model.copy.from = "TotalA";
+    session.model.copy.whole = 1000;
+    oa::ui::first_run::CopyBundle base;
+    base.name = "Total Annihilation 3.1c";
+    base.whole = 1000;
+    session.model.copy.bundles.push_back(base);
+    session.model.copy.changed = {
+        {"rev31.gp3", 5481300, 5481280},
+        {"totala2.hpi", 101234567, 98009698},
+    };
+
+    const oa::ui::kit::Question question =
+        oa::ui::first_run::changed_question(session.model, oa::ui::kit::SizeClass::regular);
+    OA_CHECK(question.title == "Your Total Annihilation has been changed");
+    OA_CHECK(question.paragraphs.size() == 4);
+    OA_CHECK(
+        question.paragraphs.size() == 4 &&
+        question.paragraphs[1].text == "rev31.gp3 is 5481300 bytes. In 3.1c it is 5481280." &&
+        question.paragraphs[2].text == "totala2.hpi is 101234567 bytes. In 3.1c it is 98009698."
+    );
+    OA_CHECK(question.buttons.size() == 2);
+    OA_CHECK(question.buttons.size() == 2 && question.buttons[0].caption == "Choose another place");
+    OA_CHECK(question.buttons.size() == 2 && question.buttons[0].accent);
+    OA_CHECK(question.buttons.size() == 2 && question.buttons[1].caption == "Quit");
+    OA_CHECK(!oa::ui::kit::place_question(question, nullptr).cut);
+
+    oa::ui::first_run::Scene scene = oa::ui::first_run::lay_out(session, frame, nullptr);
+    OA_CHECK(scene.over_from > 0);
+    OA_CHECK(scene.question.width == oa::ui::kit::regular_metrics.notice_width);
+    OA_CHECK(oa::ui::kit::wholly_in(scene.question, {0, 0, frame.area.width, frame.area.height}));
+    // The step's own controls are left out while the question shows.
+    OA_CHECK(oa::ui::kit::control_of(scene.list, oa::ui::first_run::next_id) == nullptr);
+    OA_CHECK(oa::ui::kit::control_of(scene.list, oa::ui::first_run::skip_id) == nullptr);
+    const oa::ui::kit::Control* choose =
+        oa::ui::kit::control_of(scene.list, oa::ui::first_run::changed_choose_id);
+    const oa::ui::kit::Control* leave =
+        oa::ui::kit::control_of(scene.list, oa::ui::first_run::changed_leave_id);
+    const oa::ui::kit::Control* text =
+        oa::ui::kit::control_of(scene.list, oa::ui::first_run::changed_text_id);
+    OA_CHECK(choose != nullptr && leave != nullptr && text != nullptr);
+    if (choose == nullptr || leave == nullptr || text == nullptr)
+        return;
+    OA_CHECK(choose->name == "first-run.copying.changed.choose");
+    OA_CHECK(leave->name == "first-run.copying.changed.leave");
+    OA_CHECK(text->text.find("totala2.hpi is 101234567 bytes") != std::string::npos);
+    OA_CHECK(oa::ui::kit::wholly_in(choose->rect, scene.question));
+    OA_CHECK(oa::ui::kit::wholly_in(leave->rect, scene.question));
+    OA_CHECK(choose->rect.x < leave->rect.x);
+    bool opens = false;
+    for (const oa::ui::kit::Item& item : scene.question_list.items)
+        opens = opens || item.text.starts_with("Some of its files are not the size");
+    OA_CHECK(opens);
+
+    oa::ui::first_run::ensure_focus(session, scene.list);
+    OA_CHECK(session.interaction.focused == oa::ui::first_run::changed_choose_id);
+    OA_CHECK(
+        oa::ui::first_run::key(session, scene, oa::ui::kit::Key::enter).ask == Ask::cancel_copy
+    );
+    OA_CHECK(
+        oa::ui::first_run::key(session, scene, oa::ui::kit::Key::escape).ask == Ask::cancel_copy
+    );
+    std::ignore = oa::ui::first_run::key(session, scene, oa::ui::kit::Key::tab);
+    OA_CHECK(session.interaction.focused == oa::ui::first_run::changed_leave_id);
+    OA_CHECK(oa::ui::first_run::key(session, scene, oa::ui::kit::Key::enter).ask == Ask::quit);
+
+    const oa::ui::kit::Point on_leave{
+        leave->rect.x + leave->rect.width / 2, leave->rect.y + leave->rect.height / 2
+    };
+    std::ignore = oa::ui::first_run::pointer(
+        session, scene, oa::ui::first_run::PointerKind::down, on_leave, 0
+    );
+    OA_CHECK(
+        oa::ui::first_run::pointer(session, scene, oa::ui::first_run::PointerKind::up, on_leave, 0)
+            .ask == Ask::quit
+    );
+    // A press beside the question, where the step's Next was, does nothing.
+    const oa::ui::kit::Point beside{frame.area.width - 20, frame.area.height - 20};
+    std::ignore =
+        oa::ui::first_run::pointer(session, scene, oa::ui::first_run::PointerKind::down, beside, 0);
+    OA_CHECK(
+        oa::ui::first_run::pointer(session, scene, oa::ui::first_run::PointerKind::up, beside, 0)
+            .ask == Ask::none
+    );
+
+    session.model.leave = Leave::skip;
+    scene = oa::ui::first_run::lay_out(session, frame, nullptr);
+    const oa::ui::kit::Control* skip =
+        oa::ui::kit::control_of(scene.list, oa::ui::first_run::changed_leave_id);
+    OA_CHECK(skip != nullptr && skip->text == "Skip");
+    session.interaction.focused = oa::ui::first_run::changed_leave_id;
+    OA_CHECK(oa::ui::first_run::key(session, scene, oa::ui::kit::Key::enter).ask == Ask::skip);
+
+    // Without changed archives the step is its own again.
+    session.model.copy.changed.clear();
+    scene = oa::ui::first_run::lay_out(session, frame, nullptr);
+    OA_CHECK(scene.over_from == 0);
+    OA_CHECK(oa::ui::kit::control_of(scene.list, oa::ui::first_run::changed_choose_id) == nullptr);
+    OA_CHECK(oa::ui::kit::control_of(scene.list, oa::ui::first_run::next_id) != nullptr);
+}
+
 int main() {
     check_gate();
     check_coaches(oa::ui::kit::SizeClass::compact, 800, 500, false);
@@ -1673,5 +1786,6 @@ int main() {
     check_setup_scale();
     check_copy_list_scrolls();
     check_source_list_scrolls();
+    check_changed_question();
     return oa::test::check_exit_status();
 }

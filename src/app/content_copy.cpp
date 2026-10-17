@@ -1252,6 +1252,16 @@ std::string_view unattended_copy_refusal() noexcept {
            "PATH.";
 }
 
+bool archive_copy_name(std::string_view copy_name) noexcept {
+    constexpr std::string_view suffixes[] = {".hpi", ".ufo", ".ccx", ".gp3"};
+    for (const std::string_view suffix : suffixes) {
+        if (copy_name.size() > suffix.size() &&
+            folded_equal(copy_name.substr(copy_name.size() - suffix.size()), suffix))
+            return true;
+    }
+    return false;
+}
+
 FolderContentSource::FolderContentSource(fs::path folder, std::span<const bundles::Bundle> table)
     : folder_(std::move(folder)), bundles_(table) {
 }
@@ -1580,6 +1590,48 @@ CopyResult copy_content(ContentSource& source, const CopyRequest& request) {
             result.error = player_error(problem.empty() ? "the folder could not be read" : problem);
             return result;
         }
+        // A base game's archive at another size: the place was changed, by
+        // a mod or another program. Nothing is copied or recorded, so no
+        // half-done copy is taken as made.
+        for (const MissingContentFile& missing : described.missing) {
+            if (!missing.different_size || !archive_copy_name(missing.copy_name))
+                continue;
+            for (const bundles::Bundle& bundle : request.bundles) {
+                if (bundle.id != missing.bundle_id || bundle.kind != bundles::Kind::base_game)
+                    continue;
+                for (const bundles::ContentFile& file : bundle.files) {
+                    if (file.copy_name != missing.copy_name)
+                        continue;
+                    ChangedContentFile changed;
+                    changed.bundle_id = missing.bundle_id;
+                    changed.copy_name = missing.copy_name;
+                    changed.source_size = missing.source_size;
+                    changed.size = file.size;
+                    result.changed.push_back(std::move(changed));
+                }
+            }
+        }
+        if (!result.changed.empty()) {
+            std::string sizes;
+            for (const ChangedContentFile& changed : result.changed) {
+                const std::string line = changed.copy_name +
+                                         " is not copied: the source holds it at " +
+                                         std::to_string(changed.source_size) + " bytes, not " +
+                                         std::to_string(changed.size);
+                say_line(request.news, line.c_str());
+                sizes += sizes.empty() ? "" : "; ";
+                sizes += changed.copy_name + " is " + std::to_string(changed.source_size) +
+                         " bytes, not " + std::to_string(changed.size);
+            }
+            result.status = CopyStatus::changed;
+            result.error = "This Total Annihilation has been changed, as a mod or another program "
+                           "changes it (" +
+                           sizes +
+                           "). Open Annihilation needs a fresh Total Annihilation install, "
+                           "without mods, to set up its copy. Nothing was copied.";
+            say_line(request.news, "Nothing was copied: this Total Annihilation has been changed.");
+            return result;
+        }
         if (described.matched.empty())
             return result;
         const fs::path origin = path_from_utf8(source.origin());
@@ -1894,16 +1946,26 @@ CopyResult copy_content(ContentSource& source, const CopyRequest& request) {
             }
             if (bundle == nullptr || table_file == nullptr || !safe_copy_name(missing.copy_name))
                 continue;
-            // Left out of the record, so the bundle is not played until a
-            // copy from another source names the file.
             if (missing.different_size) {
+                const std::string sizes = ": the source holds it at " +
+                                          std::to_string(missing.source_size) + " bytes, not " +
+                                          std::to_string(table_file->size);
+                // An expansion's archive is left out of the record, so the
+                // expansion is not played until a copy from another source
+                // names it. A base game's stopped the copy above.
+                if (archive_copy_name(missing.copy_name)) {
+                    const std::string line = missing.copy_name + " of " +
+                                             std::string(bundle->english_name) + " was not copied" +
+                                             sizes;
+                    say_line(request.news, line.c_str());
+                    continue;
+                }
+                // A movie or a track is recorded as not in the source, with
+                // the size the source holds it at, and the bundle plays
+                // without it.
                 const std::string line = missing.copy_name + " of " +
-                                         std::string(bundle->english_name) +
-                                         " was not copied: the source holds it at " +
-                                         std::to_string(missing.source_size) + " bytes, not " +
-                                         std::to_string(table_file->size);
+                                         std::string(bundle->english_name) + " is left out" + sizes;
                 say_line(request.news, line.c_str());
-                continue;
             }
             const fs::path record_path =
                 bundle_folder(request.user_folder, *bundle) / std::string(content_record_name);
@@ -1966,10 +2028,12 @@ CopyResult copy_content(ContentSource& source, const CopyRequest& request) {
                 ContentRecordFile stored;
                 stored.copy_name = std::string(missing.copy_name);
                 stored.not_in_source = true;
+                stored.source_size = missing.different_size ? missing.source_size : 0;
                 bool replaced = false;
                 for (ContentRecordFile& item : record.files) {
                     if (item.copy_name == stored.copy_name) {
                         item.not_in_source = true;
+                        item.source_size = stored.source_size;
                         replaced = true;
                         break;
                     }
@@ -2337,6 +2401,43 @@ std::string content_bundle_line(const ContentBundleCheck& bundle) {
             bundle.file_count - bundle.files_not_in_source, bundle.file_count
         );
     }
+    if (bundle.left_out.size() == 1) {
+        const ContentFileLeftOut& file = bundle.left_out.front();
+        return replace_token(
+            replace_token(
+                replace_token(
+                    oa::data::languages::interface_text(
+                        "{file} left out: {size} bytes, not {expected}"
+                    ),
+                    "{file}",
+                    file.copy_name
+                ),
+                "{size}",
+                std::to_string(file.source_size)
+            ),
+            "{expected}",
+            std::to_string(file.size)
+        );
+    }
+    if (!bundle.left_out.empty()) {
+        std::string names;
+        for (const ContentFileLeftOut& file : bundle.left_out) {
+            if (!names.empty())
+                names += ", ";
+            names += file.copy_name;
+        }
+        return replace_token(
+            replace_token(
+                oa::data::languages::interface_text(
+                    "{count} files left out for their size: {files}"
+                ),
+                "{count}",
+                std::to_string(bundle.left_out.size())
+            ),
+            "{files}",
+            names
+        );
+    }
     return content_match_line(0);
 }
 
@@ -2455,6 +2556,21 @@ ContentCheck check_managed_content(
             const auto stamp = sized ? fs::last_write_time(dest, failure) : fs::file_time_type{};
             const bool timed = sized && !failure;
             const bool never_held = recorded && record.files[index].not_in_source;
+            const uint64_t held_size = never_held ? record.files[index].source_size : 0;
+            // A file the copy left out because the source held it at another
+            // size is not a difference while it is still absent: it is named,
+            // with both sizes.
+            if (held_size > 0 && !regular) {
+                count_up(reported.files_not_in_source);
+                ContentFileLeftOut left_out;
+                left_out.copy_name = std::string(file.copy_name);
+                left_out.source_size = held_size;
+                left_out.size = file.size;
+                reported.left_out.push_back(std::move(left_out));
+                if (!considered())
+                    return check;
+                continue;
+            }
             // A music file the source never held is not a difference while it
             // is still absent. A file that is present is checked as usual, so
             // a changed or damaged track is still named.
@@ -2484,6 +2600,7 @@ ContentCheck check_managed_content(
                     updated.modified = hashed_time;
                     updated.digest = digest;
                     updated.not_in_source = never_held;
+                    updated.source_size = held_size;
                     if (recorded)
                         record.files[index] = std::move(updated);
                     else

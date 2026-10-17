@@ -10,7 +10,9 @@
 // under it, and the line that says where the copies go meets nothing else.
 // The header leaves out the mark and the name in a window and keeps them
 // full screen. The game step's title reads the new words, and Locate
-// another… holds its words with room on every side in every language.
+// another… holds its words with room on every side in every language. The
+// question a changed install asks over the copying step fits the window in
+// every language, with none of its text cut and nothing in it overlapping.
 //
 // Usage: oa-ui-first-run-sizes-test INTERFACE_TDF CHINESE_TDF, the engine's
 // languages/interface.tdf and this folder's zh-Hans-setup.tdf.
@@ -44,6 +46,7 @@ namespace kit = oa::ui::kit;
 namespace languages = oa::data::languages;
 namespace paint = oa::ui::paint;
 namespace text_font = oa::platform::text_font;
+using first_run::Leave;
 
 /// A window the sizes are stated for, and the least sizes there, in the
 /// window's own points. Each is the 640 by 480 floor scaled by how far the
@@ -715,6 +718,118 @@ void check_step(
     }
 }
 
+/// The copying step stopped by a changed install: three archives of the base
+/// game at other sizes, the most text the question carries.
+///
+/// @return the session
+first_run::Session changed_session() {
+    first_run::Session session = full_copy_session(CopyStage::started);
+    first_run::CopyView& copy = session.model.copy;
+    copy.running = false;
+    copy.remaining.clear();
+    copy.overall.clear();
+    copy.done = 0;
+    for (first_run::CopyBundle& row : copy.bundles) {
+        row.phase = first_run::CopyPhase::waiting;
+        row.file.clear();
+        row.amount.clear();
+        row.done = 0;
+    }
+    copy.changed = {
+        {"rev31.gp3", 5481301, 5481280},
+        {"totala1.hpi", 132311035, 32311035},
+        {"totala2.hpi", 198009698, 98009698},
+    };
+    return session;
+}
+
+/// Lays the question a changed install asks out on a window, draws it, and
+/// checks it: whole in the window, none of its text cut, every line of its
+/// text inside the question and as wide as it is drawn, its buttons holding
+/// their words, and nothing in it running into anything else.
+///
+/// @param fonts the bundled fonts
+/// @param window the window
+/// @param session the step, with the question showing
+/// @param language the language, for the log
+void check_changed(
+    text_font::FontStack* fonts,
+    const Window& window,
+    const first_run::Session& session,
+    const char* language
+) {
+    const kit::Frame frame = first_run::setup_frame(
+        window.width * window.density, window.height * window.density, window.density * 100, true
+    );
+    const first_run::Scene scene = first_run::lay_out(session, frame, nullptr);
+    Drawing drawing(fonts, window, frame);
+    first_run::draw(drawing.canvas, scene, session);
+    const std::string where = std::string(window.name) + " " + language + " changed install" +
+                              (session.model.windowed ? " window" : " full screen");
+    const kit::Rect room{0, 0, frame.area.width, frame.area.height};
+    OA_CHECK(scene.over_from > 0);
+    const bool whole = has_area(scene.question) && kit::wholly_in(scene.question, room);
+    if (!whole)
+        std::fprintf(stderr, "%s: the question leaves the window\n", where.c_str());
+    OA_CHECK(whole);
+    const kit::Question question = first_run::changed_question(session.model, frame.size_class);
+    const bool cut = kit::place_question(question, nullptr).cut;
+    if (cut)
+        std::fprintf(stderr, "%s: the question's text is cut\n", where.c_str());
+    OA_CHECK(!cut);
+
+    std::vector<Box> boxes;
+    for (const kit::Item& item : scene.question_list.items) {
+        if (item.role != kit::Role::text || item.text.empty())
+            continue;
+        const int32_t words = drawn_width(drawing.canvas, item.font, item.text);
+        if (words > item.rect.width + 1)
+            std::fprintf(
+                stderr,
+                "%s: \"%s\" is %d points on a line of %d\n",
+                where.c_str(),
+                item.text.c_str(),
+                words,
+                item.rect.width
+            );
+        OA_CHECK(words <= item.rect.width + 1);
+        // The question's parts are in its own points.
+        const kit::Rect drawn{
+            scene.question.x + item.rect.x, scene.question.y + item.rect.y, words, item.rect.height
+        };
+        const bool inside = kit::wholly_in(drawn, scene.question);
+        if (!inside)
+            std::fprintf(
+                stderr, "%s: \"%s\" leaves the question\n", where.c_str(), item.text.c_str()
+            );
+        OA_CHECK(inside);
+        boxes.push_back({drawn, item.text, Box::Kind::text});
+    }
+    for (const kit::ControlId id : {first_run::changed_choose_id, first_run::changed_leave_id}) {
+        const kit::Control* control = kit::control_of(scene.list, id);
+        OA_CHECK(control != nullptr);
+        if (control == nullptr)
+            continue;
+        OA_CHECK(kit::wholly_in(control->rect, scene.question));
+        expect_words_inside(drawing.canvas, control->rect, control->text, where.c_str());
+        boxes.push_back({control->rect, control->name, Box::Kind::control});
+    }
+    for (std::size_t one = 0; one < boxes.size(); ++one) {
+        for (std::size_t other = one + 1; other < boxes.size(); ++other) {
+            if (!meets(boxes[one].rect, boxes[other].rect))
+                continue;
+            std::fprintf(
+                stderr,
+                "%s: \"%s\" runs into \"%s\"\n",
+                where.c_str(),
+                boxes[one].what.c_str(),
+                boxes[other].what.c_str()
+            );
+            OA_CHECK(false);
+        }
+    }
+}
+
 /// Counts the pixels of a colour family in a part of the header.
 ///
 /// @param drawing the drawn step
@@ -939,6 +1054,42 @@ int main(int argc, char** argv) {
                 for (first_run::Session& session : steps) {
                     session.model.windowed = windowed;
                     check_step(fonts.get(), window, session, language.tag);
+                }
+            }
+        }
+    }
+
+    // The question a changed install asks, in every language the game
+    // ships and in Chinese, whose pack does not have its words yet.
+    const struct {
+        const char* tag;
+        const languages::InterfaceText* words;
+    } asked[] = {
+        {"en", nullptr},
+        {"de", &catalogue},
+        {"fr", &catalogue},
+        {"es", &catalogue},
+        {"it", &catalogue},
+        {"zh-Hans", &chinese},
+    };
+
+    for (const auto& language : asked) {
+        const languages::Language* found = languages::find_by_tag(language.tag);
+        OA_CHECK(found != nullptr);
+        if (found == nullptr)
+            continue;
+        languages::set_interface_language(language.words, *found);
+        if (language.words == &catalogue) {
+            const std::string choose(languages::interface_text("Choose another place"));
+            OA_CHECK(choose != "Choose another place");
+        }
+        for (const Window& window : kWindows) {
+            for (const bool windowed : {true, false}) {
+                for (const Leave leave : {Leave::quit, Leave::skip}) {
+                    first_run::Session session = changed_session();
+                    session.model.windowed = windowed;
+                    session.model.leave = leave;
+                    check_changed(fonts.get(), window, session, language.tag);
                 }
             }
         }

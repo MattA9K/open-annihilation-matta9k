@@ -19,8 +19,9 @@ if(BUILD_TESTING)
   # The setup on windows of 640x480, 1280x720, 1920x1080 and 1920x1117 at 2x:
   # the footer's buttons and the body text at least their stated sizes,
   # nothing overlapping in English, German and Chinese, the header without
-  # the mark and the name in a window, and Locate another... holding its
-  # words in every language. Drawn in the bundled fonts.
+  # the mark and the name in a window, Locate another... holding its words
+  # in every language, and the question a changed install asks fitting,
+  # uncut, in every language. Drawn in the bundled fonts.
   add_executable(oa-ui-first-run-sizes-test tests/sizes_test.cpp)
   target_link_libraries(oa-ui-first-run-sizes-test PRIVATE oa-ui-first-run oa-test-support
     oa-platform-text-font oa-ui-paint)
@@ -31,8 +32,9 @@ if(BUILD_TESTING)
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/zh-Hans-setup.tdf")
   set_tests_properties(ui-first-run-sizes PROPERTIES TIMEOUT 120)
 
-  # Pictures of the three steps for the manual. Not a test: run it with a
-  # directory and it writes the four pictures there.
+  # Pictures of the steps for the manual, and of the question a changed
+  # install asks over the copying step. Not a test: run it with a directory
+  # and it writes the pictures there.
   add_executable(oa-ui-first-run-pictures tests/pictures.cpp)
   target_link_libraries(oa-ui-first-run-pictures PRIVATE oa-ui-first-run oa-formats-png
     oa-platform-text-font oa-ui-paint)

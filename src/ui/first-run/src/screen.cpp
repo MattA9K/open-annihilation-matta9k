@@ -16,7 +16,9 @@
 #include "oa/ui/kit/text.hpp"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
+#include <initializer_list>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -72,6 +74,28 @@ show(std::string_view english, const oa::data::languages::Language* language = n
     if (language != nullptr)
         return std::string(oa::data::languages::interface_text_in(english, *language));
     return std::string(interface_text(english));
+}
+
+/// One {place} of a pattern and the words it stands for.
+struct Place {
+    std::string_view name{};
+    std::string value{};
+};
+
+/// Looks a pattern up and fills each of its {places} once.
+///
+/// @param english the catalogue text
+/// @param places the places it names
+/// @return the words to show
+std::string filled(std::string_view english, std::initializer_list<Place> places) {
+    std::string text = show(english);
+    for (const Place& place : places) {
+        const std::string token = "{" + std::string(place.name) + "}";
+        const auto at = text.find(token);
+        if (at != std::string::npos)
+            text.replace(at, token.size(), place.value);
+    }
+    return text;
 }
 
 /// The language the language step's own words show in: the card in the middle
@@ -1546,6 +1570,78 @@ void lay_game(
     scene.list.tab_order = std::move(order);
 }
 
+/// Lays the question a changed install asks over the copying step.
+///
+/// The step stays drawn under a dim. Only the question's buttons take the
+/// keys and the pointer: the step's own controls and its list are left out
+/// while it shows.
+///
+/// @param[in,out] scene the laid-out copying step
+/// @param session the session
+/// @param frame the room
+/// @param fonts the fonts
+void lay_changed_question(
+    Scene& scene, const Session& session, const kit::Frame& frame, const kit::Fonts* fonts
+) {
+    kit::Question question = changed_question(session.model, frame.size_class);
+    // The scene's focus ring marks the button the keys are on.
+    question.marked = kit::no_control;
+    const kit::PlacedQuestion placed = kit::place_question(question, fonts);
+    const kit::DisplayList box = kit::question_list(question, fonts);
+    const int32_t width = kit::metrics_of(frame.size_class).notice_width;
+    const kit::Point at{
+        std::max((scene.width - width) / 2, int32_t{0}),
+        std::max((scene.height - placed.height) / 2, int32_t{0}),
+    };
+    scene.question = {at.x, at.y, width, placed.height};
+    scene.list.controls.clear();
+    scene.list.tab_order.clear();
+    scene.list_scroll = {};
+    scene.over_from = scene.list.items.size();
+    kit::Item dim;
+    dim.role = kit::Role::blend;
+    dim.rect = {0, 0, scene.width, scene.height};
+    dim.colour = kit::colour::backdrop;
+    dim.opacity = kit::menu_backdrop_opacity;
+    scene.list.items.push_back(dim);
+    const auto renumbered = [](kit::ControlId id) {
+        if (id == 0)
+            return changed_choose_id;
+        if (id == 1)
+            return changed_leave_id;
+        if (id == kit::notice_body)
+            return changed_text_id;
+        return kit::no_control;
+    };
+    const auto moved = [&at](kit::Rect rect) {
+        if (rect.width > 0 && rect.height > 0)
+            rect = {rect.x + at.x, rect.y + at.y, rect.width, rect.height};
+        return rect;
+    };
+    // The question is drawn on a canvas placed at its corner, so its parts
+    // keep its own points. Its controls are moved into the window's.
+    scene.question_list.items = box.items;
+    for (kit::Item& item : scene.question_list.items) {
+        if (item.control != kit::no_control)
+            item.control = renumbered(item.control);
+    }
+    for (kit::Control control : box.controls) {
+        control.id = renumbered(control.id);
+        if (control.id == kit::no_control)
+            continue;
+        control.rect = moved(control.rect);
+        control.clip = moved(control.clip);
+        control.name = control_name(
+            Step::copying,
+            control.id == changed_choose_id  ? "changed.choose"
+            : control.id == changed_leave_id ? "changed.leave"
+                                             : "changed.text"
+        );
+        scene.list.controls.push_back(std::move(control));
+    }
+    scene.list.tab_order = {changed_choose_id, changed_leave_id};
+}
+
 /// The copy row the copying step's list follows: the bundle being copied;
 /// else the first that differs; else the first whose result is a note; else
 /// the last that is done.
@@ -1819,6 +1915,8 @@ void lay_copying(
         kit::Align::centre
     );
     scene.list.tab_order = std::move(order);
+    if (!copy.changed.empty())
+        lay_changed_question(scene, session, frame, fonts);
 }
 
 /// How tall a coach card is for a body.
@@ -2172,6 +2270,12 @@ Outcome activate(Session& session, const Scene& scene, kit::ControlId id) {
         return outcome;
     case locate_id:
         outcome.ask = Ask::locate;
+        return outcome;
+    case changed_choose_id:
+        outcome.ask = Ask::cancel_copy;
+        return outcome;
+    case changed_leave_id:
+        outcome.ask = session.model.leave == Leave::quit ? Ask::quit : Ask::skip;
         return outcome;
     case on_id:
         session.model.online_on = true;
@@ -2633,12 +2737,27 @@ Outcome wheel(Session& session, const Scene& scene, float notches) {
 void draw(const kit::Canvas& canvas, const Scene& scene, const Session& session) {
     kit::DisplayList list = scene.list;
     kit::mark_states(list, session.interaction);
+    kit::DisplayList question = scene.question_list;
+    kit::mark_states(question, session.interaction);
+    const bool asking = scene.question.width > 0 && scene.question.height > 0;
     if (session.interaction.focus_shown) {
         if (const kit::Control* control = kit::control_of(list, session.interaction.focused)) {
-            // A row of a list that scrolls rings only the part in view.
-            const kit::Rect clip = control->clip;
-            kit::add_focus_ring(list, control->rect, true);
-            list.items.back().clip = clip;
+            if (asking) {
+                // The question's buttons are ringed on the question.
+                kit::add_focus_ring(
+                    question,
+                    {control->rect.x - scene.question.x,
+                     control->rect.y - scene.question.y,
+                     control->rect.width,
+                     control->rect.height},
+                    true
+                );
+            } else {
+                // A row of a list that scrolls rings only the part in view.
+                const kit::Rect clip = control->clip;
+                kit::add_focus_ring(list, control->rect, true);
+                list.items.back().clip = clip;
+            }
         }
     }
     if (session.model.step == Step::buttons) {
@@ -2646,11 +2765,61 @@ void draw(const kit::Canvas& canvas, const Scene& scene, const Session& session)
         const kit::Rect settings = kit::grown(session.model.settings_button, 4);
         dim_around(canvas, {0, 0, scene.width, scene.height}, library, settings);
     }
+    // A question over the step is drawn last, over the step's title too.
+    kit::DisplayList over;
+    if (scene.over_from > 0 && scene.over_from <= list.items.size()) {
+        over.items.assign(
+            list.items.begin() + static_cast<std::ptrdiff_t>(scene.over_from), list.items.end()
+        );
+        list.items.resize(scene.over_from);
+    }
     kit::paint(canvas, list);
     if (!scene.title_text.empty() && scene.title.width > 0 && scene.title.height > 0)
         kit::draw_prominent_line(canvas, scene.title_text, scene.title, kit::colour::text);
     if (scene.sample)
         draw_sample(canvas, scene.well_inset, session.model, scene.sample_class);
+    kit::paint(canvas, over);
+    if (asking)
+        kit::paint(kit::placed_at(canvas, {scene.question.x, scene.question.y}), question);
+}
+
+kit::Question changed_question(const Model& model, kit::SizeClass size_class) {
+    kit::Question question;
+    question.word = "changed-install";
+    question.size_class = size_class;
+    question.title = show("Your Total Annihilation has been changed");
+    question.paragraphs.push_back(
+        {show(
+             "Some of its files are not the size they are in Total Annihilation 3.1c. A mod or "
+             "another program may have changed them."
+         ),
+         false}
+    );
+    for (const ChangedFile& file : model.copy.changed) {
+        question.paragraphs.push_back(
+            {filled(
+                 "{file} is {size} bytes. In 3.1c it is {expected}.",
+                 {{"file", file.name},
+                  {"size", std::to_string(file.size)},
+                  {"expected", std::to_string(file.expected)}}
+             ),
+             false}
+        );
+    }
+    question.paragraphs.push_back(
+        {show(
+             "Open Annihilation needs a fresh Total Annihilation install, without mods, to set up "
+             "its copy. Nothing has been copied. Choose another place to copy from."
+         ),
+         false}
+    );
+    question.buttons.push_back({show("Choose another place"), true, "choose"});
+    const bool quits = model.leave == Leave::quit;
+    question.buttons.push_back({show(quits ? "Quit" : "Skip"), false, quits ? "quit" : "skip"});
+    question.cancel_button = 0;
+    question.primary_button = 0;
+    question.marked = 0;
+    return question;
 }
 
 } // namespace oa::ui::first_run

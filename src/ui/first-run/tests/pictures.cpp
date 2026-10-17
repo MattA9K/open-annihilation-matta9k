@@ -543,6 +543,32 @@ oa::ui::first_run::Session copying_session(bool checked) {
     return session;
 }
 
+/// The copying step stopped by a changed install: the folder chosen holds
+/// two of the base game's archives at other sizes, so the step asks where
+/// to copy from instead.
+///
+/// @return the session
+oa::ui::first_run::Session changed_session() {
+    oa::ui::first_run::Session session = copying_session(false);
+    oa::ui::first_run::CopyView& copy = session.model.copy;
+    copy.from = "TotalA";
+    copy.running = false;
+    copy.remaining.clear();
+    copy.overall.clear();
+    copy.done = 0;
+    for (oa::ui::first_run::CopyBundle& bundle : copy.bundles) {
+        bundle.phase = oa::ui::first_run::CopyPhase::waiting;
+        bundle.file.clear();
+        bundle.amount.clear();
+        bundle.done = 0;
+    }
+    copy.changed = {
+        {"rev31.gp3", 5604424, 5481280},
+        {"totala1.hpi", 33012988, 32311035},
+    };
+    return session;
+}
+
 void draw_step(
     Picture& picture,
     const oa::ui::first_run::Session& session,
@@ -760,6 +786,12 @@ int main(int argc, char** argv) {
         Picture picture = manual_picture();
         draw_step(picture, in_window(copying_session(true)), manual, icon);
         if (!write_png(picture, directory / "check.png"))
+            return 1;
+    }
+    {
+        Picture picture = manual_picture();
+        draw_step(picture, in_window(changed_session()), manual, icon);
+        if (!write_png(picture, directory / "changed.png"))
             return 1;
     }
 

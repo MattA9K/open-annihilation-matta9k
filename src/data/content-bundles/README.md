@@ -42,7 +42,9 @@ size, hash or resource.
 - `oa/data/content_bundles/record.hpp` reads and writes a bundle folder's
   `.oa-content` record. `parse_content_record` and `format_content_record`
   take bytes and return bytes. `read_bundle_folder_record` reads the record
-  in one bundle folder. A field the reader does not know is ignored.
+  in one bundle folder. A field the reader does not know is ignored. A
+  file the source did not hold is marked `not-in-source`, and one it held
+  at another size also keeps that size, `source-size`.
   `files_not_recorded` lists a bundle's files its record does not name yet,
   and `record_complete` says whether it names them all, copied or not in
   the source: only such a bundle is played.

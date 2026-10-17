@@ -4,8 +4,10 @@
 // The .oa-content record of one copied bundle. The text is version 1:
 // "oa-content 1", then "bundle <id>", then "source <path>", then one group
 // per file of "file", "size", "modified" and "sha256". A file the source
-// did not hold follows that group with "not-in-source". A record written
-// before that line existed has no such line, and the file reads as held.
+// did not hold follows that group with "not-in-source", and, when the source
+// held a file of that name at another size, "source-size <bytes>" after it.
+// A record written before those lines existed has no such line, and the
+// file reads as held.
 // The source escapes backslash, newline and carriage return. A line whose
 // first word is not one of those fields is kept for a later reader and
 // ignored here. The parser takes bytes and returns a record; it does not
@@ -48,6 +50,10 @@ struct ContentRecordFile {
     /// The source did not hold this file. A record with no such line reads
     /// this as false: the file was held.
     bool not_in_source{};
+    /// When `not_in_source`, the size in bytes of the file of this name the
+    /// source held instead, which is not the table's size; 0 when the source
+    /// held no file of this name.
+    uint64_t source_size{};
 };
 
 /// A bundle folder's record, as text or as read from the folder.

@@ -206,6 +206,18 @@ ContentRecord parse_content_record(std::string_view text) {
             ++index;
             continue;
         }
+        // Written after "not-in-source", for a file the source held at
+        // another size. Older readers skip it as a field they do not know.
+        std::string_view source_size_text;
+        if (take_prefix(line, "source-size ", source_size_text)) {
+            uint64_t source_size = 0;
+            if (!parse_u64(source_size_text, source_size))
+                return record;
+            if (!files.empty() && files.back().not_in_source)
+                files.back().source_size = source_size;
+            ++index;
+            continue;
+        }
         if (!known_field(name)) {
             ++index;
             continue;
@@ -282,6 +294,11 @@ std::optional<std::string> format_content_record(const ContentRecord& record) {
         append_line(text, hash_line);
         if (item.not_in_source)
             append_line(text, "not-in-source");
+        if (item.not_in_source && item.source_size > 0) {
+            std::string source_size_line = "source-size ";
+            append_u64(source_size_line, item.source_size);
+            append_line(text, source_size_line);
+        }
     }
     return text;
 }

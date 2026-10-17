@@ -163,6 +163,25 @@ void test_not_in_source() {
     OA_CHECK(read.files[1].copy_name == "music/13.mp3");
     OA_CHECK(read.files[1].not_in_source);
     OA_CHECK(read.files[1].digest == absent.digest);
+    OA_CHECK(read.files[1].source_size == 0);
+    OA_CHECK(text->find("source-size") == std::string::npos);
+
+    // A file the source held at another size keeps that size after
+    // "not-in-source"; a line out of place, or not a number, is refused.
+    ContentRecord sized = record;
+    sized.files[1].source_size = 41000000;
+    const std::optional<std::string> sized_text = format_content_record(sized);
+    OA_CHECK(sized_text.has_value());
+    OA_CHECK(sized_text->find("not-in-source\nsource-size 41000000\n") != std::string::npos);
+    const ContentRecord sized_read = parse_content_record(*sized_text);
+    OA_CHECK(sized_read.valid);
+    OA_CHECK(sized_read.files.size() == 2 && sized_read.files[1].source_size == 41000000);
+    OA_CHECK(sized_read.files.size() == 2 && sized_read.files[0].source_size == 0);
+    const std::string held_sized = held + "source-size 7\n";
+    const ContentRecord stray = parse_content_record(held_sized);
+    OA_CHECK(stray.valid);
+    OA_CHECK(stray.files.size() == 1 && stray.files[0].source_size == 0);
+    OA_CHECK(!parse_content_record(held + "not-in-source\nsource-size many\n").valid);
 }
 
 // A copy stores a record after each file. While the next file is still being

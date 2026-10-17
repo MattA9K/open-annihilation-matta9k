@@ -1536,8 +1536,9 @@ uint32_t add_count(uint32_t left, uint32_t right) noexcept {
 /// Marks every listed row from the check and sets the verdict.
 ///
 /// The overall count is the files those rows take. A file the source does
-/// not hold is not one of them. A music bundle that only lacks a track is a
-/// note, not a difference.
+/// not hold is not one of them. A music bundle that only lacks a track, and
+/// a bundle whose only gap is a file left out for its size, is a note, not a
+/// difference.
 void apply_check(first_run::CopyView& view, const ContentCheck& check, bool finished) {
     uint32_t differ = 0;
     uint32_t taken = 0;
@@ -1557,8 +1558,12 @@ void apply_check(first_run::CopyView& view, const ContentCheck& check, bool fini
         if (found == nullptr)
             continue;
         row.amount = content_bundle_line(*found);
-        row.note = found->id == "music" && found->files_not_in_source > 0 &&
-                   found->files_differ == 0 && found->files_not_in_source <= found->file_count;
+        // Tracks the source did not hold, and files left out for their size,
+        // are a note while nothing differs.
+        row.note =
+            found->files_differ == 0 && ((found->id == "music" && found->files_not_in_source > 0 &&
+                                          found->files_not_in_source <= found->file_count) ||
+                                         !found->left_out.empty());
         const uint32_t absent = found->files_not_in_source > found->file_count
                                     ? found->file_count
                                     : found->files_not_in_source;
@@ -2526,6 +2531,7 @@ SetupBefore run_setup_before_game(
             setup_stop_join();
             session.model.copy.running = false;
             session.model.copy.paused = false;
+            session.model.copy.changed.clear();
             session.model.step = first_run::Step::game;
             first_run::reset_copy_continue(session);
             session.focus_ready = false;
@@ -2852,6 +2858,16 @@ bool setup_begin_copy(const fs::path& user_folder, const first_run::Model& model
             held.view.paused = false;
             held.view.hashing = false;
             held.view.bytes_landed = bytes_done;
+            // A changed install copies nothing. The step asks where to copy
+            // from instead, naming the archives that stopped it.
+            if (result.status == CopyStatus::changed) {
+                for (const ChangedContentFile& changed : result.changed)
+                    held.view.changed.push_back(
+                        {changed.copy_name, changed.source_size, changed.size}
+                    );
+                held.changed = true;
+                return;
+            }
             if (!bytes_done && result.status != CopyStatus::stopped && !held.stop.load()) {
                 held.view.checked = false;
                 held.view.verdict =
