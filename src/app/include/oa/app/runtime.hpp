@@ -10383,12 +10383,12 @@ class Runtime final : public menu::Host,
     /// Checks the battlefield's zoom, the view past the map's edges and a
     /// zoom's end of the follow of a unit, in a new skirmish.
     ///
-    /// Runs check_zoom_about_pointer, check_zoom_limit_choices and
-    /// check_view_past_map. With the group zoom the zoom's limits are tried
-    /// on the game's own screen alone; with a group that names a window,
-    /// only the zoom's limits are checked, on that window alone, and the
-    /// check returns to the skirmish menu. Then Ctrl+C follows the walking
-    /// commander, or
+    /// Runs check_zoom_about_pointer, check_zoom_limit_choices,
+    /// check_first_view_on_window and check_view_past_map. With the group
+    /// zoom the zoom's limits and the first view are tried on the game's own
+    /// screen alone; with a group that names a window, only those are
+    /// checked, on that window alone, and the check returns to the skirmish
+    /// menu. Then Ctrl+C follows the walking commander, or
     /// T where the side's commander is not in Ctrl+C's category, and the
     /// wheel turned at a point away from it ends the follow and zooms
     /// about the point, every frame keeping the map point under the pointer
@@ -10460,6 +10460,28 @@ class Runtime final : public menu::Host,
         const std::function<void()>& frame,
         const std::vector<std::array<int, 2>>& windows,
         bool far_view_presses
+    );
+
+    /// Checks the first view of a match on each of the windows given, at
+    /// View past the map's edge Off.
+    ///
+    /// The view is placed as a match's start places it: centred on a point
+    /// for the game's own screen, the layout the match keeps until it is
+    /// laid out for the window, the point near the map's right edge, its
+    /// bottom edge and its bottom right corner (kFirstViewInsets). Laid out
+    /// for each window, the match's first frame at zoom 1 draws the view on
+    /// the map: the tile grid less the edges the game never shows, from the
+    /// camera placed held within the map's start and its end less the
+    /// battlefield, which the window's side column and bars leave, or with
+    /// the map centred in a battlefield larger than it. A scroll right and
+    /// down then stops with the view's edges at the map's. Puts the
+    /// settings, the layout and the default zoom back; throws
+    /// std::runtime_error on a failure. [runtime_tracking_zoom_check.cpp]
+    ///
+    /// @param frame runs a frame of the match: the zoom eases and the camera moves
+    /// @param windows the windows' widths and heights
+    void check_first_view_on_window(
+        const std::function<void()>& frame, const std::vector<std::array<int, 2>>& windows
     );
 
     /// Checks the view past the map's edges on the game's screen.
@@ -13481,12 +13503,31 @@ class Runtime final : public menu::Host,
     /// Returns the camera as the next frame draws it: held within the
     /// view's limits (held_camera), which let the view go past the map's
     /// edges as far as view_centre_span allows for View past the map's
-    /// edge (past_map_edge_share), or as far as the view the limits held
-    /// last lay past them (view_hold_), whichever is further.
+    /// edge (past_map_edge_share), or at 50% as far as the view the limits
+    /// held last lay past them (view_hold_from), whichever is further. At
+    /// 25% and Off every frame holds the view within view_centre_span
+    /// alone, so that a view past it comes back within it at once.
     ///
     /// @return the camera's column and row in map pixels; the camera as it
     ///         is without a map
     [[nodiscard]] std::array<int32_t, 2> view_camera() const;
+
+    /// Returns the centre the view's limits hold the next view from along
+    /// one axis, beside view_centre_span (held_view's `from`): the centre
+    /// of the view they held last (view_hold_), at View past the map's
+    /// edge 50% only, where a zoom about a point of the map may leave the
+    /// view past the span and a scroll from there goes no further from the
+    /// map. At 25% and Off a zoom keeps to the span, so a view past it can
+    /// only be one held for a smaller battlefield: the first view of a
+    /// match, placed for the game's own screen before the match is laid
+    /// out for the window, or a view a larger window leaves. The camera
+    /// being the view's top left corner, such a view lies past the map's
+    /// right and bottom edges, and the span alone brings it back, as 3.1c
+    /// holds its camera on the map at every frame.
+    ///
+    /// @param centre the held view's centre along the axis, map pixels
+    /// @return `centre` at 50% once a view is held; none otherwise
+    [[nodiscard]] std::optional<double> view_hold_from(double centre) const noexcept;
 
     /// Returns the camera held on the map as the game holds it: from 0 to
     /// the shown map's size less the map pixels the battlefield shows on
@@ -15757,8 +15798,9 @@ class Runtime final : public menu::Host,
     ExactView exact_view_{};
 
     /// The centre of the view the limits last held, which they hold the
-    /// next view from (held_view): the frame's drawn view, or the view a
-    /// zoom placed past the limits about a point of the map.
+    /// next view from at View past the map's edge 50% (view_hold_from):
+    /// the frame's drawn view, or the view a zoom placed past the limits
+    /// about a point of the map.
     struct ViewHold {
         bool held{};       ///< false before a match's first frame
         double centre_x{}; ///< map pixels

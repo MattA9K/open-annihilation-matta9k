@@ -44,7 +44,7 @@ void Runtime::pan_match_camera_by(float dx, float dy) {
                 static_cast<double>(battlefield) / zoom,
                 static_cast<double>(map),
                 past_map_edge_share(),
-                view_hold_.held ? std::optional<double>(centre) : std::nullopt
+                view_hold_from(centre)
             );
         };
     const double x =

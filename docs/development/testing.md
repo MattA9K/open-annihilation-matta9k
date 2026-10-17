@@ -283,10 +283,11 @@ OA_TEST_TIMEOUT_SCALE=2 ctest --test-dir build -R '^native-(navigation|side-comm
 
 Each `native-navigation-GROUP` test runs one group of the navigation check,
 `--check-navigation GROUP`, which starts from the main menu and stands
-alone: `screens`, `orders`, `outcomes`, `zoom` (the zoom's limits on the
-game's own screen), `zoom-1366x768`, `zoom-1920x1080` and `zoom-2560x1440`
-(the zoom's limits on that window) and `campaign`. `--check-navigation`
-without a group runs every group in one game. The side commanders check runs
+alone: `screens`, `orders`, `outcomes`, `zoom` (the zoom's limits and the
+first view of a match on the game's own screen), `zoom-1366x768`,
+`zoom-1920x1080` and `zoom-2560x1440` (the same on that window) and
+`campaign`. `--check-navigation` without a group runs every group in one
+game. The side commanders check runs
 as one test for each part (`--part`): `art`, `rule`, `loopback`, `give`, and
 `records-GROUP`, the navigation group over its mod folder.
 

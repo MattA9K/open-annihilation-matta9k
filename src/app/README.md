@@ -892,10 +892,14 @@ hosts them on the OA layer.
   taken from it (`place_match_view`): the nearest whole map pixel, or,
   while frames draw the view between map pixels, the one at or before the
   screen pixel nearest the place, on the screen pixels laid from the map's
-  corner at the zoom (`scene_origin`). The
+  corner at the zoom (`scene_origin`). At 50% the
   limits hold a view from the one they held last (`view_hold_`,
-  `held_view`), so that a view past them goes no further from the map but
-  moves back toward it at once; every frame holds the camera so
+  `view_hold_from`, `held_view`), so that a view a zoom left past them
+  goes no further from the map but moves back toward it at once; at 25%
+  and Off they hold every view by the span alone, so that a view held
+  for a smaller battlefield, such as the first view of a match, placed
+  for the game's own screen before the match is laid out for the window,
+  comes back within them. Every frame holds the camera so
   (`view_camera`, `held_camera`), which catches the moves that set the
   camera themselves: the minimap, the megamap, a follow, a jump to a unit
   or a marker, a load. The camera may lie left of and above the map, and
@@ -991,7 +995,10 @@ hosts them on the OA layer.
   `native-navigation-zoom-1366x768`, `native-navigation-zoom-1920x1080` and
   `native-navigation-zoom-2560x1440`, the whole map's fit, the point under
   the pointer on the way out to it and back, a zoom in from it landing where
-  it is aimed, and a choice changed in play (`check_zoom_limit_choices`); at
+  it is aimed, and a choice changed in play (`check_zoom_limit_choices`),
+  and at View past the map's edge Off the first view of a match, placed
+  for the game's own screen near the map's right and bottom edges, drawn
+  on the map on that window (`check_first_view_on_window`); at
   Whole map on the
   game's screen a click on every pixel of a unit's dot, on an enemy's dot
   and on the black either side of the map (`check_far_view_presses`); a
