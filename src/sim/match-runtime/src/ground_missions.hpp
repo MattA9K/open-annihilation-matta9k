@@ -1661,6 +1661,11 @@ class TickHost::GroundMissions {
     /// Runs one step of Capture: closes in on an enemy unit and sprays it until
     /// it changes sides, for a time set by its costs, health and veterancy.
     ///
+    /// The time scales with (health + maximum health) / (2 * maximum health);
+    /// a type with no maximum health (MaxDamage 0), for which 3.1c has no
+    /// time, takes a quotient of 0, so such a unit is captured at the first
+    /// capture step.
+    ///
     /// @return 1 (next phase), 2 (keep waiting), 0 (restart: out of reach or
     ///     the target moves), 5 (done: captured), 8 (failed: target lost, one
     ///     that can capture or is unfinished, or no path) or 7 (invalid).

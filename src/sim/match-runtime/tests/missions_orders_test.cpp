@@ -116,7 +116,11 @@ struct Fixture {
     Scenario scenario;
     std::unique_ptr<sim::match_runtime::Match> match;
 
-    Fixture() {
+    /// Builds the map, the three types and a match over them.
+    ///
+    /// @param tank_maximum_health the tank's maximum health (MaxDamage); 0
+    ///        makes a type with none
+    explicit Fixture(uint32_t tank_maximum_health = 100) {
         map.attribute_width = map.attribute_height = map_cells;
         map.attributes.resize(map_cells * map_cells);
         masks[0].width = masks[0].height = 1;
@@ -190,6 +194,7 @@ struct Fixture {
         types[factory_type].cob = reinterpret_cast<uintptr_t>(factory_script.get());
         fields[factory_type].yard_mask = factory_yard;
         types[tank_type].simulation.flags |= OA_UNIT_DEF_FLAG_HAS_WEAPONS;
+        types[tank_type].simulation.maximum_health = tank_maximum_health;
         types[tank_type].simulation.abilities = OA_UNIT_DEF_ABILITY_CAN_MOVE |
                                                 OA_UNIT_DEF_ABILITY_CAN_ATTACK |
                                                 OA_UNIT_DEF_ABILITY_CAN_PATROL;
@@ -1194,6 +1199,37 @@ void reclaim_and_capture() {
     CHECK((f.services.take() == std::vector<uint32_t>{7, 7}));
     f.match->stop_orders(id);
 }
+
+// Capture's spraying time scales with (health + maximum health) / (2 * maximum
+// health). A tank with 100 health of 100 takes 82 sprays, as above; one whose
+// type has no maximum health (MaxDamage 0), made with no health, takes the
+// quotient as 0 and changes sides at the first capture step, with the usual
+// speech and no fault.
+void capture_without_maximum_health_is_at_once() {
+    for (const uint32_t maximum : {100u, 0u}) {
+        Fixture f(maximum);
+        auto& builder = f.spawn(0, builder_type, 100, 100);
+        const auto id = builder.unit_index;
+        auto& prize = f.spawn(1, tank_type, 104, 104);
+        CHECK(prize.record.health == static_cast<int16_t>(maximum));
+        auto& capture = f.match->issue_capture(id, prize.unit_index, false);
+        for (int phase = 0; phase < 4; ++phase)
+            CHECK(step(*f.match, builder, capture) == 1);
+        CHECK((f.services.take() == std::vector<uint32_t>{5, 0x0b}));
+        uint32_t sprays = 0;
+        while (step(*f.match, builder, capture) == 2 && sprays < 200)
+            ++sprays;
+        CHECK(sprays == (maximum != 0 ? 82u : 0u) && capture.phase == 5);
+        CHECK(step(*f.match, builder, capture) == 5);
+        CHECK((f.services.take() == std::vector<uint32_t>{2, 0x10}));
+        bool captured = false;
+        for (auto& slot : f.match->world().slots)
+            if (slot.unit && slot.record.type_index == tank_type && slot.record.owner_index == 0)
+                captured = true;
+        CHECK(captured);
+        CHECK(f.match->fault() == nullptr);
+    }
+}
 } // namespace
 
 // A factory that dies with a unit on its build pad takes the unit with it.
@@ -1413,6 +1449,7 @@ int main() {
         factory_move_hands_off();
         repair_orders();
         reclaim_and_capture();
+        capture_without_maximum_health_is_at_once();
         factory_death_kills_the_unit_on_its_pad();
     } catch (const std::exception& error) {
         std::cerr << "orders: " << error.what() << '\n';
