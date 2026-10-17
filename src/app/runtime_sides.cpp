@@ -14,6 +14,7 @@
 #include "oa/formats/tdf.hpp"
 #include "oa/sim/scenario/commander_rules.hpp"
 #include "oa/ui/frontend_dialogs.hpp"
+#include "oa/ui/frontend_multiplayer/screens.hpp"
 #include "oa/sim/selection.hpp"
 #include "oa/present/world_renderer/world_camera.hpp"
 #include "oa/ui/campaign/single_player.hpp"
@@ -124,6 +125,10 @@ void Runtime::load_side_table() {
         throw std::runtime_error(problem);
     skirmish_ui_.side_count = static_cast<int32_t>(side_table_.count);
     skirmish_ui_.hidden_sides = oa::data::defs::skirmish_hidden_sides();
+    // The battle room's SIDE button cycles the same sides.
+    oa::ui::frontend_multiplayer::multiplayer_bind_side_count(
+        static_cast<int32_t>(side_table_.count)
+    );
 }
 
 std::string Runtime::side_data_path() const {

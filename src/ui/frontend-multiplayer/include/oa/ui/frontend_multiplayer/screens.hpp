@@ -320,6 +320,14 @@ struct TextTranslation {
 /// @param translation The game's translation.
 void multiplayer_bind_translation(const TextTranslation& translation) noexcept;
 
+/// Binds the number of sides the game's SIDEDATA loaded, which the battle
+/// room's SIDE button cycles through before a watcher: a mod may have more
+/// than ARM and CORE. The binding survives multiplayer_reset. Until one is
+/// bound, or with 0, the battle room assumes the two sides of 3.1c.
+///
+/// @param side_count the loaded sides, 0 for unknown
+void multiplayer_bind_side_count(int32_t side_count) noexcept;
+
 // The line this machine says of its engine in the battle room's chat, which
 // the engine gives (multiplayer_bind_engine_banner).
 struct EngineBanner {

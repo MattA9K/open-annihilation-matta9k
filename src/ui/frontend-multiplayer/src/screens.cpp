@@ -152,6 +152,10 @@ struct Ui {
     const data::match_rules::MatchRules* rules{};
     // The game's translation of interface texts; it survives multiplayer_reset.
     TextTranslation translation{};
+    // The sides the game's SIDEDATA loaded (multiplayer_bind_side_count); it
+    // survives multiplayer_reset. 0 until bound: the battle room then assumes
+    // 3.1c's two.
+    int32_t side_count{};
     // The line this machine says of its engine in the battle room; it
     // survives multiplayer_reset.
     EngineBanner engine_banner{};
@@ -1045,7 +1049,8 @@ void take_presence_record(Lobby& lobby, const std::vector<uint8_t>& record) noex
 /// Binds the lobby to the screens' transport, services, map list and units.
 ///
 /// A lobby with no game is reset first. The unit limits, the canvas size and
-/// the side count (2, ARM and CORE) get their defaults where the game has none.
+/// the side count (the bound SIDEDATA count, else 2, ARM and CORE) get their
+/// defaults where the game has none.
 void bind_boundaries() {
     auto& state = ui();
     auto& lobby = state.lobby;
@@ -1131,7 +1136,7 @@ void bind_boundaries() {
         lobby_screen_height(*state.game) = known ? playing.height : kCanvasHeight;
     }
     if (state.game->side_count == 0)
-        state.game->side_count = 2; // ARM and CORE
+        state.game->side_count = state.side_count > 0 ? state.side_count : 2; // 3.1c: ARM and CORE
     state.game->player_timeout_seconds = state.player_timeout_seconds;
 }
 
@@ -4031,6 +4036,10 @@ engine_banner_line(std::string_view version, bool developer_mode, bool remote_co
 
 void multiplayer_bind_translation(const TextTranslation& translation) noexcept {
     ui().translation = translation;
+}
+
+void multiplayer_bind_side_count(int32_t side_count) noexcept {
+    ui().side_count = side_count > 0 ? side_count : 0;
 }
 
 bool multiplayer_showing() noexcept {

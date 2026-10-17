@@ -53,6 +53,10 @@ void refill_loop(void* userdata, OutputStream& stream, int32_t additional) {
 /// largest effect of the game and the mods it was measured against converts
 /// to 6.3 MB.
 constexpr std::size_t max_cached_sound_bytes = std::size_t{8} << 20;
+/// The most a loop track (the main menu's hum) may convert to. A mod's hum
+/// can run minutes (TA: Zero's is 144 s of 22 kHz mono, 25 MB at the mixer's
+/// rate), and one track is kept, so the cap is well above a clip's.
+constexpr std::size_t max_loop_sound_bytes = std::size_t{64} << 20;
 /// The most bytes a streamed sound, such as a briefing's narration,
 /// converts to: about three minutes of two channels. The longest narration
 /// of the game converts to 9.0 MB.
@@ -478,7 +482,7 @@ bool SdlWavPlayer::start_loop_resource(std::string_view resource, std::string& e
     stop_loop();
     StreamFormat format{};
     std::vector<int16_t> samples;
-    if (!load_converted(impl_->assets, resource, max_cached_sound_bytes, format, samples, error))
+    if (!load_converted(impl_->assets, resource, max_loop_sound_bytes, format, samples, error))
         return false;
     const auto* first = reinterpret_cast<const uint8_t*>(samples.data());
     impl_->loop_track.pcm.assign(first, first + sample_bytes_of(samples));

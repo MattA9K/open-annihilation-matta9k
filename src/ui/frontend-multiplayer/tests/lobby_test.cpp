@@ -380,6 +380,31 @@ void test_hidden_side(const oa::ui::gui_layout::Layout& lounge) {
     oa::data::defs::use_data_layout(base);
 }
 
+// A mod's SIDEDATA with three sides: the SIDE button offers each of them
+// before the watcher, as the skirmish screen's does.
+void test_three_sides(const oa::ui::gui_layout::Layout& lounge) {
+    Fixture f(lounge);
+    f.game->side_count = 3;
+    auto& info = mp::local_info(f.lobby);
+    info.options |= mp::option::watching_allowed;
+    expect(info.side == 0, "side starts at the first side");
+    expect(f.press("SIDE0"), "SIDE0 clickable");
+    expect(info.side == 1, "SIDE cycles to the second side");
+    (void)f.press("SIDE0");
+    expect(
+        info.side == 2 && (info.options & mp::option::watcher) == 0, "SIDE offers the third side"
+    );
+    mp::lobby_update_side_button(f.lobby, f.panel, 0);
+    expect(mp::panel_control(f.panel, "SIDE0")->stage == 2, "the third side shows its own stage");
+    (void)f.press("SIDE0");
+    expect((info.options & mp::option::watcher) != 0, "past the third side comes the watcher");
+    (void)f.press("SIDE0");
+    expect(
+        (info.options & mp::option::watcher) == 0 && info.side == 0,
+        "leaving watch returns to the first side"
+    );
+}
+
 void test_teams_and_alliances(const oa::ui::gui_layout::Layout& lounge) {
     Fixture f(lounge);
     f.join(0x200, "Guest");
@@ -6747,6 +6772,7 @@ int main(int argc, char** argv) {
         if (lounge.ok()) {
             test_rows_and_colors(*lounge.layout);
             test_side_and_watch(*lounge.layout);
+            test_three_sides(*lounge.layout);
             test_hidden_side(*lounge.layout);
             test_teams_and_alliances(*lounge.layout);
             test_options_and_sliders(*lounge.layout);
