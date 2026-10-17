@@ -3,7 +3,10 @@
 
 #include "tick_internal.hpp"
 
+#include <algorithm>
 #include <cstdint>
+#include <iterator>
+#include <string_view>
 
 namespace oa::sim::match_runtime {
 
@@ -67,6 +70,21 @@ constexpr uint32_t snapped_cancel_reach = 8;
 bool aircraft_builder(oa::World& world, uint16_t index) {
     const auto* def = oa::world_unit_def_of(&world, oa::world_unit_at(&world, index));
     return def && (def->flags & OA_UNIT_DEF_FLAG_CAN_FLY) != 0;
+}
+
+/// Tells whether a build list's entry is a round for its builder's weapon to
+/// stockpile: the type's unit name holds MAKENUKE or MAKEANTI.
+///
+/// @param world Canonical world.
+/// @param type Type index of the entry.
+/// @return True for a round; false for any other type and one outside the table.
+bool stockpile_round(const oa::World& world, uint16_t type) noexcept {
+    if (type >= world.unit_def_count)
+        return false;
+    const auto& name = world.unit_defs[type].unit_name;
+    const std::string_view text(name, std::find(std::begin(name), std::end(name), '\0'));
+    return text.find("MAKENUKE") != std::string_view::npos ||
+           text.find("MAKEANTI") != std::string_view::npos;
 }
 } // namespace
 
@@ -651,6 +669,12 @@ void Match::change_queued_count(uint16_t index, uint8_t kind, uint16_t type, int
 }
 
 void Match::queue_factory_build(uint16_t index, uint16_t type, int32_t delta) {
+    constexpr uint8_t build_weapon_kind = 13;
+    if (stockpile_round(state(), type)) {
+        // Rounds for the first weapon slot: the order's first parameter is the slot.
+        change_queued_count(index, build_weapon_kind, 0, delta);
+        return;
+    }
     change_queued_count(index, building_build_kind, type, delta);
 }
 
