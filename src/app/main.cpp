@@ -819,10 +819,12 @@ constexpr std::size_t kModSwitchTurns = 3;
 
 /// The growth of the host heap's bytes in use --check-mod-switch allows
 /// between two runs that play the same mod, in bytes. Runs that play the
-/// same mod hold the same blocks, to within the length of a few strings, so
-/// a leak of 11 KiB or more a switch exceeds it over the six switches
-/// between the runs compared.
-constexpr uint64_t kModSwitchHeapNoise = uint64_t{64} * 1024;
+/// same mod hold the same blocks, to within the length of a few strings
+/// and what the allocator's own bookkeeping varies by from one machine to
+/// the next (up to 100 KiB on the regression Mac), so a leak of 22 KiB or
+/// more a switch exceeds it over the six switches between the runs
+/// compared.
+constexpr uint64_t kModSwitchHeapNoise = uint64_t{128} * 1024;
 
 /// What the host heap holds as each run of --check-mod-switch starts on the
 /// main menu, and the verdict on them.
