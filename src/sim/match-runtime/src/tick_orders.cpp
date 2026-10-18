@@ -877,19 +877,6 @@ void Match::stop_orders(uint16_t index) {
     note_step(sim::simulation_state::clear_orders(units_.at(index), true, host));
 }
 
-namespace {
-
-/// The footprint-origin cell snap_build_position chooses for one axis.
-int32_t build_origin_cell(int32_t world, int16_t footprint) {
-    const auto value = std::bit_cast<uint32_t>(world) -
-                       static_cast<uint32_t>(static_cast<int32_t>(footprint)) * 0x80000u + 0x80000u;
-    const auto high = value >> 20;
-    const auto bits = (value & 0x80000000u) != 0 ? high | 0xfffff000u : high;
-    return static_cast<int32_t>(static_cast<int16_t>(static_cast<uint16_t>(bits)));
-}
-
-} // namespace
-
 bool TickHost::relocate_queued_build(
     uint16_t index, std::size_t position, const sim::ground_orders::Point& destination
 ) {
@@ -930,8 +917,8 @@ bool TickHost::relocate_queued_build(
     const bool turned = (facing & 1U) != 0;
     const auto footprint_x = turned ? built.footprint_z : built.footprint_x;
     const auto footprint_z = turned ? built.footprint_x : built.footprint_z;
-    const auto cell_x = build_origin_cell(destination[0], footprint_x);
-    const auto cell_z = build_origin_cell(destination[2], footprint_z);
+    const auto cell_x = footprint_origin_cell(destination[0], footprint_x);
+    const auto cell_z = footprint_origin_cell(destination[2], footprint_z);
     auto site = destination;
     snap_build_position(site, footprint_x, footprint_z);
     const auto height = match.footprint_height(type, cell_x, cell_z, facing);

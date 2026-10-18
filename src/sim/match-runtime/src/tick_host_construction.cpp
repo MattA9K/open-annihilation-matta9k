@@ -28,14 +28,8 @@ void TickHost::ConstructionAdapter::refresh_selected() {
 bool TickHost::ConstructionAdapter::site_clear() {
     const auto fx = footprint_x();
     const auto fz = footprint_z();
-    const auto cell_x = static_cast<int32_t>(arithmetic_shift20(
-        std::bit_cast<uint32_t>(record.extra.destination[0]) -
-        static_cast<uint32_t>(fx) * 0x80000u + 0x80000u
-    ));
-    const auto cell_z = static_cast<int32_t>(arithmetic_shift20(
-        std::bit_cast<uint32_t>(record.extra.destination[2]) -
-        static_cast<uint32_t>(fz) * 0x80000u + 0x80000u
-    ));
+    const auto cell_x = footprint_origin_cell(record.extra.destination[0], fx);
+    const auto cell_z = footprint_origin_cell(record.extra.destination[2], fz);
     // BuildingBuild tests the product's site with the factory's occupancy
     // layer (Unit.flags & OA_UNIT_FLAG_OCCUPANCY_MASK); MobileBuild tests the
     // building's site with layer 1.
@@ -67,11 +61,6 @@ void TickHost::ConstructionAdapter::snap_build_height() {
     const auto fz = footprint_z();
     auto& site = record.extra.destination;
     snap_build_position(site, fx, fz);
-    const auto cell = [](int32_t world, int16_t footprint) {
-        return static_cast<int32_t>(arithmetic_shift20(
-            std::bit_cast<uint32_t>(world) - static_cast<uint32_t>(footprint) * 0x80000u + 0x80000u
-        ));
-    };
     const auto yard = host.match.build_yard(index, facing());
     if (fx < 0 || fz < 0 ||
         yard.size() < static_cast<std::size_t>(fx) * static_cast<std::size_t>(fz)) {
@@ -83,8 +72,8 @@ void TickHost::ConstructionAdapter::snap_build_height() {
         fz,
         yard,
         host.match.state().unit_defs[index].water_line,
-        cell(site[0], fx),
-        cell(site[2], fz),
+        footprint_origin_cell(site[0], fx),
+        footprint_origin_cell(site[2], fz),
         host.match.spatial_
     );
     site[1] = static_cast<int32_t>(static_cast<uint32_t>(height) << 16);
