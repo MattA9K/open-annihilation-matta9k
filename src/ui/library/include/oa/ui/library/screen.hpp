@@ -78,9 +78,12 @@ struct ScreenState {
     /// How far the Active tab is scrolled, in points: its maps pane, or the
     /// whole page when the tiles leave the maps fewer than four rows.
     int32_t maps_scroll{};
-    kit::WheelCarry maps_wheel{};  ///< the wheel's turn that scroll has not taken yet
-    bool maps_bar_held{};          ///< the pointer holds the Active tab's scroll bar
-    int32_t maps_bar_grab{};       ///< where on the thumb the pointer took hold, from its top
+    kit::WheelCarry maps_wheel{}; ///< the wheel's turn that scroll has not taken yet
+    /// The pane whose scroll bar the pointer holds; none while it holds none.
+    /// The Registries tab's bar and the Compact details page's are the
+    /// details'.
+    Pane bar_held{Pane::none};
+    int32_t bar_grab{};            ///< where on the thumb the pointer took hold, from its top
     MenuKind menu{MenuKind::none}; ///< the open drop-down
     int32_t menu_first{};          ///< the open drop-down's first item shown, from 0
     int32_t menu_marked{}; ///< the open drop-down's item the keys or the pointer mark, from 0
@@ -337,7 +340,10 @@ focused_field(const ScreenState& state, const kit::DisplayList& list) noexcept;
 /// press on a row gets, updates or installs anything. A finger's press
 /// reaches the nearest control within its reach; one in the list or the
 /// details that moves farther than its reach scrolls that pane instead. A
-/// press outside an open drop-down closes it.
+/// press on a pane's scroll bar, the mouse's or a finger's, holds it: on the
+/// thumb it grabs the thumb at the row pressed, on the well the thumb's
+/// middle jumps to the pointer, and the thumb then follows the pointer until
+/// the release. A press outside an open drop-down closes it.
 ///
 /// @param[in,out] library the model
 /// @param[in,out] state the screen's state

@@ -442,7 +442,11 @@ app removes the folder (`Runtime::library_uninstall`,
   and Large's, and 40 in the details. The Rules and From facts are shown
   whole at every class; the other facts take at most two lines at Compact
   and three in the details pane. The list and the details scroll, each with
-  the kit's scroll bar while it holds more than it shows.
+  the kit's scroll bar while it holds more than it shows. A press on a
+  bar, the mouse's or a finger's, holds it: on the thumb it grabs the thumb
+  at the row pressed, on the well the thumb's middle jumps to the pointer,
+  and the thumb then follows the pointer until the release. The bar is
+  drawn held meanwhile, and the press reaches nothing under it.
 - `draw_library(canvas, list)` draws a display list with `kit::paint`.
 - `library_pointer`, `library_key`, `library_text`, `library_wheel`,
   `library_command` and `library_stick` take input in the form the OA
@@ -733,7 +737,9 @@ the row while blocked or queued), an action's button, the refresh icon greyed
 until a registry can be asked and then asking, and saying "Refreshing" while
 one is being asked, the labels taking no
 press, the header's close mark to the right of refresh asking what CLOSE
-asks, the wheel and a finger's drag, typing and Backspace, the
+asks, the wheel and a finger's drag, the scroll bars of the Compact list,
+the Regular details, the Compact details page and the Registries tab
+dragged by the mouse and by a finger, typing and Backspace, the
 filter drop-down with its counts, each tab keeping its filter, New's
 pill, and a press outside the drop-down, the tag pills, MORE ▾, and the
 Active tab with forty more maps: the four tiles take no press on their
@@ -806,7 +812,3 @@ for review.
   it presses a row that does not show.
 - Large shows as many tags in its filter pane as fit, and TAGS ▾ holds the
   rest; the filter pane does not scroll.
-- The list's and the details' scroll bars show where those panes are
-  scrolled but take no press: the wheel, the keys, the right stick and a
-  finger scroll them. The Active tab's maps bar does take a press, and
-  dragging it scrolls the maps.

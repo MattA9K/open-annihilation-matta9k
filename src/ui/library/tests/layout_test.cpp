@@ -38,6 +38,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <deque>
 #include <initializer_list>
 #include <map>
@@ -1522,6 +1523,216 @@ void wheel_and_drag_scroll() {
         library, state, list, lib::PointerKind::up, 1, {inside.x, inside.y - 40}, 12
     );
     OA_CHECK(!result.action && library.selected == before && !library.details_open);
+}
+
+/// Returns the fixture's Library with Ridge selected, with forty tags so
+/// that its details scroll at every size class, and a dozen more
+/// registries, so that the Registries tab scrolls too.
+///
+/// @return the Library
+lib::Library with_long_details() {
+    lib::Inputs inputs = fixture::fixture_inputs();
+    for (lib::Listing& listing : inputs.listings) {
+        if (listing.key != "ridge")
+            continue;
+        for (int32_t index = 1; index <= 40; ++index)
+            listing.tags.push_back("balance-" + std::to_string(index));
+    }
+    const lib::Registry example = inputs.registries.back();
+    for (int32_t index = 1; index <= 12; ++index) {
+        lib::Registry extra = example;
+        extra.id = "extra-" + std::to_string(index);
+        extra.name = "Extra " + std::to_string(index);
+        extra.title = extra.name;
+        inputs.registries.push_back(std::move(extra));
+    }
+    lib::Library library;
+    lib::refresh(library, std::move(inputs));
+    lib::set_tab(library, lib::Tab::mods);
+    lib::select(library, fixture::ridge_id());
+    return library;
+}
+
+/// Returns the scroll bar of a pane: the list's lies in the list's pane, and
+/// the details' is the rightmost bar.
+///
+/// @param list the display list
+/// @param pane the list or the details
+/// @return the bar's item; null while that pane shows none
+const kit::Item* pane_bar(const kit::DisplayList& list, lib::Pane pane) {
+    const kit::Control* rows = fixture::named(list, "library.list");
+    const kit::Item* found = nullptr;
+    for (const kit::Item& item : list.items) {
+        if (item.role != kit::Role::scroll_bar)
+            continue;
+        if (pane == lib::Pane::list) {
+            if (rows != nullptr && kit::contains(rows->rect, {item.rect.x, item.rect.y}))
+                return &item;
+        } else if (found == nullptr || item.rect.x > found->rect.x) {
+            found = &item;
+        }
+    }
+    return found;
+}
+
+/// Returns a scroll bar's look.
+///
+/// @param bar the bar's item
+/// @return the look; a look with no thumb when the item has none
+kit::ScrollBarLook bar_look(const kit::Item& bar) {
+    const auto* look = std::get_if<kit::ScrollBarLook>(&bar.look);
+    return look != nullptr ? *look : kit::ScrollBarLook{};
+}
+
+/// Drags a pane's scroll bar the ways a player does, and checks that each
+/// scrolls that pane alone, draws the bar held while it is held, and
+/// presses nothing: the mouse on the thumb, down and back above the well;
+/// the mouse at the well's foot, which takes the thumb to the foot; and a
+/// finger on the thumb.
+///
+/// @param[in,out] library the model
+/// @param start the screen's state, scrolled to the top
+/// @param frame the frame
+/// @param pane the pane whose bar is dragged
+/// @param scroll how far that pane is scrolled
+/// @param where what a failure names
+void drag_pane_bar(
+    lib::Library& library,
+    const lib::ScreenState& start,
+    const kit::Frame& frame,
+    lib::Pane pane,
+    int32_t lib::ScreenState::* scroll,
+    const std::string& where
+) {
+    lib::ScreenState state = start;
+    kit::DisplayList list = laid_out(library, state, frame);
+    const kit::Item* bar = pane_bar(list, pane);
+    if (bar == nullptr) {
+        std::fprintf(stderr, "%s: no scroll bar\n", where.c_str());
+        ++oa::test::failed_checks();
+        return;
+    }
+    const kit::Rect well = bar->rect;
+    const kit::Rect thumb = bar_look(*bar).thumb;
+    OA_CHECK(!bar_look(*bar).hot);
+    const std::optional<lib::EntryId> selected = library.selected;
+    const bool details_open = library.details_open;
+    const bool details_page = state.details_page;
+    const int32_t list_scroll = state.list_scroll;
+    const int32_t details_scroll = state.details_scroll;
+
+    // The mouse on the thumb holds the bar and scrolls nothing yet.
+    const kit::Point grip{thumb.x + thumb.width / 2, thumb.y + thumb.height / 2};
+    static_cast<void>(
+        lib::library_pointer(library, state, list, lib::PointerKind::down, 1, grip, 0)
+    );
+    OA_CHECK(state.bar_held == pane);
+    OA_CHECK(state.*scroll == start.*scroll);
+    // Down the well, the thumb follows the pointer.
+    static_cast<void>(lib::library_pointer(
+        library, state, list, lib::PointerKind::move, 0, {grip.x, grip.y + 20}, 0
+    ));
+    OA_CHECK(state.*scroll > start.*scroll);
+    if (pane == lib::Pane::list)
+        OA_CHECK(state.details_scroll == details_scroll);
+    else
+        OA_CHECK(state.list_scroll == list_scroll);
+    list = laid_out(library, state, frame);
+    bar = pane_bar(list, pane);
+    OA_CHECK(bar != nullptr);
+    if (bar == nullptr)
+        return;
+    OA_CHECK(bar_look(*bar).hot);
+    const int32_t moved = bar_look(*bar).thumb.y - thumb.y;
+    if (std::abs(moved - 20) > 1)
+        std::fprintf(stderr, "%s: the thumb moved %d rows for 20\n", where.c_str(), moved);
+    OA_CHECK(std::abs(moved - 20) <= 1);
+    // Above the well, the pane is back at its top.
+    static_cast<void>(lib::library_pointer(
+        library, state, list, lib::PointerKind::move, 0, {grip.x, well.y - 40}, 0
+    ));
+    OA_CHECK(state.*scroll == 0);
+    lib::ScreenResult result = lib::library_pointer(
+        library, state, list, lib::PointerKind::up, 1, {grip.x, well.y - 40}, 0
+    );
+    OA_CHECK(state.bar_held == lib::Pane::none);
+    OA_CHECK(!result.action);
+    OA_CHECK(library.selected == selected && library.details_open == details_open);
+    OA_CHECK(state.details_page == details_page);
+
+    // The mouse at the well's foot takes the thumb to the foot.
+    list = laid_out(library, state, frame);
+    const kit::Point foot{grip.x, well.y + well.height - 2};
+    static_cast<void>(
+        lib::library_pointer(library, state, list, lib::PointerKind::down, 1, foot, 0)
+    );
+    result = lib::library_pointer(library, state, list, lib::PointerKind::up, 1, foot, 0);
+    OA_CHECK(!result.action);
+    list = laid_out(library, state, frame);
+    bar = pane_bar(list, pane);
+    OA_CHECK(bar != nullptr);
+    if (bar == nullptr)
+        return;
+    const kit::Rect at_foot = bar_look(*bar).thumb;
+    OA_CHECK(at_foot.y + at_foot.height == well.y + well.height - 1);
+    const int32_t deepest = state.*scroll;
+    OA_CHECK(deepest > 0);
+
+    // A finger takes hold of the thumb as the mouse does.
+    const kit::Point finger{at_foot.x + at_foot.width / 2, at_foot.y + at_foot.height / 2};
+    static_cast<void>(
+        lib::library_pointer(library, state, list, lib::PointerKind::down, 1, finger, 12)
+    );
+    OA_CHECK(state.bar_held == pane);
+    static_cast<void>(lib::library_pointer(
+        library, state, list, lib::PointerKind::move, 0, {finger.x, finger.y - 20}, 12
+    ));
+    result = lib::library_pointer(
+        library, state, list, lib::PointerKind::up, 1, {finger.x, finger.y - 20}, 12
+    );
+    OA_CHECK(state.*scroll > 0 && state.*scroll < deepest);
+    OA_CHECK(!result.action && library.selected == selected);
+}
+
+/// Every pane's scroll bar can be dragged, by the mouse and by a finger: the
+/// list's at Compact, the details' at Regular, the Compact details page's
+/// and the Registries tab's. The Active tab's maps bar is
+/// active_maps_fill_scroll_and_filter's.
+void pane_scroll_bars_drag() {
+    const kit::Frame compact = fixture::frames()[0].frame;
+    const kit::Frame regular = fixture::frames()[1].frame;
+    lib::Library library = with_long_details();
+    drag_pane_bar(
+        library, {}, compact, lib::Pane::list, &lib::ScreenState::list_scroll, "Compact list"
+    );
+    drag_pane_bar(
+        library,
+        {},
+        regular,
+        lib::Pane::details,
+        &lib::ScreenState::details_scroll,
+        "Regular details"
+    );
+    lib::open_details(library);
+    lib::ScreenState page;
+    page.details_page = true;
+    drag_pane_bar(
+        library,
+        page,
+        compact,
+        lib::Pane::details,
+        &lib::ScreenState::details_scroll,
+        "Compact details page"
+    );
+    lib::set_tab(library, lib::Tab::registries);
+    drag_pane_bar(
+        library,
+        {},
+        compact,
+        lib::Pane::details,
+        &lib::ScreenState::details_scroll,
+        "Compact Registries"
+    );
 }
 
 /// Typing searches as it is typed, and Backspace takes a character back.
@@ -3679,7 +3890,7 @@ void active_maps_fill_scroll_and_filter() {
             static_cast<void>(
                 lib::library_pointer(many, scrolled, packed, lib::PointerKind::up, 1, on_bar, 0)
             );
-            OA_CHECK(!scrolled.maps_bar_held);
+            OA_CHECK(scrolled.bar_held == lib::Pane::none);
         }
     }
 }
@@ -4115,6 +4326,7 @@ int main() {
     the_title_bar_holds_a_close_mark();
     row_icons_are_get_and_update();
     wheel_and_drag_scroll();
+    pane_scroll_bars_drag();
     typing_searches();
     filters_and_tags();
     active_tab_takes_nothing_and_scrolls();

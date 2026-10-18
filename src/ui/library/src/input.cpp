@@ -1042,24 +1042,6 @@ const kit::Item* maps_bar_item(const kit::DisplayList& list) {
     return nullptr;
 }
 
-/// Returns the maps pane's scroll area, as the bar and the tiles show it.
-///
-/// @param list the display list
-/// @return the area; none while the bar does not show
-std::optional<kit::ScrollArea> maps_bar_area(const kit::DisplayList& list) {
-    const std::optional<PaneScroll> scroll = maps_scroll_of(list);
-    const kit::Item* bar = maps_bar_item(list);
-    if (!scroll || bar == nullptr || scroll->limit <= 0)
-        return std::nullopt;
-    kit::ScrollArea area;
-    area.view = scroll->view;
-    area.well = bar->rect;
-    area.content_height = scroll->limit + scroll->view.height;
-    area.limit = scroll->limit;
-    area.offset = scroll->offset;
-    return area;
-}
-
 /// Returns the pane a point lies in.
 ///
 /// On the Active tab the maps pane and its scroll bar scroll. When the page
@@ -1108,6 +1090,56 @@ std::optional<PaneScroll> scroll_of(
     if (pane == Pane::maps)
         return maps_scroll_of(list);
     return std::nullopt;
+}
+
+/// Tells whether a rectangle lies wholly inside another.
+///
+/// @param inner the rectangle
+/// @param outer the one it may lie in
+/// @return true when it does
+bool lies_in(const kit::Rect& inner, const kit::Rect& outer) {
+    return inner.x >= outer.x && inner.y >= outer.y &&
+           inner.x + inner.width <= outer.x + outer.width &&
+           inner.y + inner.height <= outer.y + outer.height;
+}
+
+/// Returns a pane's scroll area, as its scroll bar and its content show it.
+/// The Active tab's bar is the maps'. On the other tabs a pane's bar is the
+/// one in its view, in the column at its right: the list's, the details',
+/// the Registries tab's or the Compact details page's, the last two the
+/// details'.
+///
+/// @param library the model
+/// @param state the screen's state
+/// @param list the display list
+/// @param pane the pane
+/// @return the area; none while the pane shows no bar
+std::optional<kit::ScrollArea> bar_area(
+    const Library& library, const ScreenState& state, const kit::DisplayList& list, Pane pane
+) {
+    const std::optional<PaneScroll> scroll = scroll_of(library, state, list, pane);
+    if (!scroll || scroll->limit <= 0)
+        return std::nullopt;
+    const kit::Item* bar = nullptr;
+    if (pane == Pane::maps) {
+        bar = maps_bar_item(list);
+    } else if (!active_shows(list)) {
+        for (const kit::Item& item : list.items) {
+            if (item.role == kit::Role::scroll_bar && lies_in(item.rect, scroll->view)) {
+                bar = &item;
+                break;
+            }
+        }
+    }
+    if (bar == nullptr)
+        return std::nullopt;
+    kit::ScrollArea area;
+    area.view = scroll->view;
+    area.well = bar->rect;
+    area.content_height = scroll->limit + scroll->view.height;
+    area.limit = scroll->limit;
+    area.offset = scroll->offset;
+    return area;
 }
 
 /// Scrolls a pane to an offset.
@@ -1212,7 +1244,7 @@ ScreenResult library_pointer(
             if (button != 1)
                 return {};
             state.drag = {};
-            state.maps_bar_held = false;
+            state.bar_held = Pane::none;
             const kit::PointerOutcome outcome = kit::pointer_down(interaction, list, at);
             ScreenResult result;
             result.redraw = outcome.result != kit::PointerResult::none;
@@ -1233,16 +1265,16 @@ ScreenResult library_pointer(
     }
     switch (kind) {
     case PointerKind::move: {
-        if (state.maps_bar_held) {
-            const std::optional<kit::ScrollArea> area = maps_bar_area(list);
+        if (state.bar_held != Pane::none) {
+            const std::optional<kit::ScrollArea> area =
+                bar_area(library, state, list, state.bar_held);
             if (!area)
                 return {};
-            const int32_t next = area->offset_at(
-                at.y - state.maps_bar_grab, kit::compact_metrics.least_thumb_height
-            );
+            const int32_t next =
+                area->offset_at(at.y - state.bar_grab, kit::compact_metrics.least_thumb_height);
             if (next == area->offset)
                 return {};
-            scroll_to(state, Pane::maps, next);
+            scroll_to(state, state.bar_held, next);
             return redrawn();
         }
         if (state.drag.pane != Pane::none) {
@@ -1288,7 +1320,7 @@ ScreenResult library_pointer(
         if (button != 1)
             return {};
         state.drag = {};
-        state.maps_bar_held = false;
+        state.bar_held = Pane::none;
         if (state.menu != MenuKind::none) {
             const kit::ControlId under =
                 finger_reach > 0 ? kit::reach(list, at, finger_reach).control : kit::hit(list, at);
@@ -1298,26 +1330,27 @@ ScreenResult library_pointer(
                 return redrawn();
             }
         }
-        if (const kit::Item* bar = maps_bar_item(list);
-            bar != nullptr && kit::contains(bar->rect, at)) {
-            if (const std::optional<kit::ScrollArea> area = maps_bar_area(list)) {
-                const kit::Rect thumb = area->thumb(kit::compact_metrics.least_thumb_height);
-                state.maps_bar_held = true;
-                if (kit::contains(thumb, at)) {
-                    state.maps_bar_grab = at.y - thumb.y;
-                } else {
-                    state.maps_bar_grab = thumb.height / 2;
-                    scroll_to(
-                        state,
-                        Pane::maps,
-                        area->offset_at(
-                            at.y - state.maps_bar_grab, kit::compact_metrics.least_thumb_height
-                        )
-                    );
-                }
-                interaction.pressed = kit::no_control;
-                return redrawn();
+        for (const Pane pane : {Pane::maps, Pane::details, Pane::list}) {
+            const std::optional<kit::ScrollArea> area = bar_area(library, state, list, pane);
+            if (!area || !kit::contains(area->well, at))
+                continue;
+            // On the thumb, the press grabs it at the row pressed; on the
+            // well, the thumb's middle jumps to the pointer and the drag
+            // starts there.
+            const kit::Rect thumb = area->thumb(kit::compact_metrics.least_thumb_height);
+            state.bar_held = pane;
+            if (kit::contains(thumb, at)) {
+                state.bar_grab = at.y - thumb.y;
+            } else {
+                state.bar_grab = thumb.height / 2;
+                scroll_to(
+                    state,
+                    pane,
+                    area->offset_at(at.y - state.bar_grab, kit::compact_metrics.least_thumb_height)
+                );
             }
+            interaction.pressed = kit::no_control;
+            return redrawn();
         }
         const kit::PointerOutcome outcome =
             finger_reach > 0 ? kit::finger_down(interaction, list, at, finger_reach)
@@ -1337,8 +1370,8 @@ ScreenResult library_pointer(
     case PointerKind::up: {
         if (button != 1)
             return {};
-        if (state.maps_bar_held) {
-            state.maps_bar_held = false;
+        if (state.bar_held != Pane::none) {
+            state.bar_held = Pane::none;
             state.drag = {};
             interaction.pressed = kit::no_control;
             return redrawn();

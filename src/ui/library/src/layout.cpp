@@ -2018,8 +2018,9 @@ void add_list(Building& building, const kit::Rect& pane, RowForm form) {
         scroll.content_height = content;
         scroll.limit = limit;
         scroll.offset = offset;
-        add_item(building.list, kit::Role::scroll_bar, well, {}).look =
-            kit::ScrollBarLook{scroll.thumb(metrics.least_thumb_height), false};
+        add_item(building.list, kit::Role::scroll_bar, well, {}).look = kit::ScrollBarLook{
+            scroll.thumb(metrics.least_thumb_height), building.state->bar_held == Pane::list
+        };
     }
     kit::Control pane_control;
     pane_control.id = controls::list;
@@ -2725,8 +2726,9 @@ void add_details_pane(Building& building, const kit::Rect& pane) {
         scroll.content_height = height;
         scroll.limit = limit;
         scroll.offset = offset;
-        add_item(building.list, kit::Role::scroll_bar, scroll.well, {}).look =
-            kit::ScrollBarLook{scroll.thumb(metrics.least_thumb_height), false};
+        add_item(building.list, kit::Role::scroll_bar, scroll.well, {}).look = kit::ScrollBarLook{
+            scroll.thumb(metrics.least_thumb_height), building.state->bar_held == Pane::details
+        };
     }
 }
 
@@ -4299,8 +4301,9 @@ void add_active_bar(
     scroll.content_height = content_height;
     scroll.limit = limit;
     scroll.offset = offset;
-    add_item(building.list, kit::Role::scroll_bar, scroll.well, view).look =
-        kit::ScrollBarLook{scroll.thumb(metrics.least_thumb_height), building.state->maps_bar_held};
+    add_item(building.list, kit::Role::scroll_bar, scroll.well, view).look = kit::ScrollBarLook{
+        scroll.thumb(metrics.least_thumb_height), building.state->bar_held == Pane::maps
+    };
 }
 
 /// Appends the Active tab. The four tiles stand under the tabs, then the
@@ -4952,8 +4955,9 @@ void add_registries(Building& building, const kit::Rect& area) {
         scroll.content_height = height;
         scroll.limit = limit;
         scroll.offset = scroll_offset;
-        add_item(building.list, kit::Role::scroll_bar, scroll.well, {}).look =
-            kit::ScrollBarLook{scroll.thumb(metrics.least_thumb_height), false};
+        add_item(building.list, kit::Role::scroll_bar, scroll.well, {}).look = kit::ScrollBarLook{
+            scroll.thumb(metrics.least_thumb_height), building.state->bar_held == Pane::details
+        };
     }
 }
 
@@ -6117,8 +6121,9 @@ kit::DisplayList details_page_layout(
         scroll.content_height = height;
         scroll.limit = limit;
         scroll.offset = offset;
-        add_item(building.list, kit::Role::scroll_bar, scroll.well, {}).look =
-            kit::ScrollBarLook{scroll.thumb(metrics.least_thumb_height), false};
+        add_item(building.list, kit::Role::scroll_bar, scroll.well, {}).look = kit::ScrollBarLook{
+            scroll.thumb(metrics.least_thumb_height), state.bar_held == Pane::details
+        };
     }
 
     // The footer: the first three actions, MORE ▾ with the rest, and BACK.

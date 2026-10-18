@@ -559,7 +559,9 @@ X presses the chosen entry's GET,
 UPDATE, CANCEL or RETRY, L1 and R1 change tab, B goes back as Escape does,
 and the right stick scrolls ([gamepad controls](controllers.md#menus)).
 The wheel over the tab strip scrolls the tabs when they do not fit;
-elsewhere it scrolls the page under the pointer.
+elsewhere it scrolls the page under the pointer. Every scroll bar can be
+dragged by its thumb, and a press above or below the thumb moves it
+there.
 A finger or the mouse presses any control. A press, double click or tap on
 a row chooses it: nothing installs until you press GET or UPDATE, in the
 details or as the row's download arrow or up-arrow.
