@@ -555,6 +555,16 @@ class TickHost final : public sim::simulation_state::Host,
         sim::ground_orders::Host::rules = m.rules_view();
     }
 
+    /// Moves a queued build onto a new site. Match::relocate_queued_build.
+    ///
+    /// @param unit Builder slot.
+    /// @param position Index of the order in the primary queue, head 0.
+    /// @param destination Signed 16.16 point the site is taken from.
+    /// @return False when nothing was moved.
+    bool relocate_queued_build(
+        uint16_t unit, std::size_t position, const sim::ground_orders::Point& destination
+    );
+
     /// Returns the world queries the air goals and the air driver make, over this
     /// match.
     ///

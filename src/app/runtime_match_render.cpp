@@ -2173,10 +2173,7 @@ void Runtime::render_match_surface() {
     // the view shows those places: a view drawn between map pixels moves it
     // by the view's offset, to the nearest screen pixel.
     auto painted = viewport;
-    painted.destination_x -=
-        static_cast<int32_t>(std::lround(drawn_offset.x * static_cast<double>(match_zoom())));
-    painted.destination_y -=
-        static_cast<int32_t>(std::lround(drawn_offset.y * static_cast<double>(match_zoom())));
+    align_order_overlay_viewport(painted);
     // Over the fog tiles: the local player's order overlays while Shift is
     // held (asked of the keyboard, not the pointer word), so that orders
     // queued onto never-mapped or unseen ground stay in view (in 3.1c the
@@ -2188,7 +2185,10 @@ void Runtime::render_match_surface() {
             virtual_shift(ModifierUse::order))
             // What the pass drew is for the checks alone.
             std::ignore = draw_order_overlays(world_surface, painted);
-        draw_build_ghost(world_surface, painted);
+        if (build_queue_drag_ && build_queue_drag_->moved)
+            draw_build_queue_drag(world_surface, painted);
+        else
+            draw_build_ghost(world_surface, painted);
         draw_selection_band(world_surface, painted);
     }
     mark_profile(OA_PROFILE_RENDER_FOG);

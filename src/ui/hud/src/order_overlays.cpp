@@ -106,6 +106,24 @@ ScreenPoint overlay_project(const OverlayView& view, const FixedVec3& point) noe
     };
 }
 
+void build_site_overlay_bounds(
+    const OverlayView& view, const UnitDef& def, const FixedVec3& position, BuildSiteBounds& bounds
+) noexcept {
+    const int32_t lift = high16(position.y + def.bounds_min_y) >> 1;
+    bounds.top = static_cast<uint32_t>(
+        high16(position.z + def.bounds_min_z) - lift - view.camera_y + kBattlefieldTop
+    );
+    bounds.bottom = static_cast<uint32_t>(
+        high16(position.z + def.bounds_max_z) - lift - view.camera_y + kBattlefieldTop
+    );
+    bounds.left = static_cast<uint32_t>(
+        high16(def.bounds_min_x + position.x) - view.camera_x + kBattlefieldLeft
+    );
+    bounds.right = static_cast<uint32_t>(
+        high16(position.x + def.bounds_max_x) - view.camera_x + kBattlefieldLeft
+    );
+}
+
 void draw_build_site_overlay(
     const OverlayContext& context, const OrderOverlay& order, FixedVec3& point
 ) {
@@ -115,20 +133,12 @@ void draw_build_site_overlay(
     const auto* def = type_def(context, type);
     if (def == nullptr)
         return;
-    const auto& view = context.view;
-    const int32_t lift = high16(order.position.y + def->bounds_min_y) >> 1;
-    const auto top = static_cast<uint32_t>(
-        high16(order.position.z + def->bounds_min_z) - lift - view.camera_y + kBattlefieldTop
-    );
-    const auto bottom = static_cast<uint32_t>(
-        high16(order.position.z + def->bounds_max_z) - lift - view.camera_y + kBattlefieldTop
-    );
-    const auto left = static_cast<uint32_t>(
-        high16(def->bounds_min_x + order.position.x) - view.camera_x + kBattlefieldLeft
-    );
-    const auto right = static_cast<uint32_t>(
-        high16(order.position.x + def->bounds_max_x) - view.camera_x + kBattlefieldLeft
-    );
+    BuildSiteBounds bounds{};
+    build_site_overlay_bounds(context.view, *def, order.position, bounds);
+    const auto top = bounds.top;
+    const auto bottom = bounds.bottom;
+    const auto left = bounds.left;
+    const auto right = bounds.right;
     auto frames = order_age(context, order);
     if (frames > kSiteAnimationTicks)
         frames = kSiteAnimationTicks;

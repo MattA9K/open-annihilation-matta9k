@@ -830,6 +830,9 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
         int32_t parameter_1{}, parameter_2{};
         int16_t seen_x{}, seen_z{}; // where the order overlays last saw the target
         uint32_t issue_tick{};
+        uint8_t phase{};      // the order's phase
+        uint8_t facing{};     // quarter turns from south a building is placed facing
+        bool build_started{}; // the order already has the unit it is building
     };
 
     /// Copies the records of a unit's primary or secondary queue, head first.
@@ -1199,6 +1202,23 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
         const sim::ground_orders::Point& destination,
         bool queue,
         uint8_t facing = 0
+    );
+    /// Moves one queued MobileBuild or VTOL_MobileBuild onto another site.
+    ///
+    /// The order keeps its place in the queue and the type and facing it was
+    /// given. The site is snapped to that facing's footprint, as the order's
+    /// first approach snaps it. An order that has already spawned its building
+    /// is left where it is. When the order is the one the builder is walking
+    /// or flying to, that approach starts again at the new site.
+    ///
+    /// @param unit Builder slot.
+    /// @param position Index of the order in the primary queue, head 0.
+    /// @param destination Signed 16.16 point the site is taken from; x and z
+    ///     are snapped, and y becomes the footprint's height.
+    /// @return False, and nothing done, when the unit, the index or the order
+    ///     is not a queued build that has not started.
+    bool relocate_queued_build(
+        uint16_t unit, std::size_t position, const sim::ground_orders::Point& destination
     );
     /// Sends one of the local player's own units with a movement object to a
     /// point ahead of its orders, as orders.build-site-kickout sends a unit
