@@ -35,6 +35,8 @@ namespace ids = controls;
 constexpr int32_t mouse_drag_points = 4;
 /// How far one notch of the wheel scrolls the grid, in points: three lines.
 constexpr int32_t wheel_points = 3 * kit::compact_metrics.regular_line;
+/// The least height of the scroll bar's thumb, in points, as the layout draws it.
+constexpr int32_t least_thumb = kit::compact_metrics.least_thumb_height;
 
 /// Returns a result that only asks for a redraw.
 ///
@@ -89,6 +91,28 @@ std::optional<GridScroll> grid_scroll_of(const kit::DisplayList& list) {
     return scroll;
 }
 
+/// Returns the grid's scroll area, as its scroll bar and the cards show it.
+///
+/// @param list the display list
+/// @return the area; none while the cards fit and no bar shows
+std::optional<kit::ScrollArea> grid_bar_of(const kit::DisplayList& list) {
+    const std::optional<GridScroll> scroll = grid_scroll_of(list);
+    if (!scroll || scroll->limit <= 0)
+        return std::nullopt;
+    for (const kit::Item& item : list.items) {
+        if (item.role != kit::Role::scroll_bar)
+            continue;
+        kit::ScrollArea area;
+        area.view = scroll->view;
+        area.well = item.rect;
+        area.content_height = scroll->limit + scroll->view.height;
+        area.limit = scroll->limit;
+        area.offset = scroll->offset;
+        return area;
+    }
+    return std::nullopt;
+}
+
 /// Scrolls the grid so that a card's control shows whole, as near the
 /// offset it has as that allows.
 ///
@@ -121,6 +145,7 @@ void filters_changed(Browser& browser, ScreenState& state) {
     state.scroll = 0;
     state.wheel = {};
     state.drag = {};
+    state.bar_held = false;
     kit::Interaction& interaction = state.interaction;
     for (kit::ControlId* id : {&interaction.hovered, &interaction.pressed, &interaction.focused})
         if (ids::is_card(*id))
@@ -366,6 +391,12 @@ ScreenResult browser_pointer(
     kit::Interaction& interaction = state.interaction;
     switch (kind) {
     case PointerKind::move: {
+        if (state.bar_held) {
+            const std::optional<kit::ScrollArea> area = grid_bar_of(list);
+            if (!area)
+                return {};
+            return scroll_to(state, list, area->offset_at(at.y - state.bar_grab, least_thumb));
+        }
         if (state.drag.held) {
             const int32_t reach = finger_reach > 0 ? finger_reach : mouse_drag_points;
             if (!state.drag.scrolling && (std::abs(at.y - state.drag.from.y) > reach ||
@@ -386,10 +417,28 @@ ScreenResult browser_pointer(
     case PointerKind::down: {
         if (button != 1)
             return {};
+        state.drag = {};
+        state.bar_held = false;
+        if (const std::optional<kit::ScrollArea> area = grid_bar_of(list);
+            area && kit::contains(area->well, at)) {
+            // On the thumb, the press grabs it at the row pressed; on the
+            // well, the thumb's middle jumps to the pointer and the drag
+            // starts there. The bar takes no focus and presses nothing.
+            const kit::Rect thumb = area->thumb(least_thumb);
+            state.bar_held = true;
+            interaction.pressed = kit::no_control;
+            if (at.y >= thumb.y && at.y < thumb.y + thumb.height) {
+                state.bar_grab = at.y - thumb.y;
+                return redrawn();
+            }
+            state.bar_grab = thumb.height / 2;
+            std::ignore =
+                scroll_to(state, list, area->offset_at(at.y - state.bar_grab, least_thumb));
+            return redrawn();
+        }
         const kit::PointerOutcome outcome =
             finger_reach > 0 ? kit::finger_down(interaction, list, at, finger_reach)
                              : kit::pointer_down(interaction, list, at);
-        state.drag = {};
         if (const std::optional<GridScroll> scroll = grid_scroll_of(list);
             scroll && kit::contains(scroll->view, at)) {
             state.drag.held = true;
@@ -401,6 +450,11 @@ ScreenResult browser_pointer(
     case PointerKind::up: {
         if (button != 1)
             return {};
+        if (state.bar_held) {
+            state.bar_held = false;
+            interaction.pressed = kit::no_control;
+            return redrawn();
+        }
         const bool dragged = state.drag.scrolling;
         state.drag = {};
         if (dragged) {

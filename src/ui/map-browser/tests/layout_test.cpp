@@ -6,7 +6,8 @@
 // buttons; every automation name, sound and unique, two maps whose names
 // give one word told apart; the pictures asked for only for the cards in
 // view and the row after; focus by geometry and Tab in the declared order;
-// and what a press, a tap, the keys, typing and the wheel do.
+// and what a press, a tap, the keys, typing, the wheel and the scroll bar
+// do.
 #include "oa/formats/fnt.hpp"
 #include "oa/formats/png.hpp"
 #include "oa/platform/text_font.hpp"
@@ -29,6 +30,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <ios>
@@ -698,6 +700,97 @@ void wheel_and_drag_scroll() {
     OA_CHECK(state.scroll == 0);
 }
 
+/// Returns the grid's scroll bar.
+///
+/// @param list the display list
+/// @return the bar's item; null while the cards fit
+const kit::Item* scroll_bar(const kit::DisplayList& list) {
+    for (const kit::Item& item : list.items)
+        if (item.role == kit::Role::scroll_bar)
+            return &item;
+    return nullptr;
+}
+
+/// Returns the scroll bar's thumb.
+///
+/// @param bar the bar's item
+/// @return the thumb
+kit::Rect thumb_of(const kit::Item& bar) {
+    const auto* look = std::get_if<kit::ScrollBarLook>(&bar.look);
+    return look != nullptr ? look->thumb : kit::Rect{};
+}
+
+void scroll_bar_drags() {
+    const kit::Frame frame = frames()[0].frame;
+    mb::Browser browser = many_maps();
+    mb::ScreenState state;
+    kit::DisplayList list = laid_out(browser, state, frame);
+    const kit::Item* bar = scroll_bar(list);
+    OA_CHECK(bar != nullptr);
+    if (bar == nullptr)
+        return;
+    const kit::Rect well = bar->rect;
+    const kit::Rect thumb = thumb_of(*bar);
+    OA_CHECK(thumb.height > 0 && thumb.y + thumb.height < well.y + well.height);
+    // A mouse's press on the thumb holds the bar, and the thumb follows the
+    // pointer down: the grid scrolls down, and nothing is selected.
+    const kit::Point from{thumb.x + thumb.width / 2, thumb.y + thumb.height / 2};
+    std::ignore = mb::browser_pointer(browser, state, list, mb::PointerKind::down, 1, from, 0);
+    OA_CHECK(state.bar_held);
+    std::ignore = mb::browser_pointer(
+        browser, state, list, mb::PointerKind::move, 0, {from.x, from.y + 30}, 0
+    );
+    OA_CHECK(state.scroll > 0);
+    list = laid_out(browser, state, frame);
+    bar = scroll_bar(list);
+    OA_CHECK(bar != nullptr);
+    if (bar == nullptr)
+        return;
+    // The thumb is drawn held, 30 rows lower, to the nearest row.
+    const kit::Rect moved = thumb_of(*bar);
+    OA_CHECK(std::abs(moved.y - (thumb.y + 30)) <= 1);
+    const auto* look = std::get_if<kit::ScrollBarLook>(&bar->look);
+    OA_CHECK(look != nullptr && look->hot);
+    // Above the well's top the grid stops at its first row.
+    std::ignore = mb::browser_pointer(
+        browser, state, list, mb::PointerKind::move, 0, {from.x, well.y - 50}, 0
+    );
+    OA_CHECK(state.scroll == 0);
+    const mb::ScreenResult released =
+        mb::browser_pointer(browser, state, list, mb::PointerKind::up, 1, {from.x, well.y - 50}, 0);
+    OA_CHECK(!state.bar_held);
+    OA_CHECK(released.action == mb::BrowserAction::none);
+    OA_CHECK(!browser.selected);
+    // A press on the well at its foot puts the thumb's middle there: the
+    // grid scrolls to its end, as End does.
+    list = laid_out(browser, state, frame);
+    const kit::Point foot{from.x, well.y + well.height - 2};
+    std::ignore = mb::browser_pointer(browser, state, list, mb::PointerKind::down, 1, foot, 0);
+    std::ignore = mb::browser_pointer(browser, state, list, mb::PointerKind::up, 1, foot, 0);
+    const int32_t pressed = state.scroll;
+    OA_CHECK(pressed > 0);
+    state.scroll = 0;
+    list = laid_out(browser, state, frame);
+    std::ignore = mb::browser_key(browser, state, list, kit::Key::end);
+    OA_CHECK(state.scroll == pressed);
+    // A finger takes hold of the bar as the mouse does.
+    list = laid_out(browser, state, frame);
+    bar = scroll_bar(list);
+    OA_CHECK(bar != nullptr);
+    if (bar == nullptr)
+        return;
+    const kit::Rect at_end = thumb_of(*bar);
+    const kit::Point grip{at_end.x + at_end.width / 2, at_end.y + at_end.height / 2};
+    std::ignore = mb::browser_pointer(browser, state, list, mb::PointerKind::down, 1, grip, 8);
+    std::ignore = mb::browser_pointer(
+        browser, state, list, mb::PointerKind::move, 0, {grip.x, grip.y - 30}, 8
+    );
+    std::ignore =
+        mb::browser_pointer(browser, state, list, mb::PointerKind::up, 1, {grip.x, grip.y - 30}, 8);
+    OA_CHECK(state.scroll > 0 && state.scroll < pressed);
+    OA_CHECK(!browser.selected);
+}
+
 void card_reads_the_largest_count() {
     mb::MapCard map;
     map.name = "Acid Foursome";
@@ -1073,6 +1166,7 @@ void layout_tests() {
     tab_follows_the_declared_order();
     pointer_and_keys();
     wheel_and_drag_scroll();
+    scroll_bar_drags();
     card_reads_the_largest_count();
     header_and_footer_words();
     compact_byline_and_chips_fit();

@@ -109,8 +109,9 @@ The model (`Browser`) holds the cards, the filters, the cards that show,
 the selection, the picker that opened it, the name of the mod being played
 and a download's name, progress and failure. The screen's state
 (`ScreenState`) holds the hover, press and focus, the grid's scroll and the
-wheel's carry, the search field's text and caret, and a press in the grid
-that may become a drag. The layout reads both and changes neither; the
+wheel's carry, the search field's text and caret, a press in the grid
+that may become a drag, and a hold on the grid's scroll bar with the row of
+the thumb it took. The layout reads both and changes neither; the
 input changes both. Pictures belong to the host's preview cache: a card's
 picture refers to its pixels, valid until the host decodes again.
 
@@ -132,6 +133,10 @@ picture refers to its pixels, valid until the host decodes again.
 - Every card that shows is a control, scrolled out of view or not, clipped
   to the grid's view, so the arrows reach every card and a card a press
   cannot reach is never pressed.
+- A press on the grid's scroll bar holds it and presses nothing: on the
+  thumb it grabs the thumb at the row pressed, on the well the thumb's
+  middle jumps to the pointer, and the thumb follows the pointer until the
+  release, the mouse's or a finger's.
 - A card that does not fit can be selected and never chosen: its primary
   button is disabled.
 - Every player word is looked up in the interface catalogue
@@ -152,12 +157,12 @@ and unique, and two maps whose names give one word told apart by `-2`; the
 pictures asked for only for the cards in view and the next row, counted on
 fake hooks; the focus moving right, left and down by geometry, and up out of
 the grid; Tab in the declared order, into the grid at the selected card;
-what presses, taps, the keys, typing and the wheel and a drag do.
+what presses, taps, the keys, typing and the wheel and a drag do; the
+scroll bar's thumb dragged down and above the well, a press at the well's
+foot reaching the end as End does, and a finger dragging the thumb.
 
 ## Limitations
 
-- The grid's scroll bar shows where the grid is, and takes no press: the
-  wheel, a drag, the keys and the focus scroll it.
 - A map's size chip reads the first two numbers of its size text; a map
   whose size cannot be read matches no size chip.
 - The window is the size class's dialog size whatever the window's room

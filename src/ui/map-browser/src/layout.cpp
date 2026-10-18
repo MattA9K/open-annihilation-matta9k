@@ -978,7 +978,7 @@ void add_grid(Building& building, const PreviewHooks& previews) {
         scroll.limit = grid.limit;
         scroll.offset = grid.offset;
         add_item(building.list, kit::Role::scroll_bar, grid.well, {}).look =
-            kit::ScrollBarLook{scroll.thumb(metrics.least_thumb_height), false};
+            kit::ScrollBarLook{scroll.thumb(metrics.least_thumb_height), building.state->bar_held};
     }
 }
 

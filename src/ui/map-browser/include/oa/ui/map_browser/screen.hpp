@@ -99,7 +99,9 @@ struct ScreenState {
     /// The search field's text and caret. Its text is the filters' query:
     /// the input keeps them the same.
     kit::TextField search{};
-    Drag drag{}; ///< a press in the grid
+    Drag drag{};        ///< a press in the grid
+    bool bar_held{};    ///< the pointer holds the grid's scroll bar
+    int32_t bar_grab{}; ///< where on the thumb the pointer took hold, from its top
 };
 
 /// What the browser asks of its host.
@@ -193,7 +195,10 @@ void draw_browser(const kit::Canvas& canvas, const kit::DisplayList& list, kit::
 /// as the primary button; on Cancel, the close mark or the primary button
 /// it asks for them. A press in the grid that moves farther than its reach
 /// (a finger's, or a few points for a mouse) scrolls the grid instead, and
-/// presses nothing.
+/// presses nothing. A press on the grid's scroll bar holds it: on the thumb
+/// it grabs the thumb at the row pressed, on the well the thumb's middle
+/// jumps to the pointer, and the thumb then follows the pointer until the
+/// release.
 ///
 /// @param[in,out] browser the browser
 /// @param[in,out] state the screen's state
