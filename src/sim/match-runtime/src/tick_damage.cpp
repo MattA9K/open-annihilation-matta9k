@@ -591,6 +591,8 @@ void Match::teardown_dead_unit(
         sim::air::air_goal_unlink(&order->air_goal, &slot.record);
     for (auto& goal : mirrored_air_goals_)
         sim::air::air_goal_unlink(&goal, &slot.record);
+    for (auto& driver : air_drivers_)
+        sim::air::air_goal_unlink(&driver.arrived, &slot.record);
     auto& player = world_.players.at(slot.record.owner_index);
     if (player.current_count && --player.current_count == 0 && last_unit.lost != nullptr)
         last_unit.lost(last_unit.context, slot.record.owner_index);

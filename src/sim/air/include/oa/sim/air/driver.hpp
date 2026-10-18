@@ -41,6 +41,7 @@ struct AirDriver {
     uint16_t heading{};   // heading to hold
     uint8_t flags{};      // driver_* bits
     bool local{};         // owning-machine driver vs mirrored copy
+    AirGoal arrived{};    // goal dropped on arrival this tick with a delta due; kind none otherwise
 };
 
 // What the flight step steers toward.
@@ -94,7 +95,10 @@ void air_driver_set_goal(AirDriver* driver, AirGoal* goal) noexcept;
 /// Refreshes the point, its displacement and the heading: beyond 10 world units
 /// the point takes cruise altitude, and beyond 20 (or 1 when the goal leaves the
 /// heading free) the unit faces the point. Arrival raises ground_orders::arrived_event
-/// and drops a goal that is not tracking a unit.
+/// and drops a goal that is not tracking a unit. The drop does not make the
+/// driver due to be sent, since a mirrored copy drops the goal at the same
+/// step; when a delta is already due, the driver keeps the dropped goal for it
+/// (air_driver_sent_goal) until its next update.
 ///
 /// @param[in,out] driver the driver
 /// @param host world queries for the goal
@@ -109,6 +113,13 @@ void air_driver_track_goal(AirDriver* driver, const AirHost& host) noexcept;
 /// @param host world queries for the goal
 /// @param movement_layer the unit's movement layer (layer_ground or layer_air)
 void air_driver_update(AirDriver* driver, const AirHost& host, uint8_t movement_layer) noexcept;
+
+/// Returns the goal a delta sent now carries: the installed goal, else one
+/// dropped on arrival this tick while a delta was due, else none.
+///
+/// @param driver the driver
+/// @return the goal, or null
+[[nodiscard]] const AirGoal* air_driver_sent_goal(const AirDriver* driver) noexcept;
 
 /// Returns what the flight step steers toward.
 ///

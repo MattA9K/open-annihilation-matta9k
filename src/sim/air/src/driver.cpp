@@ -69,16 +69,34 @@ void air_driver_track_goal(AirDriver* driver, const AirHost& host) noexcept {
     if (!air_goal_arrived(goal, host, unit))
         return;
     air_goal_raise(goal, ground_orders::arrived_event);
-    if (!air_goal_is_tracking(goal))
-        air_driver_set_goal(driver, nullptr);
+    if (air_goal_is_tracking(goal))
+        return;
+    // A mirrored copy steps after it applies this tick's delta and drops the
+    // goal at this same step. So the drop alone is not sent: a delta saying
+    // so would reach the copy before its step and cost it this step's
+    // heading. A delta already due carries the dropped goal instead, which
+    // the copy installs, steers toward once and drops as this driver did.
+    const bool due = (driver->flags & driver_resend) != 0;
+    if (due)
+        driver->arrived = *goal;
+    air_driver_set_goal(driver, nullptr);
+    if (!due)
+        driver->flags = static_cast<uint8_t>(driver->flags & ~driver_resend);
 }
 
 void air_driver_update(AirDriver* driver, const AirHost& host, uint8_t movement_layer) noexcept {
+    driver->arrived = AirGoal{};
     if (driver->local &&
         (movement_layer & 3u) !=
             ((static_cast<uint32_t>(driver->flags) >> driver_sent_layer_shift) & 3u))
         driver->flags |= driver_resend;
     air_driver_track_goal(driver, host);
+}
+
+const AirGoal* air_driver_sent_goal(const AirDriver* driver) noexcept {
+    if (driver->goal != nullptr)
+        return driver->goal;
+    return driver->arrived.kind != AirGoalKind::none ? &driver->arrived : nullptr;
 }
 
 AirSteeringTarget air_driver_steering_target(const AirDriver* driver) noexcept {
