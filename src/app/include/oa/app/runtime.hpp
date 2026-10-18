@@ -2576,6 +2576,16 @@ class Runtime final : public menu::Host,
     ///     data lacks it, which leaves the HUD without the side's panels
     std::string match_side_panel_gaf() const;
 
+    /// Returns the name a side's own panel art would have in its intgaf for
+    /// a page's panel (RUMINT.gaf and ARMPAN2 give RUMPAN2), or empty when
+    /// either name has no such shape; see load_match_hud_layout.
+    ///
+    /// @param side_gaf the path of the viewed side's intgaf; empty when none
+    /// @param page_panel the panel the page names
+    /// @return the side's own name, or empty
+    static std::string
+    side_panel_art_name(const std::string& side_gaf, const std::string& page_panel);
+
     /// Returns the font the viewed side's resource numbers, unit panel and
     /// squad numbers are drawn in: the file in fonts/ that the side's
     /// SIDEDATA font names, from fonts-<language> when that folder holds it

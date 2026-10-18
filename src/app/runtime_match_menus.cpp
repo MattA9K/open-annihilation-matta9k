@@ -1533,6 +1533,35 @@ std::optional<Runtime::LoadGameRows> Runtime::load_game_rows() const {
     return rows;
 }
 
+/// Returns the name a side's own panel art would have in its intgaf for a
+/// page's panel: the GAF's stem without a trailing INT, then the page's
+/// name without its first three letters, its side. RUMINT.gaf and ARMPAN2
+/// give RUMPAN2. Empty when either name has no such shape.
+///
+/// @param side_gaf the path of the viewed side's intgaf; empty when none
+/// @param page_panel the panel the page names
+/// @return the side's own name for it, in the page's case; empty when none
+std::string
+Runtime::side_panel_art_name(const std::string& side_gaf, const std::string& page_panel) {
+    if (side_gaf.empty() || page_panel.size() <= 3)
+        return {};
+    // The path comes '\\'-separated from the side table; the stem is its
+    // last part without the extension.
+    std::string stem = side_gaf.substr(side_gaf.find_last_of("/\\") + 1);
+    if (const auto dot = stem.rfind('.'); dot != std::string::npos)
+        stem.resize(dot);
+    const auto upper = [](char c) {
+        return static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    };
+    std::string tail = stem.size() > 3 ? stem.substr(stem.size() - 3) : std::string();
+    std::transform(tail.begin(), tail.end(), tail.begin(), upper);
+    if (tail != "INT")
+        return {};
+    stem.resize(stem.size() - 3);
+    std::transform(stem.begin(), stem.end(), stem.begin(), upper);
+    return stem + page_panel.substr(3);
+}
+
 bool Runtime::load_match_hud_layout(const std::string& layout, oa::ui::hud::SidePage side_page) {
     // A new panel's scroll bars are bound once it is placed.
     hud_scrolls_ = {};
@@ -1668,18 +1697,26 @@ bool Runtime::load_match_hud_layout(const std::string& layout, oa::ui::hud::Side
     );
     // A unit's page draws the art its panel names (ARMPAN and the like) at
     // the panel's place, over the column's chrome and under its controls.
+    // A side whose intgaf carries panel art of its own, named by the GAF's
+    // stem without INT and the page's name without its side (RUMINT.gaf
+    // holding RUMPAN and RUMPAN2 for a page that names ARMPAN or ARMPAN2),
+    // draws that instead: a third side's pages are download-template pages
+    // named by its nameprefix, so they can only ask for Arm's or Core's.
     if (const auto* fields = header != nullptr
                                  ? std::get_if<oa::ui::gui_layout::PanelFields>(&header->fields)
                                  : nullptr;
-        side_page != oa::ui::hud::SidePage::other && fields != nullptr && !fields->panel.empty())
+        side_page != oa::ui::hud::SidePage::other && fields != nullptr && !fields->panel.empty()) {
+        const oa::formats::gaf::Archive* source = &match_hud_->sprites;
+        std::string name = fields->panel;
+        if (const std::string own = side_panel_art_name(panel, fields->panel);
+            !own.empty() && gaf_sequence(match_hud_->shared_sprites, own) != nullptr) {
+            source = &match_hud_->shared_sprites;
+            name = own;
+        }
         overlay_gaf_sequence(
-            match_hud_->background,
-            match_hud_->sprites,
-            fields->panel,
-            header->common.x,
-            header->common.y,
-            icon_palette
+            match_hud_->background, *source, name, header->common.x, header->common.y, icon_palette
         );
+    }
     draw_match_bars(0);
     // The panel's image records go over the chrome: ARMOPT's OPTBG and
     // PREFS's IGOPT in the command well, under the radar PANELSIDE frames.
