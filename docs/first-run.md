@@ -178,7 +178,10 @@ file is being copied its name is the line under the bundle's name. Once
 that bundle is complete the file's name goes, and that same line says
 the result, such as "All files match" or "17 of 18 tracks". The row
 keeps its height, so the bundles under it stay put. A track the music
-bundle never held is a note, and is not a failure. While the copy runs
+bundle never held is a note, and is not a failure. So is a movie the
+source holds at another size than Total Annihilation 3.1c's: it is left
+out, the game plays without it, and the line names it with both sizes,
+such as "Data/2.zrb left out: 41000000 bytes, not 41229000". While the copy runs
 the footer's right-hand button is **Pause**, drawn plain. Once the check
 is done it is **Continue**, in the accent, and counts down.
 
@@ -201,6 +204,31 @@ online features. A key, a pointer press, the wheel or a gamepad stops the
 countdown. Moving the pointer does not. When the check finds a difference,
 the rows say so and **Continue** waits for a press. **Quit** or **Skip**
 is still there.
+
+![The copying step stopped before it began: a question over it says Your Total Annihilation has been changed, names rev31.gp3 from Total Annihilation 3.1c and ccdata.ccx from Core Contingency with their sizes there and the sizes they should be, and offers Choose another place and Quit.](images/first-run/changed.png)
+
+When the place chosen holds an archive at another size than Total
+Annihilation 3.1c's, as a mod or another program leaves it, the copy
+stops before it begins and nothing is copied. That is one of the base
+game's archives (`rev31.gp3`, `totala1.hpi`, `totala2.hpi`, or the demo's
+`TADemo.hpi`), or an archive of an expansion the place holds, such as
+Core Contingency's `ccdata.ccx` or Battle Tactics' `tactics1.hpi`. An
+expansion the place holds none of is simply not there, and stops nothing.
+A question over the step, "Your Total Annihilation has been changed",
+names each such archive in one list, with the base game or the expansion
+it is from, its size there and the size it should be, and says that Open
+Annihilation needs a fresh Total Annihilation install, without mods, to
+set up its copy. Past six archives it names five and counts the rest,
+which the game's log names. **Choose another place**, in the accent and
+marked, returns to the game step, and so does Escape. Beside it is the
+walk's **Quit** or **Skip**. While the question shows, only its buttons
+take the keys and the pointer.
+
+A copy that stopped part way opens this setup again at the next start, and
+a copy from the same place goes on from the files already copied. The
+setup does not open once the base game's
+copy names every one of its files. A start that then cannot play the copy
+says why and stops ([a copy that does not finish](troubleshooting.md#the-copy-of-the-game-does-not-finish)).
 
 ## Online features
 

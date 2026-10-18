@@ -325,9 +325,11 @@ the game draws its text and how the modern fonts draw it.
 
 - **Maximum frame rate**, 30 to 120 frames a second in steps of 5, 120 by
   default. It caps how many pictures the game draws a second; the game
-  itself plays at the same speed whatever it is. Lower it to save power,
-  heat or battery, or to keep a slow computer's frame rate steady. It takes
-  effect at once.
+  itself plays at the same speed whatever it is. Above 30, the game's 30
+  ticks a second, the pictures between two ticks show units and shots on
+  their way from one tick to the next, unless **Smooth motion** is Off.
+  Lower it to save power, heat or battery, or to keep a slow computer's
+  frame rate steady. It takes effect at once.
 - **Enhanced anti-aliasing**, Off, 2x, 4x, 8x or 16x, Off by default. It
   smooths the jagged edges of units. While the processor draws the
   battlefield (Hardware acceleration Off or Basic), units are drawn at that
@@ -428,6 +430,22 @@ the game draws its text and how the modern fonts draw it.
   it on if you see tearing lines when the view scrolls. It takes effect at
   once, keeps its value for the length of a multiplayer game or a replay,
   and shows "Not available here" where the renderer cannot offer it.
+- **Smooth motion**, Off or On, On by default. The game plays 30 ticks a
+  second and draws up to Maximum frame rate pictures a second. On, the
+  pictures between two ticks show units, the parts of them that move and
+  spin, shots, debris and sparks part of the way from one tick to the next,
+  so they move smoothly. Off draws every picture where the latest tick left
+  them, as the game drew them, so they move 30 times a second however many
+  pictures are drawn, and the pictures between two ticks repeat the tick's;
+  the units of a player on another machine still move from tick to tick
+  evenly between that machine's updates. A fast spin, such as a moho mine's
+  arms, then seems to turn more slowly or to flicker, as it did in the
+  original game; On shows its true speed. The frame rate, the camera's
+  scrolling and zoom, the pointer and the interface are the same either way,
+  and a camera following a unit keeps it still on the screen. It changes
+  only what your screen shows, never the game, and takes effect at once, in
+  a multiplayer game or a replay too. Turn it off if you prefer the original
+  game's look.
 - **Native pixel density**, Off by default; it applies from the next start.
   The window opens at the display's own pixel density, the Retina
   resolution on a Mac, in place of the window system's, so the picture can

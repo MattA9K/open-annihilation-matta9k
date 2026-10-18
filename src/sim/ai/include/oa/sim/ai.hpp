@@ -154,7 +154,9 @@ struct ComputerPlayers {
     ComputerPlayer players[OA_PLAYER_COUNT]{};
     uint8_t initialized{};
     uint8_t downloadables_restricted{}; // options state 1 skips downloadable types
-    bool plan_matches{}; // the last plan line named the difficulty; kept between passes
+    // The last plan line named the difficulty; kept between passes. It starts
+    // matched, so the lines before a profile's first plan line apply.
+    bool plan_matches{true};
     // A difficulty chosen for one computer player (0 easy, 1 medium, 2 hard).
     // difficulty_set false leaves that player on the game's difficulty, which
     // is what a zeroed ComputerPlayer would have meant and must not.
@@ -391,7 +393,7 @@ void computer_knowledge_settle(ComputerKnowledge& knowledge, const KnowledgeTall
 /// Applies an AI profile ("plan", "weight", "limit" lines) to every controller.
 ///
 /// The three directives behave as the console's ai_plan, ai_weight and ai_limit; the
-/// plan flag starts unmatched.
+/// plan flag starts matched, so the lines before the first plan line apply.
 ///
 /// @param[in,out] state computer players
 /// @param host world and difficulty

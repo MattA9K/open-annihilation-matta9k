@@ -3,7 +3,11 @@
 
 // The managed copy over a fixture install: a stopped copy continues, the
 // source keeps its bytes and times, a Wineskin drive_c is preferred to a
-// decoy of the same size, and a run nobody is watching does not copy.
+// decoy of the same size, and a run nobody is watching does not copy. A
+// base game whose copy stopped is not taken as copied. A movie the source
+// holds at another size is left out and named; an archive of a base game,
+// or of an expansion the source holds, at another size stops the copy
+// before anything is copied.
 #include "oa/app/content_copy.hpp"
 #include "oa/base/sha256.hpp"
 #include "oa/platform/file_clone.hpp"
@@ -279,6 +283,9 @@ void test_resume(const fs::path& scratch) {
     const oa::app::CopyResult first = oa::app::copy_content(source, request);
     OA_CHECK(first.status == oa::app::CopyStatus::stopped);
     OA_CHECK(first.files_copied == 1);
+    // The record names rev31.gp3 alone. The base game cannot be played yet,
+    // so the next start offers the copy again rather than taking it as made.
+    OA_CHECK(!oa::app::managed_base_present(user, oa::app::copy_check_bundles()));
     const fs::path partial =
         user / std::string(oa::app::managed_games_folder) / "totala" / "Data" / "2.zrb.part";
     std::error_code failure;
@@ -953,6 +960,304 @@ void test_finished_copy_counts_taken(const fs::path& scratch) {
     OA_CHECK(oa::app::copy_file_percent({tally.done, tally.total}) == 100);
 }
 
+/// A source that holds a movie at another size: the copy records it as not
+/// in the source, with that size, says so, and finishes, and the base game
+/// is taken as copied. The check names the movie with both sizes and finds
+/// no difference. A later copy from a whole source stores the movie.
+void test_movie_size_differs(const fs::path& scratch) {
+    const fs::path install = scratch / "install";
+    const fs::path user = scratch / "user";
+    write_cased_install(install);
+    place_file(install / "data" / "2.ZRB", "a movie of another size\n");
+    oa::app::FolderContentSource source(install, oa::app::copy_check_bundles());
+    std::ostringstream news;
+    oa::app::CopyRequest request = byte_request(user);
+    request.news = &news;
+    const oa::app::CopyResult copied = oa::app::copy_content(source, request);
+    OA_CHECK(copied.status == oa::app::CopyStatus::finished);
+    OA_CHECK(copied.files_copied == 2);
+    OA_CHECK(copied.changed.empty());
+    const auto files = oa::app::copy_check_files();
+    const std::string expected = std::to_string(files[1].bytes.size());
+    OA_CHECK(
+        news.str().find(
+            "open-annihilation: Data/2.zrb of Total Annihilation is left out: the source holds it "
+            "at 24 bytes, not " +
+            expected + "\n"
+        ) != std::string::npos
+    );
+    std::string error;
+    const fs::path totala = user / std::string(oa::app::managed_games_folder) / "totala";
+    const oa::app::ContentRecord record =
+        oa::app::read_content_record(totala / std::string(oa::app::content_record_name), &error);
+    OA_CHECK(record.valid);
+    bool recorded = false;
+    for (const oa::app::ContentRecordFile& item : record.files) {
+        if (item.copy_name != "Data/2.zrb")
+            continue;
+        recorded = true;
+        OA_CHECK(item.not_in_source);
+        OA_CHECK(item.source_size == 24);
+    }
+    OA_CHECK(recorded);
+    std::error_code failure;
+    OA_CHECK(!fs::exists(totala / "Data" / "2.zrb", failure));
+    OA_CHECK(oa::app::managed_base_present(user, oa::app::copy_check_bundles()));
+
+    const oa::app::ContentCheck check =
+        oa::app::check_managed_content(user, oa::app::copy_check_bundles());
+    OA_CHECK(!oa::app::content_notice_due(check));
+    const oa::app::ContentBundleCheck* base = bundle_named(check, "totala");
+    OA_CHECK(base != nullptr);
+    if (base != nullptr) {
+        OA_CHECK(base->files_differ == 0);
+        OA_CHECK(base->files_not_in_source == 1);
+        OA_CHECK(base->left_out.size() == 1);
+        OA_CHECK(
+            oa::app::content_bundle_line(*base) == "Data/2.zrb left out: 24 bytes, not " + expected
+        );
+    }
+    oa::app::ContentBundleCheck two = base != nullptr ? *base : oa::app::ContentBundleCheck{};
+    two.left_out.push_back({"Data/5.zrb", 7, 9});
+    OA_CHECK(
+        oa::app::content_bundle_line(two) ==
+        "2 files left out for their size: Data/2.zrb, Data/5.zrb"
+    );
+
+    const fs::path whole = scratch / "whole";
+    write_cased_install(whole);
+    oa::app::FolderContentSource other(whole, oa::app::copy_check_bundles());
+    const oa::app::CopyResult finished = oa::app::copy_content(other, byte_request(user));
+    OA_CHECK(finished.status == oa::app::CopyStatus::finished);
+    OA_CHECK(finished.files_copied == 1);
+    OA_CHECK(read_bytes(totala / "Data" / "2.zrb") == files[1].bytes);
+    const oa::app::ContentCheck rechecked =
+        oa::app::check_managed_content(user, oa::app::copy_check_bundles());
+    const oa::app::ContentBundleCheck* whole_base = bundle_named(rechecked, "totala");
+    OA_CHECK(whole_base != nullptr && whole_base->left_out.empty());
+    OA_CHECK(
+        whole_base != nullptr && oa::app::content_bundle_line(*whole_base) == "All files match"
+    );
+}
+
+/// A source that holds a base game's archive at another size has been
+/// changed: the copy stops before anything is copied, names the archive
+/// with both sizes, and leaves nothing taken as copied. A start's own copy
+/// refuses it with the same reason. A later copy from a whole source
+/// finishes as usual.
+void test_archive_size_differs(const fs::path& scratch) {
+    const fs::path install = scratch / "install";
+    const fs::path user = scratch / "user";
+    write_cased_install(install);
+    place_file(install / "REV31.GP3", "a revision of another size\n");
+    oa::app::FolderContentSource source(install, oa::app::copy_check_bundles());
+    std::ostringstream news;
+    oa::app::CopyRequest request = byte_request(user);
+    request.news = &news;
+    const oa::app::CopyResult stopped = oa::app::copy_content(source, request);
+    OA_CHECK(stopped.status == oa::app::CopyStatus::changed);
+    OA_CHECK(stopped.files_copied == 0);
+    OA_CHECK(stopped.bytes_copied == 0);
+    const auto files = oa::app::copy_check_files();
+    OA_CHECK(stopped.changed.size() == 1);
+    if (stopped.changed.size() == 1) {
+        OA_CHECK(stopped.changed[0].bundle_id == "totala");
+        OA_CHECK(stopped.changed[0].copy_name == "rev31.gp3");
+        OA_CHECK(stopped.changed[0].source_size == 27);
+        OA_CHECK(stopped.changed[0].size == files[0].bytes.size());
+    }
+    OA_CHECK(stopped.error.find("has been changed") != std::string::npos);
+    OA_CHECK(
+        news.str().find(
+            "open-annihilation: rev31.gp3 of Total Annihilation is not copied: the source holds "
+            "it at 27 bytes, not " +
+            std::to_string(files[0].bytes.size()) + "\n"
+        ) != std::string::npos
+    );
+    OA_CHECK(news.str().find("Copying the game") == std::string::npos);
+    std::error_code failure;
+    OA_CHECK(!fs::exists(user / std::string(oa::app::managed_games_folder), failure));
+    OA_CHECK(!fs::exists(user / std::string(oa::app::managed_expansions_folder), failure));
+    OA_CHECK(!oa::app::managed_base_present(user, oa::app::copy_check_bundles()));
+
+    oa::app::ManagedCopyRequest start;
+    start.installation = install;
+    start.user_folder = scratch / "started";
+    start.user_folder_known = true;
+    start.bundles = oa::app::copy_check_bundles();
+    bool refused = false;
+    try {
+        oa::app::ensure_managed_copy(start);
+    } catch (const std::runtime_error& error) {
+        refused = std::string(error.what()).find("has been changed") != std::string::npos;
+    }
+    OA_CHECK(refused);
+
+    const fs::path whole = scratch / "whole";
+    write_cased_install(whole);
+    oa::app::FolderContentSource other(whole, oa::app::copy_check_bundles());
+    const oa::app::CopyResult finished = oa::app::copy_content(other, byte_request(user));
+    OA_CHECK(finished.status == oa::app::CopyStatus::finished);
+    OA_CHECK(finished.files_copied == 3);
+    check_copied_tree(user);
+    OA_CHECK(oa::app::managed_base_present(user, oa::app::copy_check_bundles()));
+}
+
+/// An expansion the source holds, whose archive is at another size, stops
+/// the copy as the base game's does: the campaign's totala4.hpi here, then
+/// one of two archives of an expansion whose other archive matches, listed
+/// with a base game's archive in the table's order. Nothing is recorded, a
+/// start's own copy refuses it, and a clean copy then finishes. An
+/// expansion the source holds none of stops nothing, and one whose archives
+/// all match is copied as usual.
+void test_expansion_archive_size_differs(const fs::path& scratch) {
+    const auto files = oa::app::copy_check_files();
+    const fs::path install = scratch / "install";
+    const fs::path user = scratch / "user";
+    write_cased_install(install);
+    place_file(install / "totala4.hpi", "a campaign archive of another size\n");
+    oa::app::FolderContentSource source(install, oa::app::copy_check_bundles());
+    std::ostringstream news;
+    oa::app::CopyRequest request = byte_request(user);
+    request.news = &news;
+    const oa::app::CopyResult stopped = oa::app::copy_content(source, request);
+    OA_CHECK(stopped.status == oa::app::CopyStatus::changed);
+    OA_CHECK(stopped.files_copied == 0);
+    OA_CHECK(stopped.changed.size() == 1);
+    if (stopped.changed.size() == 1) {
+        OA_CHECK(stopped.changed[0].bundle_id == "campaign");
+        OA_CHECK(stopped.changed[0].copy_name == "totala4.hpi");
+        OA_CHECK(stopped.changed[0].source_size == 35);
+        OA_CHECK(stopped.changed[0].size == files[2].bytes.size());
+    }
+    OA_CHECK(
+        news.str().find("open-annihilation: totala4.hpi of Campaign is not copied") !=
+        std::string::npos
+    );
+    std::error_code failure;
+    OA_CHECK(!fs::exists(user / std::string(oa::app::managed_games_folder), failure));
+    OA_CHECK(!fs::exists(user / std::string(oa::app::managed_expansions_folder), failure));
+    oa::app::ManagedCopyRequest start;
+    start.installation = install;
+    start.user_folder = scratch / "started";
+    start.user_folder_known = true;
+    start.bundles = oa::app::copy_check_bundles();
+    bool refused = false;
+    try {
+        oa::app::ensure_managed_copy(start);
+    } catch (const std::runtime_error& error) {
+        refused = std::string(error.what()).find("has been changed") != std::string::npos;
+    }
+    OA_CHECK(refused);
+    OA_CHECK(
+        !fs::exists(scratch / "started" / std::string(oa::app::managed_games_folder), failure)
+    );
+    const fs::path whole = scratch / "whole";
+    write_cased_install(whole);
+    oa::app::FolderContentSource clean(whole, oa::app::copy_check_bundles());
+    const oa::app::CopyResult finished = oa::app::copy_content(clean, byte_request(user));
+    OA_CHECK(finished.status == oa::app::CopyStatus::finished);
+    OA_CHECK(finished.files_copied == 3);
+    check_copied_tree(user);
+
+    // A table with an expansion of two archives.
+    static const std::string first_bytes = "tactics-one\n";
+    static const std::string second_bytes = "tactics-two\n";
+    static oa::base::sha256::Digest first_digest;
+    static oa::base::sha256::Digest second_digest;
+    first_digest = digest_of(first_bytes);
+    second_digest = digest_of(second_bytes);
+    static constexpr std::string_view first_sources[]{"tactics1.hpi"};
+    static constexpr std::string_view second_sources[]{"tactics2.hpi"};
+    static constexpr std::string_view extends[]{"totala"};
+    static const oa::data::content_bundles::ContentFile tactics_files[]{
+        {"tactics1.hpi",
+         first_sources,
+         first_bytes.size(),
+         std::span<const oa::base::sha256::Digest>(&first_digest, 1)},
+        {"tactics2.hpi",
+         second_sources,
+         second_bytes.size(),
+         std::span<const oa::base::sha256::Digest>(&second_digest, 1)},
+    };
+    const auto base = oa::app::copy_check_bundles();
+    std::vector<oa::data::content_bundles::Bundle> table(base.begin(), base.end());
+    table.push_back(
+        {"tactics",
+         "Tactics",
+         oa::data::content_bundles::Kind::expansion,
+         extends,
+         {},
+         tactics_files}
+    );
+    const auto copy_with = [&](const fs::path& from, const fs::path& to) {
+        oa::app::FolderContentSource held(from, table);
+        oa::app::CopyRequest copy;
+        copy.user_folder = to;
+        copy.bundles = table;
+        copy.share_blocks = false;
+        return oa::app::copy_content(held, copy);
+    };
+    const fs::path tactics_folder = std::string(oa::app::managed_expansions_folder);
+
+    // Present, one archive at another size, with a base game's archive too.
+    const fs::path mixed = scratch / "mixed";
+    write_cased_install(mixed);
+    place_file(mixed / "REV31.GP3", "a revision of another size\n");
+    place_file(mixed / "tactics1.hpi", first_bytes);
+    place_file(mixed / "tactics2.hpi", "tactics of another size\n");
+    const oa::app::CopyResult both = copy_with(mixed, scratch / "mixed-user");
+    OA_CHECK(both.status == oa::app::CopyStatus::changed);
+    OA_CHECK(both.changed.size() == 2);
+    if (both.changed.size() == 2) {
+        OA_CHECK(both.changed[0].copy_name == "rev31.gp3");
+        OA_CHECK(both.changed[1].bundle_id == "tactics");
+        OA_CHECK(both.changed[1].copy_name == "tactics2.hpi");
+        OA_CHECK(both.changed[1].source_size == 24);
+        OA_CHECK(both.changed[1].size == second_bytes.size());
+    }
+    OA_CHECK(!fs::exists(scratch / "mixed-user", failure));
+
+    // Absent: the source holds none of the expansion's files.
+    const fs::path without = scratch / "without";
+    write_cased_install(without);
+    const oa::app::CopyResult absent = copy_with(without, scratch / "without-user");
+    OA_CHECK(absent.status == oa::app::CopyStatus::finished);
+    OA_CHECK(absent.changed.empty());
+    OA_CHECK(absent.files_copied == 3);
+    OA_CHECK(
+        !fs::exists(scratch / "without-user" / tactics_folder / "totala" / "tactics", failure)
+    );
+
+    // Present, and both archives the right size.
+    const fs::path matching = scratch / "matching";
+    write_cased_install(matching);
+    place_file(matching / "tactics1.hpi", first_bytes);
+    place_file(matching / "tactics2.hpi", second_bytes);
+    const fs::path matching_user = scratch / "matching-user";
+    const oa::app::CopyResult copied = copy_with(matching, matching_user);
+    OA_CHECK(copied.status == oa::app::CopyStatus::finished);
+    OA_CHECK(copied.changed.empty());
+    OA_CHECK(copied.files_copied == 5);
+    const fs::path tactics = matching_user / tactics_folder / "totala" / "tactics";
+    OA_CHECK(read_bytes(tactics / "tactics1.hpi") == first_bytes);
+    OA_CHECK(read_bytes(tactics / "tactics2.hpi") == second_bytes);
+    const oa::app::ContentRecord record =
+        oa::app::read_content_record(tactics / std::string(oa::app::content_record_name), nullptr);
+    OA_CHECK(oa::data::content_bundles::record_complete(table.back(), record));
+}
+
+/// Archives are told from movies and tracks by their suffix, in any case./// Archives are told from movies and tracks by their suffix, in any case.
+void test_archive_names() {
+    OA_CHECK(oa::app::archive_copy_name("rev31.gp3"));
+    OA_CHECK(oa::app::archive_copy_name("TOTALA1.HPI"));
+    OA_CHECK(oa::app::archive_copy_name("ccdata.ccx"));
+    OA_CHECK(oa::app::archive_copy_name("afark.ufo"));
+    OA_CHECK(!oa::app::archive_copy_name("Data/2.zrb"));
+    OA_CHECK(!oa::app::archive_copy_name("music/7.mp3"));
+    OA_CHECK(!oa::app::archive_copy_name(".hpi"));
+}
+
 void test_published_installer_listing() {
     struct Expect {
         uint64_t size{};
@@ -1074,6 +1379,10 @@ int main() {
     test_content_difference(scratch / "G03-difference");
     test_sibling_and_absent(scratch / "G26-music");
     test_finished_copy_counts_taken(scratch / "G59-count");
+    test_movie_size_differs(scratch / "movie-size");
+    test_archive_size_differs(scratch / "archive-size");
+    test_expansion_archive_size_differs(scratch / "expansion-size");
+    test_archive_names();
     test_published_installer_listing();
     test_published_installer_rejects_other_bytes(scratch / "G71-published");
     each_regular_file(scratch, unlock_one);

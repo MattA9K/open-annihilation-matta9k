@@ -972,6 +972,46 @@ void publish_managed_copy(
     return compose_managed_content(request, values);
 }
 
+/// Stops a start that has no game to play once the setup is done, and says why.
+///
+/// Such a start plays the player's copy, so the message says what is wrong
+/// with it (managed_copy_problem), or that the player's folder could not be
+/// found. main() writes it to the log and shows it. --check-game-files ends
+/// with its own verdict instead.
+///
+/// @param options the parsed command line
+/// @return the status --check-game-files ends with
+/// @throws std::runtime_error with the message, for every other start
+int stop_without_copy(const Options& options) {
+    if constexpr (self_checks_built)
+        if (options.check_game_files)
+            return finish_game_files_check(options, 1);
+    oa::platform::preferences::Values values;
+    fs::path user;
+    try {
+        const fs::path preferences = preference_file(options.preferences_file);
+        std::error_code failure;
+        if (fs::exists(preferences, failure) && !failure)
+            values = oa::platform::preferences::load(preferences);
+        std::string note;
+        user = own_user_folder(
+            options.user_folder, options.preferences_file, preferences, values, note
+        );
+    } catch (const std::exception& failure) {
+        throw std::runtime_error(
+            std::string(
+                "Open Annihilation could not find its own folder, where it keeps its "
+                "copy of the game: "
+            ) +
+            failure.what()
+        );
+    }
+    ManagedMount request{};
+    request.user_folder = std::move(user);
+    request.content = options.content;
+    throw std::runtime_error(managed_copy_problem(request, values));
+}
+
 /// Compares two names without regard to ASCII case.
 ///
 /// @param left one name
@@ -1698,8 +1738,11 @@ int run_once(
         if (setup == SetupBefore::skipped && !game_directory)
             return game_files_status(options, 0);
     }
+    // The setup shows while the copy is missing or not finished. A start
+    // here with no folder has a copy it cannot mount, or no player's folder,
+    // and says why rather than ending without a word.
     if (!game_directory && !copied_on_setup)
-        return game_files_status(options, 1);
+        return stop_without_copy(options);
     if (!copied_on_setup)
         publish_managed_copy(options, options.game_dir, options.game_dir_named);
     // A copy made on this start is what the start plays. --game-dir is left
@@ -1708,7 +1751,7 @@ int run_once(
         if (std::optional<GameDirectory> copied = compose_for_run(options))
             game_directory = std::move(copied);
         if (!game_directory)
-            return game_files_status(options, 1);
+            return stop_without_copy(options);
         options.game_dir = game_directory->installation;
     }
     if (!game_directory)

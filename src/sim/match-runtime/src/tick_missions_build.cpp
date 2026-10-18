@@ -231,9 +231,12 @@ uint32_t TickHost::GroundMissions::capture() {
         );
         const auto capped = costs < build::capture_tick_cap ? costs : build::capture_tick_cap;
         const auto maximum = static_cast<uint32_t>(prize_def.max_damage);
+        // A type with no maximum health takes a quotient of 0.
         const auto scaled =
-            (static_cast<uint32_t>(static_cast<int32_t>(prize->record.health)) + maximum) *
-            static_cast<uint32_t>(capped) / (maximum * 2);
+            maximum != 0
+                ? (static_cast<uint32_t>(static_cast<int32_t>(prize->record.health)) + maximum) *
+                      static_cast<uint32_t>(capped) / (maximum * 2)
+                : 0u;
         // The prize's veteran level (kills / 5 in 3.1c) raises the base of 10.
         const auto veterancy =
             sim::unit_health::veteran_capture_level(

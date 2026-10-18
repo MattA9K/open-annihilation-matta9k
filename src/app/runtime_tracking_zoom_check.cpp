@@ -9,7 +9,9 @@
 // zoom in from the whole map lands on the point under the pointer; the
 // limits the zoom's settings set; the view going past the map's edges until
 // the map's edge reaches the battlefield's middle, or the map's centre the
-// view's edge, and held there from a zoom past them; an aircraft past the
+// view's edge, and held there from a zoom past them; the first view of a
+// match, placed for the game's own screen, kept on the map on each window
+// at View past the map's edge Off; an aircraft past the
 // map's edge drawn, hovered and selected, as a model near and far and as a
 // dot; the camera saves and the digest take, held on the map; the far
 // view's dots and the black past the map taking presses; every zoom
@@ -20,6 +22,7 @@
 #include "oa/app/far_view.hpp"
 #include "engine_settings_state.hpp"
 #include "match_fault.hpp"
+#include "oa/sim/feature_runtime.hpp"
 
 #include <SDL3/SDL.h>
 
@@ -107,6 +110,11 @@ constexpr std::array<std::array<double, 2>, 4> kWholeMapAims{
 /// the view's limits, and frames it is given to get there.
 constexpr double kLimitScrollStep = 96.0;
 constexpr int kLimitScrollFrames = 2000;
+/// Map pixels in from the map's right and bottom edges the first view is
+/// centred at: nearer than half the game's own screen's battlefield, which
+/// holds that view at the map's edge, and farther, which leaves it short
+/// of the edge until a larger window's battlefield reaches past it.
+constexpr std::array<int32_t, 2> kFirstViewInsets{64, 300};
 
 /// Dots' widths from the centre of the commander's dot in the far view to
 /// the enemy's, so that the two stand apart.
@@ -922,6 +930,103 @@ void Runtime::check_zoom_limit_choices(
                  "choice changed in play eases the view within it\n";
 }
 
+void Runtime::check_first_view_on_window(
+    const std::function<void()>& frame, const std::vector<std::array<int, 2>>& windows
+) {
+    namespace settings = oa::ui::engine_settings;
+    namespace features = oa::sim::feature_runtime;
+    const auto saved_layout = match_layout_;
+    const bool saved_paused = match_paused_;
+    const settings::EngineSettings saved = engine_settings();
+    match_paused_ = true;
+    match_pointer_known_ = false;
+    stop_match_tracking();
+    auto chosen = engine_settings();
+    chosen.view_past_map_edge = settings::ViewPastMapEdge::off;
+    apply_engine_settings(chosen);
+    // The map the view stays on is the tile grid less the last 32 map
+    // pixels across and the last 128 down, which the game never shows.
+    const auto [map_width, map_height] = shown_map_size();
+    if (map_width !=
+            static_cast<int32_t>(selected_tnt_->tile_width * 32U) - features::hidden_right_edge ||
+        map_height !=
+            static_cast<int32_t>(selected_tnt_->tile_height * 32U) - features::hidden_bottom_edge)
+        fail("the map shown is not the tile grid less the edges the game never shows");
+    const std::array<int32_t, 2> map_size{map_width, map_height};
+    // At zoom 1 the view shows the battlefield's pixels of the map: from a
+    // camera within the map's start and its end less the battlefield, or
+    // with the map centred in a battlefield larger than it.
+    const auto require_camera = [&](const std::string& what, std::array<int32_t, 2> asked) {
+        const std::array<int32_t, 2> battlefield{
+            match_layout_.battlefield_width(), match_layout_.battlefield_height()
+        };
+        const std::array<int32_t, 2> camera{match_camera_x_, match_camera_z_};
+        for (std::size_t axis = 0; axis < 2; ++axis) {
+            const int32_t room = map_size[axis] - battlefield[axis];
+            const int32_t wanted = room >= 0 ? std::clamp(asked[axis], 0, room) : room / 2;
+            if (std::abs(camera[axis] - wanted) > (room >= 0 ? 0 : 1))
+                fail(
+                    what + ": the view shows " + (axis == 0 ? "columns " : "rows ") +
+                    std::to_string(camera[axis]) + " to " +
+                    std::to_string(camera[axis] + battlefield[axis]) + " of a map of " +
+                    std::to_string(map_size[axis]) + ", not from " + std::to_string(wanted)
+                );
+        }
+    };
+    for (const auto& window : windows) {
+        const auto size = std::to_string(window[0]) + "x" + std::to_string(window[1]);
+        for (const int32_t inset : kFirstViewInsets) {
+            // Points that inset from the map's right edge, its bottom edge
+            // and its bottom right corner.
+            const std::array<std::array<int32_t, 2>, 3> points{
+                {{map_width - inset, map_height / 2},
+                 {map_width / 2, map_height - inset},
+                 {map_width - inset, map_height - inset}}
+            };
+            for (const auto& point : points) {
+                const std::string what = size + ": the first view centred at " +
+                                         std::to_string(point[0]) + "," + std::to_string(point[1]);
+                // As a match's start places it: centred on the point for the
+                // game's own screen, the layout the match keeps until it is
+                // laid out for the window, which its first frame then draws.
+                match_zoom_ = match_zoom_target_ = kDefaultBattlefieldZoom;
+                match_layout_ = {};
+                view_hold_ = {};
+                set_camera_position(
+                    point[0] - kBattlefieldWidth / 2, point[1] - kBattlefieldHeight / 2, 0
+                );
+                const std::array<int32_t, 2> placed{match_camera_x_, match_camera_z_};
+                match_layout_ = lay_out_match(window[0], window[1]);
+                render_match_surface();
+                require_camera(what, placed);
+                // Scrolls right and down until the view stops: at the map's
+                // right and bottom edges.
+                std::array<double, 2> last{};
+                for (int frames = 0; frames < kLimitScrollFrames; ++frames) {
+                    scroll_match_view(1, 1, kLimitScrollStep);
+                    frame();
+                    render_match_surface();
+                    const auto now = match_view_place();
+                    if (frames != 0 && now == last)
+                        break;
+                    last = now;
+                }
+                require_camera(what + ", scrolled right and down", map_size);
+            }
+        }
+    }
+    apply_engine_settings(saved);
+    match_layout_ = saved_layout;
+    match_zoom_ = match_zoom_target_ = kDefaultBattlefieldZoom;
+    match_paused_ = saved_paused;
+    view_hold_ = {};
+    render_match_surface();
+    std::cout << "tracking zoom check: at View past the map's edge Off, a first view placed "
+                 "for the game's own screen near the map's right edge, its bottom edge and its "
+                 "bottom right corner is drawn on the map on each window, and a scroll right and "
+                 "down stops at the map's edges\n";
+}
+
 void Runtime::check_view_past_map(const std::function<void()>& frame) {
     namespace settings = oa::ui::engine_settings;
     namespace match_runtime = oa::sim::match_runtime;
@@ -1341,11 +1446,13 @@ void Runtime::check_tracking_zoom(NavigationGroup group) {
 
     if (limits_only) {
         check_zoom_limit_choices(frame, limit_windows, false);
+        check_first_view_on_window(frame, limit_windows);
         return_to_skirmish_menu();
         return;
     }
     check_zoom_about_pointer(frame);
     check_zoom_limit_choices(frame, limit_windows, true);
+    check_first_view_on_window(frame, limit_windows);
     check_view_past_map(frame);
 
     // Ctrl+C follows the commander as it walks, or, where the side's

@@ -6,8 +6,9 @@
 // changes; the Alt+Enter key that switches between full screen and a window,
 // the mode the player last asked for while the window system is still
 // switching to it, the pointer kept on the game's screen in full screen, the
-// window brought back onto its display when it leaves full screen, and the
-// window's title bar and borders hidden while a game is played.
+// window brought back onto its display when it leaves full screen, the
+// window's title bar and borders hidden while a game is played, and the line
+// --trace-input writes of the window, its display and the pointer.
 #pragma once
 
 #include <SDL3/SDL.h>
@@ -347,6 +348,113 @@ void keep_pointer_on_screen(SDL_Window* window);
 ///
 /// @param window the game's window; null does nothing
 void release_pointer(SDL_Window* window);
+
+/// How far each edge of a window lies inside a display, in the desktop's
+/// coordinates: above 0 inside the display, 0 on the display's own edge, and
+/// below 0 past it, where the pointer cannot reach that edge of the window.
+struct WindowEdges {
+    int64_t left{};   ///< from the display's left edge to the window's
+    int64_t top{};    ///< from the display's top edge to the window's
+    int64_t right{};  ///< from the window's right edge to the display's
+    int64_t bottom{}; ///< from the window's bottom edge to the display's
+
+    /// Tells whether the window lies exactly over the display.
+    ///
+    /// @return true when every edge lies on the display's
+    [[nodiscard]] constexpr bool covers() const noexcept {
+        return left == 0 && top == 0 && right == 0 && bottom == 0;
+    }
+};
+
+/// Returns how far each edge of a window lies inside a display.
+///
+/// @param window the window's contents, in the desktop's coordinates
+/// @param display the display's bounds, in the desktop's coordinates
+/// @return each edge's distance inside the display
+[[nodiscard]] constexpr WindowEdges
+window_edges(const SDL_Rect& window, const SDL_Rect& display) noexcept {
+    const auto wide = [](int value) { return static_cast<int64_t>(value); };
+    return {
+        wide(window.x) - wide(display.x),
+        wide(window.y) - wide(display.y),
+        wide(display.x) + wide(display.w) - (wide(window.x) + wide(window.w)),
+        wide(display.y) + wide(display.h) - (wide(window.y) + wide(window.h)),
+    };
+}
+
+/// Where the pointer is against the game's window and the display it is on.
+enum class PointerPlace : uint8_t {
+    window,    ///< over the window's contents
+    display,   ///< outside the window, on its display
+    elsewhere, ///< off the window's display
+};
+
+/// Returns where a point of the desktop lies against a window and its display.
+///
+/// A rectangle holds the points of its left and top edges, not those of its
+/// right and bottom edges.
+///
+/// @param x the point's column, in the desktop's coordinates
+/// @param y the point's row, in the desktop's coordinates
+/// @param window the window's contents, in the desktop's coordinates
+/// @param display the display's bounds, in the desktop's coordinates
+/// @return where the point lies
+[[nodiscard]] PointerPlace
+pointer_place(float x, float y, const SDL_Rect& window, const SDL_Rect& display) noexcept;
+
+/// What `--trace-input` writes of the game's window: where it lies on its
+/// display, its state, how the pointer is held, and where the pointer is.
+struct WindowTrace {
+    std::string_view reason; ///< what the line is for: traced_window_event's word, or "match"
+    SDL_Rect window{};       ///< the window's contents, in the desktop's coordinates
+    int pixel_width{};       ///< the contents' width in pixels
+    int pixel_height{};      ///< the contents' height in pixels
+    SDL_DisplayID display{}; ///< the display the window is on; 0 when SDL names none
+    SDL_Rect bounds{};       ///< the display's bounds, in the desktop's coordinates
+    /// The display's usable area, without the taskbar, the menu bar or the
+    /// dock, in the desktop's coordinates.
+    SDL_Rect usable{};
+    float scale{};           ///< the window's display scale, as SDL_GetWindowDisplayScale gives it
+    SDL_WindowFlags flags{}; ///< the window's flags, as SDL_GetWindowFlags reports them
+    bool exclusive{}; ///< full screen takes a display mode of its own (SDL_GetWindowFullscreenMode)
+    /// The part of the window the pointer is held in (SDL_GetWindowMouseRect);
+    /// none for the whole window.
+    std::optional<SDL_Rect> mouse_rect;
+    float pointer_x{}; ///< the pointer's column, in the desktop's coordinates
+    float pointer_y{}; ///< the pointer's row, in the desktop's coordinates
+};
+
+/// Returns the line `--trace-input` writes of the game's window.
+///
+/// The line begins "input window" and the reason, then gives, as words of
+/// the form name=value: the window's contents (window=x,y,WxH) and its size
+/// in pixels, the display's number, bounds and usable area, the display
+/// scale, how far each edge of the window lies inside the display
+/// (window_edges; "covers" when the window lies exactly over it), the
+/// window's state (full screen, on its own display mode, maximised,
+/// minimised, hidden, borderless, the input focus, the pointer's focus, the
+/// window's grab and the capture while a button is held; "none" without
+/// them), whether full screen keeps the pointer on the window now
+/// (keeps_pointer_on_screen), the part of the window the pointer is held in,
+/// and the pointer's place on the desktop and against the window and its
+/// display (pointer_place).
+///
+/// @param trace what the line tells
+/// @return the line, without a line break
+[[nodiscard]] std::string window_trace_line(const WindowTrace& trace);
+
+/// Returns the word `--trace-input` names an event of the game's window or
+/// of a display by: its showing, hiding, moving and resizing, its being
+/// minimised, maximised and restored, the pointer entering and leaving it,
+/// its gaining and losing the input focus, its entering and leaving full
+/// screen, its moving to another display, a change of its display's scale
+/// or safe area, and a display's being added, removed, moved or turned or
+/// changing its mode, its scale or its usable area.
+///
+/// @param event any SDL event
+/// @return the word, such as "leave" or "full-screen-entered"; empty for
+///         every other event
+[[nodiscard]] std::string_view traced_window_event(const SDL_Event& event) noexcept;
 
 /// Brings a window that has left full screen back onto a display, once the
 /// window system has given it its place as a window.

@@ -183,6 +183,7 @@ of range is clamped. A switch is On for any number above 0: a word such as
 | `open-annihilation.window-place` | `window WIDTHxHEIGHT at X,Y on DX,DY,DW,DH` for a window, or `full-screen on DX,DY,DW,DH` for full screen, with ` window WIDTHxHEIGHT at X,Y` after the display when a window was left too. Sizes are 1 to 16384 and coordinates -100000 to 100000. Any other text is ignored | the platform's first start: full screen on Windows, a window elsewhere. Restore defaults does not erase it |
 | `open-annihilation.hardware-acceleration` | `off`, `basic` or `full`; a whole number from an earlier version reads as `off` at 0 or below, else `full` | `full` with the player's own file, else `off` |
 | `open-annihilation.vertical-sync` | 0 or 1 | 0 |
+| `open-annihilation.smooth-motion` | 0 or 1 | 1 |
 | `open-annihilation.menu-scaling` | `sharp`, `whole-steps` or `unfiltered` | `sharp` |
 | `open-annihilation.native-density` | 0 or 1 | 0; 1 where the platform opens every window at native density |
 | `open-annihilation.explosion-flash` | `off`, `reduced` or `full` | `full` |

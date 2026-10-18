@@ -27,3 +27,50 @@ the network failure. "Core Prime asked for a check the game cannot do. Try
 again later." means the server answered with a check meant for a web
 browser, which the game never answers: try again later
 ([when a download fails](downloads.md#when-a-download-fails)).
+
+## The view stops scrolling at one edge
+
+If moving the pointer to one edge of the screen stops scrolling the view,
+while the other edges still do, start the game with `--trace-input`, play
+until it happens, push the pointer against that edge, and send the game's
+log. Its lines say where the game's window lies on its display, whether the
+window holds the pointer, and whether the pointer left the window there
+([what the lines mean](command-line.md#--trace-input)). Say also where
+your taskbar is, whether a tool bar or overlay shows at that edge, and how
+your displays are arranged.
+
+## The copy of the game does not finish
+
+A copy into Open Annihilation that stopped part way, because the game was
+closed or the computer stopped, carries on the next time the game starts:
+the setup opens again, and a copy from the same place keeps the files
+already copied and goes on from there. The base game is played only once
+every one of its files is copied, or known to be missing from the place it
+was copied from.
+
+A movie the place copied from holds at another size than Total
+Annihilation 3.1c's is left out, and the game plays without it. The
+copying step's line for the base game names it with both sizes, and so
+does the game's log, in a line such as `open-annihilation: Data/2.zrb of
+Total Annihilation 3.1c is left out: the source holds it at 41000000 bytes,
+not 41229000`.
+
+An archive at another size, of the base game (`rev31.gp3`,
+`totala1.hpi`, `totala2.hpi`) or of an expansion the place holds (such
+as Core Contingency's `ccdata.ccx`), means that Total Annihilation has
+been changed, as a mod or another program changes it. The copy stops
+before it begins and copies nothing, and the copying step says so and
+names each archive, with what it is from, its size there and the size it
+should be ([the question it asks](first-run.md#copying)). The log names
+each one too, in a line such as `open-annihilation: ccdata.ccx of Core
+Contingency is not copied: the source holds it at 26214713 bytes, not
+25871597`. Choose another place to copy from: a fresh install of Total
+Annihilation without mods, or the game's disc or installer. A copy from
+that place then finishes as usual. An expansion the place holds none of
+is simply not copied, and stops nothing.
+
+When the base game cannot be played for any reason, the start says why
+in a box and in the log, and names the files that were not copied. If
+the files of a finished copy are gone, delete the folder the box names
+(under Open Annihilation › Games in your Documents folder) and start the
+game again to copy it afresh.

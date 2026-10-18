@@ -302,7 +302,7 @@ void mark_downloadable_units(UnitDefTables* tables) noexcept {
 void append_download_build_ids(
     UnitDefTables* tables, const data::limits::BuildLists& lists
 ) noexcept {
-    const uint32_t entries = build_list_entries(lists);
+    const uint32_t entries = download_build_list_entries(lists);
     for (uint32_t index = 0; index < tables->count; ++index) {
         UnitDef& unit = tables->records[index];
         uint16_t* list = unit_def_build_ids(tables, unit);

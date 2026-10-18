@@ -650,6 +650,68 @@ void units() {
     CHECK(units.blob_count == static_cast<int32_t>(std::size(forged_ids)));
 }
 
+// The record each unit's restore reads: the first record the walk reaches
+// that names the unit, and none past a gap in the ids, a record cut short or
+// "Number of Units".
+void unit_record_walk() {
+    namespace r = unit_record;
+    const auto put = [](Bank* bank, int32_t blob_id, uint16_t unit_id, uint32_t bytes) {
+        uint8_t record[unit_record_bytes] = {};
+        record[r::id] = static_cast<uint8_t>(unit_id);
+        record[r::id + 1] = static_cast<uint8_t>(unit_id >> 8);
+        bank_open_blob_id(bank, blob_id);
+        bank_blob_write(bank, record, bytes);
+    };
+    const auto blob_count = [](Bank* bank) {
+        return bank->accounts->items[bank->accounts->open].blob_count;
+    };
+
+    ScopedBank bank;
+    bank_open_account(bank.get(), "Units");
+    bank_set_int(bank.get(), "Number of Units", 6);
+    put(bank.get(), 0, 5, unit_record_bytes);
+    bank_open_blob_name(bank.get(), "Script0");
+    bank_blob_write(bank.get(), "S", 1);
+    put(bank.get(), 1, 0x109, unit_record_bytes);
+    put(bank.get(), 2, 5, unit_record_bytes);     // a second record of unit 5
+    put(bank.get(), 3, 0x200, unit_record_bytes); // past the table
+    put(bank.get(), 5, 20, unit_record_bytes);    // past the gap at 4
+    const int32_t blobs = blob_count(bank.get());
+    bank_open_account(bank.get(), "Camera");
+    std::vector<int32_t> records(0x110, 7);
+    save_find_unit_records(bank.get(), records);
+    std::vector<int32_t> expected(0x110, -1);
+    expected[5] = 0;
+    expected[0x109] = 1;
+    CHECK(records == expected);
+    // The walk leaves the Units account open and adds no blobs.
+    CHECK(bank_get_int(bank.get(), "Number of Units", 0) == 6);
+    CHECK(blob_count(bank.get()) == blobs);
+
+    // A record cut short ends the walk.
+    ScopedBank short_bank;
+    bank_open_account(short_bank.get(), "Units");
+    bank_set_int(short_bank.get(), "Number of Units", 3);
+    put(short_bank.get(), 0, 4, unit_record_bytes);
+    put(short_bank.get(), 1, 6, unit_record_legacy_bytes);
+    put(short_bank.get(), 2, 8, unit_record_bytes);
+    std::vector<int32_t> cut(10);
+    save_find_unit_records(short_bank.get(), cut);
+    std::vector<int32_t> cut_expected(10, -1);
+    cut_expected[4] = 0;
+    CHECK(cut == cut_expected);
+
+    // Records at and above "Number of Units" are not walked.
+    ScopedBank counted;
+    bank_open_account(counted.get(), "Units");
+    bank_set_int(counted.get(), "Number of Units", 2);
+    for (int32_t k = 0; k < 3; ++k)
+        put(counted.get(), k, static_cast<uint16_t>(k + 1), unit_record_bytes);
+    std::vector<int32_t> walked(4);
+    save_find_unit_records(counted.get(), walked);
+    CHECK((walked == std::vector<int32_t>{-1, 0, 1, -1}));
+}
+
 struct Summary {
     int advanced = 0;
     int bound = 0;
@@ -892,6 +954,7 @@ int main() {
     animating_sequences();
     feature_record_bounds();
     units();
+    unit_record_walk();
     unit_economy();
     whole_game();
     meteor_config();

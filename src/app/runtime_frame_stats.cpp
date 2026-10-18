@@ -248,8 +248,11 @@ void Runtime::present_frame_between_ticks(bool stepped, uint32_t ticks_before) {
     ticks.owed = stepped ? match_timing_.pending_steps : 0;
     ticks.ran = match_timing_.tick - ticks_before;
     // A check's fixed clock draws whole ticks, as before frames were drawn
-    // between them; a --frame-rate run's clock does not.
-    bool whole = !stepped || !match_ || (options_.fixed_clock && !frame_run_clock_ns_);
+    // between them; a --frame-rate run's clock does not. Smooth motion Off
+    // draws whole ticks too, as the game drew them: the frames between two
+    // ticks repeat the latest tick's picture, at the same frame rate.
+    bool whole =
+        !stepped || !match_ || (options_.fixed_clock && !frame_run_clock_ns_) || !smooth_motion();
     if (match_) {
         const oa::Game& game = match_->state().game;
         // A film frame is saved as drawn, and shows the whole tick.

@@ -332,6 +332,25 @@ bool Runtime::run_stage_direction(
         std::printf("stage: %s %s: %zu units\n", action.c_str(), group.c_str(), ordered);
         return true;
     }
+    if (action == "move-order" || action == "fire-order") {
+        std::string group;
+        int32_t stance = -1;
+        if (!(line >> group >> stance) || stance < 0 || stance > 2)
+            throw std::runtime_error(
+                where + ": " + action + " takes GROUP STANCE, the stance 0, 1 or 2"
+            );
+        // The order panel's standing-order button's order, given to each
+        // unit as to a selection: a type without that button stays as it is.
+        const char* tag = action == "move-order" ? "Standing_MoveOrder" : "Standing_FireOrder";
+        std::size_t ordered = 0;
+        for (const auto unit : live_members(group))
+            if (give_state_order(unit, tag, stance))
+                ++ordered;
+        std::printf(
+            "stage: %s %s: %zu units to %d\n", action.c_str(), group.c_str(), ordered, stance
+        );
+        return true;
+    }
     return false;
 }
 

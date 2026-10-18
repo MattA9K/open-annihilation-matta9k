@@ -638,12 +638,16 @@ void apply_downloadable_limits(
 /// A player with none chosen, or the same as the game, is left as the pass just
 /// applied it. One that differs has its tables reset and the profile and the
 /// downloadable directives applied again, for that player only, at that
-/// difficulty. The downloadable passes repeat once per computer player, as the
-/// shared pass compounds them, and use their own plan flag.
+/// difficulty. Its profile pass starts from the plan flag the shared pass started
+/// from. The downloadable passes repeat once per computer player, as the shared pass
+/// compounds them, and use their own plan flag.
 ///
 /// @param state computer players and their type table
 /// @param host difficulty and players
-void reapply_noted_difficulties(ComputerPlayers* state, const ComputerHost& host) noexcept {
+/// @param starting_plan the plan flag the shared profile pass started from
+void reapply_noted_difficulties(
+    ComputerPlayers* state, const ComputerHost& host, bool starting_plan
+) noexcept {
     if (state == nullptr || host.world == nullptr)
         return;
     int32_t present_count = 0;
@@ -663,7 +667,7 @@ void reapply_noted_difficulties(ComputerPlayers* state, const ComputerHost& host
         reset_tables(state, state->players[index].knowledge);
         ComputerHost noted_host = host;
         noted_host.difficulty = noted;
-        bool plan = false;
+        bool plan = starting_plan;
         if (state->profile_text != nullptr)
             apply_script(
                 state,
@@ -700,13 +704,16 @@ void reapply_noted_difficulties(ComputerPlayers* state, const ComputerHost& host
 
 /// Applies the stored profile, then each computer player's passes over the downloadable types' directives.
 ///
-/// All passes share the plan flag. Each computer player re-applies the directives
-/// twice, once per lock table, to every controller, so weights compound per computer
-/// player. A computer player with its own difficulty then has that pass again.
+/// All passes share the plan flag, which the profile pass takes as the last pass left
+/// it: matched before the first pass, so the lines before the profile's first plan line
+/// apply. Each computer player re-applies the directives twice, once per lock table, to
+/// every controller, so weights compound per computer player. A computer player with its
+/// own difficulty then has that pass again.
 ///
 /// @param state computer players and their type table
 /// @param host difficulty and players
 void apply_profile(ComputerPlayers* state, const ComputerHost& host) noexcept {
+    const bool starting_plan = state->plan_matches;
     if (state->profile_text != nullptr)
         apply_script(state, host, state->profile_text, state->profile_length, state->plan_matches);
     // Downloadable types carry their own directives (FBI ai_weight). Each
@@ -718,7 +725,7 @@ void apply_profile(ComputerPlayers* state, const ComputerHost& host) noexcept {
         apply_downloadable_weights(state, host, index);
         apply_downloadable_limits(state, host, index);
     }
-    reapply_noted_difficulties(state, host);
+    reapply_noted_difficulties(state, host, starting_plan);
 }
 
 /// Gives one computer player the controller the game start gives its computers.
@@ -906,7 +913,7 @@ void computer_profile_apply(
 ) noexcept {
     if (state == nullptr || host.world == nullptr)
         return;
-    bool plan_matches = false;
+    bool plan_matches = true;
     apply_script(state, host, text.data(), text.size(), plan_matches);
 }
 

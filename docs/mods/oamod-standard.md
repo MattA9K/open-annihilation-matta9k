@@ -464,7 +464,9 @@ Game folders are never written to.
   under a profile records the profile's id, version, catalogue and hashes,
   and loads only under a profile with the same sim hash; otherwise the
   status line names both. A save without a profile record loads under any
-  profile.
+  profile. Under a profile as without one, a save keeps no shots in flight,
+  stockpiled missiles included, as in 3.1c
+  ([what a saved game keeps](../saves.md#what-a-saved-game-keeps)).
 - **The mod's INI file** (`identity.settings-file`) is read, never written,
   from the first folder that holds it, the mod folder first.
 - **Registry settings** are kept in the engine's own preferences, under the
@@ -842,6 +844,9 @@ What each limit holds:
   on the machine that owns the unit.
 - **`build-list-entries`**: how many build-list entries a unit keeps.
   `truncate` drops the rest; `dynamic` keeps every entry, up to 1,024.
+  The download menus add their units to a list only while it holds fewer
+  than 31 entries, whatever `copy` keeps; under `dynamic` they add them
+  until it holds one entry more than it keeps.
 - **`model-composite`**: the size of the buffer a model is drawn into.
   Without `clamp-oversize` the buffer grows to fit a larger model, as in
   3.1c; with it the buffer keeps its size and a larger model is cut to it
@@ -992,7 +997,7 @@ part of playing 3.1c:
 | Unit scripts | `set ARMORED` turns on `DamageModifier`; a negative `EnergyUse` is paid out while the unit is activated; a script can attach and drop any unit, and attaching to piece −1 hides the passenger; scripts may scan every unit slot in one tick without sleeping; `MoveRate` calls reach ground units. |
 | Deaths and wrecks | `setSFXoccupy` codes reach `Killed`; corpse types up to 25; wrecks that turn into further wrecks over several steps. |
 | AI and builds | Build orders named `MAKENUKE` and `MAKEANTI` become stockpile orders; manual fire of the third weapon works with an empty second weapon. |
-| Sides | A side's HUD panels come from the GAF its SIDEDATA `intgaf` names, its resource numbers and unit panel are drawn in the font its `font` names, and its resource bars come from its own `SIDEn` section; the rest of its interface, such as its general build pages, follows its `nameprefix`. Commanders and build lists come from SIDEDATA, never from fixed unit names. The skirmish side button shows the `SIDEx` frame of the side it has chosen, for every SIDEDATA side, where 3.1c's two-stage button wraps back to Arm after Core. |
+| Sides | A side's HUD panels come from the GAF its SIDEDATA `intgaf` names, its resource numbers and unit panel are drawn in the font its `font` names, and its resource bars come from its own `SIDEn` section; the rest of its interface, such as its general build pages, follows its `nameprefix`. A unit page draws the panel art its GUI names, `ARMPAN` or `ARMPAN2` for a third side whose pages are the `nameprefix`'s templates; when the side's `intgaf` holds art named by that GAF's stem without `INT` and the page's name without its side, `RUMPAN2` in `RUMINT.gaf` for `ARMPAN2`, the side's own is drawn instead. Commanders and build lists come from SIDEDATA, never from fixed unit names. The skirmish side button shows the `SIDEx` frame of the side it has chosen, for every SIDEDATA side, where 3.1c's two-stage button wraps back to Arm after Core. |
 | Transports | A script may drop every passenger at once; a blocked drop cell is handled as 3.1c handles it. |
 | Loading | Missing weapons, sounds, fonts and sprite sequences; unknown unit names in AI profiles; misspelled SIDEDATA sections; duplicate unit and feature names; a missing semicolon; brackets inside weapon names; non-square footprints of mobile units; maps without a terrain file. Each loads as 3.1c loads it. |
 | Files | An empty file wins its path and contributes nothing, hiding the file beneath it. |

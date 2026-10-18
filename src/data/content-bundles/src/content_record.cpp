@@ -167,6 +167,22 @@ void set_error(std::string* error, std::string_view text) {
         *error = std::string(text);
 }
 
+[[nodiscard]] char fold_ascii(char byte) noexcept {
+    if (byte >= 'A' && byte <= 'Z')
+        return static_cast<char>(byte - 'A' + 'a');
+    return byte;
+}
+
+[[nodiscard]] bool same_name(std::string_view one, std::string_view other) noexcept {
+    if (one.size() != other.size())
+        return false;
+    for (std::size_t index = 0; index < one.size(); ++index) {
+        if (fold_ascii(one[index]) != fold_ascii(other[index]))
+            return false;
+    }
+    return true;
+}
+
 } // namespace
 
 ContentRecord parse_content_record(std::string_view text) {
@@ -187,6 +203,18 @@ ContentRecord parse_content_record(std::string_view text) {
         if (line == "not-in-source") {
             if (!files.empty())
                 files.back().not_in_source = true;
+            ++index;
+            continue;
+        }
+        // Written after "not-in-source", for a file the source held at
+        // another size. Older readers skip it as a field they do not know.
+        std::string_view source_size_text;
+        if (take_prefix(line, "source-size ", source_size_text)) {
+            uint64_t source_size = 0;
+            if (!parse_u64(source_size_text, source_size))
+                return record;
+            if (!files.empty() && files.back().not_in_source)
+                files.back().source_size = source_size;
             ++index;
             continue;
         }
@@ -266,6 +294,11 @@ std::optional<std::string> format_content_record(const ContentRecord& record) {
         append_line(text, hash_line);
         if (item.not_in_source)
             append_line(text, "not-in-source");
+        if (item.not_in_source && item.source_size > 0) {
+            std::string source_size_line = "source-size ";
+            append_u64(source_size_line, item.source_size);
+            append_line(text, source_size_line);
+        }
     }
     return text;
 }
@@ -320,6 +353,29 @@ ContentRecord read_bundle_folder_record(const std::filesystem::path& folder, std
     ContentRecord parsed = parse_content_record(text);
     parsed.present = true;
     return parsed;
+}
+
+std::vector<std::string_view>
+files_not_recorded(const Bundle& bundle, const ContentRecord& record) {
+    std::vector<std::string_view> missing;
+    for (const ContentFile& file : bundle.files) {
+        bool named = false;
+        for (const ContentRecordFile& item : record.files) {
+            if (same_name(item.copy_name, file.copy_name)) {
+                named = true;
+                break;
+            }
+        }
+        if (!named)
+            missing.push_back(file.copy_name);
+    }
+    return missing;
+}
+
+bool record_complete(const Bundle& bundle, const ContentRecord& record) {
+    if (!record.valid || record.bundle_id != bundle.id || bundle.files.empty())
+        return false;
+    return files_not_recorded(bundle, record).empty();
 }
 
 } // namespace oa::data::content_bundles

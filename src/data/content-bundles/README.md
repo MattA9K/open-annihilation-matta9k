@@ -42,7 +42,12 @@ size, hash or resource.
 - `oa/data/content_bundles/record.hpp` reads and writes a bundle folder's
   `.oa-content` record. `parse_content_record` and `format_content_record`
   take bytes and return bytes. `read_bundle_folder_record` reads the record
-  in one bundle folder. A field the reader does not know is ignored.
+  in one bundle folder. A field the reader does not know is ignored. A
+  file the source did not hold is marked `not-in-source`, and one it held
+  at another size also keeps that size, `source-size`.
+  `files_not_recorded` lists a bundle's files its record does not name yet,
+  and `record_complete` says whether it names them all, copied or not in
+  the source: only such a bundle is played.
 - `oa/data/content_bundles/expansion_package.hpp` reads `oaexp.yaml` and
   checks that the files offered with it are the expansion's files, by
   name, size and SHA-256. `expansion_fixture.hpp` is the small table the
@@ -76,7 +81,9 @@ dependencies hold. The demo archive's size and hash are the ones
 `demo_1997` checks.
 
 `data-content-record` writes a record and reads it back, refuses a record
-it does not understand, and keeps a record that carries a field it skips.
+it does not understand, keeps a record that carries a field it skips, and
+tells a record that names every file of its bundle, in any case, from one
+a stopped copy left.
 
 `data-content-choice` turns an expansion on and off, chooses a base game,
 clears a mod whose required expansion went off, reads a player with no

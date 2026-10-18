@@ -3,13 +3,14 @@
 
 // Alt+Enter: switching the game's window between full screen and a window,
 // the pointer kept on the game's screen in full screen, the window brought
-// back onto its display when it leaves full screen, and its title bar and
-// borders shown or hidden.
+// back onto its display when it leaves full screen, its title bar and
+// borders shown or hidden, and the line --trace-input writes of it.
 #include "oa/app/full_screen.hpp"
 
 #include <SDL3/SDL.h>
 
 #include <algorithm>
+#include <array>
 #include <charconv>
 #include <cstdint>
 #include <iostream>
@@ -17,9 +18,11 @@
 #include <map>
 #include <optional>
 #include <span>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <tuple>
+#include <utility>
 
 namespace oa::app {
 
@@ -320,6 +323,161 @@ void release_pointer(SDL_Window* window) {
         return;
     std::ignore = SDL_SetWindowMouseGrab(window, false);
     std::ignore = SDL_SetWindowMouseRect(window, nullptr);
+}
+
+namespace {
+
+/// Tells whether a rectangle holds a point of the desktop: the points of its
+/// left and top edges, not those of its right and bottom edges.
+///
+/// @param rect the rectangle
+/// @param x the point's column
+/// @param y the point's row
+/// @return true when the rectangle holds the point
+bool holds_point(const SDL_Rect& rect, float x, float y) noexcept {
+    const auto left = static_cast<double>(rect.x);
+    const auto top = static_cast<double>(rect.y);
+    const auto column = static_cast<double>(x);
+    const auto row = static_cast<double>(y);
+    return column >= left && column < left + static_cast<double>(rect.w) && row >= top &&
+           row < top + static_cast<double>(rect.h);
+}
+
+/// Writes a rectangle as `--trace-input` does: x,y,WxH.
+///
+/// @param[in,out] line the line being written
+/// @param rect the rectangle
+void write_rect(std::ostringstream& line, const SDL_Rect& rect) {
+    line << rect.x << ',' << rect.y << ',' << rect.w << 'x' << rect.h;
+}
+
+} // namespace
+
+PointerPlace
+pointer_place(float x, float y, const SDL_Rect& window, const SDL_Rect& display) noexcept {
+    if (holds_point(window, x, y))
+        return PointerPlace::window;
+    return holds_point(display, x, y) ? PointerPlace::display : PointerPlace::elsewhere;
+}
+
+std::string window_trace_line(const WindowTrace& trace) {
+    std::ostringstream line;
+    line << "input window " << trace.reason << " window=";
+    write_rect(line, trace.window);
+    line << " pixels=" << trace.pixel_width << 'x' << trace.pixel_height
+         << " display=" << trace.display << " bounds=";
+    write_rect(line, trace.bounds);
+    line << " usable=";
+    write_rect(line, trace.usable);
+    line << " scale=" << trace.scale << " edges=";
+    const WindowEdges edges = window_edges(trace.window, trace.bounds);
+    if (edges.covers())
+        line << "covers";
+    else
+        line << "left:" << edges.left << ",top:" << edges.top << ",right:" << edges.right
+             << ",bottom:" << edges.bottom;
+    // The window's state, in this order; a display mode of its own counts
+    // only in full screen.
+    const bool full_screen = (trace.flags & SDL_WINDOW_FULLSCREEN) != 0;
+    const std::array<std::pair<bool, std::string_view>, 10> states{{
+        {full_screen, "full-screen"},
+        {full_screen && trace.exclusive, "exclusive"},
+        {(trace.flags & SDL_WINDOW_MAXIMIZED) != 0, "maximised"},
+        {(trace.flags & SDL_WINDOW_MINIMIZED) != 0, "minimised"},
+        {(trace.flags & SDL_WINDOW_HIDDEN) != 0, "hidden"},
+        {(trace.flags & SDL_WINDOW_BORDERLESS) != 0, "borderless"},
+        {(trace.flags & SDL_WINDOW_INPUT_FOCUS) != 0, "input-focus"},
+        {(trace.flags & SDL_WINDOW_MOUSE_FOCUS) != 0, "mouse-focus"},
+        {(trace.flags & SDL_WINDOW_MOUSE_GRABBED) != 0, "grabbed"},
+        {(trace.flags & SDL_WINDOW_MOUSE_CAPTURE) != 0, "mouse-capture"},
+    }};
+    line << " flags=";
+    bool any = false;
+    for (const auto& [set, word] : states) {
+        if (!set)
+            continue;
+        line << (any ? "," : "") << word;
+        any = true;
+    }
+    if (!any)
+        line << "none";
+    line << " keep=" << (keeps_pointer_on_screen(trace.flags) ? "yes" : "no") << " mouse-rect=";
+    if (trace.mouse_rect)
+        write_rect(line, *trace.mouse_rect);
+    else
+        line << "none";
+    line << " pointer=" << trace.pointer_x << ',' << trace.pointer_y << " pointer-on=";
+    switch (pointer_place(trace.pointer_x, trace.pointer_y, trace.window, trace.bounds)) {
+    case PointerPlace::window:
+        line << "window";
+        break;
+    case PointerPlace::display:
+        line << "display";
+        break;
+    case PointerPlace::elsewhere:
+        line << "elsewhere";
+        break;
+    }
+    return line.str();
+}
+
+std::string_view traced_window_event(const SDL_Event& event) noexcept {
+    switch (event.type) {
+    case SDL_EVENT_WINDOW_SHOWN:
+        return "shown";
+    case SDL_EVENT_WINDOW_HIDDEN:
+        return "hidden";
+    case SDL_EVENT_WINDOW_MOVED:
+        return "moved";
+    case SDL_EVENT_WINDOW_RESIZED:
+        return "resized";
+    case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
+        return "pixel-size-changed";
+    case SDL_EVENT_WINDOW_MINIMIZED:
+        return "minimised";
+    case SDL_EVENT_WINDOW_MAXIMIZED:
+        return "maximised";
+    case SDL_EVENT_WINDOW_RESTORED:
+        return "restored";
+    case SDL_EVENT_WINDOW_MOUSE_ENTER:
+        return "enter";
+    case SDL_EVENT_WINDOW_MOUSE_LEAVE:
+        return "leave";
+    case SDL_EVENT_WINDOW_FOCUS_GAINED:
+        return "focus-gained";
+    case SDL_EVENT_WINDOW_FOCUS_LOST:
+        return "focus-lost";
+    case SDL_EVENT_WINDOW_DISPLAY_CHANGED:
+        return "display-changed";
+    case SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED:
+        return "scale-changed";
+    case SDL_EVENT_WINDOW_SAFE_AREA_CHANGED:
+        return "safe-area-changed";
+    case SDL_EVENT_WINDOW_ENTER_FULLSCREEN:
+        return "full-screen-entered";
+    case SDL_EVENT_WINDOW_LEAVE_FULLSCREEN:
+        return "full-screen-left";
+    case SDL_EVENT_DISPLAY_ORIENTATION:
+        return "display-turned";
+    case SDL_EVENT_DISPLAY_ADDED:
+        return "display-added";
+    case SDL_EVENT_DISPLAY_REMOVED:
+        return "display-removed";
+    case SDL_EVENT_DISPLAY_MOVED:
+        return "display-moved";
+    case SDL_EVENT_DISPLAY_DESKTOP_MODE_CHANGED:
+        return "display-desktop-mode-changed";
+    case SDL_EVENT_DISPLAY_CURRENT_MODE_CHANGED:
+        return "display-mode-changed";
+    case SDL_EVENT_DISPLAY_CONTENT_SCALE_CHANGED:
+        return "display-scale-changed";
+#if SDL_VERSION_ATLEAST(3, 4, 0)
+    case SDL_EVENT_DISPLAY_USABLE_BOUNDS_CHANGED:
+        return "display-usable-area-changed";
+#endif
+    default:
+        return {};
+    }
 }
 
 bool take_full_screen_event(

@@ -892,10 +892,14 @@ hosts them on the OA layer.
   taken from it (`place_match_view`): the nearest whole map pixel, or,
   while frames draw the view between map pixels, the one at or before the
   screen pixel nearest the place, on the screen pixels laid from the map's
-  corner at the zoom (`scene_origin`). The
+  corner at the zoom (`scene_origin`). At 50% the
   limits hold a view from the one they held last (`view_hold_`,
-  `held_view`), so that a view past them goes no further from the map but
-  moves back toward it at once; every frame holds the camera so
+  `view_hold_from`, `held_view`), so that a view a zoom left past them
+  goes no further from the map but moves back toward it at once; at 25%
+  and Off they hold every view by the span alone, so that a view held
+  for a smaller battlefield, such as the first view of a match, placed
+  for the game's own screen before the match is laid out for the window,
+  comes back within them. Every frame holds the camera so
   (`view_camera`, `held_camera`), which catches the moves that set the
   camera themselves: the minimap, the megamap, a follow, a jump to a unit
   or a marker, a load. The camera may lie left of and above the map, and
@@ -991,7 +995,10 @@ hosts them on the OA layer.
   `native-navigation-zoom-1366x768`, `native-navigation-zoom-1920x1080` and
   `native-navigation-zoom-2560x1440`, the whole map's fit, the point under
   the pointer on the way out to it and back, a zoom in from it landing where
-  it is aimed, and a choice changed in play (`check_zoom_limit_choices`); at
+  it is aimed, and a choice changed in play (`check_zoom_limit_choices`),
+  and at View past the map's edge Off the first view of a match, placed
+  for the game's own screen near the map's right and bottom edges, drawn
+  on the map on that window (`check_first_view_on_window`); at
   Whole map on the
   game's screen a click on every pixel of a unit's dot, on an enemy's dot
   and on the black either side of the map (`check_far_view_presses`); a
@@ -1806,9 +1813,11 @@ hosts them on the OA layer.
   state before the last batch of ticks and the state after it that its time
   stands for (`presentation_alpha()`, `next_presentation_alpha`): never
   past the current tick, whole ticks while the match is paused, waits on
-  another machine or catches up, on a check's fixed clock and for a film
-  frame, and 1 again once the frame is drawn, so that every other drawing
-  shows whole ticks. At 30 a second a frame counts its clock unit whole: at
+  another machine or catches up, on a check's fixed clock, for a film
+  frame and while Smooth motion is Off (`smooth_motion()`), when the
+  frames between two ticks repeat the tick's picture at the same rate, and
+  1 again once the frame is drawn, so that every other drawing shows whole
+  ticks. At 30 a second a frame counts its clock unit whole: at
   normal speed and above it shows the state its ticks reached, and below
   normal speed the progress the clock makes by the unit's end, so that
   frames still move evenly between the ticks. The unit drawing adds what it
@@ -1896,8 +1905,11 @@ hosts them on the OA layer.
   shows it whole; that at 120 the camera moves evenly, each frame shows a
   quarter of a tick more, and the unit drawn moves on nearly every frame,
   none carrying more than half the most it moves in a tick; that a
-  tracked unit is drawn at one place of the screen on every frame; and
-  that runs at 30 and 120 from 2 seconds before 2^32 milliseconds, where
+  tracked unit is drawn at one place of the screen on every frame; that
+  with Smooth motion Off a run at 120 writes the same trace and digest
+  with no frame between ticks, the camera moving as evenly and the unit
+  drawn where each tick holds it; and that runs at 30 and 120 from 2
+  seconds before 2^32 milliseconds, where
   the match clock's reading turns over to 0, step on through the turn to
   the same trace and digest, at 30 each frame running a tick but the first
   past the turn. The run
@@ -1959,7 +1971,11 @@ hosts them on the OA layer.
   and `activate GROUP` and `deactivate GROUP` switch them on and off with
   the order panel's ON/OFF button's orders (`give_state_order`, which the
   button gives each selected unit), as a player's orders do; a type that
-  cannot be switched on and off stays as it is. `at TICK` before any
+  cannot be switched on and off stays as it is. `move-order GROUP STANCE`
+  and `fire-order GROUP STANCE` set their standing move or fire order to
+  stance 0, 1 or 2 (Hold, Maneuver, Roam; Hold Fire, Return Fire, Fire at
+  Will) with the panel's standing-order buttons' orders; a type without
+  that button stays as it is. `at TICK` before any
   action keeps its line for that match tick, and the line
   runs before the tick does (`run_due_stage_lines`, from every step of the
   match), the lines of a tick in the order the file gives them; each tick
@@ -2110,7 +2126,15 @@ hosts them on the OA layer.
   start does not keep a desktop place. `app-full-screen` asks for the
   frame in each case and through a game, its game menu and full screen,
   and checks that a saved place round-trips, including a window whose
-  display has gone.
+  display has gone. With `--trace-input`, the window writes one line as a
+  match begins and after each event of the window or a display
+  (`traced_window_event`, `Runtime::trace_window` in `runtime_present.cpp`,
+  called from `dispatch_event` once the event and Window edge are settled):
+  its place against its display's bounds and usable area, its state, how
+  the pointer is held and where the pointer is (`window_trace_line`,
+  `window_edges`, `pointer_place`), so that a log tells why an edge stopped
+  scrolling ([`--trace-input`](../../docs/command-line.md#--trace-input));
+  `app-full-screen` checks the lines.
 - `runtime_hud.cpp`, `runtime_match_hud.cpp`: the HUD.
 - `runtime_messages.cpp`: the in-game message log (`Game.chat_lines`) drawn
   over the battlefield, and the speed and message part of `--check-navigation`.
@@ -2577,14 +2601,18 @@ hosts them on the OA layer.
   model instance placed part of the way from the tick before, with a draw
   state of their own, while the match's own pieces are rebuilt as a whole
   tick's draw rebuilds them; projectiles, debris, fragments, particles,
-  health bars, order lines and a tracking camera follow. The director
-  draws its frames between ticks so. The debug grid draws its random
-  numbers from its own generator, never from the match's streams, and
-  draws the numbers a tick's first draw took again on the tick's later
-  draws (`DebugGridRandom`), so that showing it never changes the game and
-  a tick drawn more than once shows one grid. `app-presentation-interpolation`
-  tests the blends and the grid's numbers, and `--check-interpolation`
-  (`runtime_interpolation_check.cpp`) the frames.
+  health bars, order lines and a tracking camera follow. With Smooth
+  motion Off the loop draws every frame at 1, so each shows its tick as
+  it is, a mirrored unit where its playout has it at the tick. The
+  director draws its frames between ticks so, whatever the setting. The
+  debug grid draws its random numbers from its own generator, never from
+  the match's streams, and draws the numbers a tick's first draw took
+  again on the tick's later draws (`DebugGridRandom`), so that showing it
+  never changes the game and a tick drawn more than once shows one grid.
+  `app-presentation-interpolation` tests the blends and the grid's
+  numbers, and `--check-interpolation` (`runtime_interpolation_check.cpp`)
+  the frames, the application loop's among them with Smooth motion On and
+  Off.
 - Units of other machines' players: `advance_match_clock` has the unit
   playout (`src/present/unit-playout`, `Runtime::unit_playout_`) read the
   match after each step, whether the engine or an extension ran it, and the
@@ -2615,7 +2643,9 @@ hosts them on the OA layer.
   about its pace, within two ticks of its simulated place on average, on a
   whole tick's frame too, with the tracking camera and the pick where it is
   drawn; that the local runner and the world are as without the playout;
-  and that, with no such player, every frame is.
+  that with Smooth motion Off every frame draws the runner where its
+  playout has it at the latest tick, the world as with it On; and that,
+  with no such player, every frame is.
 
 ## Touch controls
 

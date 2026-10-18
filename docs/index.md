@@ -26,7 +26,8 @@ Every document in the repository, by what you want to do.
   launch file from the desktop, 3.1c's switches and the `-c` file,
   `--list-content --json`, and the exit statuses and refusals.
 - [troubleshooting.md](troubleshooting.md): zooming out when memory is
-  short, and the message the game shows when it runs out of memory.
+  short, the message the game shows when it runs out of memory, and a copy
+  of the game that does not finish.
 - [settings.md](settings.md): Open Annihilation's own settings, with a
   picture of each section: opening them, OK, Cancel and Restore defaults,
   and what every setting in Mods, Controls, Engine Limits, Language & Text,
@@ -58,6 +59,9 @@ Every document in the repository, by what you want to do.
   follow it.
 - [skirmish.md](skirmish.md): the skirmish setup's one **Player** row,
   which a campaign mission leaves as you set it.
+- [saves.md](saves.md): saved games, recordings and films: the content
+  note beside each, **This save needs other content**, where they are kept,
+  and what a saved game keeps (no shots in flight, as in 3.1c).
 - [controllers.md](controllers.md): playing with a gamepad: the Steam
   Deck's pad pointer (the right trackpad as the mouse, the grips as QUEUE,
   ADD, FORCE and the groups, the order and build rings), sticks only for

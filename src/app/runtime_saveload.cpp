@@ -489,6 +489,9 @@ struct Runtime::SaveLoadState {
     bool mapping_valid{};
     std::array<uint8_t, kMovementImageBytes> movement_image{};
     uint16_t current_unit{};
+    // While a load restores its units, the id blob holding each unit id's
+    // record (persist::save_find_unit_records); -1 for none.
+    std::vector<int32_t> unit_records;
     // Game.saved_game: the savegame a starting skirmish or campaign mission
     // resumes, and whether its Players section restored.
     persist::Bank* resumed_save{};
@@ -1093,14 +1096,10 @@ oa::Unit* Runtime::restore_saved_unit(uint16_t id, persist::Bank* bank) {
     if (auto& existing = slots[id];
         existing.unit != nullptr && (existing.record.flags & OA_UNIT_FLAG_LIVE) != 0)
         return &existing.record;
-    // The ids that hold records; the walk stops at the first id below the
-    // count without one, as the game's does.
-    int32_t* stored_ids = nullptr;
-    const int32_t stored = persist::save_unit_record_ids(
-        bank, persist::bank_get_int(bank, save_key::unit_count, 0), &stored_ids
-    );
-    const std::unique_ptr<int32_t, void (*)(void*)> ids(stored_ids, std::free);
-    for (int32_t index = 0; index < stored && ids.get()[index] == index; ++index) {
+    // The record the load's one walk over the records found for the id
+    // (restore_saved_session).
+    if (const int32_t index = state.unit_records.size() > id ? state.unit_records[id] : -1;
+        index >= 0) {
         if (!persist::bank_open_blob_id(bank, index))
             return nullptr;
         persist::bank_blob_seek(bank, 0);
@@ -1108,8 +1107,6 @@ oa::Unit* Runtime::restore_saved_unit(uint16_t id, persist::Bank* bank) {
         if (persist::bank_blob_read(bank, record, persist::unit_record_bytes) !=
             persist::unit_record_bytes)
             return nullptr;
-        if (load_le16(record + r::id) != id)
-            continue;
         char type_name[r::type_name_bytes + 1] = {};
         std::memcpy(type_name, record + r::type_name, r::type_name_bytes);
         const uint32_t flags = load_le32(record + r::flags);
@@ -1331,7 +1328,12 @@ bool Runtime::restore_saved_session(persist::Bank* bank) {
     persist::save_read_metal_plotmap(&save, bank);
     persist::save_read_player_features(&save, bank);
     persist::save_read_terrain_mapping(&save, bank);
+    // Each unit's record is found once, rather than by a walk over the
+    // records for every unit the restore creates.
+    state.unit_records.resize(match_->world().slots.size());
+    persist::save_find_unit_records(bank, state.unit_records);
     persist::save_read_units(&save, bank);
+    state.unit_records.clear();
     persist::save_read_meteor(&state.meteor, bank);
     if (!sim::scenario::load_conditions(match_->scenario_controller(), bank, scenario_map_kind()))
         throw std::runtime_error("the campaign map's victory conditions cannot be restored");

@@ -137,12 +137,23 @@ void build_variant_path(
     replace_extension(out, capacity, extension);
 }
 
-bool load_tdf(const CampaignFiles* files, oa::formats::tdf::Document* document, const char* path) {
+bool load_tdf(
+    const CampaignFiles* files,
+    oa::formats::tdf::Document* document,
+    const char* path,
+    oa::formats::tdf::ParseError* error
+) {
     oa::formats::tdf::document_free(document);
     oa::formats::tdf::document_init(document);
+    if (error != nullptr)
+        *error = {};
     const int32_t size = file_size(files, path);
-    if (size < 0 || static_cast<uint32_t>(size) > oa::formats::tdf::max_input_bytes ||
-        files->read == nullptr)
+    if (size >= 0 && static_cast<uint32_t>(size) > oa::formats::tdf::max_input_bytes) {
+        if (error != nullptr)
+            error->status = oa::formats::tdf::ParseStatus::too_large;
+        return false;
+    }
+    if (size < 0 || files->read == nullptr)
         return false;
     char* text = static_cast<char*>(std::malloc(static_cast<std::size_t>(size) + 1));
     if (text == nullptr)
@@ -151,10 +162,8 @@ bool load_tdf(const CampaignFiles* files, oa::formats::tdf::Document* document, 
     bool ok = false;
     if (read >= 0) {
         text[read] = '\0';
-        oa::formats::tdf::ParseError error{};
-        ok = oa::formats::tdf::parse_text(
-            document, text, static_cast<uint32_t>(read), false, &error
-        );
+        ok =
+            oa::formats::tdf::parse_text(document, text, static_cast<uint32_t>(read), false, error);
     }
     std::free(text);
     return ok;
@@ -1035,15 +1044,44 @@ int32_t campaign_count_files(const CampaignFiles* files) {
 
 namespace {
 
-// True when the first `used` bytes of the packed name list, the names this
-// call has kept, hold this campaign file. Names compare without case, the way
-// a layered folder treats one path. The bytes past `used` are not read: they
-// hold what the caller's buffer held before.
-bool campaign_name_already_kept(const char* listed, std::size_t used, const char* name) {
-    for (std::size_t at = 0; at < used; at += std::strlen(listed + at) + 1)
-        if (oa::formats::tdf::compare_nocase(listed + at, name) == 0)
+// True when a name before `name` in the packed list of campaign files is the
+// same file. Names compare without case, the way a layered folder treats one
+// path: a lower layer's copy reads the top layer's file, which the first copy
+// has already listed or left out.
+bool campaign_name_already_tried(const char* names, const char* name) {
+    for (const char* at = names; at < name; at += std::strlen(at) + 1)
+        if (oa::formats::tdf::compare_nocase(at, name) == 0)
             return true;
     return false;
+}
+
+// Reports a campaign file that does not load, which the list leaves out.
+void report_unlisted_campaign(
+    const CampaignFiles* files, const char* path, const oa::formats::tdf::ParseError& error
+) {
+    char reason[160];
+    if (error.status == oa::formats::tdf::ParseStatus::ok)
+        std::snprintf(reason, sizeof(reason), "it cannot be read");
+    else if (error.status == oa::formats::tdf::ParseStatus::too_large)
+        std::snprintf(
+            reason, sizeof(reason), "it is over %u bytes", oa::formats::tdf::max_input_bytes
+        );
+    else
+        std::snprintf(
+            reason,
+            sizeof(reason),
+            "%s at byte %u%s%s%s",
+            oa::formats::tdf::parse_status_message(error.status),
+            error.offset,
+            error.block_name[0] != '\0' ? " in [" : "",
+            error.block_name,
+            error.block_name[0] != '\0' ? "]" : ""
+        );
+    char text[kCampaignPathBytes + sizeof(reason) + 64];
+    std::snprintf(
+        text, sizeof(text), "The campaign file %s is left out of the list: %s.", path, reason
+    );
+    message(files, text);
 }
 
 } // namespace
@@ -1076,15 +1114,19 @@ campaign_load_names(const CampaignFiles* files, const char* side, char* out, std
         // Loose files come first, then each mount, and equal names keep that
         // order, so the first copy of a file is the top layer. A lower layer's
         // copy of the same path is the same campaign.
-        if (campaign_name_already_kept(out, used, name)) {
+        if (campaign_name_already_tried(names, name)) {
             name += std::strlen(name) + 1;
             continue;
         }
         char path[kCampaignPathBytes];
         const CampaignFiles rules = rule_files(files);
         build_variant_path(&rules, path, sizeof(path), kCampsDirectory, name, "tdf");
-        if (!load_tdf(files, &document, path))
+        oa::formats::tdf::ParseError error{};
+        if (!load_tdf(files, &document, path, &error)) {
+            report_unlisted_campaign(files, path, error);
+            name += std::strlen(name) + 1;
             continue;
+        }
         oa::formats::tdf::reset_cursor(&document);
         if (oa::formats::tdf::select_section(&document, "HEADER")) {
             char campaign_side[0x40];

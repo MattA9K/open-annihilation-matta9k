@@ -12,13 +12,14 @@ preferences file the check writes:
   default value, it writes the same trace stream, reaches the same world
   digest and draws the same last frame, byte for byte. So it does with HUD
   scaling Off alone: at the run's 640x480 the side column and bars are at
-  the original game's size either way.
+  the original game's size either way; and with Smooth motion Off alone: at
+  the run's 30 frames a second every frame shows its tick whole either way.
 - With every setting that only changes the look or the input away from its
   default (wheel zoom off, the zoom's limits at Whole map and None, Escape
   opens the game menu, Select groups without Alt, the lowest maximum frame
   rate, the performance statistics, hardware
   acceleration at Full and vertical sync, which a headless run has no
-  renderer for, the explosions' flashes off, units zoomed out as dots past
+  renderer for, Smooth motion off, the explosions' flashes off, units zoomed out as dots past
   half scale, the window's frame always shown, and the side column and bars
   at the original game's size), it writes the same trace stream and reaches
   the same world digest.
@@ -72,6 +73,7 @@ DEFAULTS = {
     "open-annihilation.screen-size": "desktop",
     "open-annihilation.hardware-acceleration": "off",
     "open-annihilation.vertical-sync": "0",
+    "open-annihilation.smooth-motion": "1",
     "open-annihilation.explosion-flash": "full",
     "open-annihilation.zoomed-out-units": "rendered",
     "open-annihilation.zoomed-out-after": "1/6",
@@ -94,6 +96,7 @@ PRESENTATION = {
     "open-annihilation.frame-stats": "1",
     "open-annihilation.hardware-acceleration": "full",
     "open-annihilation.vertical-sync": "1",
+    "open-annihilation.smooth-motion": "0",
     "open-annihilation.explosion-flash": "off",
     "open-annihilation.zoomed-out-units": "dots",
     "open-annihilation.zoomed-out-after": "1/2",
@@ -106,6 +109,7 @@ PRESENTATION = {
     SWITCH_ALT_KEY: "1",
 }
 HUD_SCALING_KEY = "open-annihilation.hud-scaling"
+SMOOTH_MOTION_KEY = "open-annihilation.smooth-motion"
 ANTI_ALIASING_KEY = "open-annihilation.anti-aliasing"
 ANTI_ALIASING_LEVELS = (2, 3, 4, 8, 16)
 PATH_SEARCH_KEY = "open-annihilation.path-search-nodes"
@@ -196,6 +200,12 @@ def main():
             raise SystemExit(
                 f"HUD scaling Off at 640x480 moved the game or its picture: digest {unscaled[0]} "
                 f"frame {short(unscaled[2])}, not {digest} {short(frame)}")
+        ticked = skirmish(native, game_dir, workdir, "ticked", {**DEFAULTS, SMOOTH_MOTION_KEY: "0"})
+        if ticked != (digest, trace, frame):
+            raise SystemExit(
+                f"Smooth motion Off at 30 frames a second moved the game or its picture: digest "
+                f"{ticked[0]} trace {short(ticked[1])} frame {short(ticked[2])}, not {digest} "
+                f"{short(trace)} {short(frame)}")
         shown = skirmish(native, game_dir, workdir, "presentation", {**DEFAULTS, **PRESENTATION})
         if shown[:2] != (digest, trace):
             raise SystemExit(f"the look and input settings moved the world: digest {shown[0]}, "
@@ -226,7 +236,8 @@ def main():
         director_render(native, game_dir, workdir, "director-aa16",
                         {**DEFAULTS, ANTI_ALIASING_KEY: "16"}, args.director_hashes)
         print(f"engine settings determinism: digest {digest} with no preferences, every default, "
-              f"HUD scaling Off, the look and input settings and anti-aliasing at "
+              f"HUD scaling Off, Smooth motion Off, the look and input settings and "
+              f"anti-aliasing at "
               f"{', '.join(f'{level}x' for level in ANTI_ALIASING_LEVELS)}; Pathfinding cycles "
               f"at 2x {paths[0][0]}, unit limit {RAISED_UNIT_LIMIT} {limits[0][0]}; the director "
               f"render's pinned frames and sound at every default and at 16x")

@@ -15,6 +15,9 @@
 
 #include "oa/netgame/condenser.hpp"
 #include "oa/netgame/match/match_binding.hpp"
+#include "oa/sim/air/driver.hpp"
+#include "oa/sim/air/goal.hpp"
+#include "oa/sim/ground_orders/orders.hpp"
 #include "oa/sim/match_runtime/construction_orders.hpp"
 #include "oa/sim/weapon_execution/interceptor.hpp"
 #include "oa/sim/weapon_execution/projectile_pool.hpp"
@@ -951,6 +954,82 @@ void remote_aircraft_follow_their_owner() {
     CHECK(copy_flew);
     CHECK(pair.host->match->state().units[index].position.z > (150 << 16));
     CHECK(divergence.compared >= 230 && divergence.moving > 20);
+    CHECK(divergence.differing == 0);
+}
+
+// An aircraft that reaches a goal with an arrival radius drops it inside
+// its movement step, after the step has steered toward it. The copy
+// tracks the same goal and drops it at the same step, so its steering
+// heading stays its owner's when the aircraft arrives turning, flying
+// faster than its brake rate (the excess speed goes along its heading).
+// So does a goal installed and reached in one step, which the owner's
+// record still carries.
+void aircraft_arriving_inside_a_radius_keep_their_copy() {
+    Pair pair;
+    auto* owned =
+        pair.host->match->create({0, kAircraftType, {60u << 16, 0, 40u << 16}, true, 1, 0});
+    CHECK(owned != nullptr);
+    if (owned == nullptr)
+        return;
+    const auto index = owned->unit_index;
+    const auto fast = [index](Machine& m) {
+        auto& world = m.match->state();
+        if (auto* type = world_unit_def_of(&world, &world.units[index])) {
+            type->max_velocity = 4 << 16;
+            type->brake_rate = 2 << 16;
+            type->acceleration = 1 << 15;
+        }
+    };
+    fast(*pair.host);
+    uint32_t away_events = 0;
+    uint32_t aside_events = 0;
+    uint32_t swerve_events = 0;
+    sim::air::AirGoal away{};
+    sim::air::AirGoal aside{};
+    sim::air::AirGoal swerve{};
+    Divergence divergence;
+    uint16_t fastest = 0;
+    for (uint32_t t = 0; t < 240; ++t) {
+        if (t == 5)
+            fast(*pair.joiner);
+        auto* driver = pair.host->match->air_driver(index);
+        auto& unit = pair.host->match->state().units[index];
+        if (t == 10) {
+            // Up and away along z, with no order behind the goal.
+            pair.host->match->set_movement_layer(index, sim::air::layer_air);
+            away = sim::air::air_goal_at_point(&away_events, &unit, {60 << 16, 0, 240 << 16});
+            sim::air::air_driver_set_goal(driver, &away);
+        }
+        const auto* ground = pair.host->match->ground_runtime(index);
+        if (t > 10 && aside.kind == sim::air::AirGoalKind::none && ground != nullptr &&
+            ground->movement.speed > (3 << 16) && unit.position.z > (120 << 16)) {
+            // A point off to the side, reached 60 units short while turning.
+            aside = sim::air::air_goal_at_point(&aside_events, &unit, {200 << 16, 0, 200 << 16});
+            sim::air::air_goal_set_arrival_radius(&aside, 60);
+            sim::air::air_driver_set_goal(driver, &aside);
+            fastest = static_cast<uint16_t>(ground->movement.speed >> 16);
+        } else if (
+            swerve.kind == sim::air::AirGoalKind::none &&
+            (aside_events & sim::ground_orders::arrived_event) != 0 && ground != nullptr &&
+            ground->movement.speed > (3 << 16)
+        ) {
+            // A point 40 units to the left of its path, inside a 60 radius:
+            // reached at the step that first steers toward it.
+            const int32_t left_x = unit.position.x - (ground->movement.velocity[2] * 10);
+            const int32_t left_z = unit.position.z + (ground->movement.velocity[0] * 10);
+            swerve = sim::air::air_goal_at_point(&swerve_events, &unit, {left_x, 0, left_z});
+            sim::air::air_goal_set_arrival_radius(&swerve, 60);
+            sim::air::air_driver_set_goal(driver, &swerve);
+        }
+        step(*pair.host);
+        divergence.note_owner(*pair.host, index);
+        step(*pair.joiner);
+        divergence.compare(*pair.joiner, 0, index);
+    }
+    CHECK(fastest >= 3);
+    CHECK((aside_events & sim::ground_orders::arrived_event) != 0);
+    CHECK((swerve_events & sim::ground_orders::arrived_event) != 0);
+    CHECK(divergence.compared >= 230 && divergence.moving > 100);
     CHECK(divergence.differing == 0);
 }
 
@@ -2531,6 +2610,7 @@ int main() {
     replicated_play();
     remote_driver_brakes_and_blocks();
     remote_aircraft_follow_their_owner();
+    aircraft_arriving_inside_a_radius_keep_their_copy();
     carried_copies_keep_their_drivers();
     remote_events_reach_the_copy();
     death_record_for_unit_zero_changes_nothing();

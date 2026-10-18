@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 cmake_minimum_required(VERSION 3.24)
-project(open_annihilation VERSION 0.8.1 LANGUAGES C CXX)
+project(open_annihilation VERSION 0.8.3 LANGUAGES C CXX)
 # The version's label. A build of a tree whose label is not empty is a
 # development build. The label is empty for a release, and for a build the
 # maintainer reviews as one; the commit after a release sets it back to "dev"
@@ -785,7 +785,8 @@ if(BUILD_TESTING)
   set_tests_properties(app-game-files-import-data PROPERTIES TIMEOUT 300)
   oa_demo_installer_tests(app-game-files-import-data)
   # The managed copy of a fixture install: an interrupted copy resumed, the
-  # source left unchanged, and the content-copy check.
+  # source left unchanged, and the content-copy check. A base game left
+  # incomplete is not taken as copied.
   add_executable(oa-app-content-copy-test src/app/content_copy_test.cpp)
   target_link_libraries(oa-app-content-copy-test PRIVATE oa-app-game-files oa-platform-shims
     oa-test-support oa-options)
@@ -970,8 +971,9 @@ if(BUILD_TESTING)
     # driver switched and back;
     # the pointer held on the window in full screen with the focus and let go
     # in a window or without the focus; a window that leaves full screen
-    # brought back onto its display, at a size asked for, and a window asked
-    # for a size kept on its display.
+    # brought back onto its display, at a size asked for, a window asked for
+    # a size kept on its display, and the line --trace-input writes of the
+    # window's place on its display and the pointer's.
     add_executable(oa-app-full-screen-test src/app/full_screen_test.cpp src/app/full_screen.cpp)
     target_link_libraries(oa-app-full-screen-test PRIVATE oa-app-headers SDL3::SDL3 oa-options)
     add_test(NAME app-full-screen COMMAND oa-app-full-screen-test)
@@ -2303,7 +2305,9 @@ if(OA_BUILD_PLATFORM)
       # world and every whole tick's frame as they are, show units, turrets
       # and projectiles part of the way from one tick to the next, and move
       # a unit, and the ground under a camera tracking it, along the even
-      # path frame by frame at 120 frames a second.
+      # path frame by frame at 120 frames a second. Drawn as the application
+      # loop draws them, with Smooth motion Off every frame shows its tick
+      # whole, a tick's frames one picture, and the world is as with it On.
       set(oa_interpolation_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/interpolation")
       file(MAKE_DIRECTORY "${oa_interpolation_dir}")
       add_test(NAME native-interpolation COMMAND oa-game --game-dir "${OA_GAME_DIR}"
@@ -2319,7 +2323,9 @@ if(OA_BUILD_PLATFORM)
       # frames a second where its records alone hold it still and make it
       # jump, on whole ticks too, with the tracking camera and the pointer's
       # pick where it is drawn; the local runner and the world are as without
-      # the playout, and with no such player so is every frame.
+      # the playout, and with no such player so is every frame. With Smooth
+      # motion Off each frame draws the runner where its playout has it at
+      # the latest tick, and the world is as with it On.
       set(oa_unit_playout_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/unit-playout")
       file(MAKE_DIRECTORY "${oa_unit_playout_dir}")
       add_test(NAME native-unit-playout COMMAND oa-game --game-dir "${OA_GAME_DIR}"
@@ -3039,7 +3045,8 @@ endforeach()
         set_tests_properties(native-group-orders PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
         # The Open Annihilation settings leave the game as it plays without
         # them: the seeded skirmish, drawn, writes the same trace stream and
-        # last frame with every key at its default as with no preferences;
+        # last frame with every key at its default as with no preferences,
+        # and with Smooth motion Off at 30 frames a second;
         # the look and input settings and every enhanced anti-aliasing level
         # leave its world alone; Pathfinding cycles at 2x and a unit limit of
         # 500 repeat; and the director render keeps its pinned frames and
@@ -3058,7 +3065,10 @@ endforeach()
         # frame, each frame shows a quarter of a tick more, and a marching
         # unit drawn between ticks moves on nearly every frame, none carrying
         # more than half the most it moves in a tick; a camera tracking the
-        # unit keeps it at one place of the screen on every frame; and from a
+        # unit keeps it at one place of the screen on every frame; at 120 with
+        # Smooth motion Off it writes the same trace stream and reaches the
+        # same digest, no frame drawn between ticks, the camera scrolled as
+        # evenly and the unit drawn where each tick holds it; and from a
         # clock just before 2^32 milliseconds the match steps on through the
         # turn of the clock's reading to 0, at 30 frames a second each frame
         # running a tick but the first past it.

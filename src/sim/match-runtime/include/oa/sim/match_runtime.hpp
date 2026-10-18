@@ -1287,12 +1287,18 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     /// @param type Type index.
     /// @return The total count.
     int32_t queued_build_count(uint16_t unit, int32_t type) const;
-    /// Changes a factory's queued BuildingBuild count of a type
-    /// (change_queued_count).
+    /// Changes a factory's queued count of a type from its build list
+    /// (change_queued_count), as a computer player's factory orders do.
+    ///
+    /// A type whose unit name holds MAKENUKE or MAKEANTI is a round for the
+    /// factory's first weapon to stockpile, and changes the BuildWeapon count;
+    /// any other type changes the BuildingBuild count of that type.
     ///
     /// @param factory Factory slot.
     /// @param type Type index.
-    /// @param delta Units to add, or to take away when negative.
+    /// @param delta Units or rounds to add, or to take away when negative.
+    /// @quirk A round is told by its name alone, whatever its type holds, as
+    ///        3.1c tells the rounds of its build buttons.
     void queue_factory_build(uint16_t factory, uint16_t type, int32_t delta);
     /// Adds to the count (second parameter) of the unit's queued orders of a
     /// kind for a type (first parameter).
@@ -2709,8 +2715,11 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     /// (-health * 100 / maximum health + previous 30-tick health percentage)
     /// / 2, each division truncated, clamped to 1..100; its Killed script
     /// runs with it and returns the percentage and the wreck level it dies
-    /// with. An unfinished unit leaves no wreck whatever the script picks. A
-    /// last attacker whose player's slot is free credits nobody.
+    /// with. A type with no maximum health (MaxDamage 0), for which 3.1c has
+    /// no percentage, takes a quotient of 0, so such a unit dies at half its
+    /// previous percentage, at least 1. An unfinished unit leaves no wreck
+    /// whatever the script picks. A last attacker whose player's slot is free
+    /// credits nobody.
     ///
     /// Then MultiplayerHooks::unit_killed shares the death of a unit
     /// simulated here, its orders are cleared, teardown_dead_unit tears it

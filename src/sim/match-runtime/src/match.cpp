@@ -744,9 +744,6 @@ void Match::note_step(sim::simulation_state::StepFault fault) noexcept {
     case StepFault::untyped_unit:
         fault_.note("unit has no type");
         break;
-    case StepFault::zero_maximum_health:
-        fault_.note("health percentage divisor is zero");
-        break;
     case StepFault::orders_short:
         fault_.note("order queues do not cover the unit pool");
         break;

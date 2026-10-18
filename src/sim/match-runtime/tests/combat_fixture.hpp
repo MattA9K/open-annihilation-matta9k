@@ -179,6 +179,8 @@ struct Options {
     int32_t maximum_wind{};
     // Unit slots of each player (OfflineInputs::per_player_limit).
     uint16_t per_player_limit = 4;
+    // The type's maximum health (MaxDamage); 0 makes a type with none.
+    uint32_t maximum_health = 1000;
 };
 
 /// Returns the fixture's TESTGUN section (slot 1): a 400-range turret gun
@@ -353,7 +355,7 @@ struct Fixture {
         }
         script->piece_names = {"root"};
         types[1].simulation.flags = 0x800000 | OA_UNIT_DEF_FLAG_HAS_WEAPONS;
-        types[1].simulation.maximum_health = 1000;
+        types[1].simulation.maximum_health = options.maximum_health;
         types[1].footprint_x = types[1].footprint_z = 1;
         types[1].bm_code = 1;
         types[1].model = reinterpret_cast<uintptr_t>(model.get());

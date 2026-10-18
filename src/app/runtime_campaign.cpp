@@ -42,6 +42,7 @@
 #include <iterator>
 #include <memory>
 #include <optional>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -165,6 +166,10 @@ struct CampaignRuntime {
     // (Runtime::campaign_dialog_env), and the runtime that shows them.
     missions::CampaignFiles dialog_files{};
     Runtime* dialog_owner = nullptr;
+    // `files` with the campaign list's reports also written to the log
+    // (campaign_list_env), and the reports the run has logged.
+    missions::CampaignFiles list_files{};
+    std::set<std::string> logged_list_messages;
     PackageEvents events;
     const oa::formats::fnt::Font* font = nullptr;
 };
@@ -256,6 +261,15 @@ void asset_find(
 
 void package_message(void*, const char* text) {
     campaign_runtime().events.message = text;
+}
+
+// package_message, with each text also written to the log the first time the
+// run sees it: the campaign list reports every file it leaves out each time
+// it is built, once per side and per visit to the panel.
+void list_message(void* context, const char* text) {
+    package_message(context, text);
+    if (campaign_runtime().logged_list_messages.insert(text).second)
+        std::cerr << "open-annihilation: " << text << '\n';
 }
 
 // Measures a briefing's text as draw_briefing_overlays draws it: in its FNT
@@ -396,6 +410,21 @@ static missions::CampaignEnv campaign_env(
     return {&state.files, nullptr, static_cast<int32_t>(difficulty), 0, names};
 }
 
+// campaign_env for the calls that list the campaigns, whose reports of the
+// files the list leaves out reach the log (list_message).
+static missions::CampaignEnv campaign_list_env(
+    oa::AssetStore& assets,
+    uint32_t difficulty,
+    const oa::data::match_rules::AiDifficultyNames& names
+) {
+    missions::CampaignEnv env = campaign_env(assets, difficulty, names);
+    auto& state = campaign_runtime();
+    state.list_files = state.files;
+    state.list_files.message = list_message;
+    env.files = &state.list_files;
+    return env;
+}
+
 namespace {
 
 // SINGLE.GUI keeps the side and the all-missions unlock the panel reads.
@@ -507,7 +536,7 @@ bool Runtime::offers_any_mission() const {
 }
 
 bool Runtime::side_has_campaign(uint32_t side) {
-    const auto env = campaign_env(assets_, preferences_.difficulty, difficulty_names());
+    const auto env = campaign_list_env(assets_, preferences_.difficulty, difficulty_names());
     std::vector<char> names(64 * 1024);
     return missions::campaign_load_names(
                env.files, side == 0 ? "ARM" : "CORE", names.data(), names.size()
@@ -529,7 +558,7 @@ void Runtime::enter_new_game_panel(bool any_mission) {
     std::snprintf(setup.side_names[0], sizeof setup.side_names[0], "%s", "ARM");
     std::snprintf(setup.side_names[1], sizeof setup.side_names[1], "%s", "CORE");
     setup.side_count = 2;
-    setup.env = campaign_env(assets_, preferences_.difficulty, difficulty_names());
+    setup.env = campaign_list_env(assets_, preferences_.difficulty, difficulty_names());
     setup.campaign = &campaign_runtime().file;
     setup.campaign_selected = 0;
     setup.mission_selected = 0;
@@ -1024,7 +1053,7 @@ void Runtime::discover_campaigns() {
     campaign_labels_.clear();
     selected_campaign_index_ = 0;
     campaign_first_visible_ = 0;
-    const auto env = campaign_env(assets_, preferences_.difficulty, difficulty_names());
+    const auto env = campaign_list_env(assets_, preferences_.difficulty, difficulty_names());
     const char* side = preferences_.side == 0 ? "ARM" : "CORE";
     std::vector<char> names(64 * 1024);
     const auto count = missions::campaign_load_names(env.files, side, names.data(), names.size());

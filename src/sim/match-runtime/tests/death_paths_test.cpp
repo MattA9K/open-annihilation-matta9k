@@ -774,6 +774,67 @@ void spawn_in_dead_slot_advances_instance_generation() {
     std::cout << "spawn in dead slot advances instance generation passed\n";
 }
 
+// A unit of a type with no maximum health (MaxDamage 0) is made with no health
+// and reads 0% at each 30-tick reading, with no fault, and the units after it
+// in the tick's pass are still updated. Its first hit kills it through the
+// kill handler, the health quotient taken as 0: Killed runs at half the
+// reading before, the unit explodes with its explodeas weapon and leaves the
+// wreck Killed picks, and it is torn down.
+void unit_without_maximum_health_dies_on_first_hit() {
+    struct Death {
+        uint16_t unit{};
+        sim::match_runtime::KillOutcome outcome{};
+    };
+
+    const BlastArt art;
+    auto options = art.options();
+    options.maximum_health = 0;
+    options.killed_script = true;
+    Fixture f(options);
+    arm_death_blasts(f);
+    std::vector<Death> deaths;
+    f.match->event_hooks.context = &deaths;
+    f.match->event_hooks.unit_died = [](void* context,
+                                        const World&,
+                                        uint16_t unit,
+                                        const sim::match_runtime::KillOutcome& outcome,
+                                        bool) {
+        static_cast<std::vector<Death>*>(context)->push_back({unit, outcome});
+    };
+    auto& victim = idle(f, 0, 64, 64);
+    auto& later = idle(f, 1, 200, 200);
+    CHECK(victim.unit->health == 0 && live(victim) && !dying(victim));
+    while (f.match->simulation().tick % 30 != 29)
+        f.run(1);
+    // The reading before, which the Killed percentage halves.
+    victim.record.health_percent = 80;
+    later.record.health_percent = 70;
+    later.record.damage_countdown = 10;
+    f.run(1);
+    CHECK(victim.record.previous_health_percent == 80 && victim.record.health_percent == 0);
+    CHECK(later.record.previous_health_percent == 70 && later.record.health_percent == 0);
+    CHECK(later.record.damage_countdown == 9);
+    CHECK(live(victim) && !dying(victim));
+
+    const auto& effects = std::as_const(*f.match).effects();
+    const auto blasts = effects.explosion_count;
+    f.match->apply_damage_event(victim, &later, 1, weapon_hit, 0);
+    CHECK(dying(victim));
+    f.run(1);
+    CHECK(!live(victim));
+    CHECK(deaths.size() == 1 && deaths[0].unit == victim.unit_index);
+    CHECK(deaths[0].outcome.killed_percent == 40);
+    CHECK(deaths[0].outcome.wreck_level == killed_corpsetype(40));
+    CHECK(f.services.explosions.size() == 1);
+    CHECK(f.services.explosions[0].unit == victim.unit_index);
+    CHECK(f.services.explosions[0].flags == killed_corpsetype(40));
+    CHECK(effects.explosion_count == blasts + 1);
+    CHECK(effects.explosions[blasts].sprite.sequence == &art.explode4);
+    CHECK(live(later));
+    f.run(30);
+    std::cout << "unit without maximum health dies on first hit passed\n";
+}
+
 } // namespace
 
 int main() {
@@ -796,6 +857,7 @@ int main() {
         unit_type_killed_counts_every_death();
         unit_type_killed_counts_tick_deaths();
         spawn_in_dead_slot_advances_instance_generation();
+        unit_without_maximum_health_dies_on_first_hit();
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return 1;

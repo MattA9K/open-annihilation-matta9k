@@ -264,9 +264,6 @@ std::array<int32_t, 2> Runtime::view_camera() const {
         return {match_camera_x_, match_camera_z_};
     const auto [map_width, map_height] = shown_map_size();
     const auto zoom = static_cast<double>(match_zoom() <= 0.0F ? 1.0F : match_zoom());
-    const auto from = [this](double centre) {
-        return view_hold_.held ? std::optional<double>(centre) : std::nullopt;
-    };
     const double share = past_map_edge_share();
     // A camera taken from the view's exact place, which may lie up to a
     // screen pixel and a map pixel from it zoomed out, is held already
@@ -288,16 +285,27 @@ std::array<int32_t, 2> Runtime::view_camera() const {
             exact_view_.x,
             static_cast<double>(match_layout_.battlefield_width()) / zoom,
             static_cast<double>(map_width),
-            from(view_hold_.centre_x)
+            view_hold_from(view_hold_.centre_x)
         ),
         held(
             match_camera_z_,
             exact_view_.z,
             static_cast<double>(match_layout_.battlefield_height()) / zoom,
             static_cast<double>(map_height),
-            from(view_hold_.centre_z)
+            view_hold_from(view_hold_.centre_z)
         )
     };
+}
+
+std::optional<double> Runtime::view_hold_from(double centre) const noexcept {
+    namespace settings = oa::ui::engine_settings;
+    // Only a zoom at 50% leaves a view past the limits on purpose; at 25%
+    // and Off a view past them was held for a smaller battlefield, and the
+    // limits alone bring it back.
+    if (!view_hold_.held ||
+        past_map_edge_share() != settings::past_map_edge_share(settings::ViewPastMapEdge::one_half))
+        return std::nullopt;
+    return centre;
 }
 
 std::array<int32_t, 2> Runtime::on_map_camera() const {
@@ -718,13 +726,7 @@ void Runtime::zoom_view_about(float zoom, double focus_x, double focus_y) {
         // A point of the map keeps it in view, wherever the view goes.
         if (zoom_past_limits && point >= 0.0 && point <= static_cast<double>(map))
             return place;
-        return held_view(
-            place,
-            visible,
-            static_cast<double>(map),
-            share,
-            zoom_past_limits && view_hold_.held ? std::optional<double>(centre) : std::nullopt
-        );
+        return held_view(place, visible, static_cast<double>(map), share, view_hold_from(centre));
     };
     const double x = along(point_x, focus_x, visible_x, map_width, view_hold_.centre_x);
     const double z = along(point_z, focus_y, visible_z, map_height, view_hold_.centre_z);
@@ -885,7 +887,7 @@ void Runtime::scroll_match_view_by(double screen_dx, double screen_dy) {
                 static_cast<double>(battlefield) / zoom,
                 static_cast<double>(map),
                 past_map_edge_share(),
-                view_hold_.held ? std::optional<double>(centre) : std::nullopt
+                view_hold_from(centre)
             );
         };
     const double x = along(
@@ -921,7 +923,7 @@ void Runtime::scroll_match_view(int32_t way_x, int32_t way_z, double step) {
                 static_cast<double>(battlefield) / zoom,
                 static_cast<double>(map),
                 past_map_edge_share(),
-                view_hold_.held ? std::optional<double>(centre) : std::nullopt
+                view_hold_from(centre)
             );
         };
     const double x =

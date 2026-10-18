@@ -6,11 +6,16 @@
 // tick, as they are without them; a unit, its turret and a projectile show
 // part of the way from one tick to the next; and a moving unit, and the
 // ground under a camera that tracks it, move evenly from frame to frame
-// where whole ticks alone move them in steps of the tick rate.
+// where whole ticks alone move them in steps of the tick rate. Drawn as the
+// application loop draws them, with Smooth motion Off every frame shows its
+// tick whole, so a tick's frames repeat one picture, and the world is as
+// with it On.
 #include "oa/app/runtime.hpp"
+#include "engine_settings_state.hpp"
 #include "match_models.hpp"
 #include "presentation_interpolation.hpp"
 
+#include "oa/base/game_loop.hpp"
 #include "oa/base/sha256.hpp"
 #include "oa/sim/match_runtime.hpp"
 #include "oa/sim/state_hash.hpp"
@@ -64,6 +69,12 @@ constexpr int32_t kGroundMargin = 16;
 constexpr int32_t kPlaceTolerance = 1;
 /// Bytes a pixel.
 constexpr size_t kRgbBytes = 3;
+/// Frames the application loop draws a second, unless --max-fps says otherwise.
+constexpr uint32_t kLoopFramesPerSecond = 120;
+/// The most frames the loop's passes draw: twice the frames their ticks
+/// take, so that a match clock that stopped stepping ends them.
+constexpr uint64_t kLoopFrameLimit =
+    uint64_t{kCheckTicks + 1} * kLoopFramesPerSecond / frame_pacing::kTicksPerSecond * 2;
 
 /// Ends the check with a failure.
 ///
@@ -669,6 +680,149 @@ void Runtime::check_interpolation() {
         summarise(blended.ground_strays).largest <= 2 * kPlaceTolerance,
         "frames between ticks did not move the ground under the tracking camera evenly"
     );
+    restart();
+
+    // Pass 5: frames as the application loop draws them, 120 a second on a
+    // clock of the check's own (the camera, the clock step with its ticks,
+    // the frame's fraction and the drawing), over the fight from its start,
+    // with Smooth motion On and then Off. On, most frames lie between two
+    // ticks, with units drawn from their copies and projectiles part of the
+    // way from one tick to the next. Off, every frame shows its tick whole:
+    // no unit is drawn from its copies and every projectile shows at its
+    // tick's place, so the frames of a tick are one picture, the tick drawn
+    // whole. The ticks each frame runs, and the world after it, are the same
+    // either way.
+    struct LoopFrame {
+        uint32_t tick{};        ///< the ticks the pass ran by the frame's clock step
+        float alpha{};          ///< the fraction of a tick the frame was drawn at
+        sha256::Digest frame{}; ///< the battlefield as drawn
+        uint64_t world{};       ///< the world after the frame (frame_run_digest)
+        size_t units_between{}; ///< units drawn from their copies, between two ticks
+        bool shots_between{};   ///< a projectile was drawn off its tick's place
+    };
+
+    // The frames' clock and Smooth motion as they were, however the pass ends.
+    struct LoopEnd {
+        Runtime& runtime;
+        bool smooth{};
+
+        LoopEnd(Runtime& owner, bool kept) : runtime(owner), smooth(kept) {}
+
+        LoopEnd(const LoopEnd&) = delete;
+        LoopEnd& operator=(const LoopEnd&) = delete;
+
+        ~LoopEnd() {
+            runtime.frame_run_clock_ns_.reset();
+            runtime.engine_settings_state().current.smooth_motion = smooth;
+        }
+    } loop_end{*this, smooth_motion()};
+
+    const auto loop_frames = [&](bool smooth) {
+        start_fight();
+        engine_settings_state().current.smooth_motion = smooth;
+        frame_run_clock_ns_ = 0;
+        match_timing_.previous_clock = oa::base::game_loop::scaled_clock(0, match_clock_scale());
+        tick_presentation_ = {};
+        scroll_clock_ = 0;
+        zoom_clock_valid_ = false;
+        frame_draws_ = {};
+        std::vector<LoopFrame> frames;
+        const uint32_t base_tick = match_timing_.tick;
+        for (uint64_t frame = 0; match_timing_.tick - base_tick < kCheckTicks; ++frame) {
+            require(frame < kLoopFrameLimit, "the loop's match clock stopped stepping");
+            frame_run_clock_ns_ =
+                (2 * frame + 1) * frame_pacing::kNanosecondsPerSecond / (2 * kLoopFramesPerSecond);
+            take_frame_time();
+            camera_moved_ = false;
+            move_match_camera();
+            step_match_frame();
+            LoopFrame drawn{};
+            drawn.tick = match_timing_.tick - base_tick;
+            drawn.alpha = presentation_alpha();
+            frame_draws_.units_between_ticks = 0;
+            rebuild_surface();
+            presentation_alpha_ = 1.0F;
+            drawn.frame = frame_digest();
+            drawn.world = frame_run_digest();
+            drawn.units_between = frame_draws_.units_between_ticks;
+            const auto& shown = models().presentation.presented_shots;
+            const auto shots = match_->projectiles();
+            for (size_t index = 0; index < shots.size() && index < shown.size(); ++index)
+                drawn.shots_between = drawn.shots_between ||
+                                      shown[index].position.x != shots[index].position.x ||
+                                      shown[index].position.y != shots[index].position.y ||
+                                      shown[index].position.z != shots[index].position.z;
+            if (!smooth) {
+                // The tick drawn whole is the picture the loop's frame drew.
+                draw_at(1.0F);
+                require(
+                    frame_digest() == drawn.frame,
+                    "with Smooth motion Off the loop's frame " + std::to_string(frame) +
+                        " is not its tick drawn whole"
+                );
+            }
+            frames.push_back(drawn);
+        }
+        restart();
+        return frames;
+    };
+    const std::vector<LoopFrame> smooth = loop_frames(true);
+    const std::vector<LoopFrame> plain = loop_frames(false);
+    require(
+        smooth.size() == plain.size() && !smooth.empty(),
+        "the loop drew " + std::to_string(smooth.size()) + " frames with Smooth motion On and " +
+            std::to_string(plain.size()) + " with it Off"
+    );
+    size_t smooth_between = 0;
+    size_t smooth_units = 0;
+    size_t smooth_shots = 0;
+    size_t repeated = 0;
+    for (size_t index = 0; index < smooth.size(); ++index) {
+        const auto& on = smooth[index];
+        const auto& off = plain[index];
+        const std::string at =
+            "frame " + std::to_string(index) + ", tick " + std::to_string(off.tick);
+        require(on.tick == off.tick, "Smooth motion Off ran other ticks by " + at);
+        require(on.world == off.world, "Smooth motion Off changed the world by " + at);
+        smooth_between += on.alpha < 1.0F ? 1 : 0;
+        smooth_units += on.units_between;
+        smooth_shots += on.shots_between ? 1 : 0;
+        require(off.alpha == 1.0F, "Smooth motion Off drew " + at + " between two ticks");
+        require(off.units_between == 0, "Smooth motion Off drew units between two ticks at " + at);
+        require(
+            !off.shots_between, "Smooth motion Off drew a projectile between two ticks at " + at
+        );
+        if (index > 0 && plain[index - 1].tick == off.tick) {
+            require(
+                plain[index - 1].frame == off.frame,
+                "with Smooth motion Off, " + at + " is not the picture of the frame before"
+            );
+            ++repeated;
+        }
+    }
+    require(
+        smooth_between * 2 >= smooth.size(),
+        "with Smooth motion On fewer than half the loop's frames lay between two ticks"
+    );
+    require(
+        smooth_units != 0 && smooth_shots != 0,
+        "with Smooth motion On no unit or no projectile was drawn between two ticks"
+    );
+    require(
+        repeated * 2 >= plain.size(),
+        "with Smooth motion Off fewer than half the loop's frames repeated their tick's picture"
+    );
+    std::printf(
+        "interpolation: the loop's %zu frames at %u a second: Smooth motion On drew %zu between "
+        "ticks, with %zu units and %zu frames of projectiles between them; Off drew each at its "
+        "tick, %zu repeating the frame before, and reached the same world at every frame\n",
+        plain.size(),
+        kLoopFramesPerSecond,
+        smooth_between,
+        smooth_units,
+        smooth_shots,
+        repeated
+    );
     std::printf(
         "interpolation: a frame between ticks took %.2f ms, a whole tick's %.2f ms\n",
         static_cast<double>(between_ns) / 1.0e6 /
@@ -682,7 +836,6 @@ void Runtime::check_interpolation() {
         units_between
     );
     std::fflush(stdout);
-    restart();
 }
 
 } // namespace oa::app

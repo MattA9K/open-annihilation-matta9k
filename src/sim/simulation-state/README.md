@@ -6,11 +6,14 @@ changes and height correction. It is not a complete movement or combat engine.
 
 Call `oa::sim::simulation_state::update_units(world, orders, host)` from the game
 loop's unit-movement step (`Step::tick_unit_movement`) with the game tick
-already incremented. It returns the `StepFault` that stopped it, or none. Units, players, types and game fields are the canonical
-`oa::World` records (`src/core`): populate `Unit.owner`, `Unit.def` and the
-players' inclusive `first_unit`/`last_unit` ranges with `oa_ref32` references.
-Order list heads are native, in the `OrderQueue` side table indexed by unit
-slot. Keep all tables stable while executing callbacks.
+already incremented. It returns the first `StepFault` a unit's update met, or
+none; a fault ends that unit's update, and the other units are still updated.
+A type with no maximum health reads 0% health. Units, players, types and game
+fields are the canonical `oa::World` records (`src/core`): populate
+`Unit.owner`, `Unit.def` and the players' inclusive `first_unit`/`last_unit`
+ranges with `oa_ref32` references. Order list heads are native, in the
+`OrderQueue` side table indexed by unit slot. Keep all tables stable while
+executing callbacks.
 
 Every operation owned by another system is a mandatory `Host` virtual method: no
 host that pretends scripts, order handlers, movement, damage, terrain lookup or

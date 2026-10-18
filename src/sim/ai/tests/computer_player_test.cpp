@@ -1121,9 +1121,9 @@ void test_campaign_downloadables() {
 }
 
 // ReloadAIProfiles resets the computer players' tables, then runs the profile
-// again. The plan flag is the one setting the directives share: nothing sets it
-// before a session's first load, and the downloadable passes leave it set, so a
-// line before the first plan applies on a reload only.
+// again. The plan flag is the one setting the directives share: it starts set,
+// and the downloadable passes leave it set, so a line before the first plan
+// applies on the first load and on a reload.
 void test_profile_reload() {
     constexpr const char* profile = "weight ARMSOLAR 0.5\nplan easy\nlimit ARMMEX 4\n";
     Fake fake;
@@ -1141,8 +1141,8 @@ void test_profile_reload() {
     check(computer_players_initialize(&state, host), "initialize");
     auto& k = state.players[1].knowledge;
     check(
-        k.weight_percent[ARMSOLAR] == 100 && k.weight_locked[ARMSOLAR] == 0,
-        "no plan matched before the first load"
+        k.weight_percent[ARMSOLAR] == 50 && k.weight_locked[ARMSOLAR] == 1,
+        "the leading line applies on the first load"
     );
     check(k.limits[ARMMEX] == 4 && k.limit_locked[ARMMEX] == 1, "easy plan limit");
     check(state.plan_matches, "the downloadable passes leave the plan flag set");
@@ -1208,6 +1208,49 @@ uint32_t orders_of(const Fake& fake, const char* kind, uint16_t unit) {
     for (const auto& order : fake.orders)
         count += order.kind == kind && order.unit == unit ? 1u : 0u;
     return count;
+}
+
+// The plan flag starts set: the lines a profile puts before its first plan
+// line apply to every computer player as the game starts, to one playing a
+// difficulty of its own too, and each plan line then selects the lines after it.
+void test_profile_leading_lines() {
+    constexpr const char* profile = "// every difficulty\n"
+                                    "weight ARM 0.2\n"
+                                    "limit ARM 0\n"
+                                    "weight ARMLAB 4\n"
+                                    "limit ARMLAB 2\n"
+                                    "plan easy\n"
+                                    "limit ARMMEX 6\n"
+                                    "plan hard\n"
+                                    "limit ARMMEX 9\n";
+    Fake fake;
+    fake.player(0, OA_PLAYER_STATUS_LOCAL, 1, 5);
+    fake.player(1, OA_PLAYER_STATUS_COMPUTER, 10, 30);
+    fake.player(2, OA_PLAYER_STATUS_COMPUTER, 31, 40);
+    auto host = host_for(fake);
+    ComputerPlayers state{};
+    describe_catalog(state);
+    computer_players_set_difficulty(&state, 2, OA_DIFFICULTY_HARD);
+    check(computer_players_configure(&state, profile, kBuildLists), "leading: configure");
+    check(computer_players_initialize(&state, host), "leading: initialize");
+    for (const uint8_t player : {uint8_t{1}, uint8_t{2}}) {
+        const auto& k = state.players[player].knowledge;
+        check(
+            k.weight_percent[ARMPW] == 20 && k.limits[ARMPW] == 0,
+            "leading: the category lines apply"
+        );
+        check(
+            k.weight_percent[ARMLAB] == 80 && k.limits[ARMLAB] == 2 && k.limit_locked[ARMLAB] == 1,
+            "leading: the unit lines apply"
+        );
+        check(
+            k.weight_percent[CORMEX] == 100 && k.limits[CORMEX] == unlimited,
+            "leading: the other side is untouched"
+        );
+    }
+    check(state.players[1].knowledge.limits[ARMMEX] == 6, "leading: the game's difficulty plan");
+    check(state.players[2].knowledge.limits[ARMMEX] == 9, "leading: the player's own plan");
+    computer_players_release(&state);
 }
 
 // ai.difficulty-names: the plan keyword, the report label and the menu label a
@@ -1684,6 +1727,7 @@ int main(int argc, char** argv) {
     test_busy_factory_gets_no_pick();
     test_campaign_downloadables();
     test_profile_reload();
+    test_profile_leading_lines();
     test_sighted_weight();
     test_siege();
     test_difficulty_names();

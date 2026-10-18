@@ -4,15 +4,19 @@
 // The .oa-content record of one copied bundle. The text is version 1:
 // "oa-content 1", then "bundle <id>", then "source <path>", then one group
 // per file of "file", "size", "modified" and "sha256". A file the source
-// did not hold follows that group with "not-in-source". A record written
-// before that line existed has no such line, and the file reads as held.
+// did not hold follows that group with "not-in-source", and, when the source
+// held a file of that name at another size, "source-size <bytes>" after it.
+// A record written before those lines existed has no such line, and the
+// file reads as held.
 // The source escapes backslash, newline and carriage return. A line whose
 // first word is not one of those fields is kept for a later reader and
 // ignored here. The parser takes bytes and returns a record; it does not
-// open a file.
+// open a file. A bundle is played only once its record names every one of
+// its files.
 #pragma once
 
 #include "oa/base/sha256.hpp"
+#include "oa/data/content_bundles.hpp"
 
 #include <cstdint>
 #include <filesystem>
@@ -46,6 +50,10 @@ struct ContentRecordFile {
     /// The source did not hold this file. A record with no such line reads
     /// this as false: the file was held.
     bool not_in_source{};
+    /// When `not_in_source`, the size in bytes of the file of this name the
+    /// source held instead, which is not the table's size; 0 when the source
+    /// held no file of this name.
+    uint64_t source_size{};
 };
 
 /// A bundle folder's record, as text or as read from the folder.
@@ -96,5 +104,29 @@ struct ContentRecord {
 /// @return the record
 [[nodiscard]] ContentRecord
 read_bundle_folder_record(const std::filesystem::path& folder, std::string* error);
+
+/// Lists the files of a bundle that its record does not name.
+///
+/// The record names a file once the copy has stored it, or has recorded it
+/// as not in the source. Names are compared without regard to ASCII case.
+/// A copy that stopped part way has not named the files after the one it
+/// stopped at, and a copy whose source holds a file under the file's name
+/// at another size does not name that file.
+///
+/// @param bundle the bundle
+/// @param record the record in the bundle's folder
+/// @return the copy names of the files not named, in the bundle's order
+[[nodiscard]] std::vector<std::string_view>
+files_not_recorded(const Bundle& bundle, const ContentRecord& record);
+
+/// Tells whether a record is the bundle's own and names all its files.
+///
+/// Only such a bundle is played. A bundle with no files never is.
+///
+/// @param bundle the bundle
+/// @param record the record in the bundle's folder
+/// @return true when the record is valid, names this bundle and names every
+///     one of its files
+[[nodiscard]] bool record_complete(const Bundle& bundle, const ContentRecord& record);
 
 } // namespace oa::data::content_bundles

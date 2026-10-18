@@ -36,6 +36,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <utility>
 
@@ -393,6 +394,30 @@ void Runtime::initialize_sdl() {
 
 bool Runtime::take_full_screen_event(const SDL_Event& event) {
     return oa::app::take_full_screen_event(sdl_.window, full_screen_switch_, event);
+}
+
+void Runtime::trace_window(std::string_view reason) {
+    if (!options_.trace_input || sdl_.window == nullptr)
+        return;
+    SDL_Window* const window = sdl_.window;
+    WindowTrace trace{};
+    trace.reason = reason;
+    // A value SDL cannot read stays 0, and the line shows it so.
+    std::ignore = SDL_GetWindowPosition(window, &trace.window.x, &trace.window.y);
+    std::ignore = SDL_GetWindowSize(window, &trace.window.w, &trace.window.h);
+    std::ignore = SDL_GetWindowSizeInPixels(window, &trace.pixel_width, &trace.pixel_height);
+    trace.display = SDL_GetDisplayForWindow(window);
+    if (trace.display != 0) {
+        std::ignore = SDL_GetDisplayBounds(trace.display, &trace.bounds);
+        std::ignore = SDL_GetDisplayUsableBounds(trace.display, &trace.usable);
+    }
+    trace.scale = SDL_GetWindowDisplayScale(window);
+    trace.flags = SDL_GetWindowFlags(window);
+    trace.exclusive = SDL_GetWindowFullscreenMode(window) != nullptr;
+    if (const SDL_Rect* held = SDL_GetWindowMouseRect(window); held != nullptr)
+        trace.mouse_rect = *held;
+    std::ignore = SDL_GetGlobalMouseState(&trace.pointer_x, &trace.pointer_y);
+    std::cerr << window_trace_line(trace) << '\n';
 }
 
 void Runtime::take_full_screen_switch(const FullScreenSwitch& full_screen) noexcept {

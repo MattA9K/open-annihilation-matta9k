@@ -41,6 +41,7 @@ the locks a running game puts on them (`settings_locks`).
 | | Screen size, when OK is pressed | Desktop, then the sizes the display offers from 640×480 (`Dialog::offered_screen_sizes`), in a window shown at the window's own size until moved, as Custom where the display offers no such size; Desktop, 640×480, 800×600, 1024×768 and 1280×1024 where the game does not say | Desktop; 800×600 on a light machine with the player's own preferences file, 640×480 when its desktop is smaller | `open-annihilation.screen-size` (`desktop`, or a size such as `2560x1440`) |
 | | Hardware acceleration | Off, Basic, Full | Full with the player's own preferences file on every machine; Off with `--preferences-file` | `open-annihilation.hardware-acceleration` (`off`, `basic` or `full`) |
 | | Vertical sync | Off, On | Off | `open-annihilation.vertical-sync` |
+| | Smooth motion: whether the frames between two ticks show units, their pieces, projectiles, debris and particles part of the way from one tick to the next, or each frame the latest tick whole | Off, On | On | `open-annihilation.smooth-motion` |
 | | Native pixel density, from the next start | Off, On; always On where the platform opens every window at native density | Off | `open-annihilation.native-density` |
 | | Explosion flash; a mod's profile may draw the flashes lower still (`ui.explosion-flash`), and the lower of the two is drawn | Off, Reduced, Full | Full | `open-annihilation.explosion-flash` (`off`, `reduced` or `full`) |
 | | Zoomed out units: how units are drawn farther out than After zoom | Rendered, Dots; Icons shown faded, not offered | Rendered | `open-annihilation.zoomed-out-units` (`rendered` or `dots`; any other word, `icons` among them, reads as Rendered) |
@@ -204,6 +205,14 @@ Vertical sync has each frame wait for the display, so that no frame tears;
 while it is in effect the frame rate keeps just below the display's. Off,
 the renderer is never asked, and the game paces its frames as without the
 setting.
+
+Smooth motion is never locked, and takes effect at once, in a game too.
+On, the application draws each frame the fraction of the way between two
+ticks its time stands for; Off, every frame shows the latest tick whole,
+as the game drew it, so the frames between two ticks repeat the tick's
+picture (`Runtime::smooth_motion`, `Runtime::present_frame_between_ticks`).
+The frame rate, the camera and the interface are the same either way, and
+it changes nothing a match shares, saves or records.
 
 Language says which language the game shows its text in. System default
 is the language the operating system's preferred locales choose, which the
@@ -457,8 +466,8 @@ and the footer never move. A section whose rows, with 8 clear pixels under
 the last row's line, are taller than the view scrolls by whole source
 pixels, and shows a scroll bar in the margin right of its rows: a well like
 a switch's, its thumb as tall as the view's share of the section and never
-under 16 pixels. Graphics, with nine rows, is taller than its view by
-336 pixels, Language & Text, with the Language drop-down, four switches and
+under 16 pixels. Graphics, with ten rows, is taller than its view by
+395 pixels, Language & Text, with the Language drop-down, four switches and
 the Text size slider, by 129, User Interface, with its three switches, Menu
 scaling's strip and Interface size's drop-down, by 88, Touch, with its
 three strips, the Hold delay slider and two switches, by 121, and Controls,
@@ -1307,9 +1316,9 @@ while the modern fonts are Off, lifted as they turn On; the Language
 drop-down's choices, each language named in itself, its field and list,
 the pointer and the keys on them, a press off the list, the command line's
 lock, and lists that scroll or open over their field;
-the Graphics section's nine rows, After zoom last, their places at every offset
+the Graphics section's ten rows, After zoom last, their places at every offset
 and under every lock, the focus scrolling them into view, both forms of a
-locked row, Zoomed out units' faded Icons and After zoom's lock, every status of Hardware acceleration, Full's included, and
+locked row, Smooth motion's switch and its two hints, Zoomed out units' faded Icons and After zoom's lock, every status of Hardware acceleration, Full's included, and
 the requests to try the graphics card afresh; User Interface's five rows, Menu scaling, Window frame, HUD scaling, Interface size and Escape opens the game menu, Window frame's two ways and HUD scaling's two hints; Interface size's drop-down
 offering 150% only with the modern fonts shown On, and turning them Off
 taking 150% to 100%; Graphics drawn on the kit canvas's smooth form at 1.5×

@@ -21,6 +21,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <span>
 
 namespace oa::data::persist {
 
@@ -419,6 +420,20 @@ void save_write_units(const SaveContext* save, Bank* bank);
 /// @return number of ids
 int32_t save_unit_record_ids(const Bank* bank, int32_t count, int32_t** ids);
 
+/// Finds the record a unit's restore reads, for every unit id at once.
+///
+/// The walk reads the id blobs 0, 1, 2, ... of the "Units" account while each
+/// id below "Number of Units" holds a blob, as the game's does, and stops at
+/// the first blob that does not hold a whole unit_record_bytes record. A unit's
+/// record is the first the walk reaches whose id field names it. A load that
+/// looks its units up here reads each record once, where a walk for each unit
+/// would read them once per unit.
+///
+/// @param[in,out] bank bank to read; the "Units" account is left open
+/// @param[out] records the id blob holding the record of each unit id below
+///     records.size(), indexed by unit id; -1 where the walk names none
+void save_find_unit_records(Bank* bank, std::span<int32_t> records);
+
 /// Restores the units of the "Units" account through the restore_unit hook.
 ///
 /// Nothing happens unless the account existed with Version 0x11. Each id
@@ -540,6 +555,9 @@ inline constexpr int32_t no_human_player = OA_PLAYER_COUNT;
 /// @param game_id Summary "Game ID"
 /// @param files file boundary
 /// @return false when the bank cannot be created or the file cannot be written
+/// @quirk No account holds the projectiles in flight, so a loaded game starts
+///     with none, as in 3.1c. A stockpiled missile in flight is lost with them:
+///     its weapon's stockpile was spent at launch.
 bool save_write_game(
     SaveContext* save,
     const SummaryHooks* summary,

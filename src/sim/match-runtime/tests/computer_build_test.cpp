@@ -40,14 +40,15 @@ constexpr float starting_resources = 900.0F;
 constexpr float builder_energy_make = 300.0F;
 constexpr float builder_metal_make = 10.0F;
 
-enum Type : uint16_t { vehicle = 1, collector, relay, type_count };
+enum Type : uint16_t { vehicle = 1, collector, relay, silo, missile, type_count };
 
 // The types' build lists (UnitDef.build_ids), from type 0 on: a count, then that many
-// ids. The vehicle builds the collector and the relay.
-constexpr uint16_t build_lists[] = {0, 2, collector, relay, 0, 0};
+// ids. The vehicle builds the collector and the relay; the silo's list offers the missile
+// its weapon stockpiles.
+constexpr uint16_t build_lists[] = {0, 2, collector, relay, 0, 0, 1, missile, 0};
 
-// A leading line before any plan applies only once a pass has left the plan
-// flag set; the medium plan halves the relay's weight.
+// A leading line before any plan applies, as the plan flag starts set; it
+// weights the collector to a tenth. The medium plan halves the relay's weight.
 constexpr const char* profile = R"(// test profile
 weight ARMSOLAR 0.1
 plan medium
@@ -62,7 +63,9 @@ using Scenario = oa::test::EmptyScenario;
 // A flat 64x64-cell map with an ARM construction vehicle, a solar collector
 // and a relay it can build; player 0 is local, player 1 the computer. The
 // vehicle supplies enough ongoing income for the priority strength to enter
-// the build scoring's weighted score after the first economy settlement.
+// the build scoring's weighted score after the first economy settlement, and
+// so does the silo, an armed building whose build list offers a missile: a type
+// named as a weapon round, with no health of its own.
 struct Fixture {
     formats::tnt::Map map;
     std::vector<sim::visibility_state::TerrainCell> terrain_values;
@@ -109,7 +112,9 @@ struct Fixture {
         script->scripts = {{"Create", 0}};
         script->entry_points = {0};
         script->piece_names = {"root"};
-        const char* names[type_count] = {"", "ARMCV", "ARMSOLAR", "ARMRELAY"};
+        const char* names[type_count] = {
+            "", "ARMCV", "ARMSOLAR", "ARMRELAY", "ARMSILO", "ARMMAKENUKE"
+        };
         for (size_t i = 1; i < type_count; ++i) {
             loaded[i].model = model;
             loaded[i].script = script;
@@ -151,6 +156,20 @@ struct Fixture {
         }
         fields[vehicle].movement_class = 0;
         defs[collector].energy_make = 20.0F;
+        types[silo].simulation.flags |= OA_UNIT_DEF_FLAG_BUILDER | OA_UNIT_DEF_FLAG_HAS_WEAPONS;
+        defs[silo].builder = true;
+        defs[silo].weapon1 = "NUKE";
+        defs[silo].energy_storage = 1000.0F;
+        defs[silo].metal_storage = 1000.0F;
+        defs[silo].energy_make = builder_energy_make;
+        defs[silo].metal_make = builder_metal_make;
+        // The missile is a mobile type with no MaxDamage, as a build list's rounds are.
+        types[missile].simulation.maximum_health = 0;
+        types[missile].bm_code = 1;
+        (void)sim::combat_state::install_weapon_text(
+            weapons,
+            "[NUKE]{id=1; reloadtime=0.4; energypershot=120; metalpershot=60; stockpile=1;}"
+        );
         if (downloadable_type != 0) {
             types[downloadable_type].simulation.flags |= OA_UNIT_DEF_FLAG_DOWNLOADABLE;
             defs[downloadable_type].downloadable = true;
@@ -232,9 +251,9 @@ void computer_builds_from_its_profile_and_lists() {
     const auto* k =
         sim::ai::computer_player_knowledge(sim::ai::match_computer_players(*f.match), computer);
     CHECK(k != nullptr);
-    // The leading weight line ran before any plan matched; the medium plan
+    // The leading weight line applied before the plans; the medium plan
     // weighted and capped the relay.
-    CHECK(k->weight_percent[collector] == 100);
+    CHECK(k->weight_percent[collector] == 10);
     CHECK(k->weight_percent[relay] == 50 && k->limits[relay] == 0);
     CHECK(sim::ai::match_computer_players(*f.match)->types[vehicle].build_count == 2);
     CHECK(built);
@@ -278,6 +297,27 @@ void campaign_computer_skips_downloadable_types() {
         const bool built = f.run(run_ticks, [&] { return f.count(computer, collector) != 0; });
         CHECK(built == !campaign);
     }
+}
+
+// A computer player's silo whose build list offers a weapon round, a type whose name holds
+// MAKENUKE or MAKEANTI, stockpiles it for its first weapon (BuildWeapon), as the build
+// buttons do: it never builds a unit of the missile's type, which has no health to die by.
+// The silo is armed, so ai.squad5-factory-tick gives it the structures task.
+void computer_silo_stockpiles_its_rounds() {
+    data::match_rules::MatchRules rules{};
+    rules.ai.squad5_factory_tick.enabled = true;
+    Fixture f(0, true, rules);
+    auto& launcher = f.spawn(computer, silo, 40, 40);
+    CHECK(sim::ai::configure_match_computer_players(*f.match, "", build_lists, false));
+    bool missile_built = false;
+    const bool stockpiled = f.run(run_ticks, [&] {
+        missile_built = missile_built || f.count(computer, missile) != 0 ||
+                        f.match->queued_build_count(launcher.unit_index, missile) != 0;
+        return launcher.record.weapons[0].stockpile != 0;
+    });
+    CHECK(!missile_built);
+    CHECK(stockpiled);
+    CHECK(f.match->fault() == nullptr);
 }
 
 // The ai.* rules at their 3.1c values (every parameter's baseline, the hacks turned on)
@@ -343,6 +383,7 @@ int main() {
         computer_builds_from_its_profile_and_lists();
         computer_without_income_skips_the_collector();
         campaign_computer_skips_downloadable_types();
+        computer_silo_stockpiles_its_rounds();
         computer_rules_through_the_match();
     } catch (const std::exception& error) {
         std::cerr << "computer build test failed: " << error.what() << '\n';

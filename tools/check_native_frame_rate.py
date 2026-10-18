@@ -31,6 +31,15 @@ and the unit never jumps by a tick's step. The check prints the spread the
 unit had on the screen when the camera was centred before the clock step on
 the tick's place and the view moved by the unit's step since.
 
+Runs at 120 frames a second with Smooth motion Off, as a preferences file
+sets it, must write the same trace stream and reach the same world digest
+as the runs with it On, with no frame drawn between two ticks: every frame
+shows its tick whole. Their frame log, the camera's scroll swept over the
+marching army, must show every frame at a whole tick, the camera moving the
+same distance every frame as with Smooth motion On, and the unit the log
+follows drawn where the simulation holds it, moving only on the frames
+that run a tick.
+
 Runs at 30 and 120 frames a second whose clock starts 2 seconds before
 2^32 milliseconds (--frame-clock), where the match clock's reading turns over
 to 0, must write the same trace stream and reach the same world digest as
@@ -78,6 +87,10 @@ MOST_DRAWN_STEP_SHARE = 0.5
 # The whole pixels of the screen a tracked unit may be drawn at: one.
 FOLLOW_SCREEN_PIXELS = 1
 
+# A preferences file's first line, and the line that turns Smooth motion Off.
+PREFERENCES_HEADER = "open-annihilation-preferences 1"
+SMOOTH_MOTION_OFF = '"open-annihilation.smooth-motion" "0"'
+
 # The millisecond at which the steady clock's low 32 bits, and with them the
 # match clock's reading, turn over to 0; and how long before it the runs
 # across the turn start.
@@ -91,8 +104,13 @@ RUN_LINE = re.compile(
 )
 
 
-def run(native, game_dir, workdir, name, rate, *extra):
-    """Plays the skirmish at a frame rate and returns its run line's figures and its trace."""
+def run(native, game_dir, workdir, name, rate, *extra, smooth=True):
+    """Plays the skirmish at a frame rate and returns its run line's figures and its trace.
+
+    With smooth False the run's preferences file holds Smooth motion Off.
+    """
+    if not smooth:
+        (workdir / f"{name}.conf").write_text(f"{PREFERENCES_HEADER}\n{SMOOTH_MOTION_OFF}\n")
     trace = workdir / f"{name}.trace"
     result = subprocess.run(
         [*RUNNER, str(native), "--game-dir", str(game_dir), "--skip-intro", "--mute",
@@ -199,6 +217,42 @@ def check_log(path):
                          f"{largest_tick:.3f} map pixels a tick")
 
 
+def check_whole_log(path):
+    """Checks a frame log drawn with Smooth motion Off: each frame shows its tick whole."""
+    rows = list(csv.DictReader(path.open()))
+    if len(rows) < LOG_RATE:
+        raise SystemExit(f"{path}: {len(rows)} frames")
+    if any(float(row["alpha"]) != 1.0 for row in rows):
+        raise SystemExit(f"{path}: a frame was drawn between two ticks with Smooth motion Off")
+    # The camera's scroll is not the ticks': it moves the same whole map
+    # pixels every frame, turning back at the map's edge.
+    camera_steps = steps([int(row["camera_x"]) for row in rows])
+    runs = [abs(step) for step in camera_steps if step != 0]
+    if not runs or max(runs) - min(runs) > 1 or len(runs) + 2 < len(camera_steps):
+        raise SystemExit(f"{path}: the camera moved unevenly with Smooth motion Off: "
+                         f"{sorted(set(camera_steps))}")
+    first = next(index for index, row in enumerate(rows) if int(row["tick"]) > 0)
+    rows = rows[first:]
+    if any(not row["drawn_x"] for row in rows):
+        raise SystemExit(f"{path}: the unit the log follows was not drawn on every frame")
+    for row in rows:
+        if (abs(float(row["drawn_x"]) - float(row["unit_x"])) > STILL_PIXELS or
+                abs(float(row["drawn_z"]) - float(row["unit_z"])) > STILL_PIXELS):
+            raise SystemExit(f"{path}: frame {row['frame']} drew the unit away from its tick's "
+                             "place with Smooth motion Off")
+    drawn_motion = []
+    for earlier, later in zip(rows, rows[1:]):
+        moved = (abs(float(later["drawn_x"]) - float(earlier["drawn_x"])) +
+                 abs(float(later["drawn_z"]) - float(earlier["drawn_z"])))
+        if moved > STILL_PIXELS and later["tick"] == earlier["tick"]:
+            raise SystemExit(f"{path}: frame {later['frame']} moved the unit within tick "
+                             f"{later['tick']} with Smooth motion Off")
+        drawn_motion.append(moved)
+    print(f"frame log at {LOG_RATE} frames a second with Smooth motion Off, {len(rows)} frames:")
+    describe("ground (camera), scrolled for each frame's time", camera_steps)
+    describe("unit as drawn, at each tick", drawn_motion)
+
+
 def spread(places, axis):
     """Returns how far apart the places lie along one axis."""
     return max(place[axis] for place in places) - min(place[axis] for place in places)
@@ -289,6 +343,22 @@ def main():
         run(native, game_dir, workdir, "log", LOG_RATE, LOG_TICKS, "--scroll-camera",
             "--frame-log", log)
         check_log(log)
+        frames, ticks, between, digest, trace = run(native, game_dir, workdir, "whole",
+                                                    LOG_RATE, smooth=False)
+        if ticks != TICKS or frames != results[LOG_RATE][0]:
+            raise SystemExit(f"Smooth motion Off: {frames} frames for {ticks} ticks, against "
+                             f"{results[LOG_RATE][0]} with it On")
+        if between != 0:
+            raise SystemExit(f"Smooth motion Off: {between} of {frames} frames between ticks, "
+                             "not a whole tick each")
+        if digest != reference[3]:
+            raise SystemExit(f"Smooth motion Off reached digest {digest}, not {reference[3]}")
+        if trace != reference[4]:
+            raise SystemExit("Smooth motion Off wrote another trace stream")
+        whole_log = workdir / "whole.csv"
+        run(native, game_dir, workdir, "whole-log", LOG_RATE, LOG_TICKS, "--scroll-camera",
+            "--frame-log", whole_log, smooth=False)
+        check_whole_log(whole_log)
         follow_log = workdir / "follow.csv"
         run(native, game_dir, workdir, "follow", LOG_RATE, LOG_TICKS, "--follow",
             "--frame-log", follow_log)
@@ -311,7 +381,8 @@ def main():
             if rate == TICKS_PER_SECOND:
                 check_turn_log(turn_log)
         print(f"native frame rate: {TICKS} ticks drawn at "
-              f"{', '.join(str(rate) for rate in RATES)} frames a second, and at "
+              f"{', '.join(str(rate) for rate in RATES)} frames a second, at {LOG_RATE} with "
+              f"Smooth motion Off, and at "
               f"{' and '.join(str(rate) for rate in TURN_RATES)} across the clock's turn, "
               f"write one trace and reach digest {reference[3]}")
 

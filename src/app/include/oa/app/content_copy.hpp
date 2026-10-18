@@ -379,6 +379,8 @@ struct MissingContentFile {
     /// The source has this name at a different size. It is not filled from
     /// another file, and it is not recorded as absent.
     bool different_size{};
+    /// The size the source holds the name at, in bytes, when `different_size`.
+    uint64_t source_size{};
 };
 
 /// What a source holds, before anything is copied.
@@ -530,7 +532,31 @@ enum class CopyStatus : uint8_t {
     stopped,  ///< the stop flag was honoured; a partial file is left to resume
     no_space, ///< the disk does not have room, or it filled
     failed,   ///< the copy could not be finished
+    /// The source holds an archive of a base game or of an expansion at
+    /// another size than the table's, as a mod or another program leaves
+    /// it. Nothing is copied.
+    changed,
 };
+
+/// An archive of a base game or of an expansion that the source holds at
+/// another size than the table's.
+struct ChangedContentFile {
+    /// The id of the base game or the expansion it belongs to.
+    std::string bundle_id;
+    /// The name the table stores it under.
+    std::string copy_name;
+    /// The size the source holds it at, in bytes.
+    uint64_t source_size{};
+    /// The size the table gives it, in bytes.
+    uint64_t size{};
+};
+
+/// Tells whether a stored name is an archive the game mounts, by its suffix:
+/// .hpi, .ufo, .ccx or .gp3, in any case.
+///
+/// @param copy_name the name a file is stored under
+/// @return true for an archive; false for a movie, a track or anything else
+[[nodiscard]] bool archive_copy_name(std::string_view copy_name) noexcept;
 
 /// The outcome of one copy.
 struct CopyResult {
@@ -538,6 +564,8 @@ struct CopyResult {
     CopyStatus status{CopyStatus::finished};
     /// Why it did not finish, for the player. Empty when it finished.
     std::string error;
+    /// When `changed`, the archives that stopped it, in the table's order.
+    std::vector<ChangedContentFile> changed;
     /// Bytes written this time. A file already present counts as none.
     uint64_t bytes_copied{};
     /// Files finished this time.
@@ -567,8 +595,10 @@ struct CopyRequest {
     void* progress_context{};
     /// Set to stop between files and between chunks. Null never stops.
     std::atomic<bool>* stop{};
-    /// Receives one line when a copy starts and one when it finishes.
-    /// Null stays quiet, as a copy that finds the files already there does.
+    /// Receives one line when a copy starts and one when it finishes, and
+    /// one for each file it leaves out because the source holds that name at
+    /// another size, or that stops it. Null stays quiet, as a copy that
+    /// finds the files already there does.
     std::ostream* news{};
 };
 
@@ -581,6 +611,13 @@ struct CopyRequest {
 /// Nothing in the source is written. A source that is already inside the
 /// managed folders, or a destination that would be written inside the source,
 /// copies nothing.
+///
+/// A source that holds an archive of a base game or of an expansion under
+/// its name at another size has been changed, by a mod or another program:
+/// nothing is copied or recorded, and the copy ends `changed`, naming every
+/// such archive. A bundle the source holds none of is not there and stops
+/// nothing. A movie or a track the source holds at another size is recorded
+/// as not in the source, with that size, and the copy goes on.
 ///
 /// @param source the files to read
 /// @param request where they go, and when to stop
@@ -602,11 +639,13 @@ struct CopyRequest {
 /// Reports whether the player's folder already holds a managed base game.
 ///
 /// An expansion on its own does not count. A record that names the base game
-/// and at least one file does.
+/// and every one of its files, copied or not in the source, does: that base
+/// game can be played. A copy that stopped part way does not, so the setup
+/// offers the copy again and the copy continues where it stopped.
 ///
 /// @param user_folder the player's folder
 /// @param bundles the table whose base games are looked for
-/// @return true when one of those base games has a record
+/// @return true when one of those base games has a complete record
 [[nodiscard]] bool managed_base_present(
     const std::filesystem::path& user_folder,
     std::span<const oa::data::content_bundles::Bundle> bundles
@@ -777,6 +816,17 @@ struct ContentFileDifference {
     std::string copy_name;
 };
 
+/// One file of a copied bundle the copy left out because the source held it
+/// at another size.
+struct ContentFileLeftOut {
+    /// The name the table stores it under.
+    std::string copy_name;
+    /// The size the source held it at, in bytes.
+    uint64_t source_size{};
+    /// The size the table gives it, in bytes.
+    uint64_t size{};
+};
+
 /// One copied bundle, after the start's check.
 struct ContentBundleCheck {
     /// The bundle id.
@@ -788,12 +838,17 @@ struct ContentBundleCheck {
     /// How many files the table gives the bundle.
     uint32_t file_count{};
     /// How many of those files differ: missing, or not a hash the table knows.
-    /// A music file the source never held is not one of these.
+    /// A music file the source never held is not one of these, nor a file
+    /// left out for its size while it is still absent.
     uint32_t files_differ{};
-    /// Files the source did not hold. Older records name none.
+    /// Music files the source did not hold, and files left out for their
+    /// size, while they are absent. Older records name none.
     uint32_t files_not_in_source{};
     /// The files that differ, in the table's order.
     std::vector<ContentFileDifference> differing;
+    /// The files left out for their size and still absent, in the table's
+    /// order. The source held each at a size the table does not give it.
+    std::vector<ContentFileLeftOut> left_out;
 };
 
 /// What a start knows about the managed copy.
@@ -875,8 +930,10 @@ struct ContentNoticeCopy {
 /// The line under a bundle's name in the content check.
 ///
 /// A bundle with differing files uses the file counts. Music the source
-/// left short, with nothing damaged, uses content_tracks_line. Anything
-/// else that matches is "All files match".
+/// left short, with nothing damaged, uses content_tracks_line. A bundle
+/// with a file left out for its size names it, with the size the source
+/// held it at and the size it should be, or names the files when several
+/// were. Anything else that matches is "All files match".
 ///
 /// @param bundle one bundle from the check
 /// @return the line, in the language the interface shows
@@ -893,8 +950,10 @@ struct ContentNoticeCopy {
 /// is named and not hashed. A SHA-256 the table does not know marks the
 /// bundle as differing and names the file. A music file the record says the
 /// source never held is left out of that count while it is still absent; a
-/// music file that is present and not a known hash is still named. An empty
-/// `table` uses the built-in table.
+/// music file that is present and not a known hash is still named. A file
+/// the copy left out because the source held it at another size is listed
+/// as left out, with both sizes, and is not a difference while it is still
+/// absent. An empty `table` uses the built-in table.
 ///
 /// A bundle remembered by keep_this_run_copy_check is answered from that
 /// result and its files are not read. That check forgets those bundles, so

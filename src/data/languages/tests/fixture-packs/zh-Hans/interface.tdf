@@ -614,6 +614,11 @@
 	zh-Hans=最高帧率;
 	}
 
+[Smooth motion]
+	{
+	zh-Hans=平滑运动;
+	}
+
 [Enhanced anti-aliasing]
 	{
 	zh-Hans=增强抗锯齿;
@@ -1072,6 +1077,16 @@
 [Each frame waits for the display: no tearing.]
 	{
 	zh-Hans=每帧等待显示器刷新：无画面撕裂。;
+	}
+
+[Units, shots and spinning parts move smoothly between the game's ticks.]
+	{
+	zh-Hans=单位、炮弹和旋转部件在游戏的逻辑帧之间平滑移动。;
+	}
+
+[Units and shots move 30 times a second, as the game drew them; fast spins may flicker.]
+	{
+	zh-Hans=单位和炮弹每秒移动30次，与游戏原本的绘制相同；快速旋转可能会闪动。;
 	}
 
 [The menus fill the window, every pixel]

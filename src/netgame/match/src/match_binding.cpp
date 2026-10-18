@@ -589,7 +589,7 @@ void capture_air(MatchBinding& b, uint16_t index, uint8_t movement_flags, Moveme
     m.flags = movement_flags;
     m.air = {};
     m.air.flags = driver->flags;
-    const auto* goal = driver->goal;
+    const auto* goal = sim::air::air_driver_sent_goal(driver);
     if (goal == nullptr)
         return;
     if (goal->kind == sim::air::AirGoalKind::target) {

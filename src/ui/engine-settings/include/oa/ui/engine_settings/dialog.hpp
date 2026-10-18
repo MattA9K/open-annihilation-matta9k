@@ -300,6 +300,7 @@ enum class Setting : uint8_t {
     /// Skirmish players: a slider of how many player rows the skirmish setup
     /// shows, the same count the setup's key codes store.
     skirmish_players,
+    smooth_motion, ///< Smooth motion: a switch
     /// Welcome setup: SHOW AGAIN walks through the language, online features
     /// and the OA buttons again. It changes no setting. During a game the
     /// button is locked, and the choice is made from the main menu.

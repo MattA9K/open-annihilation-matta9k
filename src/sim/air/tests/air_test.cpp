@@ -214,6 +214,29 @@ void test_driver() {
     CHECK((driver.flags & driver_resend) == 0);
     air_driver_update(&driver, f.host, layer_ground);
     CHECK((driver.flags & driver_resend) != 0);
+    // Arriving drops a goal already sent without making the driver due to be
+    // sent again: the mirrored copy drops it at the same step.
+    driver.flags = static_cast<uint8_t>(layer_air << driver_sent_layer_shift);
+    uint32_t reached_events = 0;
+    AirGoal reached =
+        air_goal_at_point(&reached_events, &plane, {plane.position.x, 0, plane.position.z});
+    driver.goal = &reached;
+    air_driver_update(&driver, f.host, layer_air);
+    CHECK(!air_driver_has_goal(&driver));
+    CHECK((reached_events & sim::ground_orders::arrived_event) != 0);
+    CHECK((driver.flags & driver_resend) == 0);
+    CHECK(air_driver_sent_goal(&driver) == nullptr);
+    // A goal installed and reached in one update stays due, and the delta
+    // carries it until the next update.
+    reached_events = 0;
+    air_driver_set_goal(&driver, &reached);
+    air_driver_update(&driver, f.host, layer_air);
+    CHECK(!air_driver_has_goal(&driver) && (driver.flags & driver_resend) != 0);
+    const AirGoal* sent = air_driver_sent_goal(&driver);
+    CHECK(sent != nullptr && sent->kind == AirGoalKind::target && sent->point.x == reached.point.x);
+    driver.flags = static_cast<uint8_t>(layer_air << driver_sent_layer_shift);
+    air_driver_update(&driver, f.host, layer_air);
+    CHECK(air_driver_sent_goal(&driver) == nullptr);
     AirDriver mirrored{};
     air_driver_init_mirrored(&mirrored, &plane);
     air_driver_set_goal(&mirrored, &goal);

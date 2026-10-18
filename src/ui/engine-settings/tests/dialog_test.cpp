@@ -718,14 +718,15 @@ void each_section_shows_its_rows() {
     CHECK(settings::page_settings(Page::language)[0] == Setting::language);
     CHECK(settings::page_settings(Page::graphics)[0] == Setting::max_frame_rate);
     CHECK(settings::page_settings(Page::graphics)[1] == Setting::anti_aliasing);
-    CHECK(settings::page_settings(Page::graphics).size() == 9);
+    CHECK(settings::page_settings(Page::graphics).size() == 10);
     CHECK(settings::page_settings(Page::graphics)[2] == Setting::screen_size);
     CHECK(settings::page_settings(Page::graphics)[3] == Setting::hardware_acceleration);
     CHECK(settings::page_settings(Page::graphics)[4] == Setting::vertical_sync);
-    CHECK(settings::page_settings(Page::graphics)[5] == Setting::native_density);
-    CHECK(settings::page_settings(Page::graphics)[6] == Setting::explosion_flash);
-    CHECK(settings::page_settings(Page::graphics)[7] == Setting::zoomed_out_units);
-    CHECK(settings::page_settings(Page::graphics)[8] == Setting::zoomed_out_after);
+    CHECK(settings::page_settings(Page::graphics)[5] == Setting::smooth_motion);
+    CHECK(settings::page_settings(Page::graphics)[6] == Setting::native_density);
+    CHECK(settings::page_settings(Page::graphics)[7] == Setting::explosion_flash);
+    CHECK(settings::page_settings(Page::graphics)[8] == Setting::zoomed_out_units);
+    CHECK(settings::page_settings(Page::graphics)[9] == Setting::zoomed_out_after);
     CHECK(settings::page_settings(Page::user_interface).size() == 5);
     CHECK(settings::page_settings(Page::user_interface)[0] == Setting::menu_scaling);
     CHECK(settings::page_settings(Page::user_interface)[1] == Setting::window_frame);
@@ -736,10 +737,10 @@ void each_section_shows_its_rows() {
     CHECK(settings::page_settings(Page::developer)[0] == Setting::developer_mode);
     CHECK(settings::page_settings(Page::developer)[1] == Setting::frame_stats);
     CHECK(settings::page_settings(Page::developer)[2] == Setting::kit_gallery);
-    // Graphics' nine rows are taller than the view, by 336 rows.
+    // Graphics' ten rows are taller than the view, by 395 rows.
     const auto graphics = geometry::place_rows(Page::graphics, {});
-    CHECK(graphics.rows.size() == 9);
-    CHECK(geometry::scroll_limit(geometry::content_height(graphics, 0)) == 336);
+    CHECK(graphics.rows.size() == 10);
+    CHECK(geometry::scroll_limit(geometry::content_height(graphics, 0)) == 395);
 
     auto parts = settings::dialog_layout(opened(Page::controls));
     for (const std::string_view text :
@@ -2559,15 +2560,15 @@ void sections_that_fit_do_not_scroll() {
     // are 216, and fit; Controls' three switches, the zoom's two drop-downs, View
     // past the map's edge's strip, Window edge's strip and Edge stickiness's
     // slider are 491,
-    // Graphics' nine rows are 572, Language's drop-down, five switches and
+    // Graphics' ten rows are 631, Language's drop-down, five switches and
     // slider 424, and User Interface's four strips and switches with
     // Interface size's row are 324, and they scroll. Developer's list
     // scrolls in a view of its own (developer_*).
     const std::array<Page, 5> pages{
         Page::controls, Page::common_tweaks, Page::graphics, Page::language, Page::user_interface
     };
-    const std::array<int32_t, 5> content{491, 216, 572, 424, 324};
-    const std::array<int32_t, 5> limits{255, 0, 336, 188, 88};
+    const std::array<int32_t, 5> content{491, 216, 631, 424, 324};
+    const std::array<int32_t, 5> limits{255, 0, 395, 188, 88};
     for (std::size_t index = 0; index < content.size(); ++index) {
         const Page page = pages[index];
         if (limits[index] != 0) {
@@ -3302,26 +3303,29 @@ int32_t graphics_scroll(const settings::Dialog& dialog) {
     return dialog.scroll[static_cast<std::size_t>(Page::graphics)];
 }
 
+/// Graphics' offset at which Smooth motion shows whole with its hint, as
+/// the focus scrolls to it.
+constexpr int32_t smooth_motion_in_view = 131;
 /// Graphics' offset at which Explosion flash shows whole with its hint.
-constexpr int32_t explosion_flash_in_view = 336;
+constexpr int32_t explosion_flash_in_view = 395;
 /// Graphics' offset at which Zoomed out units and After zoom show whole
 /// with their hints. The page's end is that offset.
-constexpr int32_t zoomed_out_units_in_view = 336;
+constexpr int32_t zoomed_out_units_in_view = 395;
 
 void the_graphics_page_scrolls_its_rows() {
     settings::Dialog dialog = graphics_page();
     const auto open = geometry::open_rows(dialog);
-    CHECK(open.rows.rows.size() == 9);
-    const std::array<int32_t, 9> tops{54, 119, 178, 255, 314, 361, 420, 479, 538};
-    const std::array<int32_t, 9> heights{65, 59, 77, 59, 47, 59, 59, 59, 79};
+    CHECK(open.rows.rows.size() == 10);
+    const std::array<int32_t, 10> tops{54, 119, 178, 255, 314, 361, 420, 479, 538, 597};
+    const std::array<int32_t, 10> heights{65, 59, 77, 59, 47, 59, 59, 59, 59, 79};
     for (std::size_t index = 0; index < open.rows.rows.size() && index < tops.size(); ++index) {
         const auto& row = open.rows.rows[index];
         CHECK(row.top == tops[index]);
         CHECK(row.height == heights[index]);
         CHECK(row.control == settings::first_row_control + static_cast<int32_t>(index));
     }
-    CHECK(open.rows.bottom == 617);
-    CHECK(open.limit == 336);
+    CHECK(open.rows.bottom == 676);
+    CHECK(open.limit == 395);
     // Hardware acceleration: a strip of Off, Basic and Full, 34 columns a
     // level inside its border, with two status lines; Vertical sync a
     // switch with one hint line.
@@ -3338,38 +3342,47 @@ void the_graphics_page_scrolls_its_rows() {
     CHECK(same_rect(vsync.label, {158, 323, 249, 16}));
     CHECK(same_rect(vsync.control_area, {415, 323, 52, 16}));
     CHECK(vsync.hint_lines == 1 && vsync.hints[0].y == 341);
+    // Smooth motion: a switch whose hint, two lines either way, says what
+    // On and Off draw.
+    const auto& smooth = open.rows.rows[5];
+    CHECK(smooth.setting == Setting::smooth_motion);
+    CHECK(!smooth.hint_is_status);
+    CHECK(same_rect(smooth.label, {158, 370, 249, 16}));
+    CHECK(same_rect(smooth.control_area, {415, 370, 52, 16}));
+    CHECK(smooth.hint_lines == 2);
+    CHECK(smooth.hints[0].y == 388 && smooth.hints[1].y == 400);
     // Native pixel density, where Menu scaling was: a switch with two hint
     // lines.
-    const auto& density = open.rows.rows[5];
+    const auto& density = open.rows.rows[6];
     CHECK(density.setting == Setting::native_density);
-    CHECK(same_rect(density.label, {158, 370, 249, 16}));
-    CHECK(same_rect(density.control_area, {415, 370, 52, 16}));
+    CHECK(same_rect(density.label, {158, 429, 249, 16}));
+    CHECK(same_rect(density.control_area, {415, 429, 52, 16}));
     CHECK(density.hint_lines == 2);
-    CHECK(density.hints[0].y == 388 && density.hints[1].y == 400);
+    CHECK(density.hints[0].y == 447 && density.hints[1].y == 459);
     // Explosion flash: a strip of Off, Reduced and Full, 50 columns a level
     // inside its border, with two hint lines.
-    const auto& flash = open.rows.rows[6];
+    const auto& flash = open.rows.rows[7];
     CHECK(flash.setting == Setting::explosion_flash);
     CHECK(!flash.hint_is_status);
-    CHECK(same_rect(flash.label, {158, 429, 149, 16}));
-    CHECK(same_rect(flash.control_area, {315, 429, 152, 16}));
+    CHECK(same_rect(flash.label, {158, 488, 149, 16}));
+    CHECK(same_rect(flash.control_area, {315, 488, 152, 16}));
     CHECK(flash.hint_lines == 2);
-    CHECK(flash.hints[0].y == 447 && flash.hints[1].y == 459);
+    CHECK(flash.hints[0].y == 506 && flash.hints[1].y == 518);
     // Zoomed out units: a strip of Rendered, Dots and Icons, 56 columns a
     // level inside its border, with two hint lines; After zoom a drop-down
     // under its label, with two, the last row.
-    const auto& zoomed_out = open.rows.rows[7];
+    const auto& zoomed_out = open.rows.rows[8];
     CHECK(zoomed_out.setting == Setting::zoomed_out_units);
-    CHECK(same_rect(zoomed_out.label, {158, 488, 131, 16}));
-    CHECK(same_rect(zoomed_out.control_area, {297, 488, 170, 16}));
+    CHECK(same_rect(zoomed_out.label, {158, 547, 131, 16}));
+    CHECK(same_rect(zoomed_out.control_area, {297, 547, 170, 16}));
     CHECK(zoomed_out.hint_lines == 2);
-    CHECK(zoomed_out.hints[0].y == 506 && zoomed_out.hints[1].y == 518);
-    const auto& after = open.rows.rows[8];
+    CHECK(zoomed_out.hints[0].y == 565 && zoomed_out.hints[1].y == 577);
+    const auto& after = open.rows.rows[9];
     CHECK(after.setting == Setting::zoomed_out_after);
-    CHECK(same_rect(after.label, {158, 547, 153, 16}));
-    CHECK(same_rect(after.control_area, {158, 593, 200, 16}));
+    CHECK(same_rect(after.label, {158, 606, 153, 16}));
+    CHECK(same_rect(after.control_area, {158, 652, 200, 16}));
     CHECK(after.hint_lines == 2);
-    CHECK(after.hints[0].y == 565 && after.hints[1].y == 577);
+    CHECK(after.hints[0].y == 624 && after.hints[1].y == 636);
 
     // At the top the first three rows keep their places and Hardware
     // acceleration's label and strip show whole; at the end the closing
@@ -3380,13 +3393,13 @@ void the_graphics_page_scrolls_its_rows() {
     CHECK(find_part(top, {}, settings::first_row_control + 3) != nullptr);
     dialog.scroll[static_cast<std::size_t>(Page::graphics)] = 900;
     const auto end = geometry::open_rows(dialog);
-    CHECK(end.scroll == 336);
+    CHECK(end.scroll == 395);
     CHECK(end.rows.bottom == 281);
-    CHECK(end.rows.rows[1].control_area.y == -208);
-    CHECK(end.rows.rows[6].label.y == 93);
-    CHECK(end.rows.rows[7].label.y == 152);
-    CHECK(end.rows.rows[8].label.y == 211);
-    CHECK(end.rows.rows[8].control_area.y == 257);
+    CHECK(end.rows.rows[1].control_area.y == -267);
+    CHECK(end.rows.rows[7].label.y == 93);
+    CHECK(end.rows.rows[8].label.y == 152);
+    CHECK(end.rows.rows[9].label.y == 211);
+    CHECK(end.rows.rows[9].control_area.y == 257);
     // At the end, After zoom shows whole, with its field and its hint.
     // Menu scaling, Window frame, HUD scaling and Interface size are on
     // User Interface.
@@ -3398,13 +3411,14 @@ void the_graphics_page_scrolls_its_rows() {
     CHECK(find_part(last, "Needs Dots", settings::no_control) != nullptr);
 
     // Tab from no focus: the first three rows at 0, Hardware acceleration at
-    // 25, Vertical sync at 72, Native pixel density at 131, Explosion flash
-    // at 190 and Zoomed out units at 249. After zoom, its field locked,
-    // takes no focus. Back up, the rows that still show whole stay at 249,
-    // then Hardware acceleration at 201, Screen size at 124 and Enhanced
-    // anti-aliasing at 65.
+    // 25, Vertical sync at 72, Smooth motion at 131, Native pixel density at
+    // 190, Explosion flash at 249 and Zoomed out units at 308. After zoom,
+    // its field locked, takes no focus. Back up, the rows that still show
+    // whole stay at 308, Smooth motion, a pixel above the view's top there,
+    // shows at 307, then Vertical sync at 260, Hardware acceleration at 201,
+    // Screen size at 124 and Enhanced anti-aliasing at 65.
     settings::Dialog keys = graphics_page();
-    const std::array<std::pair<int32_t, int32_t>, 8> forward{{
+    const std::array<std::pair<int32_t, int32_t>, 9> forward{{
         {settings::first_row_control, 0},
         {settings::first_row_control + 1, 0},
         {settings::first_row_control + 2, 0},
@@ -3413,16 +3427,18 @@ void the_graphics_page_scrolls_its_rows() {
         {settings::first_row_control + 5, 131},
         {settings::first_row_control + 6, 190},
         {settings::first_row_control + 7, 249},
+        {settings::first_row_control + 8, 308},
     }};
     for (const auto& [control, expected] : forward) {
         CHECK(settings::dialog_key(keys, DialogKey::tab) == DialogAction::redraw);
         CHECK(keys.focused == control);
         CHECK(graphics_scroll(keys) == expected);
     }
-    const std::array<std::pair<int32_t, int32_t>, 7> back{{
-        {settings::first_row_control + 6, 249},
-        {settings::first_row_control + 5, 249},
-        {settings::first_row_control + 4, 249},
+    const std::array<std::pair<int32_t, int32_t>, 8> back{{
+        {settings::first_row_control + 7, 308},
+        {settings::first_row_control + 6, 308},
+        {settings::first_row_control + 5, 307},
+        {settings::first_row_control + 4, 260},
         {settings::first_row_control + 3, 201},
         {settings::first_row_control + 2, 124},
         {settings::first_row_control + 1, 65},
@@ -3437,7 +3453,7 @@ void the_graphics_page_scrolls_its_rows() {
     // Every part apart and in its place at every offset, under every lock.
     for (const auto& locks : lock_states()) {
         settings::Dialog locked = graphics_page({}, locks);
-        for (int32_t scroll = 0; scroll <= 336; scroll += 6)
+        for (int32_t scroll = 0; scroll <= 395; scroll += 6)
             check_dialog_layout_at(locked, scroll);
     }
 
@@ -3791,7 +3807,7 @@ void the_new_rows_lock_in_their_own_forms() {
     CHECK(same_rect(rows[4].control_area, {415, 341, 52, 16}));
     CHECK(same_rect(rows[4].lock_area, {259, 341, 148, 16}));
     CHECK(same_rect(rows[4].label, {158, 341, 93, 16}));
-    CHECK(geometry::open_rows(dialog).limit == 354);
+    CHECK(geometry::open_rows(dialog).limit == 413);
 
     // Scrolled down to Native pixel density: both lock texts, the status,
     // the strip's captions and the kept switch's, each with no control.
@@ -3810,8 +3826,8 @@ void the_new_rows_lock_in_their_own_forms() {
     );
     CHECK(find_part(parts, "Basic", settings::no_control) != nullptr);
     // A press where either control is, and every key, leaves them; the
-    // keys pass from the first three rows to Native pixel density,
-    // Explosion flash and Zoomed out units. After zoom stays locked while
+    // keys pass from the first three rows to Smooth motion, Native pixel
+    // density, Explosion flash and Zoomed out units. After zoom stays locked while
     // units are Rendered, and the rows that moved are on User Interface.
     CHECK(click(dialog, {460, 72}) == DialogAction::none);
     CHECK(click(dialog, {380, 72}) == DialogAction::none);
@@ -3824,6 +3840,7 @@ void the_new_rows_lock_in_their_own_forms() {
           settings::first_row_control + 5,
           settings::first_row_control + 6,
           settings::first_row_control + 7,
+          settings::first_row_control + 8,
           settings::restore_control}) {
         CHECK(settings::dialog_key(dialog, DialogKey::tab) == DialogAction::redraw);
         CHECK(dialog.focused == expected);
@@ -6410,6 +6427,13 @@ void fonts_load_and_every_text_fits_its_place() {
             deck.steam_deck_panel_hz = rate;
             every_text_fits(deck);
         }
+        // Smooth motion each way, scrolled into view with its hint.
+        for (const bool smooth : {true, false}) {
+            settings::Dialog motion = opened(Page::graphics);
+            motion.chosen.smooth_motion = smooth;
+            motion.scroll[static_cast<std::size_t>(Page::graphics)] = smooth_motion_in_view;
+            every_text_fits(motion);
+        }
         // Explosion flash at each level, scrolled into view with its hint.
         for (const auto level : settings::explosion_flash_choices) {
             settings::Dialog flash = opened(Page::graphics);
@@ -7547,7 +7571,7 @@ void touch_shows_its_rows_and_their_values() {
 }
 
 /// Graphics' offset at which Native pixel density shows whole.
-constexpr int32_t native_density_in_view = 131;
+constexpr int32_t native_density_in_view = 190;
 
 void menu_scaling_and_native_density_show_and_change() {
     CHECK(geometry::kind_of(Setting::menu_scaling) == geometry::RowKind::levels);
@@ -7603,12 +7627,12 @@ void menu_scaling_and_native_density_show_and_change() {
         ) != nullptr
     );
     // The switch, by a press and by Space.
-    const auto density = geometry::open_rows(density_page).rows.rows[5].control_area;
+    const auto density = geometry::open_rows(density_page).rows.rows[6].control_area;
     CHECK(
         click(density_page, {density.x + density.width - 3, density.y + 4}) == DialogAction::changed
     );
     CHECK(density_page.chosen.native_density);
-    density_page.focused = settings::first_row_control + 5;
+    density_page.focused = settings::first_row_control + 6;
     CHECK(settings::dialog_key(density_page, DialogKey::space) == DialogAction::changed);
     CHECK(!density_page.chosen.native_density);
     CHECK(settings::dialog_key(density_page, DialogKey::space) == DialogAction::changed);
@@ -7630,7 +7654,7 @@ void menu_scaling_and_native_density_show_and_change() {
         current.native_density = lock == Lock::always_on;
         settings::Dialog locked = graphics_page(current, locks);
         locked.scroll[static_cast<std::size_t>(Page::graphics)] = native_density_in_view;
-        const auto row = geometry::open_rows(locked).rows.rows[5];
+        const auto row = geometry::open_rows(locked).rows.rows[6];
         CHECK(row.lock == lock);
         CHECK(row.control_area.width == geometry::switch_width);
         CHECK(row.lock_area.width > 0);
@@ -7651,6 +7675,54 @@ void menu_scaling_and_native_density_show_and_change() {
         settings::Dialog scaling = opened(Page::user_interface, locks);
         CHECK(geometry::open_rows(scaling).rows.rows[0].lock == Lock::none);
     }
+}
+
+/// Smooth motion's hint while it is On.
+constexpr std::string_view smooth_motion_on_hint =
+    "Units, shots and spinning parts move smoothly between the game's ticks.";
+/// Smooth motion's hint while it is Off.
+constexpr std::string_view smooth_motion_off_hint =
+    "Units and shots move 30 times a second, as the game drew them; fast spins may flicker.";
+
+void smooth_motion_shows_and_changes() {
+    CHECK(geometry::kind_of(Setting::smooth_motion) == geometry::RowKind::toggle);
+    CHECK(settings::EngineSettings{}.smooth_motion);
+    // The switch reads and sets the setting through the switches' table.
+    settings::EngineSettings state{};
+    CHECK(geometry::switch_on(state, Setting::smooth_motion));
+    geometry::set_switch(state, Setting::smooth_motion, false);
+    CHECK(!state.smooth_motion && !geometry::switch_on(state, Setting::smooth_motion));
+
+    // Scrolled to it, under Vertical sync: its label and On's hint.
+    settings::Dialog dialog = graphics_page();
+    dialog.scroll[static_cast<std::size_t>(Page::graphics)] = smooth_motion_in_view;
+    const auto row = geometry::open_rows(dialog).rows.rows[5];
+    CHECK(row.setting == Setting::smooth_motion);
+    CHECK(row.control == settings::first_row_control + 5);
+    CHECK(inside(row.control_area, geometry::view));
+    auto parts = settings::dialog_layout(dialog);
+    CHECK(find_part(parts, "Smooth motion", settings::no_control) != nullptr);
+    CHECK(shows_wrapped(parts, smooth_motion_on_hint, dialog));
+
+    // A press on Off turns it off, and the hint says what Off draws.
+    CHECK(click(dialog, {row.control_area.x + 3, row.control_area.y + 4}) == DialogAction::changed);
+    CHECK(!dialog.chosen.smooth_motion);
+    parts = settings::dialog_layout(dialog);
+    CHECK(shows_wrapped(parts, smooth_motion_off_hint, dialog));
+    CHECK(!shows_wrapped(parts, smooth_motion_on_hint, dialog));
+    // Space turns it on and off again.
+    dialog.focused = settings::first_row_control + 5;
+    CHECK(settings::dialog_key(dialog, DialogKey::space) == DialogAction::changed);
+    CHECK(dialog.chosen.smooth_motion);
+    CHECK(shows_wrapped(settings::dialog_layout(dialog), smooth_motion_on_hint, dialog));
+    CHECK(settings::dialog_key(dialog, DialogKey::space) == DialogAction::changed);
+    CHECK(!dialog.chosen.smooth_motion);
+
+    // Restore defaults gives On; Cancel what it opened with.
+    CHECK(click(dialog, centre(geometry::restore_button)) == DialogAction::changed);
+    CHECK(dialog.chosen.smooth_motion);
+    CHECK(settings::dialog_key(dialog, DialogKey::escape) == DialogAction::cancelled);
+    CHECK(dialog.chosen == dialog.opened);
 }
 
 void explosion_flash_shows_and_changes() {
@@ -7680,7 +7752,7 @@ void explosion_flash_shows_and_changes() {
         const auto shown = settings::dialog_layout(dialog);
         const settings::LayoutPart* found = nullptr;
         for (const auto& part : shown)
-            if (part.text == caption && part.control == settings::first_row_control + 6)
+            if (part.text == caption && part.control == settings::first_row_control + 7)
                 found = &part;
         CHECK(found != nullptr);
         return found != nullptr ? click(dialog, centre(found->rect)) : DialogAction::none;
@@ -7704,7 +7776,7 @@ void explosion_flash_shows_and_changes() {
     );
     CHECK(find_part(parts, "mod asks for.", settings::no_control) != nullptr);
     // The keys step it a level at a time.
-    dialog.focused = settings::first_row_control + 6;
+    dialog.focused = settings::first_row_control + 7;
     CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
     CHECK(dialog.chosen.explosion_flash == settings::ExplosionFlash::reduced);
     CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
@@ -7882,14 +7954,14 @@ void zoomed_out_units_show_and_change() {
           "Needs Dots",
           "1/6"})
         CHECK(find_part(parts, text, settings::no_control) != nullptr);
-    CHECK(geometry::open_rows(dialog).rows.rows[8].lock == Lock::needs_dots);
+    CHECK(geometry::open_rows(dialog).rows.rows[9].lock == Lock::needs_dots);
 
     // A click on a caption of the strip: Icons, faded, changes nothing.
     const auto click_caption = [&](std::string_view caption) {
         const auto shown = settings::dialog_layout(dialog);
         const settings::LayoutPart* found = nullptr;
         for (const auto& part : shown)
-            if (part.text == caption && part.control == settings::first_row_control + 7)
+            if (part.text == caption && part.control == settings::first_row_control + 8)
                 found = &part;
         CHECK(found != nullptr);
         return found != nullptr ? click(dialog, centre(found->rect)) : DialogAction::none;
@@ -7907,7 +7979,7 @@ void zoomed_out_units_show_and_change() {
     CHECK(find_part(parts, "colour, framed while selected.", settings::no_control) != nullptr);
     // With Dots, After zoom is free, and its hint names its choice.
     CHECK(find_part(parts, "Needs Dots", settings::no_control) == nullptr);
-    CHECK(geometry::open_rows(dialog).rows.rows[8].lock == Lock::none);
+    CHECK(geometry::open_rows(dialog).rows.rows[9].lock == Lock::none);
     CHECK(
         find_part(
             parts, "Dots farther out than 1/6 of normal size. Closer", settings::no_control
@@ -7915,12 +7987,12 @@ void zoomed_out_units_show_and_change() {
     );
     CHECK(find_part(parts, "in, units are drawn as models.", settings::no_control) != nullptr);
     // The keys: Right from Dots reaches no Icons; Left gives Rendered back.
-    dialog.focused = settings::first_row_control + 7;
+    dialog.focused = settings::first_row_control + 8;
     CHECK(settings::dialog_key(dialog, DialogKey::right) != DialogAction::changed);
     CHECK(dialog.chosen.zoomed_out_units == settings::ZoomedOutUnits::dots);
     // Down to After zoom: Right steps a choice farther out, Left back.
     CHECK(settings::dialog_key(dialog, DialogKey::down) == DialogAction::redraw);
-    CHECK(dialog.focused == settings::first_row_control + 8);
+    CHECK(dialog.focused == settings::first_row_control + 9);
     CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
     CHECK(dialog.chosen.zoomed_out_after == settings::ZoomedOutAfter::one_eighth);
     CHECK(
@@ -7936,7 +8008,7 @@ void zoomed_out_units_show_and_change() {
     CHECK(settings::dialog_key(dialog, DialogKey::up) == DialogAction::redraw);
     CHECK(settings::dialog_key(dialog, DialogKey::left) == DialogAction::changed);
     CHECK(dialog.chosen.zoomed_out_units == settings::ZoomedOutUnits::rendered);
-    CHECK(geometry::open_rows(dialog).rows.rows[8].lock == Lock::needs_dots);
+    CHECK(geometry::open_rows(dialog).rows.rows[9].lock == Lock::needs_dots);
 
     // Restore defaults gives Rendered and 1/6; Cancel what it opened with.
     dialog.chosen.zoomed_out_units = settings::ZoomedOutUnits::dots;
@@ -9109,7 +9181,7 @@ void the_arrows_move_by_geometry() {
     // Graphics: After zoom waits for Dots.
     CHECK(
         tab_round(opened(Page::graphics)) ==
-        then_rest({row, row + 1, row + 2, row + 3, row + 4, row + 5, row + 6, row + 7})
+        then_rest({row, row + 1, row + 2, row + 3, row + 4, row + 5, row + 6, row + 7, row + 8})
     );
     // User Interface: every row takes a change, Interface size among them.
     CHECK(
@@ -10149,6 +10221,7 @@ int main(int argc, char** argv) {
         the_graphics_page_scrolls_its_rows();
         interface_size_offers_150_with_the_modern_fonts();
         menu_scaling_and_native_density_show_and_change();
+        smooth_motion_shows_and_changes();
         explosion_flash_shows_and_changes();
         zoomed_out_units_show_and_change();
         window_edge_and_edge_stickiness_show_and_change();
