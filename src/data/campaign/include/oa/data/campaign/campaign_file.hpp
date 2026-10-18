@@ -418,8 +418,16 @@ void build_variant_path(
 /// @param files file services
 /// @param[in,out] document document to replace
 /// @param path file path
+/// @param[out] error why the file did not load: the parse failure of a malformed file,
+///     too_large for one over formats::tdf::max_input_bytes, ok for one that is missing or
+///     cannot be read; may be null
 /// @return false when the file is missing, oversized or malformed
-bool load_tdf(const CampaignFiles* files, oa::formats::tdf::Document* document, const char* path);
+bool load_tdf(
+    const CampaignFiles* files,
+    oa::formats::tdf::Document* document,
+    const char* path,
+    oa::formats::tdf::ParseError* error = nullptr
+);
 
 /// Picks the schema for a session kind and writes its name.
 ///
@@ -488,16 +496,16 @@ int32_t campaign_count_files(const CampaignFiles* files);
 ///
 /// camps\*.TDF is counted, listed without extensions and sorted by name, then each is
 /// loaded; names whose HEADER campaignside is `side` or "ALL" are kept. A name
-/// already kept, compared without case, is the same campaign file from a lower
-/// layer and is left out. The first copy is the top layer.
+/// already tried, compared without case, is the same campaign file from a lower
+/// layer and is left out. The first copy is the top layer. A file that does not
+/// load, malformed or oversized, is left out and reported through `files->message`,
+/// once per call; the names after it are listed.
 ///
 /// @param files file services
 /// @param side side name
 /// @param[out] out receives the names, NUL-separated, ending with an empty name
 /// @param capacity bytes of `out`
 /// @return the number of names written
-/// @quirk A campaign file that does not load is tried again in place of the next name, so
-///        it hides the names after it.
 int32_t
 campaign_load_names(const CampaignFiles* files, const char* side, char* out, std::size_t capacity);
 

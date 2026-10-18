@@ -644,6 +644,67 @@ void camps_count_tests() {
     );
 }
 
+// Each campaign file twice, as a loose file over a mounted archive's copy.
+int32_t layered_count(void* context, const char* pattern) {
+    return 2 * memory_count(context, pattern);
+}
+
+void layered_find(
+    void* context,
+    const char* pattern,
+    void (*visit)(void*, const oa::data::campaign::FindRecord&),
+    void* user
+) {
+    memory_find(context, pattern, visit, user);
+    memory_find(context, pattern, visit, user);
+}
+
+// A campaign file that does not load, malformed or oversized, is left out of
+// the list and reported once; the campaigns sorted after it are listed for
+// both sides. A lower layer's copy of it reads the same file and is not
+// reported again. An empty file loads, has no HEADER and is left out quietly.
+void unloadable_campaign_tests() {
+    using oa::data::campaign::campaign_load_names;
+    MemoryFiles files;
+    files.files["camps/a broken.tdf"] = "[HEADER]\n\t{\n\tcampaignside=ARM;\n";
+    files.files["camps/a hidden.tdf"] = "";
+    files.files["camps/arm one.tdf"] = "[HEADER]\n{\ncampaignside=ARM;\n}\n";
+    files.files["camps/b oversized.tdf"] = std::string(oa::formats::tdf::max_input_bytes + 1, ' ');
+    files.files["camps/core one.tdf"] = "[HEADER]\n{\ncampaignside=CORE;\n}\n";
+    files.files["camps/shared.tdf"] = "[HEADER]\n{\ncampaignside=ALL;\n}\n";
+    const std::vector<std::string> reports{
+        "The campaign file camps/a broken.tdf is left out of the list: end of file inside a "
+        "sub-record at byte 31 in [HEADER].",
+        "The campaign file camps/b oversized.tdf is left out of the list: it is over 16777216 "
+        "bytes."
+    };
+    const auto listed = [&](const oa::data::campaign::CampaignFiles& services, const char* side) {
+        char packed[256];
+        const int32_t count = campaign_load_names(&services, side, packed, sizeof(packed));
+        std::vector<std::string> names;
+        for (const char* cursor = packed; *cursor != '\0'; cursor += std::strlen(cursor) + 1)
+            names.emplace_back(cursor);
+        expect(static_cast<int32_t>(names.size()) == count, "unloadable: name count matches");
+        return names;
+    };
+    const std::vector<std::string> arm{"arm one", "shared"};
+    const std::vector<std::string> core{"core one", "shared"};
+
+    auto services = memory_services(files);
+    services.count = memory_count;
+    expect(listed(services, "ARM") == arm, "unloadable: the Arm campaigns after it are listed");
+    expect(files.messages == reports, "unloadable: each file reported once for Arm");
+    files.messages.clear();
+    expect(listed(services, "CORE") == core, "unloadable: the Core campaigns after it are listed");
+    expect(files.messages == reports, "unloadable: each file reported once for Core");
+
+    files.messages.clear();
+    services.count = layered_count;
+    services.find = layered_find;
+    expect(listed(services, "ARM") == arm, "unloadable: layered Arm campaigns listed once");
+    expect(files.messages == reports, "unloadable: a lower layer's copy is not reported again");
+}
+
 // A pack map is named stem@id. Its OTA is the file at that name, the path the
 // mounted layer shows. With no index entry, the name players see is the OTA's
 // missionname. The index's name wins over that, and another language's own
@@ -920,6 +981,7 @@ int main(int argc, char** argv) {
     }
     directory_list_tests();
     camps_count_tests();
+    unloadable_campaign_tests();
     synthetic_tests();
     skirmish_profile_tests();
     pack_map_title_tests();
