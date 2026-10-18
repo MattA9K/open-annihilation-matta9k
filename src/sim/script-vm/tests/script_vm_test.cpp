@@ -1425,8 +1425,75 @@ void instruction_budget_stops_infinite_loop() {
     );
 }
 
+// A chain of comparisons whose partial results all wait on the stack (the
+// Cavedog compiler's "a || b || c" leaves every term in place and ORs them
+// at the end; Devolution's beacon keeps 78) runs past the record's 32 slots:
+// the VM sizes every context's stack for its program's deepest script. The
+// saved state keeps the first 32 slots of a context, and a context's stack
+// stops at limit::stack_slots.
+void deep_expression_fits_the_stack() {
+    constexpr uint32_t terms = 78;
+    std::vector<uint32_t> code;
+    // Every term but the last is false; the chain's value is the last one's.
+    for (uint32_t term = 0; term < terms; ++term)
+        code.insert(code.end(), {vm::opcode::push_constant, term + 1 == terms ? 1U : 0U});
+    for (uint32_t term = 1; term < terms; ++term)
+        code.push_back(vm::opcode::logical_or);
+    code.insert(
+        code.end(), {vm::opcode::pop_static, 0, vm::opcode::push_constant, 10, vm::opcode::sleep}
+    );
+    code.insert(code.end(), {vm::opcode::push_constant, 7, vm::opcode::pop_static, 0});
+    code.push_back(vm::opcode::return_);
+    auto machine = make_vm(code, {0}, 1);
+    // The script is entered with four slots and stacks 78 more.
+    require(machine.stack_slots() == terms + 4, "the stack was not sized for the chain");
+    require(
+        make_vm({vm::opcode::return_}).stack_slots() == vm::stack_capacity,
+        "a shallow script has the record's 32 slots"
+    );
+    require(machine.start(0).ok(), "deep expression script did not start");
+    const auto run = machine.tick(0);
+    require(run.ok(), "a 78-slot expression faulted: " + (run.ok() ? "" : run.error->message));
+    require(machine.static_value(0) == 1, "the OR chain's value was lost past slot 32");
+    require(
+        machine.context(0).stack_pointer == -1 && machine.active_count() == 1,
+        "the expression left its slots behind"
+    );
+    // The stack a save keeps is the record's 32 slots; a round trip restores
+    // the sleeping context and its empty stack.
+    const auto exported = machine.export_state(0);
+    require(exported.ok(), "export after a deep expression failed");
+    require(
+        exported.state->contexts[0].slots.size() == vm::stack_capacity &&
+            exported.state->contexts[0].stack_pointer == -1,
+        "the exported context is not the 32-slot record"
+    );
+    auto restored = make_vm(code, {0}, 1);
+    require(!restored.import_state(*exported.state), "import after a deep expression failed");
+    require(
+        restored.tick(10).ok() && restored.static_value(0) == 7,
+        "the restored context did not run on"
+    );
+
+    // The stack is bounded: one push past limit::stack_slots faults with
+    // stack_overflow, leaving the context's slots as they were.
+    std::vector<uint32_t> overflow;
+    for (std::size_t slot = 0; slot <= vm::limit::stack_slots; ++slot)
+        overflow.insert(overflow.end(), {vm::opcode::push_constant, 3});
+    auto bounded = make_vm(overflow, {0}, 1);
+    require(bounded.stack_slots() == vm::limit::stack_slots, "the stack was not capped");
+    require(bounded.start(0).ok(), "overflow script did not start");
+    const auto faulted = bounded.tick(0);
+    require(
+        !faulted.ok() && faulted.error->code == vm::ErrorCode::stack_overflow &&
+            bounded.context(0).stack_pointer == static_cast<int32_t>(vm::limit::stack_slots) - 1,
+        "the working stack did not stop at its limit"
+    );
+}
+
 int main() {
     try {
+        deep_expression_fits_the_stack();
         arithmetic_locals_and_statics();
         signed_branching_and_logic();
         integer_instruction_matrix();

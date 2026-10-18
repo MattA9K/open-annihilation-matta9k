@@ -7,8 +7,8 @@
 A skirmish of the local player against one computer player is staged with
 solar collectors and a missile defence beside the local commander, the
 defence asked for stockpiled rounds, light infantry of the computer player
-placed beside the local commander and a construction kbot asked to build a
-solar collector, then played for TICKS ticks and
+placed beside the local commander and a construction kbot, set to hold its
+ground, asked to build a solar collector, then played for TICKS ticks and
 saved. The run must report each placement, keep the defence's stockpile
 order among the saved orders, count the staged types among the live units,
 and end on the same world digest when staged twice. A stage line naming a
@@ -36,7 +36,9 @@ unit 0 ARMAMD 150 0
 stockpile 2
 unit 1 CORAK 0 250 0
 unit 1 CORAK 40 250 0
+group builder
 unit 0 ARMCK 0 -200
+move-order builder 0
 build ARMSOLAR 0 -100
 """
 # One line a placement prints.
@@ -76,6 +78,8 @@ def staged(result):
         raise SystemExit(f"the stage placed {placed}")
     if "stage: unit " + placed[2][0] + " stockpiles 2" not in out:
         raise SystemExit("the stage did not ask the defence for its rounds")
+    if "stage: move-order builder: 1 units to 0" not in out:
+        raise SystemExit("the stage did not set the kbot's standing move order")
     types, orders, digest = TYPES.search(out), ORDERS.search(out), DIGEST.search(out)
     if not types or not orders or not digest:
         raise SystemExit("the run reported no units, orders or digest")

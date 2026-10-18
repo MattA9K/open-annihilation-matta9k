@@ -1971,7 +1971,11 @@ hosts them on the OA layer.
   and `activate GROUP` and `deactivate GROUP` switch them on and off with
   the order panel's ON/OFF button's orders (`give_state_order`, which the
   button gives each selected unit), as a player's orders do; a type that
-  cannot be switched on and off stays as it is. `at TICK` before any
+  cannot be switched on and off stays as it is. `move-order GROUP STANCE`
+  and `fire-order GROUP STANCE` set their standing move or fire order to
+  stance 0, 1 or 2 (Hold, Maneuver, Roam; Hold Fire, Return Fire, Fire at
+  Will) with the panel's standing-order buttons' orders; a type without
+  that button stays as it is. `at TICK` before any
   action keeps its line for that match tick, and the line
   runs before the tick does (`run_due_stage_lines`, from every step of the
   match), the lines of a tick in the order the file gives them; each tick

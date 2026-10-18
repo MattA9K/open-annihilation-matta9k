@@ -46,8 +46,16 @@ published COB opcode tables label them otherwise.
 
 ## Bounds and unsupported operations
 
-The component keeps the game's eight contexts and 32 slots per context. Code
-is capped at 1,048,576 words; script and static tables at 65,536 entries each.
+The component keeps the game's eight contexts. Each has the stack and local
+slots the program's deepest script needs (`Vm::stack_slots`, walked once
+when the program is set): the 32 of the game's context record at least and
+4,096 (`limit::stack_slots`) at most. 3.1c never checks its 32: a deeper
+expression writes over the contexts after it and runs on. Devolution's
+beacon tests a unit's type with a chain of 75 comparisons whose partial
+results all wait on the stack, 78 slots deep. A save keeps the first 32
+slots of each context; a context saved while an expression holds more loses
+the rest, and restores with zeros past them. Code is capped at 1,048,576
+words; script and static tables at 65,536 entries each.
 `find_script` returns `-1` for a null query or a null name-table entry. Every
 other comparison is the game's case-sensitive exact match, bounded by the
 supplied script count. Every stack access, inline operand, static/local index,

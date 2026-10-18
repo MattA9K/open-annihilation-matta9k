@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -84,6 +85,8 @@ inline constexpr std::size_t context_count = 8;
 // Child word of a CALL_SCRIPT that found no free context; no RETURN or SIGNAL
 // wakes a caller waiting on it.
 inline constexpr std::size_t no_child_context = 0xffffffffU;
+// Stack and local slots the game's context record holds, and the slots a
+// saved state keeps of each context.
 inline constexpr std::size_t stack_capacity = 32;
 inline constexpr std::size_t piece_axis_count = 3;
 
@@ -92,6 +95,13 @@ inline constexpr std::size_t code_words = 1U << 20;
 inline constexpr std::size_t scripts = 1U << 16;
 inline constexpr std::size_t statics = 1U << 16;
 inline constexpr std::size_t pieces = 4096;
+// Slots a context's stack may hold. 3.1c's PUSH never checks its 32-slot
+// record: a deeper expression writes over the contexts after it and runs on.
+// Devolution's beacon tests a unit's type with a chain of 75 comparisons
+// whose partial results all wait on the stack, 78 slots deep. A VM gives
+// each context the slots its program's deepest script needs (Vm::stack_slots),
+// the record's 32 at least and this many at most; a save keeps the first 32.
+inline constexpr std::size_t stack_slots = 4096;
 // Instructions one unit's contexts may run in one tick before the tick stops
 // with instruction_limit. 3.1c has no such bound: a script may walk every unit
 // slot without sleeping, and one that loops forever never returns. The bound
@@ -473,6 +483,14 @@ class Vm {
     /// @param index static index
     /// @return the value, or nullopt past the static table
     [[nodiscard]] std::optional<int32_t> static_value(std::size_t index) const noexcept;
+
+    /// Returns the stack slots each context has: what the program's deepest
+    /// script needs, walked once when the program is set, at least the
+    /// record's 32 and at most limit::stack_slots.
+    ///
+    /// @return slots per context
+    [[nodiscard]] std::size_t stack_slots() const noexcept { return stack_slots_; }
+
     /// Writes a static variable.
     ///
     /// @param index static index
@@ -502,7 +520,8 @@ class Vm {
         uint32_t wait_piece = 0;
         uint32_t wait_axis = 0;
         uint32_t signal_mask = 1;
-        std::array<uint32_t, stack_capacity> slots{};
+        // This context's stack_slots() slots of stack_block_.
+        std::span<uint32_t> slots{};
         ReturnCallback return_callback;
     };
 
@@ -510,6 +529,10 @@ class Vm {
     std::optional<Error> program_error_;
     Host* host_ = nullptr;
     std::vector<uint32_t> statics_;
+    // Every context's stack, stack_slots_ slots each, allocated once with
+    // the program.
+    std::unique_ptr<uint32_t[]> stack_block_;
+    std::size_t stack_slots_ = stack_capacity;
     std::array<StoredContext, context_count> contexts_{};
     int32_t time_scale_;
     std::size_t active_count_ = 0;

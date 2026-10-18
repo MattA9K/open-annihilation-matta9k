@@ -3,6 +3,7 @@
 
 #include "oa/sim/script_vm.hpp"
 
+#include <algorithm>
 #include <bit>
 #include <cstring>
 #include <limits>
@@ -11,6 +12,9 @@
 namespace oa::sim::script_vm {
 namespace {
 constexpr uint32_t opcode_dispatch_mask = 0x100ff000U;
+// The PUSH and POP families, whose low bits name the operand's kind.
+constexpr uint32_t push_family = opcode::push_constant & opcode_dispatch_mask;
+constexpr uint32_t pop_family = opcode::pop_local & opcode_dispatch_mask;
 
 int32_t as_signed(uint32_t value) noexcept {
     return std::bit_cast<int32_t>(value);
@@ -24,6 +28,145 @@ Error make_error(
     ErrorCode code, std::size_t context, uint32_t pc, uint32_t raw_opcode, std::string message
 ) {
     return {code, context, pc, raw_opcode, std::move(message)};
+}
+
+// What one instruction does to a context's stack: the words it takes in
+// the code, the values it pops and the values it pushes.
+struct StackEffect {
+    uint32_t words{};
+    uint32_t pops{};
+    uint32_t pushes{};
+};
+
+// The stack effect of the instruction at pc, as execute_context carries it
+// out; an instruction the VM does not support takes one word and nothing
+// from the stack.
+StackEffect stack_effect(const Program& program, uint32_t pc) {
+    const auto raw = program.code[pc];
+    const auto op = raw & opcode_dispatch_mask;
+    auto word = [&](uint32_t offset) -> uint32_t {
+        return pc + offset < program.code.size() ? program.code[pc + offset] : 0;
+    };
+    switch (op) {
+    case opcode::ignored_piece_op:
+        return {2, 2, 0};
+    case opcode::dont_shadow:
+    case opcode::show:
+    case opcode::hide:
+    case opcode::cache:
+    case opcode::dont_cache:
+    case opcode::shade:
+    case opcode::dont_shade:
+    case opcode::jump:
+        return {2, 0, 0};
+    case opcode::is_carrying_unit:
+    case opcode::get_unit_value:
+        return {1, 1, 1};
+    case opcode::carrier_unit_id:
+    case opcode::stack_alloc:
+        return {1, 0, 1};
+    case opcode::move:
+    case opcode::turn:
+    case opcode::spin:
+        return {3, 2, 0};
+    case opcode::stop_spin:
+    case opcode::move_now:
+    case opcode::turn_now:
+        return {3, 1, 0};
+    case opcode::wait_turn:
+    case opcode::wait_move:
+        return {3, 0, 0};
+    case opcode::emit_sfx:
+    case opcode::explode:
+    case opcode::jump_if_false:
+    case pop_family:
+        return {2, 1, 0};
+    case opcode::get:
+        return {1, 5, 1};
+    case opcode::set_unit_value:
+    case opcode::random:
+        return {1, 2, op == opcode::random ? 1U : 0U};
+    case opcode::attach_unit:
+        return {1, 3, 0};
+    case opcode::drop_unit:
+    case opcode::pop_stack:
+    case opcode::sleep:
+    case opcode::set_signal_mask:
+    case opcode::signal:
+        return {1, 1, 0};
+    case push_family:
+        return {2, 0, 1};
+    case opcode::bit_not:
+    case opcode::logical_not:
+        return {1, 1, 1};
+    case opcode::add:
+    case opcode::subtract:
+    case opcode::multiply:
+    case opcode::divide:
+    case opcode::bit_and:
+    case opcode::bit_or:
+    case opcode::bit_xor:
+    case opcode::less:
+    case opcode::less_equal:
+    case opcode::greater:
+    case opcode::greater_equal:
+    case opcode::equal:
+    case opcode::not_equal:
+    case opcode::logical_and:
+    case opcode::logical_or:
+    case opcode::logical_xor:
+        return {1, 2, 1};
+    case opcode::start_script:
+    case opcode::call_script:
+    case opcode::discard_call:
+        return {3, word(2), 0};
+    case opcode::return_:
+        return {1, 0, 0};
+    default:
+        return {1, 0, 0};
+    }
+}
+
+// The stack slots the program's deepest script needs: the slots a script
+// is entered with (four, or the most arguments a launch in the code gives)
+// plus the deepest its own code stacks, the code walked once with the depth
+// starting over at each entry point. A compiled script's stack is the same
+// whichever way a branch went, so the walk's depth is the running depth. At
+// least the record's 32 slots, at most limit::stack_slots.
+std::size_t deepest_stack(const Program& program) {
+    constexpr int64_t engine_entry_slots = 4;
+    const auto scripts = program.entry_points.size();
+    const auto code_words = static_cast<uint32_t>(program.code.size());
+    auto sorted_entries = std::make_unique<uint32_t[]>(scripts);
+    std::copy(program.entry_points.begin(), program.entry_points.end(), sorted_entries.get());
+    std::sort(sorted_entries.get(), sorted_entries.get() + scripts);
+    int64_t entry_slots = engine_entry_slots;
+    for (uint32_t pc = 0; pc < code_words;) {
+        const auto op = program.code[pc] & opcode_dispatch_mask;
+        if ((op == opcode::start_script || op == opcode::call_script) && pc + 2 < code_words)
+            entry_slots = std::max(
+                entry_slots,
+                std::min<int64_t>(program.code[pc + 2], static_cast<int64_t>(limit::stack_slots))
+            );
+        pc += stack_effect(program, pc).words;
+    }
+    int64_t deepest = static_cast<int64_t>(stack_capacity);
+    int64_t depth = entry_slots;
+    std::size_t next_entry = 0;
+    for (uint32_t pc = 0; pc < code_words;) {
+        while (next_entry < scripts && sorted_entries[next_entry] <= pc) {
+            if (sorted_entries[next_entry] == pc)
+                depth = entry_slots;
+            ++next_entry;
+        }
+        const auto effect = stack_effect(program, pc);
+        depth = std::max<int64_t>(0, depth - effect.pops) + effect.pushes;
+        deepest = std::max(deepest, depth);
+        pc += effect.words;
+    }
+    return static_cast<std::size_t>(
+        std::min<int64_t>(deepest, static_cast<int64_t>(limit::stack_slots))
+    );
 }
 } // namespace
 
@@ -44,6 +187,10 @@ Vm::Vm(Program program, int32_t time_scale)
     statics_.resize(program_.static_count);
     motions_.resize(program_.piece_count * piece_axis_count);
     piece_active_.resize(program_.piece_count);
+    stack_slots_ = program_.code.empty() ? stack_capacity : deepest_stack(program_);
+    stack_block_ = std::make_unique<uint32_t[]>(stack_slots_ * context_count);
+    for (std::size_t index = 0; index < contexts_.size(); ++index)
+        contexts_[index].slots = {stack_block_.get() + index * stack_slots_, stack_slots_};
 }
 
 Vm::Vm(Program program, Host& host, int32_t time_scale) : Vm(std::move(program), time_scale) {
@@ -297,8 +444,10 @@ Vm::execute_context(std::size_t index, std::size_t& instructions, std::size_t in
         };
         auto need_words = [&](std::size_t count) { return count <= program_.code.size() - pc; };
         auto need_stack = [&](int32_t count) { return context.sp + 1 >= count; };
-        auto has_push_room = [&] { return context.sp + 1 < static_cast<int32_t>(stack_capacity); };
-        auto valid_slot = [](uint32_t slot) { return slot < stack_capacity; };
+        auto has_push_room = [&] {
+            return context.sp + 1 < static_cast<int32_t>(context.slots.size());
+        };
+        auto valid_slot = [&](uint32_t slot) { return slot < context.slots.size(); };
         auto valid_static = [&](uint32_t slot) { return slot < statics_.size(); };
         auto valid_piece = [&](uint32_t piece) { return piece < program_.piece_count; };
         auto valid_axis = [](uint32_t axis) { return axis < piece_axis_count; };
@@ -556,7 +705,7 @@ Vm::execute_context(std::size_t index, std::size_t& instructions, std::size_t in
             if (!need_words(2))
                 return fail(ErrorCode::truncated_instruction, "PUSH lacks its operand");
             if (!has_push_room())
-                return fail(ErrorCode::stack_overflow, "PUSH exceeds 32 stack slots");
+                return fail(ErrorCode::stack_overflow, "PUSH exceeds the context's stack");
             const auto flag = raw & 7U;
             const auto operand = program_.code[pc + 1];
             uint32_t value = 0;
@@ -564,7 +713,9 @@ Vm::execute_context(std::size_t index, std::size_t& instructions, std::size_t in
                 value = operand;
             else if (flag == 2U) {
                 if (!valid_slot(operand))
-                    return fail(ErrorCode::invalid_local, "PUSH_LOCAL index exceeds 31");
+                    return fail(
+                        ErrorCode::invalid_local, "PUSH_LOCAL index is past the context's stack"
+                    );
                 value = context.slots[operand];
             } else if (flag == 4U) {
                 if (!valid_static(operand))
@@ -577,7 +728,7 @@ Vm::execute_context(std::size_t index, std::size_t& instructions, std::size_t in
             context.pc += 2;
         } else if (op == opcode::stack_alloc) {
             if (!has_push_room())
-                return fail(ErrorCode::stack_overflow, "STACK_ALLOC exceeds 32 stack slots");
+                return fail(ErrorCode::stack_overflow, "STACK_ALLOC exceeds the context's stack");
             ++context.sp;
             ++context.pc;
         } else if (op == 0x10023000U) {
@@ -589,7 +740,9 @@ Vm::execute_context(std::size_t index, std::size_t& instructions, std::size_t in
             const auto destination = program_.code[pc + 1];
             if (flag == 2U) {
                 if (!valid_slot(destination))
-                    return fail(ErrorCode::invalid_local, "POP_LOCAL index exceeds 31");
+                    return fail(
+                        ErrorCode::invalid_local, "POP_LOCAL index is past the context's stack"
+                    );
             } else if (flag == 4U) {
                 if (!valid_static(destination))
                     return fail(ErrorCode::invalid_static, "POP_STATIC index is out of range");
@@ -880,7 +1033,9 @@ StateResult Vm::export_state(uint32_t script_identity_token) const {
         destination.wait_axis = source.wait_axis;
         destination.child_context = static_cast<uint32_t>(source.child);
         destination.signal_mask = source.signal_mask;
-        for (std::size_t slot = 0; slot < source.slots.size(); ++slot) {
+        // The record keeps the first 32 slots; a context saved while an
+        // expression holds more loses the rest.
+        for (std::size_t slot = 0; slot < destination.slots.size(); ++slot) {
             destination.slots[slot] = as_signed(source.slots[slot]);
         }
     }
@@ -953,13 +1108,13 @@ std::optional<Error> Vm::import_state(const sim::script_state::State& state) {
             );
         }
         if (context.stack_pointer < -1 ||
-            context.stack_pointer >= static_cast<int32_t>(stack_capacity)) {
+            context.stack_pointer >= static_cast<int32_t>(stack_slots_)) {
             return make_error(
                 ErrorCode::invalid_state,
                 index,
                 context.program_counter,
                 0,
-                "saved context stack pointer is outside -1..31"
+                "saved context stack pointer is past the context's stack"
             );
         }
         if ((execution_state == ContextState::waiting_for_turn ||
@@ -999,8 +1154,10 @@ std::optional<Error> Vm::import_state(const sim::script_state::State& state) {
         destination.child = source.child_context;
         destination.signal_mask = source.signal_mask;
         destination.return_callback = {};
+        // A stack saved deeper than the record's 32 slots is zero past them.
         for (std::size_t slot = 0; slot < destination.slots.size(); ++slot) {
-            destination.slots[slot] = as_unsigned(source.slots[slot]);
+            destination.slots[slot] =
+                slot < source.slots.size() ? as_unsigned(source.slots[slot]) : 0U;
         }
     }
     active_count_ = counted_active;
@@ -1050,7 +1207,7 @@ ContextSnapshot Vm::context(std::size_t index) const {
     result.child = source.child;
     result.wait_piece = source.wait_piece;
     result.wait_axis = source.wait_axis;
-    for (std::size_t i = 0; i < source.slots.size(); ++i)
+    for (std::size_t i = 0; i < result.slots.size(); ++i)
         result.slots[i] = as_signed(source.slots[i]);
     return result;
 }
