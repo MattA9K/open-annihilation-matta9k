@@ -885,6 +885,11 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (options_.check_wreck_pick) {
+            check_wreck_pick();
+            flush_preferences();
+            return 0;
+        }
         if (options_.check_pointer_interfaces) {
             check_pointer_interfaces();
             flush_preferences();

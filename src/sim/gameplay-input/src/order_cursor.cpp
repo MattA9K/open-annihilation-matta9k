@@ -3,6 +3,7 @@
 
 #include "oa/sim/gameplay_input/order_cursor.hpp"
 
+#include "oa/sim/feature_runtime.hpp"
 #include "oa/sim/gameplay_input/input.hpp"
 #include "oa/sim/weapon_execution/projectile_contact.hpp"
 
@@ -59,6 +60,13 @@ int32_t map_cell(int32_t fixed) noexcept {
     return fixed >> 20;
 }
 
+// The highest map height, 16.16: the highest a feature at rest stands.
+constexpr int64_t highest_map_height = int64_t{255} << 16;
+// MapPlot.feature of a footprint cell after its origin; MapPlot.feature_record
+// then holds the rows back to the origin in its low byte, the columns in its
+// high byte.
+constexpr uint16_t footprint_continuation = 0xfffe;
+
 // A reclaimable feature on mapped ground, in sight or under the fog.
 bool reclaimable_feature_mapped(
     const World& world, const FixedVec3& position, const OrderCursorHooks& hooks
@@ -90,6 +98,44 @@ OrderCursor load_cursor(const UnitDef& actor_def) noexcept {
 const FeatureDef* feature_at_position(const World& world, const FixedVec3& position) noexcept {
     const MapPlot* plot = world_plot(&world, map_cell(position.x), map_cell(position.z));
     return plot != nullptr ? sim::weapon_execution::plot_feature_def(world, *plot) : nullptr;
+}
+
+std::optional<DrawnFeature> drawn_feature(const World& world, const FixedVec3& ground) noexcept {
+    if (world.feature_defs == nullptr)
+        return std::nullopt;
+    // The ground point's screen row, as the map Z a point at height 0 drawn
+    // on it has.
+    const int64_t row = int64_t{ground.z} - (int64_t{ground.y} >> 1);
+    const int32_t column = map_cell(ground.x);
+    const int64_t nearest = (row + (highest_map_height >> 1)) >> 20;
+    const int64_t farthest = row >> 20;
+    for (int64_t cell_z = nearest; cell_z >= farthest; --cell_z) {
+        const MapPlot* plot = world_plot(&world, column, static_cast<int32_t>(cell_z));
+        if (plot == nullptr)
+            continue;
+        int32_t origin_x = column;
+        auto origin_z = static_cast<int32_t>(cell_z);
+        uint16_t word = plot->feature;
+        if (word == footprint_continuation) {
+            origin_z -= static_cast<int32_t>(plot->feature_record & 0xffU);
+            origin_x -= static_cast<int32_t>(plot->feature_record >> 8U);
+            const MapPlot* origin = world_plot(&world, origin_x, origin_z);
+            if (origin == nullptr)
+                continue;
+            word = origin->feature;
+        }
+        if (word >= OA_PLOT_FEATURE_RESERVED || word >= world.feature_def_count ||
+            static_cast<int32_t>(word) >= world.game.feature_def_count)
+            continue;
+        const oa_fixed height = feature_runtime::feature_drawn_height(world, origin_x, origin_z);
+        const int64_t stands_z = row + (int64_t{height} >> 1);
+        if ((stands_z >> 20) != cell_z)
+            continue;
+        return DrawnFeature{
+            &world.feature_defs[word], {ground.x, height, static_cast<oa_fixed>(stands_z)}
+        };
+    }
+    return std::nullopt;
 }
 
 OrderCommand pointer_command(const Game& game) noexcept {

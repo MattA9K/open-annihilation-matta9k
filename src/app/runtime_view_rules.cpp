@@ -211,8 +211,9 @@ Runtime::snapped_reclaim_point(const oa::sim::ground_orders::Point& ground) cons
     if (!snap.enabled || radius <= 0 || !match_ || snap_override_held())
         return std::nullopt;
     const auto& world = match_->state();
-    // A click on a feature needs no snap.
-    if (match_->feature_word_under(ground, nullptr, nullptr) != oa::sim::spatial_state::no_feature)
+    // A click on a feature, where it is drawn, needs no snap.
+    if (match_->feature_word_under(feature_point_under_pointer(ground), nullptr, nullptr) !=
+        oa::sim::spatial_state::no_feature)
         return std::nullopt;
     const auto& spatial = match_->spatial();
     const auto map_width = static_cast<int32_t>(spatial.terrain_width);

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "oa/sim/gameplay_input/order_cursor.hpp"
+#include "oa/sim/feature_runtime.hpp"
 
 #include <cmath>
 #include <cstdio>
@@ -10,6 +11,7 @@
 #include <initializer_list>
 #include <limits>
 #include <utility>
+#include <vector>
 
 using namespace oa;
 using namespace oa::sim::gameplay_input;
@@ -1112,6 +1114,96 @@ void test_feature_at_position() {
     check(feature_at(120, 0, 8) == nullptr, "a word past the feature table is no feature");
 }
 
+void test_drawn_feature() {
+    FeatureMap m;
+    const FeatureDef* defs = m.world->feature_defs;
+    constexpr int32_t map_pixels = FeatureMap::width * 16;
+    const auto found = [&](const FixedVec3& ground) -> const FeatureDef* {
+        const auto drawn = drawn_feature(*m.world, ground);
+        return drawn ? drawn->def : nullptr;
+    };
+    for (const int32_t height : {0, 40}) {
+        for (MapPlot& plot : m.plots)
+            plot.height = static_cast<uint8_t>(height);
+        bool same = true;
+        for (int32_t px = 0; px < map_pixels; px += 3)
+            for (int32_t pz = 0; pz < map_pixels; pz += 3) {
+                const auto ground = FeatureMap::at(px, height, pz);
+                same = same && found(ground) == feature_at_position(*m.world, ground);
+            }
+        check(
+            same,
+            "on level ground a feature is found on the cell the ground point falls in, as "
+            "feature_at_position finds it"
+        );
+    }
+
+    // A wreck sunk to a sea bed at height 0 under a sea at height 60: the
+    // pointer meets the sea, 30 rows above the bed as drawn.
+    std::vector<sim::feature_runtime::PlacedFeature> records(2);
+    m.world->placed_features = reinterpret_cast<uint8_t*>(records.data());
+    m.world->placed_feature_count = static_cast<uint32_t>(records.size());
+    for (MapPlot& plot : m.plots)
+        plot.height = 0;
+    m.world->game.sea_level = 60;
+    m.place(FeatureMap::wreck, 3, 1, 3, 2);
+    MapPlot& origin = m.plot(3, 1);
+    origin.flags = static_cast<uint8_t>(origin.flags | OA_PLOT_FLAG_ANIMATING_FEATURE);
+    origin.feature_record = 1;
+    records[1].model.position = FeatureMap::at(72, 0, 32);
+    // The ground point over the water drawn on a screen row, as map Z.
+    const auto over_water = [](int32_t px, int32_t row) {
+        return FeatureMap::at(px, 60, row + 30);
+    };
+    bool on_bed = true;
+    for (int32_t px = 48; px < 96; px += 3)
+        for (int32_t row = 16; row < 48; row += 3) {
+            const auto drawn = drawn_feature(*m.world, over_water(px, row));
+            on_bed = on_bed && drawn && drawn->def == &defs[FeatureMap::wreck] &&
+                     drawn->position.x == px * 0x10000 && drawn->position.y == 0 &&
+                     drawn->position.z == row * 0x10000;
+        }
+    check(
+        on_bed,
+        "a sunken wreck is found over every row it is drawn on, at the point of its footprint "
+        "on the sea bed"
+    );
+    check(
+        found(over_water(56, 40)) == &defs[FeatureMap::wreck] &&
+            feature_at_position(*m.world, over_water(56, 40)) == nullptr,
+        "the cell under the sea's ground point misses the sunken wreck where it is drawn"
+    );
+    bool water_above = true;
+    for (int32_t row = 0; row < 16; row += 3)
+        water_above =
+            water_above && found(over_water(72, row)) == nullptr &&
+            feature_at_position(*m.world, over_water(72, row)) == &defs[FeatureMap::wreck];
+    check(
+        water_above,
+        "the water above a sunken wreck, which the cell under the sea's ground point names, "
+        "finds nothing"
+    );
+    records[1].model.position.y = 30 * 0x10000;
+    check(
+        found(over_water(72, 20)) == &defs[FeatureMap::wreck] &&
+            found(over_water(72, 40)) == nullptr,
+        "a sinking wreck is found where its record is drawn on the way down"
+    );
+
+    // A tree on a plot at height 64 one row south of the sunken wreck is
+    // drawn over the wreck's upper rows, nearer the viewer.
+    records[1].model.position.y = 0;
+    m.place(FeatureMap::tree, 4, 3, 1, 1);
+    m.plot(4, 3).height = 64;
+    check(
+        found(over_water(72, 20)) == &defs[FeatureMap::tree] &&
+            found(over_water(72, 40)) == &defs[FeatureMap::wreck],
+        "of two features drawn over one point, the one nearer the viewer is found"
+    );
+    m.world->placed_features = nullptr;
+    m.world->placed_feature_count = 0;
+}
+
 void test_feature_cursor_across_footprint() {
     FeatureMap m;
     OrderCursorHooks hooks{
@@ -1533,6 +1625,7 @@ int main() {
     test_group_order_point();
     test_selection_group_orders();
     test_feature_at_position();
+    test_drawn_feature();
     test_feature_cursor_across_footprint();
     test_pointer_area();
     test_right_press();

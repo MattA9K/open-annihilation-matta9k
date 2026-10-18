@@ -495,8 +495,11 @@ oa::sim::gameplay_input::OrderCursorHooks Runtime::order_cursor_hooks() {
                  static_cast<uint32_t>(position.z)}
             );
         },
-        [](void*, const World& world, const FixedVec3& position) {
-            return oa::sim::gameplay_input::feature_at_position(world, position);
+        // A feature is found where it is drawn: a wreck sunk to the sea bed
+        // where it lies below the sea the pointer meets.
+        [](void*, const World& world, const FixedVec3& position) -> const oa::FeatureDef* {
+            const auto drawn = oa::sim::gameplay_input::drawn_feature(world, position);
+            return drawn ? drawn->def : nullptr;
         },
         [](void* context, const World&, const Unit& actor, const Unit& target) {
             try {

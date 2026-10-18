@@ -534,6 +534,10 @@ struct Options {
     // reclaimable feature and a wreck through the SDL presenter and checks
     // the cursor it shows.
     bool check_reclaim_cursor = false;
+    // Hovers and clicks a ship's wreck sunk to the sea bed and a wreck on
+    // high ground through the SDL presenter and checks each is picked where
+    // it is drawn.
+    bool check_wreck_pick = false;
     // Places a tower under the build cursor in every tier and checks the
     // building drawn there (ui.build-preview): its pulse, the same at every
     // zoom and frame rate, and that it is drawn the right way up.

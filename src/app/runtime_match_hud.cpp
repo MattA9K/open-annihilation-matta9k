@@ -622,13 +622,22 @@ Runtime::feature_reclaim_point(const oa::sim::ground_orders::Point& ground) cons
     return oa::sim::ground_orders::Point{centre.x, std::max<oa_fixed>(height, 0), centre.z};
 }
 
+oa::sim::ground_orders::Point
+Runtime::feature_point_under_pointer(const oa::sim::ground_orders::Point& ground) const {
+    const auto drawn =
+        oa::sim::gameplay_input::drawn_feature(match_->state(), {ground[0], ground[1], ground[2]});
+    if (!drawn)
+        return ground;
+    return {drawn->position.x, drawn->position.y, drawn->position.z};
+}
+
 bool Runtime::try_reclaim_feature_at(float x, float y) {
     if (!match_ || selected_match_unit_ == 0)
         return false;
     const auto ground = match_world_point(x, y);
     if (!ground)
         return false;
-    const auto destination = feature_reclaim_point(*ground);
+    const auto destination = feature_reclaim_point(feature_point_under_pointer(*ground));
     if (!destination)
         return false;
     try {

@@ -258,6 +258,12 @@ struct FeatureHost {
 /// @param slot record index
 /// @return the record, or null for a slot outside the pool
 [[nodiscard]] PlacedFeature* feature_record(World& world, int32_t slot) noexcept;
+/// Returns the placed-feature record in a pool slot, to read.
+///
+/// @param world world holding the pool
+/// @param slot record index
+/// @return the record, or null for a slot outside the pool
+[[nodiscard]] const PlacedFeature* feature_record(const World& world, int32_t slot) noexcept;
 /// Returns the first slot of one of the pool's lists (Game.feature_active_head and the two after it).
 ///
 /// @param world world holding the list heads
@@ -311,6 +317,19 @@ void set_reproduce_cursor(World& world, int32_t index) noexcept;
 /// @return the centre, Y from sample_height shifted left 16
 [[nodiscard]] FixedVec3
 feature_center(const World& world, int16_t cell_x, int16_t cell_z, const FeatureDef& def) noexcept;
+
+/// Returns the height a feature is drawn at.
+///
+/// An object feature (a wreck) is drawn where its record stands, which
+/// falls to the ground and sinks to the sea bed; a sprite feature is drawn
+/// at the height of the plot holding its footprint's origin.
+///
+/// @param world world holding the plots and the feature records
+/// @param cell_x footprint origin column
+/// @param cell_z footprint origin row
+/// @return the height, 16.16; 0 off the map
+[[nodiscard]] oa_fixed
+feature_drawn_height(const World& world, int32_t cell_x, int32_t cell_z) noexcept;
 
 /// Links every record into the free list and empties the live lists.
 ///

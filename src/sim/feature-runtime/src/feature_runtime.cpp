@@ -264,6 +264,13 @@ PlacedFeature* feature_record(World& world, int32_t slot) noexcept {
     return &feature_records(world)[slot];
 }
 
+const PlacedFeature* feature_record(const World& world, int32_t slot) noexcept {
+    if (world.placed_features == nullptr || slot < 0 ||
+        static_cast<uint32_t>(slot) >= world.placed_feature_count)
+        return nullptr;
+    return &reinterpret_cast<const PlacedFeature*>(world.placed_features)[slot];
+}
+
 int32_t feature_list_head(const World& world, FeatureList list) noexcept {
     switch (list) {
     case FeatureList::active:
@@ -346,6 +353,20 @@ feature_center(const World& world, int16_t cell_x, int16_t cell_z, const Feature
         static_cast<uint32_t>(sample_height(world, position.x, position.z)) << 16
     );
     return position;
+}
+
+oa_fixed feature_drawn_height(const World& world, int32_t cell_x, int32_t cell_z) noexcept {
+    const MapPlot* origin = plot_at(world, cell_x, cell_z);
+    if (origin == nullptr)
+        return 0;
+    if ((origin->flags & OA_PLOT_FLAG_ANIMATING_FEATURE) != 0)
+        if (const PlacedFeature* record = feature_record(world, origin->feature_record);
+            record != nullptr) {
+            const FeatureDef* def = feature_def(world, origin->feature);
+            if (def != nullptr && !is_sprite(*def))
+                return record->model.position.y;
+        }
+    return static_cast<oa_fixed>(static_cast<uint32_t>(origin->height) << 16);
 }
 
 bool init_feature_pool(World& world) noexcept {

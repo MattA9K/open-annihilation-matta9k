@@ -1126,7 +1126,8 @@ endif()
 set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_check.cpp
   src/app/runtime_render_tiers_check.cpp src/app/runtime_smooth_pan_check.cpp
   src/app/runtime_reclaim_check.cpp src/app/runtime_patrol_check.cpp
-  src/app/runtime_reclaim_cursor_check.cpp src/app/runtime_build_preview_check.cpp
+  src/app/runtime_reclaim_cursor_check.cpp src/app/runtime_wreck_pick_check.cpp
+  src/app/runtime_build_preview_check.cpp
   src/app/runtime_pointer_check.cpp src/app/runtime_dgun_check.cpp
   src/app/runtime_attack_command_check.cpp src/app/runtime_tracking_zoom_check.cpp
   src/app/runtime_zoom_memory_check.cpp
@@ -2734,6 +2735,19 @@ endforeach()
         --preferences-file "${oa_reclaim_cursor_dir}/reclaim-cursor.conf")
       set_tests_properties(native-reclaim-cursor PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_reclaim_cursor_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # On Coast To Coast, a Skeeter's and a Crusader's wrecks sunk to the
+      # sea bed and a Stumpy's wreck on high ground show Reclaim where each
+      # is drawn, half way down too, and not over the water above where the
+      # ship went down; a click on each gives its Reclaim. The pictures of
+      # the cursor at each pointer checked go into the test's folder.
+      set(oa_wreck_pick_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/wreck-pick")
+      file(MAKE_DIRECTORY "${oa_wreck_pick_dir}")
+      add_test(NAME native-wreck-pick COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-wreck-pick
+        --preferences-file "${oa_wreck_pick_dir}/wreck-pick.conf")
+      set_tests_properties(native-wreck-pick PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_wreck_pick_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # A tower placed under the build cursor with ui.build-preview on, in
       # the standard, Basic and Full tiers at zoom 0.5, 1 and 2: drawn at

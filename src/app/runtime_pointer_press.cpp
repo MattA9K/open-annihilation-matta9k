@@ -402,13 +402,17 @@ std::string_view Runtime::issue_selection_orders(
                 break;
             case input::UnitOrder::reclaim:
             case input::UnitOrder::vtol_reclaim:
-                if (const auto at = ground ? feature_reclaim_point(*ground) : std::nullopt) {
+                if (const auto at =
+                        ground ? feature_reclaim_point(feature_point_under_pointer(*ground))
+                               : std::nullopt) {
                     match_->issue_feature_reclaim(source, *at, queue);
                     issued = "Reclaim";
                 }
                 break;
             case input::UnitOrder::resurrect:
-                if (const auto at = ground ? feature_reclaim_point(*ground) : std::nullopt) {
+                if (const auto at =
+                        ground ? feature_reclaim_point(feature_point_under_pointer(*ground))
+                               : std::nullopt) {
                     match_->issue_order(
                         source,
                         oa::data::mission_types::index_for_name(input::unit_order_name(order)),

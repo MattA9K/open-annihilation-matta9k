@@ -567,8 +567,9 @@ bool Runtime::console_place_feature(const char* name, int32_t cell_x, int32_t ce
 
 void Runtime::store_cursor_cell(const oa::sim::ground_orders::Point& ground) {
     oa::Game& game = match_->state().game;
-    const auto cell_x = static_cast<int16_t>(static_cast<uint32_t>(ground[0]) >> kCellShift);
-    const auto cell_z = static_cast<int16_t>(static_cast<uint32_t>(ground[2]) >> kCellShift);
+    const auto point = feature_point_under_pointer(ground);
+    const auto cell_x = static_cast<int16_t>(static_cast<uint32_t>(point[0]) >> kCellShift);
+    const auto cell_z = static_cast<int16_t>(static_cast<uint32_t>(point[2]) >> kCellShift);
     game.cursor_cell_x = cell_x;
     game.cursor_cell_z = cell_z;
     uint16_t word = oa::sim::spatial_state::no_feature;

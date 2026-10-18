@@ -349,6 +349,7 @@ Network play's own checks, the last rows, are in every build.
 | `--check-folder-chooser` | Chooses the game folder in the game's own locator. |
 | `--check-patrol-reclaim` | Checks a construction kbot on patrol reclaims on its way. |
 | `--check-reclaim-cursor` | Checks the cursor over trees, features and wrecks. |
+| `--check-wreck-pick` | Checks a sunken wreck and a wreck on high ground are picked where they are drawn. |
 | `--check-build-preview` | Checks the building drawn under the build cursor. |
 | `--check-megamap-clicks` | Checks clicks on the megamap. |
 | `--check-radar-orders` | Checks presses on the radar for every order. |

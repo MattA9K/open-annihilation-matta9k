@@ -456,6 +456,37 @@ void test_falling_wreck() {
     );
 }
 
+void test_drawn_height() {
+    Fixture f;
+    Recorder r;
+    const auto host = make_host(r);
+    (void)place_feature(f.world, host, f.at(2, 2), 0, nullptr, nullptr, no_player);
+    f.plots[f.at(2, 2)].height = 33;
+    require(
+        feature_drawn_height(f.world, 2, 2) == 33 << 16,
+        "a sprite feature is drawn at its origin plot's height"
+    );
+    const FixedVec3 start{
+        static_cast<oa_fixed>(6 << 20),
+        static_cast<oa_fixed>(52 << 16),
+        static_cast<oa_fixed>(6 << 20)
+    };
+    auto* wreck = place_feature(f.world, host, f.at(6, 6), 3, &start, nullptr, no_player);
+    require(wreck != nullptr, "wreck placed");
+    if (wreck == nullptr)
+        return;
+    require(
+        feature_drawn_height(f.world, 6, 6) == 52 << 16,
+        "a wreck is drawn at its record's height, above its plot's"
+    );
+    wreck->model.position.y = 7 << 16;
+    require(
+        feature_drawn_height(f.world, 6, 6) == 7 << 16,
+        "a wreck is drawn at its record's height, below its plot's"
+    );
+    require(feature_drawn_height(f.world, -1, 6) == 0, "off the map the height is 0");
+}
+
 void test_reproduce_and_reclaim() {
     Fixture f(8, 8);
     Recorder r;
@@ -604,6 +635,7 @@ int main() {
     test_fire();
     test_stock_spark_time();
     test_falling_wreck();
+    test_drawn_height();
     test_reproduce_and_reclaim();
     test_hit_elsewhere();
     test_placements();

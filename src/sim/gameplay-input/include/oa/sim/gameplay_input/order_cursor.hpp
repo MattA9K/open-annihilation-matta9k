@@ -9,6 +9,7 @@
 #include "oa/data/match_rules.hpp"
 
 #include <cstdint>
+#include <optional>
 
 namespace oa::sim::gameplay_input {
 
@@ -67,8 +68,8 @@ struct OrderCursorHooks {
     // Whether the player watching the match has mapped a map position:
     // ground explored once counts, in sight or under the fog.
     bool (*position_mapped)(void* context, const World& world, const FixedVec3& position){};
-    // The feature standing on the map position, or null (feature_at_position
-    // on a match's plots).
+    // The feature under the pointer at its map position, or null
+    // (drawn_feature on a match's plots).
     const FeatureDef* (*feature_at)(void* context, const World& world, const FixedVec3& position){};
     // First-weapon reach, to a unit or to a map position.
     bool (*unit_in_range)(
@@ -196,6 +197,35 @@ bool end_radar_scroll(Game& game, bool right_button) noexcept;
 /// @return the feature, or null on an empty or off-map cell
 [[nodiscard]] const FeatureDef*
 feature_at_position(const World& world, const FixedVec3& position) noexcept;
+
+/// A feature found under the pointer where it is drawn.
+struct DrawnFeature {
+    const FeatureDef* def{}; ///< the feature's definition
+    /// The point of its footprint under the pointer, at the height it is
+    /// drawn at, 16.16 world coordinates.
+    FixedVec3 position{};
+};
+
+/// Finds the feature drawn under the pointer.
+///
+/// The pointer's ground point is where it meets the ground, or the sea over
+/// ground below it (terrain_intersection), and is drawn half its height up
+/// the screen. A feature is drawn at its own height
+/// (feature_runtime::feature_drawn_height), so a wreck that sinks is drawn
+/// lower than the sea above it and a feature is found where it is drawn: the
+/// cells of the ground point's column are tried from the one a feature at
+/// the highest map height would stand on, nearest the viewer, to the one a
+/// feature at height 0 would, and the first whose feature is drawn over the
+/// ground point's screen row is found. A feature drawn at the height the
+/// pointer meets is found on the cell the ground point falls in, as
+/// feature_at_position finds it. 3.1c reads only that cell, so it misses a
+/// sunken wreck where it is drawn and finds it on the water above.
+///
+/// @param world map plots, features and their records
+/// @param ground the ground point under the pointer, 16.16 world coordinates
+/// @return the feature and the point on it, or nothing where none is drawn
+[[nodiscard]] std::optional<DrawnFeature>
+drawn_feature(const World& world, const FixedVec3& ground) noexcept;
 
 /// Tests whether a unit can currently take orders or be selected.
 ///

@@ -333,6 +333,7 @@ void check_game_files_options(Options& options) {
         {options.check_folder_chooser, "--check-folder-chooser"},
         {options.check_patrol_reclaim, "--check-patrol-reclaim"},
         {options.check_reclaim_cursor, "--check-reclaim-cursor"},
+        {options.check_wreck_pick, "--check-wreck-pick"},
         {options.check_build_preview, "--check-build-preview"},
         {options.check_pointer_interfaces, "--check-pointer-interfaces"},
         {options.check_megamap_clicks, "--check-megamap-clicks"},
@@ -552,6 +553,7 @@ void check_director_options(Options& options) {
         {options.check_folder_chooser, "--check-folder-chooser"},
         {options.check_patrol_reclaim, "--check-patrol-reclaim"},
         {options.check_reclaim_cursor, "--check-reclaim-cursor"},
+        {options.check_wreck_pick, "--check-wreck-pick"},
         {options.check_build_preview, "--check-build-preview"},
         {options.check_pointer_interfaces, "--check-pointer-interfaces"},
         {options.check_megamap_clicks, "--check-megamap-clicks"},
@@ -635,6 +637,7 @@ void refuse_left_out_self_checks([[maybe_unused]] const Options& options) {
             {options.check_folder_chooser, "--check-folder-chooser"},
             {options.check_patrol_reclaim, "--check-patrol-reclaim"},
             {options.check_reclaim_cursor, "--check-reclaim-cursor"},
+            {options.check_wreck_pick, "--check-wreck-pick"},
             {options.check_build_preview, "--check-build-preview"},
             {options.check_pointer_interfaces, "--check-pointer-interfaces"},
             {options.check_megamap_clicks, "--check-megamap-clicks"},
@@ -843,6 +846,7 @@ constexpr FlagOption kFlagOptions[] = {
     {"--check-folder-chooser", &Options::check_folder_chooser},
     {"--check-patrol-reclaim", &Options::check_patrol_reclaim},
     {"--check-reclaim-cursor", &Options::check_reclaim_cursor},
+    {"--check-wreck-pick", &Options::check_wreck_pick},
     {"--check-build-preview", &Options::check_build_preview},
     {"--check-pointer-interfaces", &Options::check_pointer_interfaces},
     {"--check-megamap-clicks", &Options::check_megamap_clicks},
@@ -1413,7 +1417,8 @@ void write_startup_line(std::string_view text) {
                      "[--check-progress] "
                      "[--check-text-fit [--check-language TAG]...] "
                      "[--check-folder-chooser] "
-                     "[--check-patrol-reclaim] [--check-reclaim-cursor] [--check-build-preview] "
+                     "[--check-patrol-reclaim] [--check-reclaim-cursor] [--check-wreck-pick] "
+                     "[--check-build-preview] "
                      "[--check-megamap-clicks] [--check-radar-orders] "
                      "[--check-pointer-interfaces] [--check-pad-controls] [--check-touch-controls] "
                      "[--check-game-files] [--check-content-copy PATH] "
@@ -1630,7 +1635,7 @@ void write_startup_line(std::string_view text) {
         result.check_language_notice || result.check_first_run || result.check_setup_window ||
         result.check_window_place || result.check_progress || result.check_text_fit ||
         result.check_folder_chooser || result.check_patrol_reclaim || result.check_reclaim_cursor ||
-        result.check_build_preview || result.check_pointer_interfaces ||
+        result.check_wreck_pick || result.check_build_preview || result.check_pointer_interfaces ||
         result.check_megamap_clicks || result.check_radar_orders || result.check_touch_controls ||
         result.check_pad_controls || result.check_running_while_inactive ||
         result.check_director_view || result.check_director_render || result.check_interpolation ||

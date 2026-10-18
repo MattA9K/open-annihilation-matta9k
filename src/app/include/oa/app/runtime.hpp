@@ -9929,6 +9929,19 @@ class Runtime final : public menu::Host,
     [[nodiscard]] std::optional<oa::sim::ground_orders::Point>
     feature_reclaim_point(const oa::sim::ground_orders::Point& ground) const;
 
+    /// Returns the point of the feature drawn under the pointer, where the
+    /// features under it are looked up.
+    ///
+    /// A feature is found where it is drawn (gameplay_input::drawn_feature):
+    /// a wreck sunk to the sea bed where it lies below the sea the pointer
+    /// meets.
+    ///
+    /// @param ground 16.16 ground point under the pointer
+    /// @return 16.16 point on that feature's footprint at the height it is drawn at, or the
+    ///         ground point where no feature is drawn
+    [[nodiscard]] oa::sim::ground_orders::Point
+    feature_point_under_pointer(const oa::sim::ground_orders::Point& ground) const;
+
     /// Returns the feature definition loader over feature_assets_ for the match's FeatureDef table.
     ///
     /// It loads animation GAFs, sequences and 3DO models by name into
@@ -12103,11 +12116,29 @@ class Runtime final : public menu::Host,
     /// steps over several kinds of vegetation, a reclaimable feature that does not
     /// burn (a rock or a burnt tree) and a placed wreck. Each pointer whose ground
     /// point lies on a cell of the feature's footprint must show Reclaim, each on
-    /// an empty cell Move, as the order cursor resolves them through the plot
-    /// under Game.cursor_position; every footprint cell must be reached. A click with
+    /// an empty cell Move: on the level ground there a feature is drawn at the
+    /// height the pointer meets, so it is found on the cell under
+    /// Game.cursor_position (gameplay_input::drawn_feature); every footprint
+    /// cell must be reached. A click with
     /// RECLAIM armed on the first tree must then give the commander Reclaim
     /// there. Throws std::runtime_error on a failure.
     void check_reclaim_cursor();
+
+    /// Checks that a wreck is picked where it is drawn, on Coast To Coast: a
+    /// Skeeter and a Crusader destroyed over the deepest open water leave
+    /// wrecks that sink to the sea bed, and a Stumpy destroyed on the highest
+    /// level ground leaves one there. With a construction ship and then a
+    /// construction kbot selected, every pointer over a wreck's footprint as
+    /// drawn, at the wreck's height, must show Reclaim, half way down and on
+    /// the bed; every pointer over where the footprint would be drawn at the
+    /// sea's height, but not over the drawn one, Move; a click on each wreck
+    /// where it is drawn must give the reclaimer its Reclaim, and the ship
+    /// must reclaim each sunken wreck. Writes pictures of the battlefield
+    /// with the cursor at the pointers checked, wreck-pick-TYPE-sinking.png,
+    /// -sea-bed.png, -sea-surface.png and -sea-order.png for each ship and
+    /// wreck-pick-armstump-hill.png and -height-0.png. Throws
+    /// std::runtime_error on a failure.
+    void check_wreck_pick();
 
     /// Checks the building drawn under the build cursor (ui.build-preview)
     /// in the standard, Basic and Full tiers at several zooms: a tower is
@@ -12902,8 +12933,9 @@ class Runtime final : public menu::Host,
     /// Keeps the map cell under the pointer and the feature word there in the Game block for the
     /// console's cursor commands.
     ///
-    /// A footprint continuation word stands for its origin's feature, and a
-    /// reserved word for none.
+    /// Over a feature, the cell is the one of its footprint where the feature is drawn under the
+    /// pointer (feature_point_under_pointer). A footprint continuation word stands for its
+    /// origin's feature, and a reserved word for none.
     ///
     /// @param ground 16.16 ground point under the pointer
     void store_cursor_cell(const oa::sim::ground_orders::Point& ground);
