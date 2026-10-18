@@ -8,7 +8,6 @@
 #include "oa/app/view_rules.hpp"
 #include "oa/audio/music_session.hpp"
 #include "oa/audio/sdl_music.hpp"
-#include "oa/platform/app_loop.hpp"
 #include "oa/ui/services/timers.hpp"
 #include "oa/ui/frontend/options.hpp"
 #include <cstddef>
@@ -66,8 +65,6 @@ struct Runtime::MusicHost {
     bool in_match{};
     bool menu_paused{};
     bool on_panel{};
-    bool parked_while_inactive{}; // the application loop closed the player
-    int32_t parked_music_kind{};
 
     // CDLISTS is saved as kinds change; the runtime's settings may already
     // be gone here.
@@ -308,38 +305,11 @@ void Runtime::step_music() {
     audio::music_session_tick(session, match_timing_.tick);
 }
 
-void Runtime::park_music_while_inactive() {
-    if (!music_)
-        return;
-    auto& host = *music_;
-    auto& mixer = *host.mixer;
-    switch (oa::platform::music_focus_action(
-        application_active_, mixer.cd.device_open != 0, host.parked_while_inactive
-    )) {
-    case oa::platform::MusicFocusAction::none:
-        return;
-    case oa::platform::MusicFocusAction::park:
-        audio::cd_save_disc_cache(host.session.cache, mixer, host.session.settings);
-        host.parked_music_kind = audio::cd_music_kind(mixer);
-        audio::cd_close(mixer);
-        host.parked_while_inactive = true;
-        return;
-    case oa::platform::MusicFocusAction::resume:
-        // A device that does not open again leaves the music silent, as one
-        // that does not open at the start does, and is reported the same way.
-        if (!audio::cd_open(mixer))
-            std::cerr << "music device unavailable: " << audio::sdl_music_device_error(host.device)
-                      << '\n';
-        // Both always succeed.
-        std::ignore =
-            audio::cd_set_disc_change_callback(mixer, audio::music_on_disc_change, &host.session);
-        audio::cd_set_enabled(mixer, host.game->music_flags & audio::music_flag_enabled);
-        std::ignore = audio::cd_set_play_mode(mixer, host.game->cd_mode);
-        audio::cd_set_music_kind(mixer, host.parked_music_kind);
-        audio::music_on_disc_change(&host.session);
-        host.parked_while_inactive = false;
-        return;
-    }
+void Runtime::hold_music_while_inactive() {
+    // 3.1c closes the CD player as it goes inactive, and a new track starts
+    // when it is active again; the hold plays on from where it stopped.
+    if (music_)
+        audio::sdl_music_device_hold(music_->device, !application_active_);
 }
 
 bool Runtime::music_cd_play(int32_t track) {

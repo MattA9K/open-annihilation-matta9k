@@ -116,7 +116,10 @@ takes every MP3 file of the folder, sorted by name without case, as tracks
 the numbered files of the game folder `OA_MOD_GAME_DIR` names.
 An unknown 16-track data disc gets the game's default kinds: tracks 1-7 battle,
 8-16 building (calm). `sdl_music` decodes each track with `MusicDecoder` on
-the sound output's thread and maps the CD mixer line to the stream gain. `music_session` holds the game-side
+the sound output's thread and maps the CD mixer line to the stream gain.
+`sdl_music_device_hold` keeps the music where it is while the application is
+inactive, and it plays on from there when the application is active again; in
+3.1c the CD player closes and a new track starts. `music_session` holds the game-side
 music events: startup, main menu (kind 4), game loading (calm), teardown, the
 per-frame mood update fed by local hits (+1) and kills (+5), ARMOPT pause, the
 CDPlay/CDStop/MusicMode console commands and the MUSIC.GUI transport. The

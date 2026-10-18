@@ -1144,12 +1144,11 @@ class Runtime final : public menu::Host,
     /// @return Extension::state's extension_state bits; 0 without the hook
     [[nodiscard]] uint32_t current_extension_state() const;
 
-    /// Parks the CD music while the application is inactive and resumes it on activation.
+    /// Holds the CD music where it is while the application is inactive.
     ///
-    /// Going inactive stores the disc's track kinds, remembers the music kind and
-    /// closes the player; on activation the player reopens with the music options
-    /// and that kind.
-    void park_music_while_inactive();
+    /// On activation the track plays on from where it stopped, unless the
+    /// music was paused or stopped meanwhile (sdl_music_device_hold).
+    void hold_music_while_inactive();
 
     /// Tests whether a control key is held, from SDL's keyboard state.
     ///

@@ -35,6 +35,7 @@ struct SdlMusicDevice {
     uint32_t aux_volume{full_aux_volume};
     bool active{}; // a range is loaded
     bool paused{};
+    bool held{};       // sdl_music_device_hold: the stream stays paused
     bool range_done{}; // the decoder reached the end of the range
 };
 
@@ -190,7 +191,8 @@ bool device_play(void* context, int32_t from, int32_t to) {
         if (!device.active)
             return false;
     }
-    device.stream->resume();
+    if (!device.held)
+        device.stream->resume();
     return true;
 }
 
@@ -205,7 +207,8 @@ bool device_resume(void* context, int32_t to) {
         device.to_track = to;
         device.paused = false;
     }
-    device.stream->resume();
+    if (!device.held)
+        device.stream->resume();
     return true;
 }
 
@@ -306,6 +309,27 @@ bool sdl_music_device_poll_complete(SdlMusicDevice* device) noexcept {
         return false;
     device->active = false;
     return true;
+}
+
+void sdl_music_device_hold(SdlMusicDevice* device, bool held) noexcept {
+    if (device == nullptr || held == device->held)
+        return;
+    device->held = held;
+    if (device->stream == nullptr)
+        return;
+    // A paused stream keeps the decoded samples queued, so the track plays
+    // on from where it stopped.
+    if (held) {
+        device->stream->pause();
+        return;
+    }
+    bool playing = false;
+    {
+        StreamLock lock(*device);
+        playing = device->active && !device->paused;
+    }
+    if (playing)
+        device->stream->resume();
 }
 
 bool sdl_music_decoder_available() noexcept {

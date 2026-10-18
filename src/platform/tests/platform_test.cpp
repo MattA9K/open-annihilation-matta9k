@@ -517,12 +517,6 @@ void test_app_loop() {
     check(application_waits_for_events(false, false, false), "inactive application waits");
     check(!application_waits_for_events(false, true, false), "live multiplayer game runs on");
     check(!application_waits_for_events(false, false, true), "online session runs on");
-    using Action = MusicFocusAction;
-    check(music_focus_action(false, true, false) == Action::park, "inactive open player parks");
-    check(music_focus_action(false, false, true) == Action::none, "closed player stays closed");
-    check(music_focus_action(true, false, true) == Action::resume, "parked player resumes");
-    check(music_focus_action(true, false, false) == Action::none, "player closed elsewhere");
-    check(music_focus_action(true, true, true) == Action::none, "open player needs nothing");
 }
 
 /// The program's folder is the folder that holds this test, ending in a

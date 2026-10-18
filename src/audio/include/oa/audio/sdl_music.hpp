@@ -43,6 +43,17 @@ void sdl_music_device_destroy(SdlMusicDevice* device) noexcept;
 ///         reports through cd_on_play_complete().
 [[nodiscard]] bool sdl_music_device_poll_complete(SdlMusicDevice* device) noexcept;
 
+/// Holds the music where it is, or lets it play on from there.
+///
+/// The hold is the device's, apart from the CD player's own pause: a range
+/// played or resumed while it lasts starts silent, and a range paused or
+/// stopped stays so when it ends. A held range neither plays out nor
+/// reports completion.
+///
+/// @param device Device to hold; null is ignored.
+/// @param held True to hold, false to let the music play on.
+void sdl_music_device_hold(SdlMusicDevice* device, bool held) noexcept;
+
 /// Reports whether this build has a compressed-audio decoder.
 ///
 /// Every build has one: MP3, Ogg Vorbis and FLAC files play as WAVE files do.

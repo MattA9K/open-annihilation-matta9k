@@ -941,8 +941,9 @@ int Runtime::run() {
         if constexpr (self_checks_built)
             if (options_.check_running_while_inactive)
                 begin_inactive_loop_check();
-        park_music_while_inactive();
-        // The menu's loop is silent while the application is inactive.
+        // The CD music and the menu's loop are silent while the application
+        // is inactive, and play on from where they stopped.
+        hold_music_while_inactive();
         audio_player_.hold_loop(!application_active_);
         SDL_Event event{};
         // A frame-limited run is scripted and must finish without focus. A

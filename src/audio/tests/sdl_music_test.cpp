@@ -92,6 +92,23 @@ void generated_disc() {
     require(!sdl_music_device_poll_complete(device), "no completion while paused");
     require(cd_set_paused(*mixer, false) && cd_is_playing(*mixer), "resumed");
 
+    // The hold keeps the track where it is, through the player's own pause
+    // and resume, and lets it play on from there.
+    sdl_music_device_hold(device, true);
+    const double held_at = sdl_music_device_position(device);
+    SDL_Delay(150);
+    require(sdl_music_device_position(device) == held_at, "held where it is");
+    require(cd_is_playing(*mixer), "a held track still counts as playing");
+    require(!sdl_music_device_poll_complete(device), "no completion while held");
+    require(cd_set_paused(*mixer, true) && cd_set_paused(*mixer, false), "paused and resumed held");
+    SDL_Delay(150);
+    require(sdl_music_device_position(device) == held_at, "a resume leaves the hold");
+    sdl_music_device_hold(device, false);
+    require(
+        wait_for([&] { return sdl_music_device_position(device) > held_at; }, 5000),
+        "plays on from where it was held"
+    );
+
     require(
         wait_for([&] { return sdl_music_device_poll_complete(device); }, 5000),
         "completion reported at the disc end"
@@ -104,6 +121,18 @@ void generated_disc() {
     );
     require(cd_stop(*mixer) && !cd_is_playing(*mixer), "stop");
     require(!sdl_music_device_poll_complete(device), "a stopped range reports nothing");
+
+    // A track played during the hold starts silent and plays when it ends.
+    sdl_music_device_hold(device, true);
+    require(cd_play_track(*mixer, 1) && cd_is_playing(*mixer), "played while held");
+    SDL_Delay(150);
+    require(sdl_music_device_position(device) == 0.0, "a track played while held starts silent");
+    sdl_music_device_hold(device, false);
+    require(
+        wait_for([&] { return sdl_music_device_position(device) > 0.0; }, 5000),
+        "the track plays once the hold ends"
+    );
+    require(cd_stop(*mixer), "stopped after the hold");
     mixer_teardown(*mixer);
     sdl_music_device_destroy(device);
     std::filesystem::remove_all(root);

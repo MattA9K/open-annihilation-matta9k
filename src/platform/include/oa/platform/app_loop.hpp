@@ -4,8 +4,7 @@
 #pragma once
 
 // Pacing rules of the application loop: the event loop that runs the idle
-// tick, sweeps finished sound streams and parks the music player while the
-// application is inactive.
+// tick and sweeps finished sound streams.
 
 #include <cstdint>
 
@@ -39,28 +38,6 @@ finished_stream_sweep_due(uint32_t now_ms, uint32_t last_sweep_ms) noexcept {
     bool active, bool live_multiplayer_game, bool online_session
 ) noexcept {
     return !active && !live_multiplayer_game && !online_session;
-}
-
-enum class MusicFocusAction : uint8_t {
-    none,
-    park,   // store the disc's track kinds, remember the music kind, close the player
-    resume, // reopen the player and restore its options and music kind
-};
-
-/// Chooses what the loop does with the music player on a focus change.
-///
-/// Only a player the loop parked itself is reopened on activation.
-///
-/// @param active whether the application has focus
-/// @param player_open whether the music player is open
-/// @param parked_by_loop whether the loop closed the player on deactivation
-/// @return park when losing focus with the player open, resume when regaining
-///         it with a parked player, otherwise none
-[[nodiscard]] constexpr MusicFocusAction
-music_focus_action(bool active, bool player_open, bool parked_by_loop) noexcept {
-    if (!active)
-        return player_open ? MusicFocusAction::park : MusicFocusAction::none;
-    return !player_open && parked_by_loop ? MusicFocusAction::resume : MusicFocusAction::none;
 }
 
 } // namespace oa::platform
