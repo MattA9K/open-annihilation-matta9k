@@ -4759,9 +4759,15 @@ void Runtime::check_full_overlays(
         std::size_t edge_outside = 0;
         std::size_t clear = 0;
         std::size_t clear_differing = 0;
-        // A view without a tile wholly out of sight, as a small map's at a
-        // close zoom, holds the edge tiles to their range alone.
+        // A view without a tile wholly out of sight shown in full, as a
+        // small map's at a close zoom or a view in sight but for a sliver
+        // of such a tile at its border, holds the edge tiles to their range
+        // and the sliver to the processor's, without the fewest pixels.
         bool whole_in_view = false;
+        const auto shown_in_full = [&](const Area& area) {
+            return inside(field, area.x, area.y) &&
+                   inside(field, area.x + area.w - 1, area.y + area.h - 1);
+        };
         std::vector<uint8_t> under_tile(
             static_cast<std::size_t>(field.w) * static_cast<std::size_t>(field.h), 0
         );
@@ -4774,12 +4780,12 @@ void Runtime::check_full_overlays(
             if (tile.tile.unseen == 0)
                 continue;
             const bool whole = tile.tile.unseen == wr::fog_mask_full;
+            whole_in_view = whole_in_view || (whole && shown_in_full(tile.area));
             for (int y = tile.area.y; y < tile.area.y + tile.area.h; ++y)
                 for (int x = tile.area.x; x < tile.area.x + tile.area.w; ++x) {
                     if (!inside(field, x, y))
                         continue;
                     under(x, y) = 1;
-                    whole_in_view = whole_in_view || whole;
                     if (passed_over(x, y))
                         continue;
                     const uint8_t* clear_full = pixel(full_clear, x, y);
@@ -4861,20 +4867,22 @@ void Runtime::check_full_overlays(
         std::size_t unmapped_edge_outside = 0;
         std::size_t untouched = 0;
         std::size_t untouched_changed = 0;
-        // A view without a tile wholly unmapped, as a small map's at a close
-        // zoom, holds the edge tiles to their range alone.
+        // A view without a tile wholly unmapped shown in full, as a small
+        // map's at a close zoom or one with a sliver of such a tile at its
+        // border, holds the edge tiles to their range and the sliver to the
+        // processor's black, without the fewest pixels.
         whole_in_view = false;
         std::fill(under_tile.begin(), under_tile.end(), 0);
         for (const auto& tile : fog_tiles(zoom)) {
             if (tile.tile.unmapped == 0)
                 continue;
             const bool whole = tile.tile.unmapped == wr::fog_mask_full;
+            whole_in_view = whole_in_view || (whole && shown_in_full(tile.area));
             for (int y = tile.area.y; y < tile.area.y + tile.area.h; ++y)
                 for (int x = tile.area.x; x < tile.area.x + tile.area.w; ++x) {
                     if (!inside(field, x, y))
                         continue;
                     under(x, y) = 1;
-                    whole_in_view = whole_in_view || whole;
                     const auto cell = static_cast<std::size_t>(y) * full_mapped.width +
                                       static_cast<std::size_t>(x);
                     if (whole && !inside(pointer, x, y) && objects[cell] == quads_alone) {
@@ -4949,11 +4957,11 @@ void Runtime::check_full_overlays(
         for (const auto& tile : fog_tiles(zoom)) {
             if (tile.tile.unseen != wr::fog_mask_full || tile.tile.unmapped == wr::fog_mask_full)
                 continue;
+            whole_in_view = whole_in_view || shown_in_full(tile.area);
             for (int y = tile.area.y; y < tile.area.y + tile.area.h; ++y)
                 for (int x = tile.area.x; x < tile.area.x + tile.area.w; ++x) {
                     if (!inside(field, x, y))
                         continue;
-                    whole_in_view = true;
                     if (passed_over(x, y))
                         continue;
                     ++dithered;
