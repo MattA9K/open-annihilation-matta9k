@@ -136,13 +136,21 @@ constexpr int32_t lens_check_margin = 8;
 constexpr std::ptrdiff_t lens_check_shots = 2;
 
 /// The bounds the Full tier's explosion flashes are held to against the
-/// processor's, over the pixels where a flash alone is the card's own: the
-/// card lights each pixel by the light table's share, one more than row/30
-/// times the colour under it, held to twice it, where the processor takes
-/// the palette entry nearest that light (and lights row 31 a thirtieth
-/// further). The bounds hold the share with room: the fight's flashes
-/// measured a mean of under half a level and at most 59 levels, where the
-/// palette has no colour near the light.
+/// processor's, over the pixels where a flash alone is the card's own and
+/// one flash reaches: the card lights each pixel by the light table's
+/// share, one more than row/30 times the colour under it, held to twice it,
+/// where the processor takes the palette entry nearest that light (and
+/// lights row 31 a thirtieth further). The bounds hold the share with room:
+/// the fight's flashes measured a mean of under one level and at most 59
+/// levels, where the palette has no colour near the light.
+///
+/// Where flashes stack, the processor goes back to the palette after each
+/// flash, and the palette's nearest colours to a lit one are paler, so a few
+/// flashes take a pixel to white; the card multiplies flash after flash and
+/// keeps the colour's hue (the base game's grass under three flashes of row
+/// 31: white, and 152, 255, 255 on the card). Those pixels are reported, not
+/// held: the Full tier does not light stacked flashes as the light table
+/// does.
 constexpr double most_flash_mean_difference = 2.0;
 constexpr int most_flash_difference = 80;
 
@@ -585,6 +593,46 @@ std::string zoom_text(float zoom) {
     if (!text.empty() && text.back() == '.')
         text.pop_back();
     return text;
+}
+
+/// Counts the explosions' flashes that reach each pixel of a frame: each
+/// flash's frame at the zoom, grown by sprite_mask_margin as card_draw_mask
+/// marks it, held to 255.
+///
+/// @param list the frame's draws
+/// @param field the battlefield on the frame
+/// @param zoom the frame's zoom
+/// @param width the frame's columns
+/// @param height the frame's rows
+/// @return one byte a pixel of the frame: how many flashes reach it
+std::vector<uint8_t> flash_cover(
+    const WorldDrawList& list, const Area& field, float zoom, uint32_t width, uint32_t height
+) {
+    std::vector<uint8_t> cover(std::size_t{width} * height, 0);
+    for (const auto& draw : list.draws) {
+        if (draw.kind != WorldDrawKind::lit_sprite)
+            continue;
+        const auto& sprite = list.sprites[draw.index];
+        if (sprite.frame == nullptr)
+            continue;
+        const SceneRect rect = sprite_scene_rect(sprite, zoom);
+        const int x = field.x + static_cast<int>(rect.left);
+        const int y = field.y + static_cast<int>(rect.top);
+        const int w = std::max(1, static_cast<int>(rect.right - rect.left));
+        const int h = std::max(1, static_cast<int>(rect.bottom - rect.top));
+        const int left = std::max(x - sprite_mask_margin, 0);
+        const int top = std::max(y - sprite_mask_margin, 0);
+        const int right = std::min(x + w + sprite_mask_margin, static_cast<int>(width));
+        const int bottom = std::min(y + h + sprite_mask_margin, static_cast<int>(height));
+        for (int row = top; row < bottom; ++row)
+            for (int column = left; column < right; ++column) {
+                auto& count =
+                    cover[static_cast<std::size_t>(row) * width + static_cast<std::size_t>(column)];
+                if (count < 255)
+                    ++count;
+            }
+    }
+    return cover;
 }
 
 /// What the card draws its own way, marked on a frame of the fight: the
@@ -2151,9 +2199,12 @@ void Runtime::check_full_render_tier(
         );
     };
     // Where an explosion's flash alone is the card's own on a frame: the
-    // flashes' marks less every other draw's.
-    const auto flash_mask = [&](float zoom, const renderer::Surface& read) {
+    // flashes' marks less every other draw's, where one flash reaches or,
+    // with `stacked`, where more than one does.
+    const auto flash_mask = [&](float zoom, const renderer::Surface& read, bool stacked) {
         auto marked = card_mask(zoom, read);
+        const auto cover =
+            flash_cover(match_models().draws, battlefield(), zoom, read.width, read.height);
         const auto others = card_draw_mask(
             match_models().draws,
             full_->fog.grid,
@@ -2165,7 +2216,7 @@ void Runtime::check_full_render_tier(
             false
         );
         for (std::size_t pixel = 0; pixel < marked.size(); ++pixel)
-            if (others[pixel] != 0)
+            if (others[pixel] != 0 || (cover[pixel] > 1) != stacked)
                 marked[pixel] = 0;
         return marked;
     };
@@ -2231,13 +2282,20 @@ void Runtime::check_full_render_tier(
                   << " squares, " << stage.lines << " lines; " << full_cost << '\n';
         write_png(picture("zoom-" + zoom_text(zoom)), read);
         // The fight's explosion flashes, which the card lights close to the
-        // processor's light table, within their bounds.
+        // processor's light table, within their bounds, where one flash
+        // reaches a pixel; stacked flashes are reported, not held
+        // (most_flash_difference).
         const auto flashes =
-            compare_masked(read, expected, battlefield(), cursor(), flash_mask(zoom, read));
+            compare_masked(read, expected, battlefield(), cursor(), flash_mask(zoom, read, false));
+        const auto stacked =
+            compare_masked(read, expected, battlefield(), cursor(), flash_mask(zoom, read, true));
         std::cout << "render tiers check: full tier zoom " << zoom_text(zoom) << ": " << stage.lit
-                  << " explosion flashes; " << flashes.under.pixels << " pixels theirs alone: most "
-                  << flashes.under.most << ", mean " << flashes.under.mean << '\n';
-        if (zoom == 1.0F && (stage.lit == 0 || flashes.under.pixels == 0))
+                  << " explosion flashes; " << flashes.under.pixels
+                  << " pixels one alone lights: most " << flashes.under.most << ", mean "
+                  << flashes.under.mean << "; " << stacked.under.pixels
+                  << " pixels under stacked flashes, not held: most " << stacked.under.most
+                  << ", mean " << stacked.under.mean << '\n';
+        if (zoom == 1.0F && (stage.lit == 0 || flashes.under.pixels + stacked.under.pixels == 0))
             fail("the fight drew no explosion flash of its own at zoom 1");
         if (flashes.under.most > most_flash_difference ||
             flashes.under.mean > most_flash_mean_difference)

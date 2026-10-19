@@ -198,6 +198,15 @@ it decides the texels:
 | `greyed` | the fog's gray: the colour's index through the gray table | the gray table's entry for each covered pixel, alpha 255; needs `set_gray_table` |
 | `lit` | an explosion's flash: the pixel under it through the light table's row the pixel names | for each covered pixel of the light ramp, row r's share of white (r / 30, held to white) in each colour and alpha 0, which the card's lighten blend multiplies what is under it by one more than; nothing elsewhere; the same in every palette |
 
+A `lit` frame lights within a level or so of the light table where one
+flash reaches a pixel. Where flashes stack it does not: the light table goes
+back to the palette after each flash, and the palette's nearest colours to a
+lit one are paler, so a few flashes take a pixel to white, while the lighten
+blend multiplies flash after flash and keeps the colour's hue (grass under
+three flashes of row 31 is white in the standard tier and 152, 255, 255 on
+the card). The render tiers check holds single flashes to the standard
+tier's and reports stacked ones.
+
 Translucency is not a mode: a translucent feature or shadow (`ANIM_TRANS`,
 `SHAD_TRANS`, the feature shadow sprites) is the opaque cell drawn with a
 vertex alpha of one half under the premultiplied alpha blend, so it costs
