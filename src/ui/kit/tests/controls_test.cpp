@@ -16,6 +16,7 @@
 #include "oa/ui/frontend_renderer/artless.hpp"
 #include "oa/ui/kit/controls.hpp"
 #include "oa/ui/kit/input.hpp"
+#include "oa/ui/kit/text.hpp"
 
 #include <array>
 #include <cstddef>
@@ -236,6 +237,51 @@ void a_full_row_cuts_its_summary_before_the_aside() {
     OA_CHECK(kit::cut_to_width(fonts(), kit::FontRole::small, "Ridge", 16) == "R...");
     OA_CHECK(kit::cut_to_width(fonts(), kit::FontRole::small, "Ridge", 15) == "...");
     OA_CHECK(kit::cut_to_width(fonts(), kit::FontRole::small, "Ridge", 2) == "...");
+}
+
+/// A byline the title leaves too little room for is left out, never drawn as
+/// "..." past its box: across the widths of a row whose whole title fits,
+/// down to a gap of a column or two after it, no text is wider than its box.
+void a_byline_without_room_is_left_out() {
+    kit::ListRowLook look;
+    look.badge_text = "RI";
+    look.title = "Ridge";
+    look.by = "by the Ridge team";
+    kit::set_text_fit_screen("list row");
+    bool shown = false;
+    bool left_out = false;
+    // The title starts 36 columns into the row and is 17 wide; the row's
+    // inset keeps 4 at its right. Below 57 columns the title itself is cut.
+    for (int32_t width = 57; width <= 120; ++width) {
+        renderer::Surface surface = black(200, 40);
+        kit::begin_text_fit_frame();
+        kit::draw_list_row(
+            canvas_on(surface), {0, 0, width, kit::compact_metrics.list_row_height}, look
+        );
+        for (const kit::TextFitRecord& noted : kit::text_fit_records()) {
+            if (noted.wider)
+                std::fprintf(
+                    stderr,
+                    "a row %d wide draws \"%s\" %d wide in a box of %d\n",
+                    width,
+                    noted.text.c_str(),
+                    noted.text_width,
+                    noted.box_width
+                );
+            OA_CHECK(!noted.wider);
+        }
+        // Whether any of the byline's hint colour is drawn after the title.
+        bool hint = false;
+        for (int32_t y = 0; y < 30; ++y)
+            for (int32_t x = 59; x < width; ++x)
+                hint = hint || pixel(surface, x, y) == kit::colour::hint;
+        shown = shown || hint;
+        left_out = left_out || !hint;
+    }
+    kit::begin_text_fit_frame();
+    // The narrow rows leave it out, and the wide ones still show it.
+    OA_CHECK(left_out);
+    OA_CHECK(shown);
 }
 
 /// A row with neither picture nor letters draws the blank dashed badge; a
@@ -1514,6 +1560,7 @@ void a_disabled_control_takes_no_press() {
 int main() {
     a_short_row_lies_as_the_mods_row();
     a_full_row_cuts_its_summary_before_the_aside();
+    a_byline_without_room_is_left_out();
     a_blank_badge_and_tags();
     chips_take_every_state();
     pills_are_rounded_and_stepped_at_1x();

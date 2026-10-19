@@ -684,7 +684,10 @@ void draw_list_row(const Canvas& canvas, const Rect& rect, const ListRowLook& lo
         const Rect fitted{text_left, title_row, title_width, kMetrics.regular_line};
         line(canvas, FontRole::regular, title, fitted, Align::left, colour::text);
         const int32_t by_left = text_left + title_width + kMetrics.list_row_gap;
-        if (!look.by.empty() && by_left < text_right) {
+        // The byline shows where at least "..." fits after the title; in a
+        // narrower gap it is left out rather than drawn past its box.
+        if (!look.by.empty() &&
+            text_right - by_left >= measure_text(canvas, FontRole::small, kEllipsis)) {
             const Rect by_box{by_left, title_row, text_right - by_left, kMetrics.regular_line};
             cut_line(canvas, FontRole::small, look.by, by_box, Align::left, colour::hint);
         }

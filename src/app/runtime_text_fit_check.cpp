@@ -223,6 +223,10 @@ void Runtime::check_text_fit() {
             line += " / ";
             line += noted.text;
             line += noted.wider ? " (wider than its box)" : " (across other text)";
+            // Where it is drawn, so that a text cut down to "..." can be found.
+            line += ": " + std::to_string(noted.text_width) + " wide in a box of " +
+                    std::to_string(noted.box_width) + " at " + std::to_string(noted.box_x) + "," +
+                    std::to_string(noted.box_y);
             bool seen = false;
             for (const FitFailure& earlier : failures) {
                 if (earlier.line == line)

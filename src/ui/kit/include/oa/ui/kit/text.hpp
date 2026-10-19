@@ -339,6 +339,8 @@ struct TextFitRecord {
     std::string screen;   ///< the screen named for this frame
     std::string text;     ///< the text drawn
     int32_t text_width{}; ///< how wide the text is, in the box's units
+    int32_t box_x{};      ///< the box's left, in the same units
+    int32_t box_y{};      ///< the box's top, in the same units
     int32_t box_width{};  ///< the box's width, in the same units
     bool wider{};         ///< the text is wider than its box
     bool across{};        ///< its ink crosses another text drawn in this paint

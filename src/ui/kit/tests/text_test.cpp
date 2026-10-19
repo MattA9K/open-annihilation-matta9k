@@ -1013,6 +1013,7 @@ void a_text_wider_than_its_box_or_across_another_is_recorded() {
     OA_CHECK(wider.wider);
     OA_CHECK(!wider.across);
     OA_CHECK(wider.text_width == 126 && wider.box_width == 116);
+    OA_CHECK(wider.box_x == 0 && wider.box_y == 20);
     // The next line starts where the wide one ends, so the edges meet and it is clear.
     kit::note_text_fit("beside", 40, 126, 20, 40, 12, 126);
     OA_CHECK(kit::text_fit_records().size() == 1);

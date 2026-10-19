@@ -503,7 +503,7 @@ void text_fit_begin_paint() {
 void note_text_fit(
     std::string_view text,
     int32_t text_width,
-    int32_t /*box_x*/,
+    int32_t box_x,
     int32_t box_y,
     int32_t box_width,
     int32_t box_height,
@@ -551,6 +551,8 @@ void note_text_fit(
     record.screen = state.screen;
     record.text = std::string(text);
     record.text_width = text_width;
+    record.box_x = box_x;
+    record.box_y = box_y;
     record.box_width = box_width;
     record.wider = wider;
     record.across = across;
