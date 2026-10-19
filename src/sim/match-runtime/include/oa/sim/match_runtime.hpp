@@ -2252,6 +2252,19 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     ///
     /// @param unit Unit slot; a refresh the spatial state rejects is noted.
     void refresh_restored_footprint(uint16_t unit);
+    /// Restores a unit's saved movement block (its `u%04xmob` record).
+    ///
+    /// The block's occupancy tick, the tick the unit last changed cells, is
+    /// the one tick the unit's map occupancy is judged by: it replaces the
+    /// tick the restored unit's placement stamped, so the movement maps treat
+    /// a unit that stood still before the save as standing still since then.
+    ///
+    /// @param unit Unit slot; one outside the pool throws.
+    /// @param saved The saved block (ground_orders::GroundRuntime::save_mobility).
+    /// @return false, restoring nothing, for a unit without a movement object.
+    bool restore_mobility(
+        uint16_t unit, const std::array<uint8_t, sim::ground_orders::mobility_record_size>& saved
+    );
     /// Tells whether a player counts another as an ally.
     ///
     /// @param player Player whose alliance row is read.

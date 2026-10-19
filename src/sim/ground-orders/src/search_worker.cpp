@@ -502,6 +502,8 @@ void SearchWorker::publish_route() {
 SearchAdvance SearchWorker::begin(
     SearchRecord record, const SearchBegin& begin, std::span<const uint16_t> sight_grid
 ) {
+    // A refused job walks no cells, so the scan charges it no wall-follow steps.
+    budget_ = 0;
     if (!record.unit || !record.navigation || !record.goal || !record.movement_map)
         return SearchAdvance::failed;
     {
@@ -516,7 +518,6 @@ SearchAdvance SearchWorker::begin(
     heuristic_scale_ = begin.heuristic_scale;
     order_flags_ = 0;
     route_.clear();
-    budget_ = 0;
     auto& map = *record_.movement_map;
     world_width_ = begin.world_width ? begin.world_width : map.width();
     world_height_ = begin.world_height ? begin.world_height : map.height();
@@ -637,7 +638,8 @@ void publish(
 }
 
 // Starts a job for the cursor unit when its navigator asks for a search.
-// Returns the extra slice cost (100 when a job was taken).
+// Returns the extra slice cost: 100 when a job was taken, and one more for
+// each step of its wall-follow walk.
 int32_t try_start_job(
     SearchScheduler& scheduler,
     sim::simulation_state::Unit& unit,
@@ -669,7 +671,9 @@ int32_t try_start_job(
         publish(scheduler, access, {});
         release_job(scheduler, access);
     }
-    return search_slice_expansions;
+    // The walk's steps are charged with the start, whether or not the job
+    // went on to search.
+    return search_slice_expansions + scheduler.worker.budget();
 }
 
 // Expands the active job for the rest of the slice. Returns the slice cost.

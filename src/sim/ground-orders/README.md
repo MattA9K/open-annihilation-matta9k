@@ -96,7 +96,10 @@ costs. Successful slices rebuild the route through
 
 `scan_player_jobs` is the whole job scan: heuristic refresh, per-player
 credit, the unit round-robin that asks each navigator `search_ready`, job
-start, 100-node slices and route publication. Units are reached through
+start, 100-node slices and route publication. Examining a unit costs 1 and
+starting its job 100 more, plus 1 for each step of the job's wall-follow
+walk, so a long walk round a wall leaves less of the tick's credit for the
+jobs after it. Units are reached through
 `SearchUnitAccess` callbacks (the `Unit.movement` side table). The sight
 test reads the job player's bit in `Game.sight_grid` (32-unit cells): cells
 the player has not seen classify as passable (2). Cell classes come from

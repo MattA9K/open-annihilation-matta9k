@@ -1108,6 +1108,17 @@ void Match::refresh_restored_footprint(uint16_t index) {
         fault_.note("restored footprint refresh rejected spatial state");
 }
 
+bool Match::restore_mobility(
+    uint16_t unit, const std::array<uint8_t, sim::ground_orders::mobility_record_size>& saved
+) {
+    auto* runtime = ground_runtime(unit);
+    if (runtime == nullptr)
+        return false;
+    runtime->load_mobility(saved);
+    spatial_units_.at(unit).object_tick = runtime->occupancy_changed_tick;
+    return true;
+}
+
 void Match::register_occupancy(sim::unit_spawn::Slot& slot) {
     // Collision can change flags on previously inserted units as well as this unit.
     auto& s = begin_spatial_change(slot);

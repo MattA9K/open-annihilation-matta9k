@@ -35,8 +35,9 @@ namespace oa::netgame::match {
 /// Copies the lobby into the match World before its first tick.
 ///
 /// Copies the ten Player records (slot, id, status, name, team, machine
-/// group, alliances) and their info blocks, the local slot, under an active
-/// launch the options lock the battle room set from it
+/// group, alliances) and their info blocks, the local slot, the number of
+/// seated players (Game.player_count, which the path search shares its
+/// credit by), under an active launch the options lock the battle room set from it
 /// (Game.setup_options bit 0, set or clear), and from the host's block the
 /// commander mode (Game.session_rules) and the mapping/line-of-sight bits
 /// (Game.visibility_flags); then sets the definition-index width, resets

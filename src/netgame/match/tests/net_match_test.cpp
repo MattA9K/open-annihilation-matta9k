@@ -524,6 +524,38 @@ void launch_carries_the_options_lock() {
     world_destroy(world);
 }
 
+// The match counts the seated players, not the slots up to the last one: with
+// slot 1 closed, a player joining a host in slot 0 sits in slot 2, so the two
+// make two where the start positions' layout counts three.
+void launch_counts_seated_players() {
+    start_case("launch_counts_seated_players");
+    auto game = std::make_unique<Game>();
+    auto lobby = std::make_unique<mp::Lobby>();
+    mp::LoopbackNet loopback{};
+    mp::loopback_reset(loopback);
+    mp::lobby_reset(*lobby, *game);
+    lobby->net = mp::loopback_lobby_net(loopback);
+    game->players[0].player_id = 0x300;
+    mp::lobby_seat_local(*lobby, 0, true, "hoster");
+    game->players[1].status = mp::kSlotBlocked;
+    mp::LobbyEvent joined{};
+    joined.kind = mp::LobbyEventKind::player_joined;
+    joined.player_id = 0x302;
+    CHECK(mp::lobby_apply_event(*lobby, joined));
+    CHECK(mp::slot_for_player_id(*lobby, 0x302) == 2 && mp::lobby_player_count(*game) == 2);
+    game->slot_table[0] = 0x300;
+    game->slot_table[1] = no_player_id;
+    game->slot_table[2] = 0x302;
+    CHECK(match_layout_player_count(*game) == 3);
+    World* world = world_create();
+    const WorldCapacity capacity{OA_PLAYER_COUNT + 1, 2, 0};
+    CHECK(world != nullptr && world_alloc_tables(world, &capacity) != 0);
+    world->game.player_count = 3;
+    CHECK(match_launch_apply(*lobby, world));
+    CHECK(world->game.player_count == 2);
+    world_destroy(world);
+}
+
 // ---- machines seating two players ----
 
 // Delivery to one machine as DirectPlay makes it: a frame to all players
@@ -4664,6 +4696,7 @@ int main() {
     packet_layer_parses_waiting_frame_first();
     launch_helpers();
     launch_carries_the_options_lock();
+    launch_counts_seated_players();
     shared_machines_receive_broadcasts_once();
     loading_screen_progress();
     pause_goes_out_from_the_primary();

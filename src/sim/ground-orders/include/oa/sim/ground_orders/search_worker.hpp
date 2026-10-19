@@ -182,8 +182,8 @@ class SearchWorker {
     /// @param begin occupancy inputs, sight bit, heuristic scale and map size
     /// @param sight_grid Game.sight_grid, one player bit per 32-unit cell
     /// @return in_progress, or failed when the job ends at once (start inside the goal, off the map, or unreachable);
-    ///         failed too, with the worker unchanged, for a record with a missing field or a map whose
-    ///         cell count does not fit in memory
+    ///         failed too, with nothing but budget() changed (to zero), for a record with a missing field
+    ///         or a map whose cell count does not fit in memory
     [[nodiscard]] SearchAdvance
     begin(SearchRecord record, const SearchBegin& begin, std::span<const uint16_t> sight_grid);
     /// Pops the best open node and expands its neighbours within the fan.
@@ -229,6 +229,9 @@ class SearchWorker {
     [[nodiscard]] int32_t threshold() const noexcept { return threshold_; }
 
     /// Returns the expansions or wall-follow steps spent so far.
+    ///
+    /// After begin it holds the wall-follow walk's steps, which the job scan
+    /// charges with the job's start; advance_slice counts its expansions.
     [[nodiscard]] int32_t budget() const noexcept { return budget_; }
 
     /// Returns the job's start cell.
@@ -390,10 +393,11 @@ struct SearchScheduler {
 /// player an equal share of the tick budget, then round-robins players while
 /// credit remains. With no job it steps the player's unit cursor and starts a
 /// job for a unit whose navigator asks for a search (cost 1, +100 when a job
-/// starts); with a job it expands up to 100 nodes and publishes the route when
-/// a goal cell is reached. The scan ends early when no player has credit left
-/// to pick, or the picked player has no unit list, no units, or a cursor past
-/// its units; a job the controller refuses to start costs its 100 all the same.
+/// starts, +1 for each step of the job's wall-follow walk); with a job it
+/// expands up to 100 nodes and publishes the route when a goal cell is
+/// reached. The scan ends early when no player has credit left to pick, or the
+/// picked player has no unit list, no units, or a cursor past its units; a job
+/// the controller refuses to start costs its 100 all the same.
 ///
 /// @param[in,out] scheduler job state, controller and worker
 /// @param players player slots with their unit lists

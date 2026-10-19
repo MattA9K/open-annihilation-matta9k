@@ -1195,11 +1195,9 @@ oa::Unit* Runtime::restore_saved_unit(uint16_t id, persist::Bank* bank) {
         if (has_movement) {
             std::snprintf(blob, sizeof blob, save_key::mobility_format, static_cast<unsigned>(id));
             std::array<uint8_t, oa::sim::ground_orders::mobility_record_size> saved{};
-            auto* ground = match_->ground_runtime(id);
-            if (ground != nullptr &&
-                read_blob(blob, saved.data(), static_cast<uint32_t>(saved.size())))
-                ground->load_mobility(saved);
-            else
+            if (match_->ground_runtime(id) == nullptr ||
+                !read_blob(blob, saved.data(), static_cast<uint32_t>(saved.size())) ||
+                !match_->restore_mobility(id, saved))
                 ++state.restore_failures;
         }
         restore_saved_orders(unit, load_le32(record + r::order_count), bank);

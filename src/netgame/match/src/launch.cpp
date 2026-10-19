@@ -89,6 +89,10 @@ bool match_launch_apply(mp::Lobby& lobby, World* world) noexcept {
     }
     game.local_player_index = lobby.game->local_player_index;
     game.viewpoint_player = lobby.game->local_player_index;
+    // The match counts the players the battle room seated, wherever they sit:
+    // an open slot between two players counts for nothing. The start
+    // positions were chosen from the slot table (match_layout_player_count).
+    game.player_count = mp::lobby_player_count(*lobby.game);
     // Under an active launch the battle room set the lock from the
     // launch's lockOptions, set or clear, and the match plays with it: the
     // in-game menu withholds CONTROL while it is set and the score report

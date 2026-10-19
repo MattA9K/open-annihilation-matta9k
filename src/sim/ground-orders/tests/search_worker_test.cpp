@@ -542,7 +542,8 @@ int main() {
 
     {
         // A full job through the scan: the unit's navigator asks for a search,
-        // the job starts (cost 101), later slices expand it and publish a route.
+        // the job starts (cost 101 and one for each step of its wall-follow
+        // walk), later slices expand it and publish a route.
         oa::sim::unit_spawn::LegacyWorld jobs_world(3);
         auto& mover = jobs_world.unit(1);
         mover.record.type_index = 1;
@@ -598,7 +599,10 @@ int main() {
         // Tick 100: the second unit is examined first (no navigator), then the mover.
         CHECK(scan_player_jobs(scheduler, players, 1, 1, 100, all_seen, access) == 2);
         CHECK(!scheduler.controller.idle() && route.last_search_tick == 100);
-        CHECK(scheduler.jobs.credit[0] == 2 - 1 - 101);
+        // The walk goes straight from (1, 1) to the goal cell (12, 9): 11 steps
+        // across and 8 down, the 19th reaching the goal.
+        CHECK(scheduler.worker.budget() == 19);
+        CHECK(scheduler.jobs.credit[0] == 2 - 1 - 101 - 19);
         CHECK(scheduler.jobs.player_heuristic[0] == search_heuristic_scale);
         int ticks = 0;
         while (!scheduler.controller.idle() && ticks < 50) {

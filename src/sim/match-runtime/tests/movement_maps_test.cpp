@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // Persistent movement-class maps (build, footprint refresh, object removal,
-// search projection) and the player slot's single 30-tick deadline.
+// search projection, a restored unit's occupancy tick) and the player slot's
+// single 30-tick deadline.
 #include "oa/sim/match_runtime.hpp"
 
 #include <array>
@@ -382,6 +383,44 @@ void persistent_search_matches_the_job_build() {
     (void)walker;
 }
 
+// A restored unit's saved movement block gives the movement maps the tick it
+// last changed cells, replacing the tick its placement stamped: a tank that
+// stood still from tick 5, placed again by a load at tick 200, walls the next
+// search's projection at tick 210, as one that stood there all along does.
+void restored_mobility_keeps_the_occupancy_tick() {
+    Fixture f;
+    f.match->simulation().tick = 200;
+    auto& parked = f.spawn(tank, 13, 10);
+    auto& searcher = f.spawn(kbot, 3, 11);
+    CHECK(f.match->spatial().units[parked.unit_index].object_tick == 200);
+    auto* runtime = f.match->ground_runtime(parked.unit_index);
+    CHECK(runtime != nullptr);
+    auto block = runtime->save_mobility();
+    // The occupancy tick is the block's little-endian word at 30.
+    block[30] = 5;
+    block[31] = block[32] = block[33] = 0;
+    CHECK(f.match->restore_mobility(parked.unit_index, block));
+    CHECK(runtime->occupancy_changed_tick == 5);
+    CHECK(f.match->spatial().units[parked.unit_index].object_tick == 5);
+    CHECK(!f.match->restore_mobility(f.spawn(building, 20, 20).unit_index, block));
+
+    constexpr uint32_t now = 210;
+    f.match->simulation().tick = now;
+    sim::ground_orders::SearchBegin begin;
+    begin.current_tick = now;
+    sim::ground_orders::MovementMap* map = nullptr;
+    CHECK(f.match->prepare_search_job(searcher, begin, map));
+    CHECK(map == f.match->movement_map(kbot_class) && map->cell(13, 10) == 3);
+    map->prepare_search(
+        sim::ground_orders::occupancy_rectangle(searcher.record),
+        *begin.unit_changed_tick,
+        begin.occupancy,
+        now
+    );
+    CHECK(map->projection_tick() == now - 30);
+    CHECK(map->cell(13, 10) == 0 && map->cell(14, 11) == 0 && map->cell(12, 9) == 1);
+}
+
 // The player slot update advances each slot's Player.next_economy_tick deadline
 // once when it comes due; the local slot's outcome checks run under that same
 // deadline and no other.
@@ -415,6 +454,7 @@ int main() {
     building_walls_every_class_until_removed();
     features_refresh_every_class();
     persistent_search_matches_the_job_build();
+    restored_mobility_keeps_the_occupancy_tick();
     outcome_checks_follow_the_slot_deadline();
     return 0;
 }
