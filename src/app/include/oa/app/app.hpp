@@ -430,6 +430,10 @@ struct Options {
     // Clicks the order page's standing order and toggle buttons through the
     // SDL presenter and checks what they show and what the units do.
     bool check_match_orders = false;
+    // For each side the skirmish offers, clicks its order page's FIRE ORDERS,
+    // MOVE ORDERS, CLOAK, ON/OFF and MOVE buttons through the SDL presenter and
+    // checks the units carry the orders out.
+    bool check_side_orders = false;
     // Gives a Kbot Lab a move through the SDL presenter and checks the unit it
     // builds carries it out.
     bool check_factory_orders = false;

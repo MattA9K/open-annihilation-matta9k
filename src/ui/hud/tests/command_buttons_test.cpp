@@ -38,11 +38,13 @@ struct Case {
     const char* sound{};
 };
 
-// The ARMGEN.GUI and CORGEN.GUI command buttons, the order each
-// arms in Game.pointer_command while lit (1 once turned off) and its
-// allsound.tdf entry.
+// The ARMGEN.GUI and CORGEN.GUI command buttons, and those of a mod's own
+// side (GOKGEN.GUI, TALGEN.GUI), the order each arms in Game.pointer_command
+// while lit (1 once turned off) and its allsound.tdf entry.
 constexpr Case kCases[] = {
     {"ARMMOVE", 2, "immediateorders"},
+    {"GOKMOVE", 2, "immediateorders"},
+    {"TALATTACK", 3, "immediateorders"},
     {"ARMATTACK", 3, "immediateorders"},
     {"CORBLAST", 4, "immediateorders"},
     {"ARMUNLOAD", 5, "specialorders"},

@@ -9491,7 +9491,9 @@ class Runtime final : public menu::Host,
     /// @return the hooks, bound to this runtime
     [[nodiscard]] oa::sim::gameplay_input::OrderCursorHooks order_cursor_hooks();
 
-    /// Strips a side prefix (ARM or COR) from a HUD gadget name.
+    /// Strips a side prefix from a HUD gadget name: the nameprefix of any side
+    /// SIDEDATA lists (ARM, COR, a mod's GOK or TAL), ignoring case, or ARM or COR
+    /// without a side table.
     ///
     /// @param name gadget name
     /// @return the action name
@@ -9610,7 +9612,9 @@ class Runtime final : public menu::Host,
     /// Toggles a standing order button of the order panel over the Game block's panel state.
     ///
     /// @param index gadget index in the match HUD
-    void toggle_order_button(std::size_t index);
+    /// @return false when the button's name holds none of MOVEORD, FIREORD, STATUS, ONOFF
+    ///     and CLOAK, which leaves the panel state as it was
+    bool toggle_order_button(std::size_t index);
 
     /// Returns the kept state of a match HUD gadget that shows a status frame.
     ///
@@ -11793,6 +11797,23 @@ class Runtime final : public menu::Host,
     /// and return fire the peewee leaves the radar alone, under fire at will it
     /// shoots it. Throws std::runtime_error on a failure.
     void check_match_orders();
+
+    /// Checks every side's order page through the SDL presenter.
+    ///
+    /// For each side SIDEDATA lists that the skirmish offers, a skirmish starts
+    /// with the local player on that side, and its order page's buttons are
+    /// clicked, found by the word their names hold after the side's prefix
+    /// (ARMFIREORD, GOKFIREORD, TALONOFF). No click may be an operation the
+    /// game lacks. FIRE ORDERS and MOVE ORDERS must step the commander's
+    /// standing orders as the order toggle does, MOVE ORDERS arming no move;
+    /// CLOAK must switch the cloak of a unit of the side that takes it and
+    /// switch it back, and ON/OFF the same for one that takes on/off orders,
+    /// each the commander when it takes the order or else one placed beside it
+    /// whose page offers the button ungreyed; and MOVE must arm a move that a
+    /// battlefield click sends the commander toward. A side none of whose
+    /// units offers CLOAK or ON/OFF is reported so. Throws std::runtime_error
+    /// on a failure.
+    void check_side_orders();
 
     /// Checks the command buttons through ARMGEN.GUI clicks.
     ///

@@ -310,6 +310,7 @@ void check_game_files_options(Options& options) {
         {options.check_match_layers, "--check-match-layers"},
         {options.check_render_tiers, "--check-render-tiers"},
         {options.check_match_orders, "--check-match-orders"},
+        {options.check_side_orders, "--check-side-orders"},
         {options.check_factory_orders, "--check-factory-orders"},
         {options.check_unit_speech, "--check-unit-speech"},
         {options.check_download_builds, "--check-download-builds"},
@@ -530,6 +531,7 @@ void check_director_options(Options& options) {
         {options.check_match_layers, "--check-match-layers"},
         {options.check_render_tiers, "--check-render-tiers"},
         {options.check_match_orders, "--check-match-orders"},
+        {options.check_side_orders, "--check-side-orders"},
         {options.check_factory_orders, "--check-factory-orders"},
         {options.check_unit_speech, "--check-unit-speech"},
         {options.check_download_builds, "--check-download-builds"},
@@ -614,6 +616,7 @@ void refuse_left_out_self_checks([[maybe_unused]] const Options& options) {
             {options.check_match_layers, "--check-match-layers"},
             {options.check_render_tiers, "--check-render-tiers"},
             {options.check_match_orders, "--check-match-orders"},
+            {options.check_side_orders, "--check-side-orders"},
             {options.check_factory_orders, "--check-factory-orders"},
             {options.check_unit_speech, "--check-unit-speech"},
             {options.check_download_builds, "--check-download-builds"},
@@ -828,6 +831,7 @@ constexpr FlagOption kFlagOptions[] = {
     {"--check-match-layers", &Options::check_match_layers},
     {"--check-render-tiers", &Options::check_render_tiers},
     {"--check-match-orders", &Options::check_match_orders},
+    {"--check-side-orders", &Options::check_side_orders},
     {"--check-factory-orders", &Options::check_factory_orders},
     {"--check-unit-speech", &Options::check_unit_speech},
     {"--check-download-builds", &Options::check_download_builds},
@@ -1407,8 +1411,8 @@ void write_startup_line(std::string_view text) {
                      "zoom-1920x1080|zoom-2560x1440|campaign]] "
                      "[--check-match-dialogs] [--check-match-layers] "
                      "[--check-render-tiers [--force-capable]] "
-                     "[--check-match-orders] [--check-factory-orders] [--check-unit-speech] "
-                     "[--check-download-builds] [--check-stockpile-builds] "
+                     "[--check-match-orders] [--check-side-orders] [--check-factory-orders] "
+                     "[--check-unit-speech] [--check-download-builds] [--check-stockpile-builds] "
                      "[--check-unit-page-memory] [--check-side-column] [--check-match-bars] "
                      "[--check-unit-pages whole|scaled:TYPE,...] "
                      "[--check-kill-board] [--check-paused-save] [--check-simulation-hash] "
@@ -1645,7 +1649,7 @@ void write_startup_line(std::string_view text) {
         result.check_director_view || result.check_director_render || result.check_interpolation ||
         result.check_unit_playout || result.check_paused_save || result.check_simulation_hash ||
         result.check_zoom_memory || result.check_map_packs || result.check_map_browser ||
-        result.check_map_pack_lists || result.check_mod_map_settings;
+        result.check_map_pack_lists || result.check_mod_map_settings || result.check_side_orders;
     // A capture and a showcase need the application's own loop and window,
     // which checks and benchmarks do not run.
     const bool check_run = result.fixed_clock || result.check_navigation ||

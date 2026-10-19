@@ -437,14 +437,12 @@ oa::ui::hud::BuildPanelHost Runtime::build_panel_host() {
     return host;
 }
 
-void Runtime::toggle_order_button(std::size_t index) {
+bool Runtime::toggle_order_button(std::size_t index) {
     if (!match_ || !match_hud_ || index >= match_hud_->layout.gadgets.size())
-        return;
+        return false;
     oa::World& world = match_->state();
     auto state = hud::order_panel_load(world.game);
-    // A control that is not a toggle leaves the order words as they were,
-    // and storing them back changes nothing.
-    std::ignore = hud::order_panel_toggle(
+    const bool toggled = hud::order_panel_toggle(
         state,
         order_panel_table(),
         order_panel_controls(),
@@ -452,7 +450,9 @@ void Runtime::toggle_order_button(std::size_t index) {
         match_hud_->layout.gadgets[index].common.name.c_str(),
         order_panel_events()
     );
-    hud::order_panel_store(world.game, state);
+    if (toggled)
+        hud::order_panel_store(world.game, state);
+    return toggled;
 }
 
 const Runtime::MatchGadgetState*

@@ -785,6 +785,11 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (options_.check_side_orders) {
+            check_side_orders();
+            flush_preferences();
+            return 0;
+        }
         if (options_.check_factory_orders) {
             check_factory_orders();
             flush_preferences();

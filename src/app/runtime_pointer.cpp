@@ -21,6 +21,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <limits>
 #include <string>
@@ -531,7 +532,22 @@ oa::sim::gameplay_input::OrderCursorHooks Runtime::order_cursor_hooks() {
 }
 
 std::string_view Runtime::match_hud_action(std::string_view name) const {
-    if (name.size() > 3 && (name.starts_with("ARM") || name.starts_with("COR")))
+    // A page's controls carry the prefix of any side SIDEDATA lists: ARMMOVE,
+    // GOKCLOAK, TALONOFF.
+    const auto starts_with = [name](std::string_view prefix) {
+        return !prefix.empty() && name.size() > prefix.size() &&
+               std::equal(prefix.begin(), prefix.end(), name.begin(), [](char a, char b) {
+                   return std::toupper(static_cast<unsigned char>(a)) ==
+                          std::toupper(static_cast<unsigned char>(b));
+               });
+    };
+    for (std::size_t side = 0; side < side_table_.count; ++side) {
+        const auto& field = side_table_.sides[side].name_prefix;
+        const std::string_view prefix(field, strnlen(field, sizeof field));
+        if (starts_with(prefix))
+            return name.substr(prefix.size());
+    }
+    if (starts_with("ARM") || starts_with("COR"))
         return name.substr(3);
     return name;
 }

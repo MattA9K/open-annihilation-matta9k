@@ -1124,6 +1124,7 @@ endif()
 # through its screens and orders and reports a verdict, for the native
 # checks. OA_SELF_CHECKS=OFF leaves them out, as the release packages do.
 set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_check.cpp
+  src/app/runtime_side_orders_check.cpp
   src/app/runtime_render_tiers_check.cpp src/app/runtime_smooth_pan_check.cpp
   src/app/runtime_reclaim_check.cpp src/app/runtime_patrol_check.cpp
   src/app/runtime_reclaim_cursor_check.cpp src/app/runtime_wreck_pick_check.cpp
@@ -2390,6 +2391,17 @@ if(OA_BUILD_PLATFORM)
         --preferences-file "${oa_orders_check_dir}/match-orders.conf")
       set_tests_properties(native-match-orders PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_orders_check_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # Each side's order page, whatever prefix its controls carry, clicked
+      # through SDL: the standing order toggles, CLOAK and ON/OFF reach the
+      # units, and MOVE sends the commander where the battlefield is clicked.
+      set(oa_side_orders_check_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/side-orders")
+      file(MAKE_DIRECTORY "${oa_side_orders_check_dir}")
+      add_test(NAME native-side-orders COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-side-orders
+        --preferences-file "${oa_side_orders_check_dir}/side-orders.conf")
+      set_tests_properties(native-side-orders PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_side_orders_check_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # A Kbot Lab sent to a point with MOVE and PATROL through SDL input on
       # dummy devices: each Peewee it then builds heads there.

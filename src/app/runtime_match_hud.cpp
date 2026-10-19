@@ -145,8 +145,10 @@ void Runtime::activate_match_hud(std::size_t index, bool left_button) {
 
 bool Runtime::run_match_order_button(std::size_t index, std::string_view gadget_name) {
     const auto action = match_hud_action(gadget_name);
-    if (action == "FIREORD" || action == "MOVEORD" || action == "ONOFF" || action == "CLOAK") {
-        toggle_order_button(index);
+    // Both are found by the word the button's name holds, whatever side's
+    // prefix it carries (GOKFIREORD, TALONOFF); the toggles come first, as
+    // MOVEORD holds MOVE.
+    if (toggle_order_button(index)) {
     } else if (press_match_command_button(index)) {
     } else if (action == "SELFD" || action == "DESTRUCT") {
         if (match_)

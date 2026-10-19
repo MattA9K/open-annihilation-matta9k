@@ -390,6 +390,40 @@ void test_order_toggles() {
     );
 }
 
+// A mod's own side names its toggles with its prefix, as GOKGEN.GUI and
+// TALGEN.GUI do: each toggles by the word it holds, and GOKMOVEORD, which
+// holds MOVE, is the move orders toggle.
+void test_side_prefixed_toggles() {
+    Pool pool;
+    FakeControls fake;
+    fake.names = {"GOKMOVE", "GOKMOVEORD", "GOKFIREORD", "TALONOFF", "TALCLOAK"};
+    Recorder recorder;
+    OrderPanelState state{};
+    state.order_flags = 1u;
+    state.frame_flags = static_cast<uint16_t>(2u << kFrameFireOrderShift);
+    CHECK(
+        order_panel_toggle(state, pool.table(), fake.controls(), 1, "GOKMOVEORD", recorder.events())
+    );
+    CHECK(recorder.orders.back().first == "STANDING_MOVEORDER");
+    CHECK(recorder.orders.back().second == 2);
+    CHECK(
+        order_panel_toggle(state, pool.table(), fake.controls(), 2, "GOKFIREORD", recorder.events())
+    );
+    CHECK(recorder.orders.back().first == "STANDING_FIREORDER");
+    CHECK(recorder.orders.back().second == 0);
+    CHECK(
+        order_panel_toggle(state, pool.table(), fake.controls(), 3, "TALONOFF", recorder.events())
+    );
+    CHECK(recorder.orders.back().first == "ACTIVATE");
+    CHECK(
+        order_panel_toggle(state, pool.table(), fake.controls(), 4, "TALCLOAK", recorder.events())
+    );
+    CHECK(recorder.orders.back().first == "CLOAK_ON");
+    CHECK(
+        !order_panel_toggle(state, pool.table(), fake.controls(), 0, "GOKMOVE", recorder.events())
+    );
+}
+
 // ARMPW takes both standing orders, ARMLLT (firestandorders only) the fire
 // order and ARMSOLAR (onoffable) neither; the toggle tags come in capitals
 // and the order table's names in mixed case.
@@ -863,6 +897,7 @@ int main(int argc, char** argv) {
     test_selection_summary();
     test_order_buttons();
     test_order_toggles();
+    test_side_prefixed_toggles();
     test_group_order_reach();
     test_update_order_panel();
     test_build_queue_and_scroll();

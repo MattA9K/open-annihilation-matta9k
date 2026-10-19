@@ -406,6 +406,7 @@ const std::vector<FlagCase>& flag_cases() {
         {"--check-match-layers", &Options::check_match_layers, {}},
         {"--check-render-tiers", &Options::check_render_tiers, {}},
         {"--check-match-orders", &Options::check_match_orders, {}},
+        {"--check-side-orders", &Options::check_side_orders, {}},
         {"--check-factory-orders", &Options::check_factory_orders, {}},
         {"--check-unit-speech", &Options::check_unit_speech, {}},
         {"--check-download-builds", &Options::check_download_builds, {}},
