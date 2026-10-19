@@ -8,6 +8,7 @@
 
 - [Zane van Iperen](https://github.com/vs49688)
 - [mderryberry](https://github.com/Silencer0151)
+- [MattA9K](https://github.com/MattA9K)
 - JulienS: the Open Annihilation logo and the settings icon
 
 Contributions are welcome. Everyone taking part is expected to follow the
