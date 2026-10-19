@@ -1020,6 +1020,28 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     /// A gameplay branch the engine does not support, or a broken invariant,
     /// is noted in fault() and stops the operation that met it.
     void tick();
+    /// Ends the match's load: everything is placed, and the players' pass the
+    /// game makes once before the first tick waits for run_load_pass.
+    ///
+    /// The pass belongs to the load's tick, Game.tick now: 0 for a new game,
+    /// the saved tick for a saved one. A second call does nothing.
+    void finish_load();
+    /// Runs the players' pass that ends the match's load, when finish_load
+    /// left it waiting; otherwise does nothing.
+    ///
+    /// At the load's tick, whatever tick the clock has reached, the computer
+    /// players are prepared, the path search spends a tick's credit, and
+    /// every player slot is updated as a tick updates it
+    /// (update_player_slots), so a slot whose deadline is due settles its
+    /// economy and runs its outcome checks there, and its next deadline is
+    /// 30 ticks on. A new game's energy and metal then return to the stores
+    /// its start set, as the game sets them again after the pass; a resumed
+    /// saved game (OfflineInputs::resuming_saved_game) keeps what the pass
+    /// left, and so differs from the game it saved from as the game's own
+    /// reloads do. A tick driver runs it before it advances the clock for the
+    /// match's first tick, and tick() runs it first if it is still waiting,
+    /// so a loaded match stands as it loaded until it first ticks.
+    void run_load_pass();
     /// Flies, bursts and collides every record of the projectile pool once,
     /// then compacts the pool.
     ///
@@ -3434,6 +3456,9 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     bool defeat_allowed_{};
     bool host_stays_watching_{}; ///< set_host_stays_watching
     CommanderPlacement commander_placement_{CommanderPlacement::none};
+    bool load_finished_{};     ///< finish_load ran
+    bool load_pass_waiting_{}; ///< run_load_pass has the load's pass to run
+    uint32_t load_tick_{};     ///< Game.tick when finish_load ran
     bool campaign_outcomes_{};
     bool multiplayer_outcomes_{};
     // Set once end_local_game ended the local player's game: its outcome

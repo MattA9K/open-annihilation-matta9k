@@ -5,6 +5,8 @@
 #include "oa/sim/scenario/commander_rules.hpp"
 #include "tick_internal.hpp"
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
 
 namespace oa::sim::match_runtime {
@@ -15,6 +17,8 @@ constexpr uint32_t player_update_period = 30;
 } // namespace
 
 void Match::tick() {
+    // The load's pass comes first, if the tick's driver has not run it.
+    run_load_pass();
     // A running game has no commander to place.
     commander_placement_ = CommanderPlacement::none;
     if (trace_)
@@ -59,6 +63,36 @@ void Match::tick() {
     // Share-panel structure gifts that waited out their time go across after
     // the tick (sharing.structure-gift-rate-limit).
     give_due_structure_gifts();
+}
+
+void Match::finish_load() {
+    if (load_finished_)
+        return;
+    load_finished_ = true;
+    load_pass_waiting_ = true;
+    load_tick_ = simulation_.tick;
+}
+
+void Match::run_load_pass() {
+    if (!load_pass_waiting_)
+        return;
+    load_pass_waiting_ = false;
+    // The pass belongs to the load's tick, whatever tick the clock reached.
+    const uint32_t clock_tick = simulation_.tick;
+    simulation_.tick = load_tick_;
+    auto& game = state().game;
+    std::array<std::array<float, 2>, OA_PLAYER_COUNT> stores{};
+    for (std::size_t player = 0; player < stores.size(); ++player)
+        stores[player] = {game.players[player].energy, game.players[player].metal};
+    sim::ai::prepare_match_computer_players(*this);
+    advance_path_search();
+    update_player_slots();
+    if (!input_.resuming_saved_game)
+        for (std::size_t player = 0; player < stores.size(); ++player) {
+            game.players[player].energy = stores[player][0];
+            game.players[player].metal = stores[player][1];
+        }
+    simulation_.tick = clock_tick;
 }
 
 void Match::update_player_slots() {

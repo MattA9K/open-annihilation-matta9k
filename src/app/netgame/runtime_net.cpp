@@ -1289,6 +1289,10 @@ struct NetworkPlay::NetHost {
             runtime.match_camera_flags_ = 0;
         }
         runtime.reset_match_sight(true);
+        // The network game is loaded here, before it records and tells the
+        // other machines it is ready; its players' pass waits for the first
+        // tick.
+        state.binding.match->finish_load();
         start_recording(play);
         nm::net_match_end_loading(state.net.get());
         // The recorder's start: a pause under autopause or commander warp.

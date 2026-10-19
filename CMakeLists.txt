@@ -2317,7 +2317,7 @@ if(OA_BUILD_PLATFORM)
       # default, Full, draws them.
       set(oa_director_render_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/director-render")
       set(oa_director_render_hashes
-        "director render: frames 04f6532a6c155ceeba64c70335f624fb828bae95417f5d2ba36418379fd14140 sound 98718c0ce9d785c0a09f409493bd394e92371b25a8a79bd3d72b6d5bab2234f3")
+        "director render: frames ec9f8e0c7906ef500077571b2da8baf5a8ad6904ca7d3aa44843b13fce496372 sound 148e026257cb31ce5afc3f1665856ef483a3983ad74a1fcb50be78d82ec3992b")
       file(MAKE_DIRECTORY "${oa_director_render_dir}")
       add_test(NAME native-director-render COMMAND oa-game --game-dir "${OA_GAME_DIR}"
         --mute --check-director-render

@@ -1633,6 +1633,10 @@ void Runtime::finish_saved_game_start(bool restored_players) {
     match_timing_.previous_clock =
         oa::base::game_loop::scaled_clock(clock_milliseconds(), match_clock_scale());
     match_tick_blocked_ = false;
+    // The saved game is loaded, alliances and all; its players' pass runs at
+    // the saved tick before the first tick, so until then the world stands as
+    // the save restored it.
+    match_->finish_load();
 }
 
 uint64_t Runtime::match_world_digest() const {

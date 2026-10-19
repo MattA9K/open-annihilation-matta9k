@@ -1352,6 +1352,9 @@ void Runtime::advance_match_clock(uint32_t now_ms) {
                 break;
             }
             if (!stepped) {
+                // The pass that ends the match's load runs at the load's
+                // tick, before the clock reaches the first tick.
+                match_->run_load_pass();
                 ++match_timing_.tick;
                 match_->simulation().tick = match_timing_.tick;
                 // A stage's lines timed for this tick run before it.

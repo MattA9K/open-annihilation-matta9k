@@ -461,9 +461,25 @@ their transport, captured units, cancelled nanoframes and the hotkey
 self-destruct take their 30000 through the veteran scaling of the damage
 path.
 
+## The load's players' pass
+
+A match ends its load (`finish_load`, called by each way a match starts: a
+new skirmish or campaign mission, a saved game, a network game and a
+recorded one) with one players' pass at the load's tick, before its first
+tick: the computer players are set up, the path search spends a tick's
+credit and every player slot is updated as a tick updates it, so a slot
+whose 30-tick deadline is due settles its economy and runs its outcome
+checks there. A new game's energy and metal then return to the stores its
+start set; a saved game keeps what the pass did, and so plays on from the
+pass as the game's own reloads do. The pass waits until the match first
+ticks (`run_load_pass`, which the tick drivers call before advancing the
+clock and `tick` calls first), so a loaded match stands as it loaded until
+then.
+
 ## Computer players and knowledge
 
-The match sets the computer players up on its first tick. Each tick every
+The match sets the computer players up in the load's players' pass, or on
+its first tick when a match did not end a load (`finish_load`). Each tick every
 player whose record holds a controller (`Player.controller`) runs it: a
 computer player's controller first runs its order-callback tick (the squad
 sort and due tasks in `src/sim/ai`), then the weapon sweep retargets the slots of

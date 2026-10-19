@@ -1142,6 +1142,9 @@ void match_binding_tick(MatchBinding* b) {
         pump();
         return;
     }
+    // The pass that ends the match's load runs at the load's tick, before
+    // the clock and the other machines' records reach the first tick.
+    b->match->run_load_pass();
     ++game.tick;
     pump();
     b->match->tick();

@@ -148,6 +148,9 @@ void NetworkPlay::start_demo_playback() {
         throw std::runtime_error("demo playback: " + error);
     // Mission start rebuilds the sight grids once the players are seated.
     runtime_.reset_match_sight(true);
+    // The recorded game is loaded, as a network game is; its players' pass
+    // waits for the first tick.
+    session->match->finish_load();
     // The view is the watcher's: it owns no units, so nothing can be
     // ordered and no unit is announced as its own, and with mapping and
     // line of sight off the whole map shows.

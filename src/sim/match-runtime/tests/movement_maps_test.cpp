@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // Persistent movement-class maps (build, footprint refresh, object removal,
-// search projection, a restored unit's occupancy tick) and the player slot's
-// single 30-tick deadline.
+// search projection, a restored unit's occupancy tick), the player slot's
+// single 30-tick deadline and the players' pass that ends a match's load.
 #include "oa/sim/match_runtime.hpp"
 
 #include <array>
@@ -47,7 +47,7 @@ using Scenario = oa::test::EmptyScenario;
 
 // A flat 32x32-cell land map with a two-cell tank class, a one-cell kbot
 // class and a 3x3 building. `wall` marks blocking-feature cells present from
-// the start.
+// the start; a tank makes `tank_energy` energy a settlement.
 struct Fixture {
     formats::tnt::Map map;
     std::vector<sim::visibility_state::TerrainCell> terrain_values =
@@ -71,7 +71,7 @@ struct Fixture {
     Scenario scenario;
     std::unique_ptr<sim::match_runtime::Match> match;
 
-    explicit Fixture(const std::vector<std::array<int32_t, 2>>& wall = {}) {
+    explicit Fixture(const std::vector<std::array<int32_t, 2>>& wall = {}, float tank_energy = 0) {
         map.attribute_width = map.attribute_height = map_cells;
         map.sea_level = 20;
         map.attributes.resize(map_cells * map_cells);
@@ -116,6 +116,7 @@ struct Fixture {
             fields[i].movement_class = sim::unit_spawn::AssetHandle{0};
         }
         fields[tank].movement_class = tank_class;
+        defs[tank].energy_make = tank_energy;
         fields[kbot].movement_class = kbot_class;
         fields[building].yard_mask = building_yard;
         for (auto& feature : features) {
@@ -457,6 +458,73 @@ void outcome_checks_follow_the_slot_deadline() {
     run_to(75);
     CHECK(f.match->outcome_state().countdown == 3 && local.next_economy_tick == 105);
 }
+
+// A match ends its load with one players' pass at the load's tick: the path
+// search's round, and each slot's update, whose due deadline settles the
+// economy and moves 30 ticks on. finish_load leaves the pass waiting, so the
+// loaded match stands as it loaded; run_load_pass runs it once. A new game's
+// stores then return to those its start set, where the same settlement in a
+// first tick leaves them changed, and the first tick settles nothing.
+void the_load_ends_with_one_player_pass() {
+    // A tank making 25 energy a settlement, under a player whose start granted
+    // room to store it, and an enemy tank, so the outcome checks go on.
+    const auto set_stores = [](Fixture& f) {
+        f.spawn(tank, 4, 4);
+        CHECK(f.match->create(
+            {1, tank, {uint32_t(24 * 16) << 16, 0, uint32_t(24 * 16) << 16}, true, 1, 0}
+        ));
+        auto& player = f.match->state().game.players[0];
+        sim::unit_spawn::grant_start_storage(player, 1000, 1000);
+        player.energy = 300;
+        player.metal = 200;
+        return &player;
+    };
+    Fixture plain({}, 25);
+    auto* settled = set_stores(plain);
+    ++plain.match->simulation().tick;
+    plain.match->tick();
+    CHECK(settled->next_economy_tick == 30);
+    CHECK(settled->energy == 325 && settled->metal == 200);
+
+    Fixture f({}, 25);
+    auto* local = set_stores(f);
+    const auto& jobs = f.match->path_search_jobs();
+    CHECK(local->next_economy_tick == 0 && jobs.refresh_tick == 0);
+    f.match->run_load_pass();
+    CHECK(local->next_economy_tick == 0 && jobs.refresh_tick == 0);
+    f.match->finish_load();
+    CHECK(local->next_economy_tick == 0 && jobs.refresh_tick == 0);
+    f.match->run_load_pass();
+    CHECK(local->next_economy_tick == 30 && jobs.refresh_tick == 1);
+    CHECK(local->energy == 300 && local->metal == 200 && local->energy_produced == 25);
+    f.match->run_load_pass();
+    f.match->finish_load();
+    f.match->run_load_pass();
+    CHECK(local->next_economy_tick == 30 && jobs.refresh_tick == 1);
+    ++f.match->simulation().tick;
+    f.match->tick();
+    CHECK(local->next_economy_tick == 30 && local->energy == 300 && local->metal == 200);
+    CHECK(jobs.refresh_tick == 2);
+}
+
+// A waiting load's pass runs first in the match's first tick, at the load's
+// tick though the clock has moved on: a unit waiting for a path search is
+// asked at tick 100, where the match loaded, and the clock is back at 101
+// for the tick.
+void the_first_tick_runs_a_waiting_load_pass() {
+    Fixture f;
+    auto& mover = f.spawn(tank, 4, 4);
+    auto* runtime = f.match->ground_runtime(mover.unit_index);
+    CHECK(runtime != nullptr);
+    runtime->navigation.flags |= sim::ground_orders::search_pending_flag;
+    f.match->simulation().tick = 100;
+    f.match->finish_load();
+    CHECK(runtime->navigation.last_search_tick == 0);
+    f.match->simulation().tick = 101;
+    f.match->tick();
+    CHECK(runtime->navigation.last_search_tick == 100);
+    CHECK(f.match->simulation().tick == 101 && f.match->path_search_jobs().refresh_tick == 2);
+}
 } // namespace
 
 int main() {
@@ -465,5 +533,7 @@ int main() {
     persistent_search_matches_the_job_build();
     restored_mobility_keeps_the_occupancy_tick();
     outcome_checks_follow_the_slot_deadline();
+    the_load_ends_with_one_player_pass();
+    the_first_tick_runs_a_waiting_load_pass();
     return 0;
 }
