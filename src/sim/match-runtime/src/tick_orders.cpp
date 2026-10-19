@@ -3,7 +3,10 @@
 
 #include "tick_internal.hpp"
 
+#include "oa/sim/match_runtime/construction_orders.hpp"
+
 #include <algorithm>
+#include <bit>
 #include <cstdint>
 #include <iterator>
 #include <string_view>
@@ -481,6 +484,9 @@ std::size_t Match::queue_records(
             view.seen_x = order->seen_x;
             view.seen_z = order->seen_z;
             view.issue_tick = order->issue_tick;
+            view.phase = order->phase;
+            view.facing = candidate->construction.facing;
+            view.build_started = candidate->construction.target != nullptr;
             break;
         }
     });
@@ -869,6 +875,91 @@ sim::simulation_state::Order& Match::issue_stop(uint16_t index) {
 void Match::stop_orders(uint16_t index) {
     TickHost host(*this);
     note_step(sim::simulation_state::clear_orders(units_.at(index), true, host));
+}
+
+bool TickHost::relocate_queued_build(
+    uint16_t index, std::size_t position, const sim::ground_orders::Point& destination
+) {
+    if (index >= match.units_.size() || index >= match.slots_.size())
+        return false;
+    auto& unit = match.units_[index];
+    sim::simulation_state::Order* order = nullptr;
+    std::size_t at = 0;
+    for_each_primary_uncycled(unit.primary, [&](sim::simulation_state::Order* queued) {
+        if (at == position)
+            order = queued;
+        ++at;
+    });
+    if (order == nullptr)
+        return false;
+    const bool mobile = order->kind == mobile_build_kind;
+    const bool aircraft = order->kind == vtol_mobile_build_kind;
+    if (!mobile && !aircraft)
+        return false;
+    // MobileBuild spawns its nanoframe at the end of phase 1, and
+    // VTOL_MobileBuild at the end of phase 2. Later phases are the building.
+    if (mobile && order->phase > 1)
+        return false;
+    if (aircraft && order->phase > 2)
+        return false;
+    Match::RuntimeOrder* record = nullptr;
+    for (auto& candidate : match.orders_)
+        if (&candidate->order == order)
+            record = candidate.get();
+    if (record == nullptr || record->construction.target != nullptr)
+        return false;
+    const auto type = static_cast<uint16_t>(record->construction.type_index);
+    auto& world = match.state();
+    if (type == 0 || type >= world.unit_def_count)
+        return false;
+    const auto facing = match.build_facing(type, record->construction.facing);
+    const auto& built = world.unit_defs[type];
+    const bool turned = (facing & 1U) != 0;
+    const auto footprint_x = turned ? built.footprint_z : built.footprint_x;
+    const auto footprint_z = turned ? built.footprint_x : built.footprint_z;
+    const auto cell_x = footprint_origin_cell(destination[0], footprint_x);
+    const auto cell_z = footprint_origin_cell(destination[2], footprint_z);
+    auto site = destination;
+    snap_build_position(site, footprint_x, footprint_z);
+    const auto height = match.footprint_height(type, cell_x, cell_z, facing);
+    site[1] = static_cast<int32_t>(static_cast<uint32_t>(height) << 16);
+    record->extra.destination = site;
+    record->construction.blocked_retries = 0;
+
+    // The approach already underway would finish at the old site and then
+    // build at the new one. Start it again so the next step aims at the site
+    // just stored: MobileBuild's first phase, VTOL_MobileBuild's fly-to phase.
+    const bool head = unit.primary == order;
+    auto& slot = match.slots_[index];
+    if (head && mobile && order->phase == 1) {
+        order->phase = 0;
+        order->wait_events = 0;
+        if (auto* movement = match.ground_runtime(index)) {
+            movement->project_slot();
+            auto flags = weapon_flags(slot);
+            if (record->extra.goal) {
+                sim::ground_orders::install_goal(
+                    view(slot, *movement, flags), nullptr, match.simulation_.tick, *this
+                );
+                record->extra.goal.reset();
+            }
+            write_flags(slot, flags);
+        }
+    } else if (head && aircraft && order->phase == 2) {
+        order->phase = 1;
+        order->wait_events = 0;
+        if (index < match.air_drivers_.size() && match.air_drivers_[index].unit != nullptr)
+            install_air_goal(slot, *order, nullptr);
+    }
+    // A path that already failed for the old site must not fail the new one.
+    order->raised_events &= ~sim::ground_orders::goal_event_mask;
+    return true;
+}
+
+bool Match::relocate_queued_build(
+    uint16_t index, std::size_t position, const sim::ground_orders::Point& destination
+) {
+    return TickHost(*this).relocate_queued_build(index, position, destination);
 }
 
 } // namespace oa::sim::match_runtime

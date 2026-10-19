@@ -148,6 +148,10 @@ eight bytes per unit slot, added only when the rule moves units.
 same way to a point the player drags it to (ui.build-tools), and the build
 cursor's site test reports a site it lets through over the player's own
 units (`BuildSiteOptions::over_own_units`).
+`Match::relocate_queued_build` moves a queued MobileBuild or
+VTOL_MobileBuild that has not spawned its building onto another site; when
+that order is the one the builder is walking or flying to, the approach
+starts again at the new site.
 `match-order-rules` checks each rule and parameter against 3.1c's behaviour.
 
 The unit rules (`unit_rules.cpp`) keep such a table for the slot reuse delay

@@ -5,7 +5,9 @@
 // guard, construction, repair, reclaim and capture orders), dispatched
 // through the match as the order sweep runs them.
 #include "match_tick_access.hpp"
+#include "oa/sim/ground_orders/goals.hpp"
 #include "oa/sim/match_runtime/command.hpp"
+#include "oa/sim/match_runtime/construction_orders.hpp"
 #include <cstdint>
 #include <cstring>
 #include <iostream>
@@ -698,6 +700,88 @@ void construction_orders() {
     help.phase = 1;
     CHECK(step(*f.match, builder, help) == 5);
     f.match->stop_orders(id);
+}
+
+// A queued MobileBuild can be moved onto another site until its frame exists.
+// The one the builder is already walking to starts that walk again; a later
+// order only changes its site. A move order, and an index past the queue, are
+// left alone.
+void queued_build_can_be_moved() {
+    Fixture f;
+    auto& builder = f.spawn(0, builder_type, 100, 100);
+    const auto id = builder.unit_index;
+    auto& first = f.match->issue_mobile_build(id, factory_type, point(150, 101), false);
+    (void)f.match->issue_mobile_build(id, factory_type, point(200, 160), true);
+
+    using Record = sim::match_runtime::Match::OrderRecordView;
+    const auto queue = [&] {
+        std::array<Record, 8> records{};
+        const auto count = f.match->queue_records(id, false, records.data(), records.size());
+        return std::pair{count, records};
+    };
+    const auto snapped_of = [](sim::ground_orders::Point site) {
+        sim::match_runtime::snap_build_position(site, 2, 2);
+        return site;
+    };
+
+    const auto later = snapped_of(point(220, 180));
+    CHECK(f.match->relocate_queued_build(id, 1, point(220, 180)));
+    {
+        const auto [count, records] = queue();
+        CHECK(count == 2);
+        CHECK(records[1].kind == sim::match_runtime::mobile_build_kind);
+        CHECK(records[1].phase == 0 && !records[1].build_started);
+        CHECK(records[1].point[0] == later[0] && records[1].point[2] == later[2]);
+        CHECK(records[0].point[0] == (150 << 16) && records[0].point[2] == (101 << 16));
+    }
+    CHECK(!f.match->relocate_queued_build(id, 2, point(40, 40)));
+
+    // Phase 0 snaps the head and heads for its border.
+    CHECK(step(*f.match, builder, first) == 1 && first.phase == 1);
+    const auto* goal = f.match->ground_runtime(id)->navigation.goal;
+    CHECK(goal != nullptr);
+    const auto old_left = goal->left;
+    const auto old_top = goal->top;
+    first.raised_events = sim::ground_orders::path_failed_event;
+
+    const auto head_site = snapped_of(point(70, 90));
+    CHECK(f.match->relocate_queued_build(id, 0, point(70, 90)));
+    CHECK(first.phase == 0);
+    CHECK(f.match->ground_runtime(id)->navigation.goal == nullptr);
+    CHECK((first.raised_events & sim::ground_orders::goal_event_mask) == 0);
+    {
+        const auto [count, records] = queue();
+        CHECK(count == 2);
+        CHECK(records[0].point[0] == head_site[0] && records[0].point[2] == head_site[2]);
+        CHECK(records[1].point[0] == later[0] && records[1].point[2] == later[2]);
+    }
+
+    // The approach starts again at the new site, and the frame is placed there.
+    CHECK(step(*f.match, builder, first) == 1 && first.phase == 1);
+    const auto* again = f.match->ground_runtime(id)->navigation.goal;
+    CHECK(again != nullptr && (again->left != old_left || again->top != old_top));
+    CHECK(step(*f.match, builder, first) == 1);
+    sim::unit_spawn::Slot* frame = nullptr;
+    for (auto& slot : f.match->world().slots)
+        if (slot.unit && slot.record.type_index == factory_type)
+            frame = &slot;
+    CHECK(frame != nullptr);
+    CHECK(frame->record.position.x == head_site[0] && frame->record.position.z == head_site[2]);
+
+    const auto built_at = queue().second[0].point;
+    CHECK(!f.match->relocate_queued_build(id, 0, point(30, 30)));
+    CHECK(queue().second[0].point[0] == built_at[0] && queue().second[0].point[2] == built_at[2]);
+
+    const auto tail = snapped_of(point(40, 200));
+    CHECK(f.match->relocate_queued_build(id, 1, point(40, 200)));
+    CHECK(queue().second[1].point[0] == tail[0] && queue().second[1].point[2] == tail[2]);
+    CHECK(queue().second[0].point[0] == built_at[0]);
+
+    f.match->stop_orders(id);
+    auto& move = f.match->issue_ground_move(id, point(80, 80), false);
+    CHECK(!f.match->relocate_queued_build(id, 0, point(90, 90)));
+    CHECK(move.kind == move_ground_kind);
+    CHECK(queue().second[0].point[0] == (80 << 16) && queue().second[0].point[2] == (80 << 16));
 }
 
 void factory_orders() {
@@ -1440,6 +1524,7 @@ int main() {
         attack_orders();
         guard_and_teleport();
         construction_orders();
+        queued_build_can_be_moved();
         factory_orders();
         abandoned_frame_decays_away();
         unfinished_building_waits_and_a_builder_stops_the_decay();

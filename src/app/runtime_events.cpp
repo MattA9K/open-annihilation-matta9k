@@ -331,7 +331,7 @@ void Runtime::handle_sdl_event(SDL_Event& event, bool& running) {
         // takes a press on an own unit before the battlefield does.
         if (commander_placement_pointer(event, x, y) || resource_panel_pointer(event, x, y) ||
             megamap_pointer(event, x, y) || whiteboard_pointer(event, x, y) ||
-            order_drag_pointer(event, x, y))
+            order_drag_pointer(event, x, y) || build_queue_drag_pointer(event, x, y))
             return;
         // After the whiteboard, whose middle button places a dot. A pan's
         // press is consumed here, so it selects nothing and gives no order.

@@ -108,6 +108,11 @@ void test_build_site() {
     FixedVec3 point{1, 2, 3};
     const auto context = scene.context();
     draw_build_site_overlay(context, order, point);
+    BuildSiteBounds bounds{};
+    build_site_overlay_bounds(
+        context.view, scene.match.world->unit_defs[2], order.position, bounds
+    );
+    CHECK(bounds.left == 212 && bounds.right == 244 && bounds.top == 116 && bounds.bottom == 148);
     CHECK(scene.recorder.lines.size() == 8);
     const auto& outer = scene.recorder.lines[0];
     // Footprint 84..116 in map pixels, shifted right 128 and down 32.

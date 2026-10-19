@@ -33,14 +33,21 @@ std::optional<Runtime::PendingBuildSite>
 Runtime::pending_build_site(oa::sim::ground_orders::Point world) const {
     if (!match_ || pending_build_type_ == 0 || pending_build_type_ >= spawn_types_.size())
         return std::nullopt;
-    auto fx = spawn_types_[pending_build_type_].footprint_x;
-    auto fz = spawn_types_[pending_build_type_].footprint_z;
+    return build_site_for(pending_build_type_, static_cast<uint8_t>(pending_build_facing()), world);
+}
+
+std::optional<Runtime::PendingBuildSite>
+Runtime::build_site_for(uint16_t type, uint8_t facing, oa::sim::ground_orders::Point world) const {
+    if (!match_ || type == 0 || type >= spawn_types_.size())
+        return std::nullopt;
+    auto fx = spawn_types_[type].footprint_x;
+    auto fz = spawn_types_[type].footprint_z;
     if (fx <= 0)
         fx = 2;
     if (fz <= 0)
         fz = 2;
     // A building turned east or west lies across: its footprint's sides swap.
-    const auto facing = static_cast<uint8_t>(pending_build_facing());
+    facing = match_->build_facing(type, facing);
     if ((facing & 1U) != 0)
         std::swap(fx, fz);
     oa::sim::match_runtime::snap_build_position(world, fx, fz);
@@ -62,11 +69,9 @@ Runtime::pending_build_site(oa::sim::ground_orders::Point world) const {
     oa::sim::match_runtime::BuildSiteOptions options{};
     options.facing = facing;
     options.over_own_units = &over_own_units;
-    const auto site = match_->building_site(
-        pending_build_type_, cell_x, cell_z, skip_unit, match_local_player_, options
-    );
-    const auto height =
-        site ? *site : match_->footprint_height(pending_build_type_, cell_x, cell_z, facing);
+    const auto site =
+        match_->building_site(type, cell_x, cell_z, skip_unit, match_local_player_, options);
+    const auto height = site ? *site : match_->footprint_height(type, cell_x, cell_z, facing);
     world[1] = static_cast<int32_t>(static_cast<uint32_t>(height) << 16);
     return PendingBuildSite{world, cell_x, cell_z, fx, fz, site.has_value(), over_own_units};
 }
@@ -108,6 +113,21 @@ void Runtime::draw_build_ghost(
         return;
     draw_build_site(destination, viewport, *site);
     draw_build_facing(destination, viewport, *site);
+}
+
+void Runtime::draw_build_queue_drag(
+    oa::present::world_renderer::Surface& destination,
+    const oa::present::world_renderer::BattlefieldViewport& viewport
+) {
+    if (!build_queue_drag_ || !build_queue_drag_->moved)
+        return;
+    const auto ground = build_cursor_point(match_pointer_x_, match_pointer_y_);
+    if (!ground)
+        return;
+    const auto site = build_site_for(build_queue_drag_->type, build_queue_drag_->facing, *ground);
+    if (!site)
+        return;
+    draw_build_site(destination, viewport, *site);
 }
 
 void Runtime::draw_build_facing(

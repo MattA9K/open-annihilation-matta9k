@@ -613,6 +613,22 @@ class Runtime final : public menu::Host,
     /// @return true when the drag took the event
     bool order_drag_pointer(const SDL_Event& event, float x, float y);
 
+    /// Drags a queued building while Shift is held.
+    ///
+    /// A left press on a selected builder's queued MobileBuild or
+    /// VTOL_MobileBuild, one that has not spawned its building yet, picks that
+    /// site up. Once the pointer moves, the build ghost follows it, and the
+    /// release on a site the building may occupy moves that order there
+    /// (Match::relocate_queued_build). A press that does not move stays a
+    /// click, so a shift click on the site still takes the order back. Letting
+    /// Shift go drops the drag and leaves the order where it was.
+    ///
+    /// @param event a mouse event
+    /// @param x canvas column
+    /// @param y canvas row
+    /// @return true when the drag took the event
+    bool build_queue_drag_pointer(const SDL_Event& event, float x, float y);
+
     /// Gives every building of the line or ring as a queued build order,
     /// a line of 2 by 2 buildings reordered as a staggered double row when
     /// the setting says so.
@@ -6481,6 +6497,17 @@ class Runtime final : public menu::Host,
     /// @return the site, or nullopt without a match or pending building
     std::optional<PendingBuildSite> pending_build_site(oa::sim::ground_orders::Point world) const;
 
+    /// Returns one building type's site at a point, as the build ghost tests
+    /// the building being placed.
+    ///
+    /// @param type Type index; 0 or one past the loaded types is refused.
+    /// @param facing Quarter turns from south; one the type may not take is
+    ///     south.
+    /// @param world 16.16 world point
+    /// @return the site, or nullopt without a match or for a missing type
+    std::optional<PendingBuildSite>
+    build_site_for(uint16_t type, uint8_t facing, oa::sim::ground_orders::Point world) const;
+
     /// Returns the pending building's site under a battlefield screen point: the terrain point the
     /// pointer picks there, tested as the build ghost tests it.
     ///
@@ -6553,6 +6580,13 @@ class Runtime final : public menu::Host,
         const oa::present::world_renderer::BattlefieldViewport& viewport
     );
 
+    /// Moves a viewport's destination by the view offset the order overlays
+    /// are drawn with, so a queued site is tested where its box is shown.
+    ///
+    /// @param[in,out] viewport battlefield viewport the overlays use
+    void
+    align_order_overlay_viewport(oa::present::world_renderer::BattlefieldViewport& viewport) const;
+
     /// Checks the ShowRanges console toggle against the order overlays.
     ///
     /// ShowRanges flips Game.show_ranges, and the overlays of a unit whose order
@@ -6575,6 +6609,16 @@ class Runtime final : public menu::Host,
     /// @param[in,out] destination battlefield frame
     /// @param viewport battlefield viewport
     void draw_build_ghost(
+        oa::present::world_renderer::Surface& destination,
+        const oa::present::world_renderer::BattlefieldViewport& viewport
+    );
+
+    /// Outlines the queued building being dragged, at the site under the
+    /// pointer, in the build ghost's colours.
+    ///
+    /// @param[in,out] destination battlefield frame
+    /// @param viewport battlefield viewport
+    void draw_build_queue_drag(
         oa::present::world_renderer::Surface& destination,
         const oa::present::world_renderer::BattlefieldViewport& viewport
     );
@@ -16437,6 +16481,22 @@ class Runtime final : public menu::Host,
     // The unit the left button picked up with the snap override key held,
     // to be sent where it comes up (ui.build-tools); 0 for none.
     uint16_t order_drag_unit_{};
+
+    // A queued build site the left button picked up while Shift is held.
+    // Empty when none is. The order stays where it was until the pointer
+    // moves and the button comes up on a site the building may occupy.
+    struct BuildQueueDrag {
+        uint16_t unit{};                        ///< builder slot
+        std::size_t index{};                    ///< primary queue, head 0
+        uint16_t type{};                        ///< building type
+        uint8_t facing{};                       ///< quarter turns from south
+        oa::sim::ground_orders::Point origin{}; ///< site when the pointer went down
+        float press_x{};                        ///< canvas column where it went down
+        float press_y{};                        ///< canvas row where it went down
+        bool moved{};                           ///< the pointer travelled past the drag threshold
+    };
+
+    std::optional<BuildQueueDrag> build_queue_drag_{};
     // The facing chosen for the building being placed (ui.build-preview).
     view_rules::BuildFacing build_facing_{view_rules::BuildFacing::south};
     // Where in its pulse the match's tick stood when the player last turned

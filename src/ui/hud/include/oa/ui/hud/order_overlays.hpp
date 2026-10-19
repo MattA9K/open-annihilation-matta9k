@@ -208,6 +208,27 @@ struct ScreenPoint {
 /// @return Screen pixel position inside the HUD frame.
 [[nodiscard]] ScreenPoint overlay_project(const OverlayView& view, const FixedVec3& point) noexcept;
 
+/// The queued building's rectangle in HUD-frame pixels, before its sides close in.
+///
+/// The same rectangle draw_build_site_overlay starts from: the type's model
+/// bounds around the order position, lifted by half the low edge's height.
+struct BuildSiteBounds {
+    uint32_t left{};
+    uint32_t top{};
+    uint32_t right{};
+    uint32_t bottom{};
+};
+
+/// Fills the queued building's rectangle in HUD-frame pixels.
+///
+/// @param view Camera position of the battlefield view.
+/// @param def The building type; its model bounds size the rectangle.
+/// @param position The order's site, 16.16 fixed-point per axis.
+/// @param[out] bounds The rectangle, including the battlefield's offset in the HUD frame.
+void build_site_overlay_bounds(
+    const OverlayView& view, const UnitDef& def, const FixedVec3& position, BuildSiteBounds& bounds
+) noexcept;
+
 /// Draws the footprint box of a queued building that closes in over ten ticks.
 ///
 /// The box starts at the type's model bounds around the order position and

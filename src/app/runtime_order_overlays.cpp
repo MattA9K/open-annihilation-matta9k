@@ -3,7 +3,8 @@
 
 // The order overlays the battlefield draws while Shift is held: the
 // order-overlay module over the match's order queues, drawn into the
-// battlefield frame, and the ShowRanges check.
+// battlefield frame, dragging one of those queued build sites, and the
+// ShowRanges check.
 #include "oa/app/runtime.hpp"
 #include "match_models.hpp"
 
@@ -21,6 +22,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace oa::app {
@@ -33,6 +35,42 @@ namespace hud = oa::ui::hud;
 // runtime keeps in place of their entries in Game.sprite_and_effect_tables.
 constexpr uint8_t kPathIconCursor = 21;
 constexpr std::size_t kQueueRecordsFirstCapacity = 32;
+/// Pointer travel, in screen pixels, past which a press on a queued site is a drag.
+constexpr float kBuildQueueDragPixels = 4.0F;
+/// Extra screen pixels around a queued site's box that still pick it up.
+constexpr int32_t kBuildQueueGrabPad = 6;
+/// The smallest screen span a queued site can be grabbed across.
+constexpr int32_t kBuildQueueGrabMin = 12;
+
+/// Reports whether a queued MobileBuild or VTOL_MobileBuild has not spawned its building.
+///
+/// @param order one record of a unit's primary queue
+/// @return true while the order can still be moved onto another site
+bool queued_build_draggable(const oa::sim::match_runtime::Match::OrderRecordView& order) {
+    if (order.build_started)
+        return false;
+    if (order.kind == oa::sim::match_runtime::mobile_build_kind)
+        return order.phase <= 1;
+    if (order.kind == oa::sim::match_runtime::vtol_mobile_build_kind)
+        return order.phase <= 2;
+    return false;
+}
+
+/// Grows a screen interval so a small site stays easy to grab.
+///
+/// @param[in,out] low one end of the interval, in screen pixels
+/// @param[in,out] high the other end of the interval, in screen pixels
+void pad_grab_span(int32_t& low, int32_t& high) {
+    if (high < low)
+        std::swap(low, high);
+    low -= kBuildQueueGrabPad;
+    high += kBuildQueueGrabPad;
+    if (high - low >= kBuildQueueGrabMin)
+        return;
+    const auto mid = low + (high - low) / 2;
+    low = mid - kBuildQueueGrabMin / 2;
+    high = mid + kBuildQueueGrabMin / 2;
+}
 
 // One unit's primary queue as the module walks it, with the unit it came
 // from so that a target seen through it is written back.
@@ -233,6 +271,156 @@ Runtime::OrderOverlayPass Runtime::draw_order_overlays(
         destination.rgb = std::move(text.rgb);
     }
     return pass;
+}
+
+void Runtime::align_order_overlay_viewport(
+    oa::present::world_renderer::BattlefieldViewport& viewport
+) const {
+    const auto drawn = view_offset();
+    const auto zoom = static_cast<double>(match_zoom());
+    viewport.destination_x -= static_cast<int32_t>(std::lround(drawn.x * zoom));
+    viewport.destination_y -= static_cast<int32_t>(std::lround(drawn.y * zoom));
+}
+
+bool Runtime::build_queue_drag_pointer(const SDL_Event& event, float x, float y) {
+    const auto shift_held = [this] {
+        return control_key_down(oa::ui::gui_input::ControlKey::shift) ||
+               virtual_shift(ModifierUse::order);
+    };
+    const auto site_at = [this](float px, float py) -> std::optional<BuildQueueDrag> {
+        if (!match_)
+            return std::nullopt;
+        auto viewport = live_viewport(match_camera_x_, match_camera_z_);
+        align_order_overlay_viewport(viewport);
+        const float scale = viewport.scale == 0.0F ? 1.0F : viewport.scale;
+        const auto screen_of = [&](int32_t hx, int32_t hy) {
+            return oa::present::world_renderer::ScreenPoint{
+                viewport.destination_x +
+                    static_cast<int32_t>(std::lround((hx - hud::kBattlefieldLeft) * scale)),
+                viewport.destination_y +
+                    static_cast<int32_t>(std::lround((hy - hud::kBattlefieldTop) * scale))
+            };
+        };
+        const auto& world = match_->state();
+        std::optional<BuildQueueDrag> hit;
+        std::vector<oa::sim::match_runtime::Match::OrderRecordView> records(
+            kQueueRecordsFirstCapacity
+        );
+        for (const auto& slot : match_->world().slots) {
+            if (slot.unit_index == 0 || slot.unit == nullptr ||
+                slot.owner_index != match_local_player_ ||
+                (slot.unit->flags & OA_UNIT_FLAG_SELECTED) == 0)
+                continue;
+            std::size_t count = 0;
+            for (;;) {
+                count =
+                    match_->queue_records(slot.unit_index, false, records.data(), records.size());
+                if (count < records.size())
+                    break;
+                records.resize(records.size() * 2);
+            }
+            hud::OverlayView overlay_view;
+            overlay_view.camera_x = viewport.source_x;
+            overlay_view.camera_y = viewport.source_y;
+            for (std::size_t index = 0; index < count; ++index) {
+                const auto& order = records[index];
+                if (!queued_build_draggable(order))
+                    continue;
+                const auto type = static_cast<uint16_t>(order.parameter_1);
+                if (type == 0 || type >= world.unit_def_count)
+                    continue;
+                hud::BuildSiteBounds bounds{};
+                const oa::FixedVec3 position{order.point[0], order.point[1], order.point[2]};
+                hud::build_site_overlay_bounds(
+                    overlay_view, world.unit_defs[type], position, bounds
+                );
+                const auto top_left =
+                    screen_of(static_cast<int32_t>(bounds.left), static_cast<int32_t>(bounds.top));
+                const auto bottom_right = screen_of(
+                    static_cast<int32_t>(bounds.right), static_cast<int32_t>(bounds.bottom)
+                );
+                auto left = top_left.x;
+                auto right = bottom_right.x;
+                auto top = top_left.y;
+                auto bottom = bottom_right.y;
+                pad_grab_span(left, right);
+                pad_grab_span(top, bottom);
+                const auto ix = static_cast<int32_t>(std::lround(px));
+                const auto iy = static_cast<int32_t>(std::lround(py));
+                if (ix < left || ix > right || iy < top || iy > bottom)
+                    continue;
+                hit = BuildQueueDrag{
+                    slot.unit_index, index, type, order.facing, order.point, px, py, false
+                };
+            }
+        }
+        return hit;
+    };
+
+    if (!match_ || screen_ != Screen::match) {
+        build_queue_drag_.reset();
+        return false;
+    }
+    if (event.type == SDL_EVENT_MOUSE_MOTION) {
+        if (!build_queue_drag_)
+            return false;
+        const auto dx = x - build_queue_drag_->press_x;
+        const auto dy = y - build_queue_drag_->press_y;
+        if (dx * dx + dy * dy >= kBuildQueueDragPixels * kBuildQueueDragPixels)
+            build_queue_drag_->moved = true;
+        return false;
+    }
+    if (event.type != SDL_EVENT_MOUSE_BUTTON_DOWN && event.type != SDL_EVENT_MOUSE_BUTTON_UP)
+        return false;
+    if (event.button.button != SDL_BUTTON_LEFT)
+        return false;
+    if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
+        build_queue_drag_.reset();
+        if (!shift_held() || match_paused_ || match_finished_ || hovered_ ||
+            placed_hud_covers(x, y) || !battlefield_contains(x, y))
+            return false;
+        build_queue_drag_ = site_at(x, y);
+        return build_queue_drag_.has_value();
+    }
+    const auto drag = std::exchange(build_queue_drag_, std::nullopt);
+    if (!drag)
+        return false;
+    // A press that stayed put is the shift click that takes the order back.
+    if (!drag->moved)
+        return false;
+    if (!shift_held() || match_paused_ || match_finished_)
+        return true;
+    std::vector<oa::sim::match_runtime::Match::OrderRecordView> records(drag->index + 1);
+    const auto count = match_->queue_records(drag->unit, false, records.data(), records.size());
+    const auto held = build_site_for(drag->type, drag->facing, drag->origin);
+    const auto same_order = [&] {
+        if (count <= drag->index)
+            return false;
+        const auto& order = records[drag->index];
+        if (!queued_build_draggable(order) ||
+            static_cast<uint16_t>(order.parameter_1) != drag->type)
+            return false;
+        // The approach may have snapped the site onto its cell while the
+        // pointer held it. That is still the order that was picked up.
+        if (order.point[0] == drag->origin[0] && order.point[2] == drag->origin[2])
+            return true;
+        return held && order.point[0] == held->world[0] && order.point[2] == held->world[2];
+    }();
+    const auto ground = build_cursor_point(x, y);
+    const auto site = ground ? build_site_for(drag->type, drag->facing, *ground) : std::nullopt;
+    if (!same_order || !site || !site->legal) {
+        play_match_interface_sound("notoktobuild");
+        return true;
+    }
+    if (site->world[0] == records[drag->index].point[0] &&
+        site->world[2] == records[drag->index].point[2])
+        return true;
+    if (!match_->relocate_queued_build(drag->unit, drag->index, site->world)) {
+        play_match_interface_sound("notoktobuild");
+        return true;
+    }
+    play_match_interface_sound("oktobuild");
+    return true;
 }
 
 void Runtime::check_console_range_overlays(const std::function<void(const char*)>& enter_line) {

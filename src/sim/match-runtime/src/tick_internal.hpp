@@ -178,6 +178,20 @@ inline int16_t arithmetic_shift20(uint32_t value) {
     return std::bit_cast<int16_t>(static_cast<uint16_t>(bits));
 }
 
+/// Returns the footprint-origin cell of one signed 16.16 axis.
+///
+/// snap_build_position chooses this cell, then places the footprint's centre
+/// on it.
+///
+/// @param world signed 16.16 coordinate
+/// @param footprint footprint extent on that axis, in cells
+/// @return the cell
+inline int32_t footprint_origin_cell(int32_t world, int16_t footprint) {
+    return static_cast<int32_t>(arithmetic_shift20(
+        std::bit_cast<uint32_t>(world) - static_cast<uint32_t>(footprint) * 0x80000u + 0x80000u
+    ));
+}
+
 /// Returns the high 32 bits of a value's 64-bit square.
 ///
 /// @param value the value, read as signed
@@ -554,6 +568,16 @@ class TickHost final : public sim::simulation_state::Host,
         sim::simulation_state::Host::rules = m.rules_view();
         sim::ground_orders::Host::rules = m.rules_view();
     }
+
+    /// Moves a queued build onto a new site. Match::relocate_queued_build.
+    ///
+    /// @param unit Builder slot.
+    /// @param position Index of the order in the primary queue, head 0.
+    /// @param destination Signed 16.16 point the site is taken from.
+    /// @return False when nothing was moved.
+    bool relocate_queued_build(
+        uint16_t unit, std::size_t position, const sim::ground_orders::Point& destination
+    );
 
     /// Returns the world queries the air goals and the air driver make, over this
     /// match.
