@@ -25,6 +25,11 @@ std::size_t words_for(uint32_t width, uint32_t height) noexcept {
     const auto rows = (uint64_t(height) + cells_per_word - 1) / cells_per_word;
     return static_cast<std::size_t>(uint64_t(width) * rows);
 }
+
+// The occupancy projection a search at current_tick moves to.
+uint32_t projection_at(uint32_t current_tick) noexcept {
+    return std::max(current_tick, occupancy_history_ticks) - occupancy_history_ticks;
+}
 } // namespace
 
 MovementMap::MovementMap(
@@ -83,7 +88,7 @@ void MovementMap::prepare_search(
     uint32_t current_tick
 ) {
     const auto previous = projection_tick_;
-    const auto next = std::max(current_tick, occupancy_history_ticks) - occupancy_history_ticks;
+    const auto next = projection_at(current_tick);
     projection_tick_ = next;
     const auto active_tick = active_changed_tick;
     active_changed_tick = current_tick;
@@ -94,6 +99,10 @@ void MovementMap::prepare_search(
             if (unit.live && unit.changed_tick >= previous && unit.changed_tick < next)
                 refresh(unit.rectangle);
     active_changed_tick = active_tick;
+}
+
+bool MovementMap::projection_moves(uint32_t current_tick) const noexcept {
+    return projection_at(current_tick) != projection_tick_;
 }
 
 void MovementMap::release_unit(OccupancyRectangle rectangle, uint32_t changed_tick) {

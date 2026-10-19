@@ -50,9 +50,11 @@ the game's running-minimum rescan and drop a clear window to class 1 when the
 cell just outside either end is not clear. As in 3.1c, the match builds one
 persistent map per movement class at match start and keeps it current
 through rectangle refreshes: feature and building placement or removal, a
-moved unit's old footprint, and the live unit list each search job feeds
+moved unit's old footprint, and the live unit list a search job feeds
 `prepare_search`, which reads the searching unit's object tick as the
-current tick so its own footprint is never a wall. Refresh rectangles carry
+current tick so its own footprint is never a wall. `prepare_search` reads
+that list only when the occupancy projection moves, on a class's first
+search of a tick (`projection_moves`), so the match gathers it only then. Refresh rectangles carry
 the unit's footprint (`Unit.footprint_x`, `footprint_z`), not the footprint
 minus one.
 

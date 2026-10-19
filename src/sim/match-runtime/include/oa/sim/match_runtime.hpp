@@ -1072,8 +1072,13 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     /// Prepares a path search job for a unit: the occupancy of every other
     /// unit with a movement object and the unit's class map.
     ///
+    /// The occupancy is gathered only when the class map's projection moves
+    /// at begin.current_tick (ground_orders::MovementMap::projection_moves),
+    /// the only time the job reads it; otherwise the feed is left empty.
+    ///
     /// @param slot Searching unit.
-    /// @param[out] begin Job inputs: occupancy feed, world size, change tick.
+    /// @param[in,out] begin Job inputs: reads the current tick; writes the
+    ///     occupancy feed, world size and change tick.
     /// @param[out] map The unit's movement class map.
     /// @return False when the unit has no movement object or known class.
     bool prepare_search_job(

@@ -485,9 +485,7 @@ void SearchWorker::fail_empty() {
 }
 
 void SearchWorker::publish_route() {
-    std::vector<uint8_t> predecessor(static_cast<std::size_t>(width_) * height_);
-    for (std::size_t i = 0; i < cells_.size(); ++i)
-        predecessor[i] = cells_[i].predecessor;
+    // The trace reads the predecessor of each cell on the path, and no other.
     route_ = reconstruct_search_path(
         width_,
         height_,
@@ -495,7 +493,7 @@ void SearchWorker::publish_route() {
         finish_,
         record_.movement_map->footprint_x(),
         record_.movement_map->footprint_z(),
-        predecessor
+        cells_
     );
 }
 

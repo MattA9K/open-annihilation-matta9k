@@ -127,18 +127,21 @@ bool Match::prepare_search_job(
     if (!klass)
         return false;
     // The search walks every other unit that has a movement object; the
-    // searching unit's own tick reads as the current one there.
+    // searching unit's own tick reads as the current one there. It walks
+    // them only when its projection moves, on its class's first search of a
+    // tick, so the tick's later searches of the class gather none.
     occupancy_feed_.clear();
-    for (std::size_t i = 1; i < slots_.size(); ++i) {
-        if (i == slot.unit_index || !movement_[i])
-            continue;
-        const auto& unit = state().units[i];
-        occupancy_feed_.push_back(
-            {sim::ground_orders::occupancy_rectangle(unit),
-             spatial_units_[i].object_tick,
-             (unit.flags & OA_UNIT_FLAG_LIVE) != 0}
-        );
-    }
+    if (klass->map->projection_moves(begin.current_tick))
+        for (std::size_t i = 1; i < slots_.size(); ++i) {
+            if (i == slot.unit_index || !movement_[i])
+                continue;
+            const auto& unit = state().units[i];
+            occupancy_feed_.push_back(
+                {sim::ground_orders::occupancy_rectangle(unit),
+                 spatial_units_[i].object_tick,
+                 (unit.flags & OA_UNIT_FLAG_LIVE) != 0}
+            );
+        }
     begin.unit_changed_tick = &spatial_units_[slot.unit_index].object_tick;
     begin.occupancy = occupancy_feed_;
     begin.world_width = spatial_.terrain_width;

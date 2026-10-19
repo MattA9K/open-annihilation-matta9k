@@ -321,7 +321,8 @@ std::vector<sim::ground_orders::RoutePoint> search(
 // persistent class map after the search projection holds what the whole-map
 // build makes at job time with the searcher's own tick set to now, so
 // the search returns the same route. A tank settled for more than 30 ticks
-// is a wall; a kbot that moved within 30 ticks is not.
+// is a wall; a kbot that moved within 30 ticks is not. A second search in the
+// same tick gathers no other units and finds the same route.
 void persistent_search_matches_the_job_build() {
     std::vector<std::array<int32_t, 2>> wall;
     for (int32_t z = 4; z <= 15; ++z)
@@ -351,6 +352,14 @@ void persistent_search_matches_the_job_build() {
     goal.cell = {20, 11};
     const auto route = search(*job_unit, *persistent, begin, goal);
     CHECK(persistent->projection_tick() == now - 30 && *begin.unit_changed_tick == 0);
+    // A second search of the class in the tick leaves the projection where
+    // it is, so the job gathers no other units for it.
+    sim::ground_orders::SearchBegin again;
+    again.current_tick = now;
+    sim::ground_orders::MovementMap* same = nullptr;
+    CHECK(f.match->prepare_search_job(searcher, again, same) && same == persistent);
+    CHECK(again.occupancy.empty() && again.unit_changed_tick == begin.unit_changed_tick);
+    CHECK(search(*job_unit, *persistent, again, goal) == route);
     CHECK(persistent->cell(13, 10) == 0 && persistent->cell(14, 11) == 0);
     CHECK(persistent->cell(16, 8) == 3 && persistent->cell(3, 11) == 3);
 

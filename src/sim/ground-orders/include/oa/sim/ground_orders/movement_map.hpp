@@ -89,6 +89,17 @@ class MovementMap {
     /// Returns the tick the occupancy projection stands at.
     [[nodiscard]] uint32_t projection_tick() const noexcept { return projection_tick_; }
 
+    /// Returns whether prepare_search at a tick moves the occupancy projection.
+    ///
+    /// prepare_search reads its live unit list only then, so a caller may pass
+    /// an empty list otherwise. The projection moves at most once a tick: on
+    /// the first search of the map's class in it.
+    ///
+    /// @param current_tick current game tick
+    /// @return true when the projection for current_tick, 30 ticks before it
+    ///     (0 for the first 30 ticks), is not projection_tick()
+    [[nodiscard]] bool projection_moves(uint32_t current_tick) const noexcept;
+
     /// Returns the class footprint width in cells.
     [[nodiscard]] int16_t footprint_x() const noexcept { return footprint_x_; }
 

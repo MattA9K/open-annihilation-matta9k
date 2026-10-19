@@ -292,11 +292,11 @@ int main() {
     CHECK(map_host.samples == before);
     map.release_unit(changes[0].rectangle, 69);
     CHECK(map_host.samples > before);
-    std::array<uint8_t, 16> predecessors{};
-    predecessors[3] = 6;
-    predecessors[2] = 6;
-    predecessors[1] = 6;
-    const auto trace = reconstruct_search_path(4, 4, {0, 0}, {3, 0}, 1, 1, predecessors);
+    std::array<SearchMapCell, 16> cells{};
+    cells[3].predecessor = 6;
+    cells[2].predecessor = 6;
+    cells[1].predecessor = 6;
+    const auto trace = reconstruct_search_path(4, 4, {0, 0}, {3, 0}, 1, 1, cells);
     CHECK(
         trace.size() == 2 && trace[0][0] == 8 && trace[0][1] == 8 && trace[1][0] == 56 &&
         trace[1][1] == 8

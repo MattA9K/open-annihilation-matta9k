@@ -153,6 +153,7 @@ void test_plot_sampler_is_separate() {
 // tick reads as now while its rectangle is reclassified (only when the old
 // projection held it as a wall) and is restored afterwards; live units whose
 // tick fell in [old, new) are reclassified, dead or other units are not.
+// projection_moves tells beforehand whether the unit list will be read.
 void test_prepare_search_moves_projection() {
     struct TickSampler : MovementMapSampler {
         const uint32_t* searcher_tick{};
@@ -177,20 +178,28 @@ void test_prepare_search_moves_projection() {
     };
     MovementMap map(10, 10, 1, 1, sampler);
     // A one-cell rectangle under a one-cell class refreshes a 3x3 block.
+    CHECK(map.projection_moves(100));
     map.prepare_search(active, searcher_tick, units, 100);
     CHECK(map.projection_tick() == 70 && sampler.samples == 9 && sampler.seen_tick == 100);
     CHECK(searcher_tick == 5);
+    CHECK(!map.projection_moves(100) && map.projection_moves(101));
     map.prepare_search(active, searcher_tick, units, 200);
     CHECK(map.projection_tick() == 170 && sampler.samples == 27 && sampler.seen_tick == 200);
     CHECK(searcher_tick == 5);
     // An unchanged projection skips the unit list but still frees the searcher.
+    CHECK(!map.projection_moves(200));
     map.prepare_search(active, searcher_tick, units, 200);
     CHECK(sampler.samples == 36);
+    // Without the list it frees the searcher just the same.
+    map.prepare_search(active, searcher_tick, {}, 200);
+    CHECK(sampler.samples == 45 && map.projection_tick() == 170);
     MovementMap early(10, 10, 1, 1, sampler);
+    // The first 30 ticks project to 0, where a new map stands.
+    CHECK(!early.projection_moves(0) && !early.projection_moves(30) && early.projection_moves(31));
     early.prepare_search(active, searcher_tick, units, 30);
-    CHECK(early.projection_tick() == 0 && sampler.samples == 36);
+    CHECK(early.projection_tick() == 0 && sampler.samples == 45);
     early.prepare_search(active, searcher_tick, units, 31);
-    CHECK(early.projection_tick() == 1 && sampler.samples == 36);
+    CHECK(early.projection_tick() == 1 && sampler.samples == 45);
 }
 
 // prepare_search and the job start pass the unit's cell and footprint unchanged: the

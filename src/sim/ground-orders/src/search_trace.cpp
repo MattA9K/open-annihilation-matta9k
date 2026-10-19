@@ -18,9 +18,9 @@ std::vector<std::array<int16_t, 2>> reconstruct_search_path(
     std::array<int16_t, 2> finish,
     int16_t footprint_x,
     int16_t footprint_z,
-    std::span<const uint8_t> predecessor
+    std::span<const SearchMapCell> cells
 ) {
-    if (predecessor.size() < std::size_t(width) * height)
+    if (cells.size() < std::size_t(width) * height)
         return {};
     std::array<std::array<int16_t, 2>, retained_turns> ring{};
     ring[0] = finish;
@@ -34,14 +34,14 @@ std::vector<std::array<int16_t, 2>> reconstruct_search_path(
     };
     if (!inside(current))
         return {};
-    auto previous = predecessor[index(current)];
+    auto previous = cells[index(current)].predecessor;
     if (previous >= direction_x.size())
         return {};
     std::size_t guard = 0;
     while (current != start) {
         if (!inside(current))
             return {};
-        const auto direction = predecessor[index(current)];
+        const auto direction = cells[index(current)].predecessor;
         if (direction >= direction_x.size())
             return {};
         if (direction != previous) {
@@ -51,7 +51,7 @@ std::vector<std::array<int16_t, 2>> reconstruct_search_path(
         }
         current[0] = static_cast<int16_t>(int32_t(current[0]) - direction_x[direction]);
         current[1] = static_cast<int16_t>(int32_t(current[1]) - direction_z[direction]);
-        if (++guard > predecessor.size())
+        if (++guard > cells.size())
             return {};
     }
     ring[written & 63u] = start;

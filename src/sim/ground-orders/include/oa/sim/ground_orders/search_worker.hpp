@@ -6,6 +6,7 @@
 #include "oa/sim/ground_orders/movement_map.hpp"
 #include "oa/sim/ground_orders/orders.hpp"
 #include "oa/sim/ground_orders/search_heap.hpp"
+#include "oa/sim/ground_orders/search_trace.hpp"
 
 #include <array>
 #include <cstdint>
@@ -40,17 +41,6 @@ inline constexpr uint32_t search_heading_shift = 13;
 enum class SearchCellVisit : uint8_t { unvisited = 0, open = 1, closed = 2, blocked = 3 };
 
 enum class SearchAdvance : uint8_t { in_progress, succeeded, failed };
-
-struct SearchMapCell {
-    uint8_t flags{};
-    uint8_t predecessor{};
-    // The cell's open-set node. As wide as the heap's handles, so that an open
-    // set of any size, whatever the node budget, keeps every handle.
-    SearchHeap::Handle handle{};
-};
-
-static_assert(sizeof(SearchMapCell) == 8);
-static_assert(sizeof(SearchMapCell::handle) == sizeof(SearchHeap::Handle));
 
 // The path search's cell grid. count is (width * height + 7) & ~7, the
 // rounded cell count, not the raw product.
