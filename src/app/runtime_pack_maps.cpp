@@ -12,6 +12,7 @@
 #include "oa/app/game_directory.hpp"
 #include "oa/app/package_install/origin.hpp"
 #include "oa/app/runtime.hpp"
+#include "oa/base/sha256.hpp"
 #include "oa/data/content_bundles.hpp"
 #include "oa/data/defs/layout.hpp"
 #include "oa/data/languages/interface_text.hpp"
@@ -19,15 +20,19 @@
 #include "oa/data/map_pack/manifest.hpp"
 #include "oa/data/map_pack/map_name.hpp"
 #include "oa/formats/hpi.hpp"
+#include "oa/formats/ota.hpp"
 #include "oa/ui/frontend/savegame_dialogs.hpp"
+#include "oa/ui/frontend_state/game_entry.hpp"
 #include "oa/ui/frontend_multiplayer/map_list.hpp"
 #include "oa/ui/frontend_multiplayer/screens.hpp"
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cstddef>
 #include <cstdint>
 #include <exception>
+#include <filesystem>
 #include <functional>
 #include <initializer_list>
 #include <iostream>
@@ -135,6 +140,96 @@ fit::Fit unreadable_fit(const std::string& subject, std::string detail) {
     fit::Fit unfit;
     unfit.failures.push_back({fit::Rule::complete, subject, std::move(detail)});
     return unfit;
+}
+
+/// Tells whether two names are the same, ignoring ASCII case.
+///
+/// @param left one name
+/// @param right the other
+/// @return true when they differ only in ASCII case
+bool same_without_case(std::string_view left, std::string_view right) {
+    return std::equal(left.begin(), left.end(), right.begin(), right.end(), [](char a, char b) {
+        return std::tolower(static_cast<unsigned char>(a)) ==
+               std::tolower(static_cast<unsigned char>(b));
+    });
+}
+
+/// Tells whether a file lies inside a folder, comparing their parts.
+///
+/// @param file the file
+/// @param folder the folder, absolute and normal
+/// @return true when `file` is below `folder`
+bool inside_folder(const std::filesystem::path& file, const std::filesystem::path& folder) {
+    std::error_code error;
+    const std::filesystem::path whole = std::filesystem::absolute(file, error).lexically_normal();
+    if (error || folder.empty())
+        return false;
+    const std::filesystem::path relative = whole.lexically_relative(folder);
+    return !relative.empty() && *relative.begin() != ".." && *relative.begin() != ".";
+}
+
+/// Returns the path the store shows a pack map's OTA at.
+///
+/// @param map the map
+/// @return `maps/<stem>@<id>.ota`
+std::string shown_ota_path(const PackMap& map) {
+    return "maps/" + pack::pack_map_name(map.stem, map.id) + ".ota";
+}
+
+/// A pack map's files, with the played mod's settings for the map read in
+/// place of the pack's own OTA.
+class SettledMapFiles final : public fit::MapFiles {
+  public:
+
+    /// Lays the mod's settings over a pack map's files.
+    ///
+    /// @param files the pack map's files
+    /// @param ota_path the path the map's OTA is shown at
+    /// @param settings the mod's OTA
+    SettledMapFiles(
+        std::unique_ptr<fit::MapFiles> files,
+        std::string ota_path,
+        std::shared_ptr<const std::vector<uint8_t>> settings
+    )
+        : files_(std::move(files)), ota_path_(std::move(ota_path)), settings_(std::move(settings)) {
+    }
+
+    /// Returns the pack map's paths.
+    ///
+    /// @return the paths, in the map's order
+    [[nodiscard]] std::vector<std::string> paths() const override { return files_->paths(); }
+
+    /// Reads one of the map's files: the mod's settings for its OTA.
+    ///
+    /// @param path a resource path, matched ignoring ASCII case
+    /// @return the bytes, or nothing when the map has no such file
+    [[nodiscard]] std::optional<std::vector<uint8_t>> read(std::string_view path) const override {
+        if (same_without_case(path, ota_path_))
+            return *settings_;
+        return files_->read(path);
+    }
+
+    /// Tells whether the files are the store's mounted layer.
+    ///
+    /// @return what the pack map's files say
+    [[nodiscard]] bool from_layer() const noexcept override { return files_->from_layer(); }
+
+  private:
+
+    std::unique_ptr<fit::MapFiles> files_;
+    std::string ota_path_;
+    std::shared_ptr<const std::vector<uint8_t>> settings_;
+};
+
+/// Returns a fit's key part for the mod's settings a check read.
+///
+/// @param settings the mod's OTA; null when the pack's own was read
+/// @return empty for none; otherwise a line naming the settings' SHA-256
+std::string settings_stamp(const std::shared_ptr<const std::vector<uint8_t>>& settings) {
+    if (!settings)
+        return {};
+    const auto hex = oa::base::sha256::to_hex(oa::base::sha256::digest_of(*settings));
+    return "\nsettings " + std::string(hex.data(), hex.size());
 }
 
 /// Fills each "{name}" of a text with its value.
@@ -282,13 +377,56 @@ const PackMap* Runtime::pack_map(std::string_view name) {
     return map_packs().find(name);
 }
 
+std::shared_ptr<const std::vector<uint8_t>> Runtime::mod_map_settings(std::string_view stem) const {
+    if (stem.empty() || !plays_mod())
+        return nullptr;
+    const std::string base = "maps/" + std::string(stem);
+    try {
+        const oa::Provider settings = assets_.provider(base + ".ota");
+        if ((settings.kind != oa::ProviderKind::loose &&
+             settings.kind != oa::ProviderKind::archive) ||
+            !inside_folder(settings.path, played_mod_folder()) ||
+            assets_.provider(base + ".tnt").kind != oa::ProviderKind::none)
+            return nullptr;
+        std::vector<uint8_t> bytes = assets_.read(base + ".ota").bytes;
+        const auto parsed = oa::formats::ota::parse(
+            std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size())
+        );
+        if (!parsed.ok() ||
+            oa::formats::ota::select_multiplayer_schema(*parsed.metadata, 2) == nullptr)
+            return nullptr;
+        return std::make_shared<const std::vector<uint8_t>>(std::move(bytes));
+    } catch (const std::exception&) {
+        // A file the store cannot read is no settings.
+        return nullptr;
+    }
+}
+
+const Runtime::BaseMapSummary* Runtime::pack_map_mod_summary(const PackMap& map) const {
+    for (const BaseMapSummary& summary : mod_map_settings_)
+        if (same_without_case(summary.name, map.stem))
+            return &summary;
+    return nullptr;
+}
+
+std::string_view Runtime::pack_map_title(const PackMap& map) const {
+    if (const BaseMapSummary* settings = pack_map_mod_summary(map);
+        settings != nullptr && !settings->title.empty())
+        return settings->title;
+    return map.title;
+}
+
 const fit::Fit& Runtime::pack_map_fit(const PackMap& map) {
     auto& state = pack_map_state();
     const PlayedMapTarget played = played_map_target();
+    // The mod's settings for the map are checked in place of its own OTA, as
+    // they are mounted.
+    const std::shared_ptr<const std::vector<uint8_t>> settings = mod_map_settings(map.stem);
     auto key = std::make_tuple(
         map.sha256,
         map.stem,
-        fit_stamp({played.base_game, played.expansions, played.mod_key, played.unkeyed})
+        fit_stamp({played.base_game, played.expansions, played.mod_key, played.unkeyed}) +
+            settings_stamp(settings)
     );
     if (const auto found = state.fits.find(key); found != state.fits.end())
         return found->second;
@@ -298,8 +436,10 @@ const fit::Fit& Runtime::pack_map_fit(const PackMap& map) {
         if (!state.game_names)
             state.game_names = fit::collect_game_names(assets_, layout);
         const pack::MapEntry entry = entry_of(map);
-        const std::unique_ptr<fit::MapFiles> files =
-            fit::folder_map_files(map.folder, entry, map.id);
+        std::unique_ptr<fit::MapFiles> files = fit::folder_map_files(map.folder, entry, map.id);
+        if (files && settings)
+            files =
+                std::make_unique<SettledMapFiles>(std::move(files), shown_ota_path(map), settings);
         checked = files ? fit::check_map(assets_, *state.game_names, *files, entry, map.id, layout)
                         : unreadable_fit(map.name, "could not be read from its pack's folder");
     } catch (const std::exception& error) {
@@ -453,6 +593,18 @@ bool Runtime::prepare_pack_map(std::string_view name, std::string* reason) {
     spec.location = map->folder;
     spec.files = fit::layer_files(entry, map->id);
     spec.label = map->id + " " + map->sha256.substr(0, kLabelDigestDigits);
+    // The played mod's own settings for the map are shown in place of its
+    // pack's OTA, as the mod's OTA took the place of the map's own when the
+    // game had the map's files.
+    bool settled = false;
+    if (const std::shared_ptr<const std::vector<uint8_t>> settings = mod_map_settings(map->stem)) {
+        const std::string ota = shown_ota_path(*map);
+        for (oa::PackLayerFile& file : spec.files)
+            if (same_without_case(file.path, ota)) {
+                file.contents = settings;
+                settled = true;
+            }
+    }
     const std::size_t file_count = spec.files.size();
     std::string error;
     if (!assets_.mount_pack_layer(std::move(spec), &error))
@@ -487,7 +639,10 @@ bool Runtime::prepare_pack_map(std::string_view name, std::string* reason) {
     if (const auto refused = state.refusals.find(name); refused != state.refusals.end())
         state.refusals.erase(refused);
     std::cerr << "open-annihilation: map pack " << map->id << ": mounted " << map->name << " ("
-              << file_count << " files)\n";
+              << file_count << " files)";
+    if (settled)
+        std::cerr << ", with the mod's settings from maps/" << map->stem << ".ota";
+    std::cerr << '\n';
     return true;
 }
 
@@ -555,19 +710,24 @@ std::optional<std::string> Runtime::pack_map_refusal(std::string_view name) cons
 }
 
 std::optional<std::string> Runtime::map_refusal(std::string_view name) {
-    return pack_map_refusal(name);
+    if (std::optional<std::string> refused = pack_map_refusal(name))
+        return refused;
+    if (!unloadable_map_name_.empty() && unloadable_map_name_ == name)
+        return std::string(entry::message_text(entry::Message::missing_terrain));
+    return std::nullopt;
 }
 
 void Runtime::show_refused_map(std::string_view name, std::string_view reason) {
     const PackMap* map = pack_map(name);
-    set_modal_text("MAPNAME", map != nullptr ? std::string_view(map->title) : name, 0);
-    set_modal_text(
-        "SIZE",
-        map != nullptr
-            ? map->size + "  " + translate_ui("Players") + ": " + std::to_string(map->players)
-            : std::string(),
-        0
-    );
+    const BaseMapSummary* settings = map != nullptr ? pack_map_mod_summary(*map) : nullptr;
+    set_modal_text("MAPNAME", map != nullptr ? pack_map_title(*map) : name, 0);
+    std::string size;
+    if (settings != nullptr)
+        size = settings->size + "  " + translate_ui("Players") + ": " +
+               std::to_string(settings->players);
+    else if (map != nullptr)
+        size = map->size + "  " + translate_ui("Players") + ": " + std::to_string(map->players);
+    set_modal_text("SIZE", size, 0);
     const auto shown = picture();
     if (shown.value != 0) {
         release_picture(shown);
@@ -577,7 +737,9 @@ void Runtime::show_refused_map(std::string_view name, std::string_view reason) {
         options_.mod_profile && !options_.mod_profile->name.empty() ? options_.mod_profile->name
                                                                     : std::string_view{}
     );
-    const std::string ready = ready_sentence(reason);
+    // A map whose files could not be loaded says so in the game's own words.
+    const std::string_view terrain = entry::message_text(entry::Message::missing_terrain);
+    const std::string ready = reason == terrain ? translate_ui(terrain) : ready_sentence(reason);
     set_modal_text(
         "DESCRIPTION",
         ready.empty() ? filled(
@@ -790,7 +952,7 @@ void Runtime::order_map_names(std::vector<std::string>& names) {
         if (pack::split_pack_map_name(name)) {
             row.pack = true;
             if (const PackMap* map = map_packs().find(name)) {
-                row.title = map->title;
+                row.title = std::string(pack_map_title(*map));
                 row.pack_name = map->pack_name;
             }
             if (pack_map_state_) {
@@ -842,7 +1004,7 @@ void Runtime::label_bound_maps() {
         if (pack::split_pack_map_name(name)) {
             row.pack = true;
             if (const PackMap* map = map_packs().find(name)) {
-                row.title = map->title;
+                row.title = std::string(pack_map_title(*map));
                 row.pack_name = map->pack_name;
             }
             if (pack_map_state_) {

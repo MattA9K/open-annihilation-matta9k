@@ -93,6 +93,18 @@ stays out of the base game's lists, then appears under a local mod when
 its files fit that mod and drops out again when they do not. Uninstalling
 the pack removes both maps. The check serves the pack itself.
 
+`native-mod-map-settings` (`--check-mod-map-settings`) plays a mod folder
+(`--mod-dir`) whose maps folder holds, as Total Mayhem does for
+downloadable maps, an OTA with no terrain for a map the check writes as a
+pack, and one for no map at all. It requires both left out of the lists,
+the pack map listed under the mod's title alone with the mod's
+description, size and player counts, and its OTA mounted as the mod's file
+over the pack's terrain. A third map, with junk terrain and no start
+positions, is listed and does not load: highlighted in the picker, it
+shows its name and the game's "The terrain for the selected map does not
+exist." with no picture, not the map highlighted before it. CMake writes
+the mod folder's files.
+
 Every native check names its preferences file with `--preferences-file`, so
 that it never reads or writes the player's own, nor the renderer records
 the game keeps beside it, which with a named file live in memory for the

@@ -4250,9 +4250,9 @@ class Runtime final : public menu::Host,
     /// @return the map; null for any name that is not an installed pack map
     [[nodiscard]] const PackMap* pack_map(std::string_view name);
 
-    /// The words a screen shows for a pack map: its title, or its own name,
-    /// with the pack's name in brackets when another listed map uses the
-    /// same words. Empty when `key` is not a pack map's name.
+    /// The words a screen shows for a pack map: its title (pack_map_title),
+    /// or its own name, with the pack's name in brackets when another listed
+    /// map uses the same words. Empty when `key` is not a pack map's name.
     ///
     /// @param key the map's name, `name\@package`
     /// @return those words
@@ -4261,11 +4261,13 @@ class Runtime final : public menu::Host,
     /// Returns how a pack map fits the game and the mod being played.
     ///
     /// Checks the map's files in its pack's folder, whatever layer is
-    /// mounted. The game's names are collected once, with the run's data
-    /// layout, at the first check; a later archive is not seen until
-    /// drop_pack_map_fits. The fit is kept for the pack's SHA-256, the map's
-    /// stem and the compatibility key of the game being played, so one
-    /// composition is not reused for another.
+    /// mounted, with the played mod's settings for the map (mod_map_settings)
+    /// read in place of its OTA. The game's names are collected once, with
+    /// the run's data layout, at the first check; a later archive is not seen
+    /// until drop_pack_map_fits. The fit is kept for the pack's SHA-256, the
+    /// map's stem, the compatibility key of the game being played and the
+    /// SHA-256 of the mod's settings read, so one composition is not reused
+    /// for another.
     ///
     /// @param map the map
     /// @return every rule the map breaks; kept until the runtime ends
@@ -4283,11 +4285,12 @@ class Runtime final : public menu::Host,
     /// A map already mounted answers at once. Otherwise any mounted layer is
     /// released first. A map whose kept fit fails is refused. Its files are
     /// then mounted from its pack's folder, labelled with the pack's id and
-    /// the first 8 hex digits of its SHA-256, and checked again as mounted;
-    /// a failure there unmounts them and refuses the map. Each failure is
-    /// logged on a line of its own, and the first one's description is the
-    /// reason pack_map_refusal gives. Main thread only, never while a match
-    /// loads or runs.
+    /// the first 8 hex digits of its SHA-256, with the played mod's settings
+    /// for the map (mod_map_settings) shown as its OTA, and checked again as
+    /// mounted; a failure there unmounts them and refuses the map. Each
+    /// failure is logged on a line of its own, and the first one's
+    /// description is the reason pack_map_refusal gives. Main thread only,
+    /// never while a match loads or runs.
     ///
     /// @param name the map's name, `<stem>@<id>`
     /// @param[out] reason receives why the map was refused, if not null
@@ -5089,6 +5092,23 @@ class Runtime final : public menu::Host,
     ///
     /// Throws std::runtime_error naming the first step that failed.
     void check_map_pack_lists();
+
+    /// Checks the played mod's settings for pack maps
+    /// (--check-mod-map-settings), with a mod folder (--mod-dir) whose
+    /// loose maps folder holds `check_settled.ota`, a settings-only OTA for
+    /// a map the check writes as a pack, `check_lonely.ota`, one for no map
+    /// at all, and `check_unready.ota` with junk terrain and a schema with no
+    /// start positions. Requires both settings-only maps out of the lists
+    /// and kept as the mod's settings; the pack map listed under the mod's
+    /// mission name with no pack name in brackets, with the mod's
+    /// description, size and player counts in the battle room's list and
+    /// the map browser's cards; its OTA mounted as the mod's file and its
+    /// terrain as the pack's, previewed with the mod's description; and, in
+    /// the picker, the map that does not load shown by name with the game's
+    /// missing-terrain message and no picture.
+    ///
+    /// Throws std::runtime_error naming the first step that failed.
+    void check_mod_map_settings();
 
     /// Runs --check-map-browser: the map pack check's two packs in the
     /// player's own folder, and at 640x480, 1280x720, 1920x1080 and 2560x1440
@@ -14332,9 +14352,12 @@ class Runtime final : public menu::Host,
     bound_base_at(void* context, int32_t index, oa::ui::frontend_multiplayer::LobbyPackMap* out);
 
     /// Lists the maps the skirmish and multiplayer map pickers offer: every map with a multiplayer
-    /// schema, in find order; the first one is the default selection. The installed pack maps
-    /// follow, in the order the installed packs list them, without opening any of their files;
-    /// the default selection is always a base map. The same scan records each base map's summary.
+    /// schema whose terrain a file holds, in find order; the first one is the default selection.
+    /// The installed pack maps follow, in the order the installed packs list them, without opening
+    /// any of their files; the default selection is always a base map. The same scan records each
+    /// base map's summary, and keeps those of the played mod's maps whose terrain is missing as
+    /// the mod's settings for pack maps of the same file name (mod_map_settings_). The maps left
+    /// out are named on one log line.
     ///
     /// Game data with no such map, such as the Total Annihilation demo (1997), leaves the
     /// default selection empty, and the list empty unless pack maps are installed.
@@ -14827,6 +14850,8 @@ class Runtime final : public menu::Host,
     /// An installed pack map's files are mounted first (prepare_pack_map); a
     /// pack map that is refused clears the selection as a missing file does.
     /// Any other name releases a mounted pack map before its files are read.
+    /// A map that does not load and is not a refused pack map is remembered,
+    /// so that map_refusal says why, until it loads.
     /// Throws std::runtime_error when the metadata or terrain does not parse.
     ///
     /// @param name map name
@@ -14837,12 +14862,17 @@ class Runtime final : public menu::Host,
     /// Returns why a map in the picker cannot be chosen.
     ///
     /// @param name map name
-    /// @return the reason a pack map was refused; nothing for any other map
+    /// @return the reason a pack map was refused; for the last other map
+    ///     select_map could not load, the game's "The terrain for the
+    ///     selected map does not exist."; nothing for any other map
     std::optional<std::string> map_refusal(std::string_view name) override;
 
-    /// Shows a refused pack map in the picker: MAPNAME its title, SIZE its
-    /// size and players, DESCRIPTION "Doesn't fit {game}: {reason}", where
-    /// the game is the mod played or Total Annihilation 3.1c, and no picture.
+    /// Shows a map that cannot be chosen in the picker, with no picture:
+    /// MAPNAME its title, SIZE its size and players, which a pack map takes
+    /// from the played mod's settings for it when they apply, and
+    /// DESCRIPTION "Doesn't fit {game}: {reason}", where the game is the mod
+    /// played or Total Annihilation 3.1c. A ready sentence, and the game's
+    /// missing-terrain message, are shown as they are, translated.
     ///
     /// @param name map name
     /// @param reason why the map was refused
@@ -15252,7 +15282,41 @@ class Runtime final : public menu::Host,
         int32_t memory_mb{}; ///< memory the map's terrain needs, in MB
     };
 
+    /// Returns the played mod's own settings for a map: the OTA the mod ships
+    /// under the map's file name, when no file of the game, the expansions or
+    /// the mod holds that map's terrain.
+    ///
+    /// The mod's files are its folder's loose files and archives. The OTA
+    /// must parse and hold a two-player multiplayer schema, as select_map
+    /// asks. The store is read at every call. The pack layer never answers:
+    /// it shows a pack map's files as `<stem>@<id>`.
+    ///
+    /// @param stem the map's file name without its extension, matched ignoring ASCII case
+    /// @return the OTA's bytes; null when no mod is played, the mod ships no
+    ///     such OTA, the terrain is found or the OTA cannot be used
+    [[nodiscard]] std::shared_ptr<const std::vector<uint8_t>>
+    mod_map_settings(std::string_view stem) const;
+
+    /// Returns what the start scan kept of the played mod's settings for a
+    /// pack map's file name (mod_map_settings): its title, description,
+    /// size and player counts, which the map lists show for the pack map.
+    ///
+    /// @param map the pack map
+    /// @return the summary; null when the scan kept none for the map's stem
+    [[nodiscard]] const BaseMapSummary* pack_map_mod_summary(const PackMap& map) const;
+
+    /// Returns the title the map lists show for a pack map: the played mod's
+    /// mission name for it (pack_map_mod_summary), or else its pack's title.
+    ///
+    /// @param map the pack map
+    /// @return the title; empty when neither names one
+    [[nodiscard]] std::string_view pack_map_title(const PackMap& map) const;
+
     std::vector<BaseMapSummary> base_map_summaries_;
+    /// The played mod's settings for maps whose terrain is missing, which the
+    /// start scan leaves out of the lists (discover_first_map): each applies
+    /// to an installed pack map of the same file name.
+    std::vector<BaseMapSummary> mod_map_settings_;
     std::optional<oa::formats::ota::MapMetadata> selected_map_metadata_;
     // The selected map's OTA, whose GlobalHeader the session and scenario read.
     std::optional<oa::formats::tdf::OwnedDocument> selected_ota_document_;
@@ -15260,6 +15324,9 @@ class Runtime final : public menu::Host,
     std::string session_schema_;
     std::optional<oa::formats::tnt::Map> selected_tnt_;
     std::string selected_map_name_runtime_;
+    /// The last map select_map could not load that was not a refused pack
+    /// map; map_refusal says its terrain does not exist. Empty when none.
+    std::string unloadable_map_name_;
     std::vector<oa::sim::unit_spawn::StartMarker> selected_start_markers_;
     std::vector<oa::sim::unit_spawn::LoadedType> loaded_commander_types_;
     std::vector<oa::data::unit_definitions::UnitDefinition> unit_definitions_;

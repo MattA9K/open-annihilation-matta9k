@@ -1148,6 +1148,7 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_user_folder_check.cpp src/app/runtime_mod_switch_check.cpp
   src/app/runtime_map_packs_check.cpp
   src/app/runtime_map_pack_lists_check.cpp
+  src/app/runtime_mod_map_settings_check.cpp
   src/app/runtime_map_browser_check.cpp
   src/app/runtime_mod_warning_check.cpp src/app/runtime_mod_install_check.cpp
   src/app/runtime_language_install_check.cpp src/app/runtime_challenge_check.cpp
@@ -1826,6 +1827,44 @@ if(OA_BUILD_PLATFORM)
         WORKING_DIRECTORY "${oa_map_pack_lists_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
         FIXTURES_REQUIRED map-pack-lists-clean)
+      # A mod folder whose maps folder holds settings with no terrain, as
+      # Total Mayhem ships for downloadable maps: check_settled for a map the
+      # check writes as a pack, check_lonely for no map at all, and
+      # check_unready, whose terrain is junk and whose schema has no start
+      # positions. The two with no terrain are left out of the lists; the pack
+      # map is listed and mounted with check_settled.ota over its own terrain;
+      # check_unready shows the game's missing-terrain message in the picker.
+      set(oa_mod_map_settings_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/mod-map-settings")
+      string(CONCAT oa_mod_map_settings_start
+        "[GlobalHeader]\n{\nplanet=Green Planet;\nmemory=16 mb;\nSCHEMACOUNT=1;\n"
+        "[Schema 0]\n{\nType=Network 1;\nSurfaceMetal=9;\nMohoMetal=40;\n[specials]\n{\n"
+        "[special0]\n{\nspecialwhat=StartPos1;\nXPos=256;\nZPos=256;\n}\n"
+        "[special1]\n{\nspecialwhat=StartPos2;\nXPos=768;\nZPos=768;\n}\n}\n}\n")
+      file(MAKE_DIRECTORY "${oa_mod_map_settings_dir}/mod/maps")
+      file(WRITE "${oa_mod_map_settings_dir}/mod/maps/check_settled.ota"
+        "${oa_mod_map_settings_start}missionname=Settled by the Mod;\n"
+        "missiondescription=The mod's own settings for this map.;\n"
+        "numplayers=2, 4;\nsize=3 x 3;\n}\n")
+      file(WRITE "${oa_mod_map_settings_dir}/mod/maps/check_lonely.ota"
+        "${oa_mod_map_settings_start}missionname=Lonely;\nnumplayers=2;\n}\n")
+      file(WRITE "${oa_mod_map_settings_dir}/mod/maps/check_unready.ota"
+        "[GlobalHeader]\n{\nmissionname=Unready;\nnumplayers=2;\nSCHEMACOUNT=1;\n"
+        "[Schema 0]\n{\nType=Network 1;\nSurfaceMetal=3;\n}\n}\n")
+      file(WRITE "${oa_mod_map_settings_dir}/mod/maps/check_unready.tnt" "not a terrain\n")
+      add_test(NAME mod-map-settings-clean COMMAND ${CMAKE_COMMAND} -E rm -rf
+        "${oa_mod_map_settings_dir}/Open Annihilation" "${oa_mod_map_settings_dir}/data"
+        "${oa_mod_map_settings_dir}/mod-map-settings.conf")
+      set_tests_properties(mod-map-settings-clean PROPERTIES
+        FIXTURES_SETUP mod-map-settings-clean)
+      add_test(NAME native-mod-map-settings COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --mod-dir "${oa_mod_map_settings_dir}/mod" --skip-intro --mute --check-mod-map-settings
+        --preferences-file "${oa_mod_map_settings_dir}/mod-map-settings.conf"
+        --user-folder "${oa_mod_map_settings_dir}/Open Annihilation"
+        --data-dir "${oa_mod_map_settings_dir}/data")
+      set_tests_properties(native-mod-map-settings PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_mod_map_settings_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        FIXTURES_REQUIRED mod-map-settings-clean)
       # The welcome setup over the main menu: Deutsch, a language pack that
       # fails and then installs on Retry, Skip setup, both online choices,
       # and Start playing. The pack is served by the check. Each run starts

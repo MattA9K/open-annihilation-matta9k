@@ -17,6 +17,7 @@
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -492,6 +493,99 @@ void zip_reads_as_folder() {
     oa::AssetStore::close(handle);
 }
 
+/// Reads a file whole through an open handle, in two parts.
+///
+/// @param store the store
+/// @param path the resource
+/// @param[out] archived whether the handle reports an archived file
+/// @return the bytes; empty when the file does not open
+Bytes read_by_handle(oa::AssetStore& store, std::string_view path, bool& archived) {
+    oa::ResourceFile* handle = store.open(path);
+    if (handle == nullptr)
+        return {};
+    archived = oa::AssetStore::archived(handle);
+    Bytes bytes(oa::AssetStore::length(handle));
+    const std::size_t half = bytes.size() / 2;
+    std::size_t filled = 0;
+    for (const std::size_t take : {half, bytes.size() - half}) {
+        const auto count =
+            oa::AssetStore::read(handle, std::span<uint8_t>(bytes).subspan(filled, take));
+        check(count == static_cast<int32_t>(take), std::string(path) + " reads in parts");
+        filled += take;
+    }
+    oa::AssetStore::close(handle);
+    return bytes;
+}
+
+void given_file_replaces_the_packs() {
+    const Bytes given = text("given ota, longer than the pack's");
+    const auto contents = std::make_shared<const Bytes>(given);
+    const auto with_given = [&](oa::PackLayerSpec spec) {
+        for (auto& file : spec.files)
+            if (file.path == "maps/isle@isles.ota") {
+                // The source names nothing in the pack: it is neither checked nor read.
+                file.source = "maps/absent.ota";
+                file.contents = contents;
+            }
+        return spec;
+    };
+
+    Layout layout;
+    auto store = layout.store();
+    std::string error;
+    check(store.mount_pack_layer(with_given(layout.spec()), &error), "the layer mounts: " + error);
+    const auto data = store.read("maps/isle@isles.ota");
+    check(data.bytes == given && !data.archived, "a given file reads as its contents");
+    check(
+        store.provider("maps/isle@isles.ota").kind == oa::ProviderKind::pack_layer,
+        "the layer provides a given file"
+    );
+    check(store.read_pack_layer("maps/isle@isles.ota") == given, "the layer reads a given file");
+    check(store.read("maps/isle@isles.tnt").bytes == kPackTnt, "the other files read the folder");
+    bool archived = true;
+    check(
+        read_by_handle(store, "maps/isle@isles.ota", archived) == given && !archived,
+        "a given file reads through a handle"
+    );
+    bool listed = false;
+    for (const auto& found : store.find("maps\\*"))
+        if (found.name == "isle@isles.ota")
+            listed = found.size == given.size() && found.pack_layer;
+    check(listed, "find lists a given file at its contents' size");
+
+    const Bytes held_tnt = kPackTnt;
+    // The zip writer reads its entries' names and bytes where they are kept.
+    std::vector<std::pair<std::string, Bytes>> held;
+    for (const auto& file : pack_files())
+        if (file.source != "maps/isle.ota")
+            held.emplace_back(file.source, store.read_pack_layer(file.path).value_or(Bytes{}));
+    std::vector<oa::formats::zip::NewEntry> entries;
+    for (const auto& [name, bytes] : held)
+        entries.push_back({name, bytes});
+    std::vector<uint8_t> archive;
+    oa::formats::zip::ZipError zip_error;
+    check(
+        oa::formats::zip::write_archive(entries, archive, zip_error),
+        std::string("the pack zip is written: ") +
+            oa::formats::zip::zip_status_message(zip_error.status)
+    );
+    const auto zip_path = layout.dir.path() / "isles-without-ota.oamap";
+    write_file(zip_path, archive);
+    auto zip_store = layout.store();
+    oa::PackLayerSpec spec = with_given(layout.spec());
+    spec.kind = oa::PackLayerKind::zip;
+    spec.location = zip_path;
+    check(zip_store.mount_pack_layer(spec, &error), "the zip layer mounts: " + error);
+    const auto zipped = zip_store.read("maps/isle@isles.ota");
+    check(zipped.bytes == given && zipped.archived, "a given file in a zip layer reads archived");
+    archived = false;
+    check(
+        read_by_handle(zip_store, "maps/isle@isles.ota", archived) == given && archived,
+        "a given file in a zip layer reads through an archived handle"
+    );
+    check(zip_store.read("maps/isle@isles.tnt").bytes == held_tnt, "the zip's files still read");
+}
+
 void expect_refused(
     oa::AssetStore& store,
     const oa::PackLayerSpec& spec,
@@ -768,6 +862,7 @@ int main() {
         nothing_above_changes();
         unmount_restores_exactly();
         zip_reads_as_folder();
+        given_file_replaces_the_packs();
         refusals();
         readers_survive_unmount();
         discover_keeps_layer();

@@ -405,6 +405,8 @@ struct AssetStore::PackLayer {
         std::size_t zip_index = 0;
         uint32_t size = 0;
         bool hidden = false;
+        // The bytes the layer was given for this file; null reads the pack.
+        std::shared_ptr<const std::vector<uint8_t>> contents;
     };
 
     // One child of a folder the layer's paths imply. A directory child is the
@@ -582,6 +584,8 @@ struct PackLayerOps {
         uint32_t size,
         std::string& error
     );
+    static bool
+    add_given_entry(AssetStore::PackLayer& layer, const PackLayerFile& file, std::string& error);
     static std::shared_ptr<AssetStore::PackLayer>
     make_pack_layer(const PackLayerSpec& spec, std::string& error);
     static void append_pack_matches(
@@ -646,6 +650,8 @@ std::vector<uint8_t> PackLayerOps::read_pack_zip(
 AssetData PackLayerOps::read_pack_entry(
     const AssetStore::PackLayer& layer, const AssetStore::PackLayer::Entry& entry
 ) {
+    if (entry.contents)
+        return {*entry.contents, layer.location, layer.kind == PackLayerKind::zip};
     if (layer.kind == PackLayerKind::zip)
         return {read_pack_zip(layer, entry), layer.location, true};
     try {
@@ -712,6 +718,28 @@ bool PackLayerOps::add_pack_entry(
     return true;
 }
 
+/// Adds one file the layer was given as its contents.
+///
+/// @param layer the layer being built
+/// @param file the file; its contents are not null
+/// @param[out] error the reason when the file cannot be added
+/// @return false when the contents are past the entry size limit or the path
+///         collides with a folder
+bool PackLayerOps::add_given_entry(
+    AssetStore::PackLayer& layer, const PackLayerFile& file, std::string& error
+) {
+    if (!formats::hpi::entry_size_allowed(file.contents->size())) {
+        pack_file_error(error, file.path, "exceeds the entry size limit");
+        return false;
+    }
+    if (!add_pack_entry(
+            layer, file.path, {}, 0, static_cast<uint32_t>(file.contents->size()), error
+        ))
+        return false;
+    layer.entries.back().contents = file.contents;
+    return true;
+}
+
 /// Builds a pack layer without publishing it.
 ///
 /// The count, the label and the paths are checked before any file is opened.
@@ -748,7 +776,8 @@ PackLayerOps::make_pack_layer(const PackLayerSpec& spec, std::string& error) {
             pack_file_error(error, file.path, problem);
             return nullptr;
         }
-        if (const auto problem = pack_path_problem(file.source); !problem.empty()) {
+        if (const auto problem = file.contents ? std::string() : pack_path_problem(file.source);
+            !problem.empty()) {
             pack_file_error(error, file.source, problem);
             return nullptr;
         }
@@ -772,6 +801,11 @@ PackLayerOps::make_pack_layer(const PackLayerSpec& spec, std::string& error) {
             return nullptr;
         }
         for (const auto& file : spec.files) {
+            if (file.contents) {
+                if (!add_given_entry(*layer, file, error))
+                    return nullptr;
+                continue;
+            }
             std::string reason;
             const auto host = resolve_pack_file(layer->location, file.source, reason);
             if (!host) {
@@ -810,6 +844,11 @@ PackLayerOps::make_pack_layer(const PackLayerSpec& spec, std::string& error) {
     }
     layer->zip = std::move(zip);
     for (const auto& file : spec.files) {
+        if (file.contents) {
+            if (!add_given_entry(*layer, file, error))
+                return nullptr;
+            continue;
+        }
         const auto key = normalized_path(file.source);
         std::vector<std::size_t> matches;
         for (std::size_t index = 0; index < layer->zip->directory.entries.size(); ++index)
@@ -887,9 +926,10 @@ struct ResourceFile {
     std::vector<uint8_t> block;
     // The pack layer this handle was opened from, kept until close.
     std::shared_ptr<const AssetStore::PackLayer> pack_layer;
-    // A zip pack entry, read whole when the handle was opened.
+    // A zip pack entry, read whole when the handle was opened, or a file the
+    // layer was given; in_memory reads it.
     std::vector<uint8_t> memory;
-    bool pack_zip = false;
+    bool in_memory = false;
 };
 
 // Folder listings of the loose tree, keyed by the folded resource path of the
@@ -1680,14 +1720,15 @@ ResourceFile* AssetStore::open(std::string_view resource) const {
         const auto& entry = layer->entries[listed->second];
         auto* file = new ResourceFile;
         file->pack_layer = layer;
-        if (layer->kind == PackLayerKind::zip) {
+        if (entry.contents || layer->kind == PackLayerKind::zip) {
             try {
-                file->memory = PackLayerOps::read_pack_zip(*layer, entry);
+                file->memory =
+                    entry.contents ? *entry.contents : PackLayerOps::read_pack_zip(*layer, entry);
             } catch (...) {
                 delete file;
                 throw;
             }
-            file->pack_zip = true;
+            file->in_memory = true;
             file->size = static_cast<uint32_t>(file->memory.size());
             return file;
         }
@@ -1710,11 +1751,12 @@ void AssetStore::close(ResourceFile* file) noexcept {
 }
 
 bool AssetStore::archived(const ResourceFile* file) noexcept {
-    return file->archive != nullptr || file->pack_zip;
+    return file->archive != nullptr ||
+           (file->pack_layer != nullptr && file->pack_layer->kind == PackLayerKind::zip);
 }
 
 int32_t AssetStore::seek(ResourceFile* file, uint32_t position) {
-    if (file->pack_zip) {
+    if (file->in_memory) {
         if (position == kSeekToEnd)
             position = file->size;
         file->position = position;
@@ -1740,7 +1782,7 @@ int32_t AssetStore::seek(ResourceFile* file, uint32_t position) {
 }
 
 int32_t AssetStore::tell(const ResourceFile* file) {
-    if (file->pack_zip)
+    if (file->in_memory)
         return static_cast<int32_t>(file->position);
     if (file->archive == nullptr)
         return static_cast<int32_t>(const_cast<ResourceFile*>(file)->loose.tellg());
@@ -1748,13 +1790,13 @@ int32_t AssetStore::tell(const ResourceFile* file) {
 }
 
 uint32_t AssetStore::length(const ResourceFile* file) {
-    if (file->pack_zip)
+    if (file->in_memory)
         return file->size;
     return file->archive == nullptr ? file->loose_size : file->size;
 }
 
 int32_t AssetStore::read(ResourceFile* file, std::span<uint8_t> output) {
-    if (file->pack_zip) {
+    if (file->in_memory) {
         if (file->position >= file->size || output.empty())
             return 0;
         const auto count = std::min<std::size_t>(

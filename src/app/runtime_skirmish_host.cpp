@@ -32,8 +32,8 @@ std::string Runtime::pack_map_shown_name(std::string_view key) {
     std::string plain(split->stem);
     std::string mark(split->id);
     if (const PackMap* map = pack_map(key)) {
-        if (!map->title.empty())
-            plain = map->title;
+        if (const std::string_view title = pack_map_title(*map); !title.empty())
+            plain = title;
         if (!map->pack_name.empty())
             mark = map->pack_name;
     }
@@ -46,8 +46,8 @@ std::string Runtime::pack_map_shown_name(std::string_view key) {
         if (const auto other_split = oa::data::map_pack::split_pack_map_name(other)) {
             other_plain.assign(other_split->stem);
             if (const PackMap* other_map = pack_map(other);
-                other_map != nullptr && !other_map->title.empty())
-                other_plain = other_map->title;
+                other_map != nullptr && !pack_map_title(*other_map).empty())
+                other_plain = pack_map_title(*other_map);
         }
         if (other_plain == plain) {
             shared = true;
@@ -382,7 +382,7 @@ bool Runtime::has_map_name_widget() {
 
 std::string Runtime::map_display_name() {
     if (const PackMap* installed = pack_map(selected_map_name_runtime_); installed != nullptr) {
-        if (installed->title.empty() && selected_map_metadata_ &&
+        if (pack_map_title(*installed).empty() && selected_map_metadata_ &&
             !selected_map_metadata_->mission_name.empty() &&
             !oa::data::map_pack::split_pack_map_name(selected_map_metadata_->mission_name))
             return selected_map_metadata_->mission_name;
@@ -528,36 +528,37 @@ void Runtime::fit_picture(
 }
 
 int32_t Runtime::select_map(std::string_view name) {
+    // A map that cannot be loaded clears the selection. Unless it is a pack
+    // map refused for a reason of its own, map_refusal then says its
+    // terrain does not exist, as the game's own message says at Start.
+    const auto unloadable = [&] {
+        selected_map_metadata_.reset();
+        selected_start_markers_.clear();
+        if (!pack_map_refusal(name))
+            unloadable_map_name_ = name;
+        return 0;
+    };
     // A pack map's files are mounted before they are read, and a map that
     // does not fit is not selected; any other map shows no pack map's files.
     if (pack_map(name) != nullptr) {
-        if (!prepare_pack_map(name, nullptr)) {
-            selected_map_metadata_.reset();
-            selected_start_markers_.clear();
-            return 0;
-        }
+        if (!prepare_pack_map(name, nullptr))
+            return unloadable();
     } else {
         release_pack_map();
     }
     const auto base = "maps/" + std::string(name);
     const auto tnt_data = read(base + ".tnt");
     const auto ota_data = read(base + ".ota");
-    if (!tnt_data || !ota_data) {
-        selected_map_metadata_.reset();
-        selected_start_markers_.clear();
-        return 0;
-    }
+    if (!tnt_data || !ota_data)
+        return unloadable();
     const std::string_view ota_text(
         reinterpret_cast<const char*>(ota_data->data()), ota_data->size()
     );
     auto parsed = oa::formats::ota::parse(ota_text);
     if (!parsed.ok())
         throw std::runtime_error("cannot parse selected map metadata: " + parsed.error->message);
-    if (oa::formats::ota::select_multiplayer_schema(*parsed.metadata, 2) == nullptr) {
-        selected_map_metadata_.reset();
-        selected_start_markers_.clear();
-        return 0;
-    }
+    if (oa::formats::ota::select_multiplayer_schema(*parsed.metadata, 2) == nullptr)
+        return unloadable();
     auto terrain = oa::formats::tnt::parse(*tnt_data);
     if (!terrain.ok())
         throw std::runtime_error("cannot parse selected map terrain: " + terrain.error->message);
@@ -573,6 +574,8 @@ int32_t Runtime::select_map(std::string_view name) {
     selected_tnt_ = std::move(*terrain.map);
     selected_map_name_runtime_ = name;
     selected_start_markers_.clear();
+    if (unloadable_map_name_ == name)
+        unloadable_map_name_.clear();
     return 1;
 }
 

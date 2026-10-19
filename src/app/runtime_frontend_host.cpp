@@ -28,6 +28,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -533,6 +534,28 @@ void Runtime::discover_first_map() {
     std::erase_if(base_map_summaries_, [this](const BaseMapSummary& listed) {
         return pack_map(listed.name) != nullptr;
     });
+    // A map whose terrain no file holds cannot be played, and is left out. A
+    // mod may ship such an OTA as its settings for a map the game does not
+    // have; those are kept for a pack map of the same file name.
+    const auto terrain_missing = [this](const std::string& name) {
+        return assets_.provider("maps/" + name + ".tnt").kind == oa::ProviderKind::none;
+    };
+    mod_map_settings_.clear();
+    std::string missing_names;
+    for (const BaseMapSummary& summary : base_map_summaries_) {
+        if (!terrain_missing(summary.name))
+            continue;
+        missing_names.append(missing_names.empty() ? "" : ", ").append(summary.name);
+        if (mod_map_settings(summary.name) != nullptr)
+            mod_map_settings_.push_back(summary);
+    }
+    std::erase_if(eligible_map_names_, terrain_missing);
+    std::erase_if(base_map_summaries_, [&](const BaseMapSummary& listed) {
+        return terrain_missing(listed.name);
+    });
+    if (!missing_names.empty())
+        std::cerr << "open-annihilation: map list: left out, their terrain is missing: "
+                  << missing_names << '\n';
     if (!eligible_map_names_.empty())
         first_map_name_ = eligible_map_names_.front();
     // Every installed pack map joins after the base maps. One that cannot

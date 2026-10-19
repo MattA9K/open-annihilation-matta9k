@@ -65,10 +65,15 @@ oa::ui::frontend_multiplayer::LobbyMapSource pack_map_source(Runtime& runtime) {
         const PackMap* map = runtime.map_packs().find(name);
         if (map == nullptr)
             return false;
+        // The played mod's settings for the map are what it plays with, so
+        // the list shows their title, description and size.
+        const Runtime::BaseMapSummary* settings = runtime.pack_map_mod_summary(*map);
         out->name = map->name.c_str();
-        out->description = map->description.c_str();
-        out->size = map->size.c_str();
-        out->title = map->title.c_str();
+        out->description =
+            settings != nullptr ? settings->description.c_str() : map->description.c_str();
+        out->size = settings != nullptr ? settings->size.c_str() : map->size.c_str();
+        out->title = settings != nullptr && !settings->title.empty() ? settings->title.c_str()
+                                                                     : map->title.c_str();
         out->pack_name = map->pack_name.c_str();
         out->file_title = nullptr;
         out->blocked_reason = runtime.pack_map_blocked_reason(name);

@@ -294,6 +294,7 @@ void check_game_files_options(Options& options) {
         {options.check_map_packs, "--check-map-packs"},
         {options.check_map_browser, "--check-map-browser"},
         {options.check_map_pack_lists, "--check-map-pack-lists"},
+        {options.check_mod_map_settings, "--check-mod-map-settings"},
         {options.check_mod_warning, "--check-mod-warning"},
         {options.check_mod_install, "--check-mod-install"},
         {options.check_language_install, "--check-language-install"},
@@ -574,6 +575,7 @@ void check_director_options(Options& options) {
         {options.check_map_packs, "--check-map-packs"},
         {options.check_map_browser, "--check-map-browser"},
         {options.check_map_pack_lists, "--check-map-pack-lists"},
+        {options.check_mod_map_settings, "--check-mod-map-settings"},
         {options.check_mod_warning, "--check-mod-warning"},
         {options.check_mod_install, "--check-mod-install"},
         {options.check_language_install, "--check-language-install"},
@@ -661,6 +663,7 @@ void refuse_left_out_self_checks([[maybe_unused]] const Options& options) {
             {options.check_map_packs, "--check-map-packs"},
             {options.check_map_browser, "--check-map-browser"},
             {options.check_map_pack_lists, "--check-map-pack-lists"},
+            {options.check_mod_map_settings, "--check-mod-map-settings"},
             {options.check_mod_warning, "--check-mod-warning"},
             {options.check_mod_install, "--check-mod-install"},
             {options.check_language_install, "--check-language-install"},
@@ -810,6 +813,7 @@ constexpr FlagOption kFlagOptions[] = {
     {"--check-map-packs", &Options::check_map_packs},
     {"--check-map-browser", &Options::check_map_browser},
     {"--check-map-pack-lists", &Options::check_map_pack_lists},
+    {"--check-mod-map-settings", &Options::check_mod_map_settings},
     {"--check-mod-warning", &Options::check_mod_warning},
     {"--check-mod-install", &Options::check_mod_install},
     {"--check-language-install", &Options::check_language_install},
@@ -1428,7 +1432,7 @@ void write_startup_line(std::string_view text) {
                      "[--check-scroll-bars] [--check-engine-settings [--force-capable]] "
                      "[--check-registered-kit] [--check-kit-gallery] "
                      "[--check-user-folder] [--check-mod-switch] [--check-map-packs] "
-                     "[--check-map-pack-lists] "
+                     "[--check-map-pack-lists] [--check-mod-map-settings] "
                      "[--check-map-browser] "
                      "[--check-mod-warning] "
                      "[--check-mod-install] [--check-language-install] [--check-challenge] "
@@ -1641,7 +1645,7 @@ void write_startup_line(std::string_view text) {
         result.check_director_view || result.check_director_render || result.check_interpolation ||
         result.check_unit_playout || result.check_paused_save || result.check_simulation_hash ||
         result.check_zoom_memory || result.check_map_packs || result.check_map_browser ||
-        result.check_map_pack_lists;
+        result.check_map_pack_lists || result.check_mod_map_settings;
     // A capture and a showcase need the application's own loop and window,
     // which checks and benchmarks do not run.
     const bool check_run = result.fixed_clock || result.check_navigation ||

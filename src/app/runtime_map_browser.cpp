@@ -717,16 +717,24 @@ struct Runtime::MapBrowserScreen final : LayerScreen {
         for (const PackMap& map : runtime_.map_packs().maps()) {
             mb::MapCard card;
             card.name = map.name;
-            card.title = map.title.empty() ? map.name : map.title;
+            const std::string_view title = runtime_.pack_map_title(map);
+            card.title = title.empty() ? map.name : std::string(title);
             card.pack_name = map.pack_name;
             card.pack_version = map.pack_version;
             if (const auto named = registry_names.find(map.registry); named != registry_names.end())
                 card.registry_name = named->second;
             else
                 card.registry_name = map.registry;
-            card.size = map.size;
-            card.players = map.players;
-            card.player_counts = {map.players};
+            // The played mod's settings for the map are what it plays with.
+            if (const BaseMapSummary* settings = runtime_.pack_map_mod_summary(map)) {
+                card.size = settings->size;
+                card.players = settings->players;
+                card.player_counts = settings->player_counts;
+            } else {
+                card.size = map.size;
+                card.players = map.players;
+                card.player_counts = {map.players};
+            }
             card.base_fit = mb::MapCard::Fit::unknown;
             card.mod_fit = mb::MapCard::Fit::unknown;
             if (!map.preview.empty()) {

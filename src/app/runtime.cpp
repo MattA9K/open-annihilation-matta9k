@@ -700,6 +700,11 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (options_.check_mod_map_settings) {
+            check_mod_map_settings();
+            flush_preferences();
+            return 0;
+        }
         if (options_.check_map_pack_lists) {
             check_map_pack_lists();
             flush_preferences();

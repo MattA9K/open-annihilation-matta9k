@@ -661,6 +661,12 @@ struct Options {
     // played to the first frame and named in a saved game, and the map
     // that fits only another mod left out with one log line.
     bool check_map_pack_lists = false;
+    // Writes a map pack whose map the played mod (--mod-dir) ships settings
+    // for without its terrain, and requires the mod's map left out of the
+    // list, the pack map listed with the mod's title, description and
+    // player counts, its OTA mounted as the mod's, and a map that does not
+    // load shown with the game's missing-terrain message and no picture.
+    bool check_mod_map_settings = false;
     // Switches to a made-up mod whose unit files are missing and to one
     // that plays whole, each a soft restart, and requires the first's
     // warning once over the main menu and over a refused Skirmish start,

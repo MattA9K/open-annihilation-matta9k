@@ -463,8 +463,11 @@ struct PackLayerFile {
     /// without ASCII case.
     std::string path;
     /// Path of the file inside the pack, with '/' or '\\' between parts,
-    /// matched without ASCII case.
+    /// matched without ASCII case. Not read when `contents` is given.
     std::string source;
+    /// The file's bytes, shown in place of any file of the pack: `source` is
+    /// then neither checked nor read. Null reads `source` from the pack.
+    std::shared_ptr<const std::vector<uint8_t>> contents{};
 };
 
 /// A folder or a zip, the files it shows, and the name lookups report for it.
@@ -727,10 +730,13 @@ class AssetStore {
     /// the list is empty or longer than formats::hpi::PackLayerFileLimit, the
     /// label is empty or holds more than one line, a path would be refused by
     /// a loose lookup or starts with the backup folder, two paths are alike
-    /// ignoring ASCII case, or a file in the folder or the zip cannot be
-    /// taken. Mounting does not reset the loose index and does not touch the
-    /// archives or their marks. A file a loose file already provides is
-    /// hidden from find(), as an archive file is.
+    /// ignoring ASCII case, a file in the folder or the zip cannot be taken,
+    /// or a file given as its contents is past the entry size limit. A file
+    /// given as its contents reads as those bytes, as the layer's other
+    /// files read: from an archive when the layer is a zip. Mounting does not
+    /// reset the loose index and does not touch the archives or their marks.
+    /// A file a loose file already provides is hidden from find(), as an
+    /// archive file is.
     ///
     /// @param spec the folder or zip, the files it shows and its label
     /// @param[out] error receives the reason when the layer is not mounted, if not null

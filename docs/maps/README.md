@@ -20,6 +20,7 @@ MAP in the battle room.
 - [Installing a map pack](#installing-a-map-pack)
 - [Map names](#map-names)
 - [One map's files at a time](#one-maps-files-at-a-time)
+- [A mod's settings for a pack's map](#a-mods-settings-for-a-packs-map)
 - [Whether a map fits](#whether-a-map-fits)
 - [The map lists and MORE MAPS…](#the-map-lists-and-more-maps)
 - [The map browser](#the-map-browser)
@@ -117,6 +118,32 @@ time, so two maps can never clash, whatever they name their features or
 files. The map's files stay through the match, and go when you choose
 another map, when the match ends, and on the main menu.
 
+## A mod's settings for a pack's map
+
+Some mods ship their own OTA for a map the game does not include, without
+the map's terrain: Total Mayhem carries its settings, such as the computer
+player's profile, for Cavedog's downloadable maps. Played over the game
+alone, such an OTA has nothing to play on, so the lists leave it out, as
+they leave out any map whose terrain no file holds. The log names those
+maps once each time the lists are built:
+
+```
+open-annihilation: map list: left out, their terrain is missing: <maps>
+```
+
+When an installed pack has a map of the same file name, the mod's OTA is
+that map's settings while you play the mod: the pack's map is mounted with
+the mod's OTA in place of its own, over the pack's terrain, as the mod's
+OTA took the place of the map's own when players had the map's files. The
+lists, the battle room and the map browser show the mod's title,
+description, size and player counts for it, and the map is checked as it
+is mounted, the mod's OTA with the pack's files. The log line that mounts
+it ends `with the mod's settings from maps/<stem>.ota`. Only a mod's own
+files count, and only an OTA with no terrain: a mod that ships a whole map
+of that name keeps its own map, and the pack's map keeps its own OTA.
+Every player in a match plays the same mod and the same pack, so all of
+them play the map with the mod's settings.
+
 ## Whether a map fits
 
 A pack's map may use 3.1c's rocks and trees, but may not replace or redefine
@@ -179,6 +206,9 @@ greyed in that place, and the row adds the reason: "for the TA demo",
 "for Total Annihilation", "needs Battle Tactics", "for ridge", or
 "doesn't fit". Choosing that row says why, and a missing expansion says
 to turn it on in the Library. The game's own rows stay their file names.
+A listed map whose files cannot be loaded shows its name and the game's
+own "The terrain for the selected map does not exist.", with no picture,
+and choosing it says the same and keeps the map you had.
 The name under a list, and the battle room's map name, are that same
 title. Choosing the row still uses `<stem>@<id>`.
 

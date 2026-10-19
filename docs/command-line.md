@@ -377,6 +377,7 @@ Network play's own checks, the last rows, are in every build.
 | `--check-mod-switch` | Switches the mod thirteen times and checks the memory in use stays level. |
 | `--check-map-packs` | Checks which maps of two map packs the skirmish list shows. |
 | `--check-map-pack-lists` | Installs a map pack while both map lists exist. |
+| `--check-mod-map-settings` | Checks a mod's settings for a map pack's map, with `--mod-dir`. |
 | `--check-map-browser` | Checks the map browser at four window sizes. |
 | `--check-mod-warning` | Checks the warning for a mod whose files are missing. |
 | `--check-mod-install` | Installs, rolls back and replaces made-up mod packages. |
