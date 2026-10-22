@@ -16,8 +16,8 @@ digest. A match with no mutator logs a different digest, the same on both
 machines. A mutator that changes nothing is built once. A hacks-only mutator
 the plain game refuses stays built, names the dropped position, and allows
 START. An installed copy named by id, with an origin record, builds the same
-layer on both, and the host's summary names it by its name, not its id,
-without the picker opening. Two machines whose mutators.clash-default differ,
+layer on both; the host's Mutators button counts it, and the room's chat
+names it by its name, not its id, without the picker opening. Two machines whose mutators.clash-default differ,
 with ridge-commander-copy (its manifest names no clash mode, and it clones
 onto ARMCOM), build the same layer and play the host's mode: Add on the host
 reaches the guest as Add, and a guest whose own default is Add still plays the
@@ -343,21 +343,33 @@ def control_named(client, name):
     return None
 
 
-def wait_summary(game, wanted):
-    """Waits until the game's mutator summary holds a name; returns its text."""
+def wait_mutators(game, count, name, mutator_id):
+    """Waits until the game's Mutators button counts the room's set and the
+    room's chat names it.
+
+    The button reads "Mutators (N)" for N mutators on. The line the room posts
+    when its list is turned on names each by its name, never by its id.
+    Returns the button's text and that line.
+    """
     client = open_client(game)
     text = None
+    turned_on = []
     try:
         deadline = time.monotonic() + LINE_TIMEOUT
         while time.monotonic() < deadline:
-            control = control_named(client, "oa.mutators.summary")
+            control = control_named(client, "oa.mutators")
             text = control.get("text") if control is not None else None
-            if text is not None and wanted in text:
-                return text
+            chat = client.request("room").get("chat") or []
+            turned_on = [line for line in chat if "turned on mutators" in line]
+            named = [line for line in turned_on if name in line and mutator_id not in line]
+            if text == f"Mutators ({count})" and named:
+                return text, named[-1]
             time.sleep(0.1)
     finally:
         client.close()
-    raise RoomMutatorsFailure(f"{game.name}'s mutator summary reads {text!r}, not {wanted}")
+    raise RoomMutatorsFailure(
+        f"{game.name}'s Mutators button reads {text!r}, not 'Mutators ({count})', or its "
+        f"turned-on lines {turned_on!r} do not name {name} by its name")
 
 
 def room_picture(client):
@@ -811,14 +823,17 @@ def check(native, game_dir, workdir, source):
             ),
         )
         host_built, guest_built = require_same_build(host, visitor)
-        # The host never opened the picker, yet its summary names the
-        # installed copy by its name, not by the id it was started with.
-        summary = wait_summary(host, "Ridge Tough")
+        # The host never opened the picker, yet its button counts the
+        # installed copy and its room's chat names it by its name, not by
+        # the id it was started with.
+        button_text, turned_on = wait_mutators(host, 1, "Ridge Tough", "ridge-tough")
         visitor.wait_end()
         host.stop()
         evidence.append(host_built.group(0))
         evidence.append(guest_built.group(0))
-        evidence.append(f"mutator room check: the host's summary after --mutator reads {summary!r}")
+        evidence.append(
+            f"mutator room check: the host's Mutators button after --mutator reads "
+            f"{button_text!r}, and its chat {turned_on!r}")
 
         commander = source / "tests" / "data" / "mutators" / "packages" / "ridge-commander-copy"
         for name, host_mode, guest_mode, note, other in (
