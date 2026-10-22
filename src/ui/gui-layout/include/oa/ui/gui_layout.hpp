@@ -245,6 +245,38 @@ struct Rect {
 [[nodiscard]] std::optional<Rect>
 gadget_rectangle(std::span<const Gadget> gadgets, std::size_t index) noexcept;
 
+// The pen a button's caption is written from: its first glyph hangs below
+// and to the right of it.
+struct CaptionPen {
+    int32_t x = 0;
+    int32_t y = 0;
+
+    bool operator==(const CaptionPen&) const = default;
+};
+
+/// Places a button's caption as the gadget engine writes it.
+///
+/// The first of the alignment attributes the button holds places it
+/// (attribute::horizontal, right_aligned, centered and bottom_caption in
+/// oa/ui/gui_layout/gui_gadget.hpp): 3 pixels in from the left edge; 3
+/// pixels short of the right edge, but never left of the left edge; or, for
+/// the last two, centred across, 1 pixel right of half what the caption
+/// leaves of the rectangle's span, rounded toward zero. A bottom caption's
+/// line ends 4 rows above the bottom edge; the others are centred down the
+/// rectangle the same way, without the pixel. A pressed button's caption
+/// sits 1 pixel lower, and 1 pixel further right unless it is right-aligned.
+///
+/// @param button the button's rectangle
+/// @param attributes the button's attribute bits
+/// @param text_width the caption's width, in pixels
+/// @param line_height the line height of the caption's font, in pixels
+/// @param pressed the button shows pressed
+/// @return the pen; none for a button with none of the four attributes,
+///         which shows no caption
+[[nodiscard]] std::optional<CaptionPen> button_caption_pen(
+    const Rect& button, uint32_t attributes, int32_t text_width, int32_t line_height, bool pressed
+) noexcept;
+
 namespace skin_frame {
 // A tiled skin holds nine frames in three rows (top, middle, bottom) of three
 // (left, middle, right); a frame's number is its row plus its column.

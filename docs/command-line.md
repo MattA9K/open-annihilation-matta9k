@@ -351,7 +351,7 @@ Network play's own checks, the last rows, are in every build.
 | `--check-mutator-verdicts` | Writes four made-up mutators and checks their verdicts against the installed game, then again from the verdict file. |
 | `--check-mutator-dry-run` | Writes two made-up mutators that stack commander turn rate and worker time, and checks each field is held at 65535 with one note. |
 | `--check-replay-loadout` | Checks a recorded loadout against the installed mutators, plays it for one skirmish and puts the player's own list back. |
-| `--check-download-builds` | Builds a unit from a download page. |
+| `--check-download-builds` | Builds a unit from a download page, and checks the queued counts on its buttons. |
 | `--check-stockpile-builds` | Queues and builds rounds for every unit that stockpiles, through a save and a load. |
 | `--check-unit-page-memory` | Checks each unit keeps its order page through reselection, a save and a load. |
 | `--check-side-column` | Checks the commander's build pages fit the side column at several window sizes. |

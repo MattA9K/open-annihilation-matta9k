@@ -2724,7 +2724,8 @@ if(OA_BUILD_PLATFORM)
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # ARMLAB's second page is the ARMDL.GUI download page with the Warrior
       # and Flea its download TDFs name; through SDL input on dummy devices
-      # they queue, come off the middle and end of the queue and build.
+      # they queue, their counts written in hattfont12 along the bottom of
+      # their buttons, come off the middle and end of the queue and build.
       set(oa_download_check_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/download-builds")
       file(MAKE_DIRECTORY "${oa_download_check_dir}")
       add_test(NAME native-download-builds COMMAND oa-game --game-dir "${OA_GAME_DIR}"

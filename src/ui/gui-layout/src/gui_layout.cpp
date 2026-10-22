@@ -589,6 +589,28 @@ std::optional<Rect> gadget_rectangle(std::span<const Gadget> gadgets, std::size_
     };
 }
 
+std::optional<CaptionPen> button_caption_pen(
+    const Rect& button, uint32_t attributes, int32_t text_width, int32_t line_height, bool pressed
+) noexcept {
+    // A caption starts this far in from the edge it is aligned to; a bottom
+    // caption's line ends this many rows above the bottom edge.
+    constexpr int32_t edge_inset = 3;
+    constexpr int32_t bottom_gap = 4;
+    const int32_t press = pressed ? 1 : 0;
+    const int32_t span_x = button.right - button.left;
+    const int32_t centred_x = button.left + (span_x - text_width) / 2 + press + 1;
+    const int32_t centred_y = button.top + (button.bottom - button.top - line_height) / 2 + press;
+    if ((attributes & attribute::horizontal) != 0)
+        return CaptionPen{button.left + press + edge_inset, centred_y};
+    if ((attributes & attribute::right_aligned) != 0)
+        return CaptionPen{std::max(button.right - text_width - edge_inset, button.left), centred_y};
+    if ((attributes & attribute::centered) != 0)
+        return CaptionPen{centred_x, centred_y};
+    if ((attributes & attribute::bottom_caption) != 0)
+        return CaptionPen{centred_x, button.bottom + press - line_height - bottom_gap};
+    return std::nullopt;
+}
+
 std::vector<SkinTile>
 skin_tiles(int32_t width, int32_t height, int32_t tile_width, int32_t tile_height) {
     std::vector<SkinTile> tiles;

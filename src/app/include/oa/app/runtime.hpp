@@ -10885,9 +10885,11 @@ class Runtime final : public menu::Host,
     ///
     /// @param font GUI font
     /// @param text the game text
+    /// @param scale paint pixels a source pixel spans each way, which the
+    ///        modern fonts are measured at; 0 for hud_text_scale()
     /// @return the width in source pixels, a modern run's rounded up
     [[nodiscard]] int
-    gui_text_width(const oa::present::GafSprites& font, std::string_view text) const;
+    gui_text_width(const oa::present::GafSprites& font, std::string_view text, int scale = 0) const;
 
     /// Installs the game-text hooks the text loops draw the modern fonts and
     /// read the settings through.
@@ -11013,10 +11015,16 @@ class Runtime final : public menu::Host,
     [[nodiscard]] std::optional<std::size_t>
     greyed_picture_frame(const oa::ui::gui_layout::Gadget& gadget) const;
 
-    /// Draws the unit and weapon buttons' captions (their queued counts) at each button's corner.
+    /// Draws the unit and weapon buttons' captions: their queued counts and stockpiles.
     ///
-    /// A hidden button, such as a LOAD where the unit has BLAST in its
-    /// place, shows no caption.
+    /// Each is written in hattfont12 where the button's attributes place a
+    /// caption (oa::ui::gui_layout::button_caption_pen), as a pressed
+    /// button's while the button shows pressed: on the game's build pages,
+    /// centred along the button's bottom. While the settings choose the
+    /// modern fonts, they write it, with the outline, shadow and background
+    /// the settings ask for. A hidden button, such as a LOAD where the unit
+    /// has BLAST in its place, shows no caption, and nothing is written
+    /// without hattfont12.
     void draw_build_captions();
 
     /// Clicks the loaded build or order page through the build panel click.
