@@ -680,8 +680,16 @@ void Runtime::check_mutator_room() {
     }
     const Player kept_visitor = mp::slot_player(mp::multiplayer_lobby(), visitor_slot);
     const mp::PlayerSetupInfo kept_info = *mp::slot_info(mp::multiplayer_lobby(), visitor_slot);
+    const auto kept_console_flags = mp::multiplayer_lobby().game->console_flags;
+    // Visitor never sends a word. Once the room has been open longer than
+    // the players' time-out, as it has on a slow build, the room would take
+    // a silent Visitor for a stalled player at once and put TIMEOUT over the
+    // battle room, and the Mutators button leaves the layer while anything
+    // covers the room. While Visitor sits, the room drops no one, as the
+    // console's Drop 0 asks.
     const auto seat_visitor = [&](bool open_annihilation) {
         mp::Lobby& lobby = mp::multiplayer_lobby();
+        lobby.game->console_flags |= OA_CONSOLE_FLAG_NO_DROP;
         Player& visitor = mp::slot_player(lobby, visitor_slot);
         visitor.in_use = 1;
         visitor.player_id = visitor_id;
@@ -698,6 +706,7 @@ void Runtime::check_mutator_room() {
     };
     const auto unseat_visitor = [&] {
         mp::Lobby& lobby = mp::multiplayer_lobby();
+        lobby.game->console_flags = kept_console_flags;
         mp::slot_player(lobby, visitor_slot) = kept_visitor;
         *mp::slot_info(lobby, visitor_slot) = kept_info;
         mp::PresenceRecords& records = lobby.presence_records;
@@ -827,14 +836,28 @@ void Runtime::check_mutator_room() {
         }
         {
             // The button's line follows the room on a frame, and a slow
-            // build may need several before it shows.
+            // build may need several before it shows. The button leaves the
+            // layer while the room is not in front, and comes back on the
+            // next frame once it is, so a frame without it is waited out;
+            // three in a row with the room in front and hosted are not.
             const std::string expected = mp::start_reason(mp::PlayerLack{"Visitor", "Ridge Tough"});
             bool whole = false;
             std::string seen;
-            for (int32_t wait = 0; wait < 30 && !whole; ++wait) {
+            int32_t absent = 0;
+            int32_t absent_in_front = 0;
+            for (int32_t wait = 0; wait < 60 && !whole; ++wait) {
                 frames(1);
                 LayerScreen* button_screen = oa_layer().find("mutators-button");
-                require(button_screen != nullptr, "MUTATORS… is not on the layer" + in);
+                if (button_screen == nullptr) {
+                    ++absent;
+                    absent_in_front = room_open() ? absent_in_front + 1 : 0;
+                    require(
+                        absent_in_front < 3,
+                        "the Mutators button left the layer while the room stayed in front" + in
+                    );
+                    continue;
+                }
+                absent_in_front = 0;
                 seen.clear();
                 for (const kit::Item& item : button_screen->display_list().items) {
                     if (item.text == expected)
@@ -843,6 +866,14 @@ void Runtime::check_mutator_room() {
                         seen += item.text;
                 }
             }
+            require(
+                oa_layer().find("mutators-button") != nullptr,
+                "the Mutators button is not on the layer" + in + " (off it on " +
+                    std::to_string(absent) + " frames)"
+            );
+            if (absent > 0)
+                std::cout << "mutator room check: the Mutators button was off the layer on "
+                          << absent << " frames while the room was not in front" << in << std::endl;
             require(whole, "the waiting line is cut" + in + " (" + seen + ")");
         }
         frames(1);
