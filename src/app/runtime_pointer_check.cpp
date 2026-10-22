@@ -459,6 +459,49 @@ void Runtime::check_pointer_interfaces() {
     click(SDL_BUTTON_RIGHT, sx, sy);
     require(match_command_ == MatchCommand::none, "a right press did not drop the build command");
 
+    // So it is for an order armed from its button: with Shift held each
+    // click queues it and it stays armed; letting Shift go returns to the
+    // default order, as in 3.1c, so that one right press then drops the
+    // selection. An order armed with none given stays when Shift is let go.
+    struct ArmedOrder {
+        std::string_view name;
+        MatchCommand command{};
+    };
+
+    for (const auto& order :
+         {ArmedOrder{"PATROL", MatchCommand::patrol},
+          ArmedOrder{"MOVE", MatchCommand::move},
+          ArmedOrder{"ATTACK", MatchCommand::attack}}) {
+        const std::string name(order.name);
+        match_->stop_orders(peewee);
+        select_only(peewee);
+        std::tie(px, py) = screen_of(peewee);
+        std::ignore = open_ground(px + kPointOffset, py);
+        std::ignore = open_ground(px, py + kPointOffset);
+        require(arm_match_command(order.name, false), name + " could not be armed");
+        dispatch_event(shift_up, running);
+        require(
+            match_command_ == order.command, "letting Shift go with no order given ended " + name
+        );
+        click(SDL_BUTTON_LEFT, px + kPointOffset, py, SDL_KMOD_LSHIFT);
+        click(SDL_BUTTON_LEFT, px, py + kPointOffset, SDL_KMOD_LSHIFT);
+        require(
+            queue_of(peewee).size() == 2 && match_command_ == order.command,
+            "two shift clicks with " + name + " armed did not queue two orders and keep it armed"
+        );
+        dispatch_event(shift_up, running);
+        require(
+            match_command_ == MatchCommand::none,
+            "letting Shift go after shift clicks with " + name + " armed did not end it"
+        );
+        click(SDL_BUTTON_RIGHT, px, py + kPointOffset);
+        require(
+            !has_local_selection() && queue_of(peewee).size() == 2,
+            "the right press after Shift was let go with " + name +
+                " armed did not drop the selection alone"
+        );
+    }
+
     // Right-click interface.
     set_interface(input::interface_right_click);
     clear_local_selection();

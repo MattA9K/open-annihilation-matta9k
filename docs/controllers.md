@@ -128,7 +128,7 @@ R4 turns it off, as two taps would.
 
 | Grip | Applies to |
 |---|---|
-| R4 QUEUE | Orders, area orders and ring picks join the queue; placing buildings stays armed until R4 goes off; the queued orders are drawn |
+| R4 QUEUE | Orders, area orders and ring picks join the queue; an armed order, or placing buildings, stays armed until R4 goes off; the queued orders are drawn |
 | R4 on a build button, x5 | A factory's +5 and −5 |
 | L4 ADD | Clicks on units add them or take them out; boxes add; group recall adds |
 | R5 FORCE | Clicks while held force fire. It is not a latch |
@@ -195,7 +195,7 @@ the order a click would give is ringed.
 
 | While R1 is held | Does |
 |---|---|
-| Release R1 on a wedge | Gives that order at the ring's point, as arming its button and clicking there does; with R4 held, queued, and the order stays armed |
+| Release R1 on a wedge | Gives that order at the ring's point, as arming its button and clicking there does; with R4 held, queued, and the order stays armed until R4 goes off |
 | A on a wedge | **Arms** the order and closes the ring; the next R2 click gives it, and an R2 drag gives an area order |
 | Release R1 at the centre, or B | Closes the ring; nothing is given |
 | Tap R1 (released before the hold delay, nothing aimed) | The ring stays open: R2 or a trackpad press gives at its point, A arms, B closes |

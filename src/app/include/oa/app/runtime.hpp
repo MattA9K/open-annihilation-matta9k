@@ -11046,19 +11046,23 @@ class Runtime final : public menu::Host,
     [[nodiscard]] bool match_command_lit(std::size_t index) const;
 
     /// Returns to the default order; the buttons sharing the STOP button's group, the command
-    /// buttons, go out as the game clears them.
+    /// buttons, go out as the game clears them, and an order queued with Shift is forgotten
+    /// (end_command_on_shift_release).
     void reset_match_command();
 
     /// Tests whether the pointer's orders queue: the shift bit of the last pointer event (bit 2
     /// of Game.pointer_state word 2).
     ///
     /// While it is held the orders the pointer gives are queued and the armed
-    /// command then stays.
+    /// command then stays until Shift is let go.
     ///
     /// @return true while shift was held
     bool queueing() const;
 
     /// Drops the armed command after an order unless shift keeps it for queueing.
+    ///
+    /// An order given with Shift held keeps the command only until Shift is
+    /// let go (end_command_on_shift_release).
     void finish_issued_command();
 
     /// Plays a named interface sound unless muted, and records it for a check that listens.
@@ -11086,19 +11090,21 @@ class Runtime final : public menu::Host,
     /// Sends every selected mobile builder to build the pending building at a
     /// site, plays oktobuild and ends build mode unless the order is queued.
     /// A building queued with Shift held ends build mode once Shift is let go
-    /// (end_build_on_shift_release).
+    /// (end_command_on_shift_release).
     ///
     /// @param site 16.16 world point of the site, snapped to the footprint
     /// @param queue the order goes behind the builders' others
     void issue_pending_build(const oa::sim::ground_orders::Point& site, bool queue);
 
-    /// Ends build mode once Shift is let go after a building was queued with
-    /// it held, as in 3.1c, so that the next click on the ground gives the
-    /// default order rather than another building. With none queued, the
-    /// building stays chosen when Shift is let go. Shift is the orders' own
+    /// Returns to the default order once Shift is let go after an order of
+    /// the armed command, or a building, was queued with it held, as in 3.1c:
+    /// the next click gives the default order rather than the armed command
+    /// or another building, and in the left-click interface a right press
+    /// drops the selection. A command armed or a building chosen with none
+    /// given stays when Shift is let go. Shift is the orders' own
     /// (input_modifiers(ModifierUse::order)): the keyboard's, or QUEUE's on
     /// the touch controls and the pad.
-    void end_build_on_shift_release();
+    void end_command_on_shift_release();
 
     /// Places the pending building under a canvas point: on the radar as 3.1c
     /// places it there (place_pending_build_on_radar), else at the
@@ -18223,9 +18229,10 @@ class Runtime final : public menu::Host,
 
     std::vector<AuthoredPlace> match_hud_authored_{};
     uint16_t pending_build_type_ = 0;
-    // A building of pending_build_type_ was queued with Shift held: letting
-    // Shift go ends build mode (end_build_on_shift_release).
-    bool build_queued_with_shift_ = false;
+    // An order of the armed command, or a building, was queued with Shift
+    // held: letting Shift go returns to the default order
+    // (end_command_on_shift_release).
+    bool command_queued_with_shift_ = false;
     // Cursor GAF frames the order overlays draw, rendered once each.
     std::map<const oa::formats::gaf::Frame*, oa::formats::gaf::RenderedFrame>
         overlay_sprite_frames_{};

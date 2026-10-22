@@ -20,6 +20,15 @@ A gamepad's group buttons do the same. With the groups grip held, a tap
 selects the group and a second tap centres on it. See
 [controllers.md](controllers.md).
 
+## Queueing with Shift
+
+An order given with Shift held joins the end of the selected units'
+queues. An order armed from its button, or a building being placed, stays
+armed for the next click while Shift is held. Letting Shift go returns to
+the default order, as in 3.1c: the next click gives the default order, and
+with the left-click interface one right click drops the selection. An
+order armed with none given yet stays armed when Shift is let go.
+
 ## The window's edge
 
 **Window edge**, under Settings > Controls, decides what a window does with

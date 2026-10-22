@@ -2283,8 +2283,9 @@ struct TouchCheckAccess {
         );
     }
 
-    /// 9. A hold released opens the radial; Patrol patrols to its point; with the hub the
-    /// 3.1c PATROL button stays lit and no other; Info opens the unit info panel; a greyed wedge
+    /// 9. A hold released opens the radial; Patrol patrols to its point; the hub queues the pick
+    /// and PATROL ends with it; with QUEUE latched the pick keeps PATROL armed, its 3.1c button
+    /// lit and no other, until QUEUE goes off; Info opens the unit info panel; a greyed wedge
     /// does nothing.
     static void case_radial(Runtime& runtime, TouchRun& run) {
         const auto unit = run.peewees[0];
@@ -2353,7 +2354,8 @@ struct TouchCheckAccess {
             "tapping Patrol in the radial did not patrol the Peewee to the held point"
         );
         require(!touch(runtime).hud.radial, Lane::dispatch, "the radial stayed open after a pick");
-        // The hub queues the pick and keeps PATROL armed and lit.
+        // The hub queues the pick; its QUEUE goes with the pick, and PATROL
+        // with it, as letting Shift go ends an order given with Shift held.
         open_radial({here.x + offset, here.y + offset});
         tap(runtime,
             run,
@@ -2369,6 +2371,22 @@ struct TouchCheckAccess {
             patrols().size() == 2,
             Lane::dispatch,
             "Patrol picked with the hub's QUEUE did not queue a second patrol"
+        );
+        require(
+            runtime.match_command_ == MatchCommand::none &&
+                !runtime.match_command_lit(*patrol_button),
+            Lane::dispatch,
+            "PATROL stayed armed after the pick the hub's QUEUE queued"
+        );
+        // With QUEUE latched the pick is queued and PATROL stays armed until
+        // QUEUE goes off.
+        tap_control(runtime, run, hud::Control::queue, -1, "QUEUE");
+        open_radial({here.x, here.y + offset});
+        tap(runtime, run, centre_of(wedge(hud::RadialItem::patrol).hit));
+        require(
+            patrols().size() == 3,
+            Lane::dispatch,
+            "Patrol picked with QUEUE latched did not queue a third patrol"
         );
         require(
             runtime.match_command_lit(*patrol_button),
@@ -2388,7 +2406,13 @@ struct TouchCheckAccess {
                 "another order button is lit with PATROL: " +
                     runtime.match_hud_->layout.gadgets[at].common.name
             );
-        runtime.reset_match_command();
+        tap_control(runtime, run, hud::Control::queue, -1, "QUEUE");
+        require(
+            runtime.match_command_ == MatchCommand::none &&
+                !runtime.match_command_lit(*patrol_button),
+            Lane::dispatch,
+            "PATROL stayed armed after QUEUE went off"
+        );
         // Info.
         open_radial({here.x - offset, here.y});
         const auto& info = wedge(hud::RadialItem::info);

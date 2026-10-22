@@ -126,7 +126,8 @@ button:
 
 - **QUEUE** is Shift for orders: the orders a tap gives join the end of the
   selected units' queues, area orders and buildings queue too, an armed
-  order stays armed, and the queued orders are drawn on the battlefield.
+  order stays armed until QUEUE goes off (as letting Shift go ends it), and
+  the queued orders are drawn on the battlefield.
 - **ADD** is Shift for selecting: a tap on a unit adds it to the selection
   or takes it out, a box adds what it takes in, and a group chip adds its
   group.
@@ -150,8 +151,8 @@ plain tap would give is ringed. A picked order is given at the held point,
 exactly as arming its button and clicking there does. **Info** opens the
 unit info panel for the unit at the point (or the selected unit); **Type**
 selects every unit of that unit's type. The hub in the middle is **QUEUE**
-for the next pick only: the order joins the queue and stays armed. A tap
-outside the wheel closes it.
+for the next pick only: the order joins the queue, and is not left armed
+unless QUEUE is on. A tap outside the wheel closes it.
 
 Holding and then dragging, instead of lifting, draws a selection box.
 

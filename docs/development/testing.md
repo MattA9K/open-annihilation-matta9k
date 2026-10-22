@@ -712,7 +712,8 @@ double tap, ground orders, boxes, a hold then a drag, the Scroll setting,
 QUEUE, ADD and One action, a factory's buttons (+1, a hold's −1, x5, the
 pressed look of a resting finger and a finger sliding off), the two-finger
 tap, pinch and pan keeping the map under the fingers, the order wheel
-(Patrol, its QUEUE hub lighting the 3.1c PATROL button, Info, a greyed
+(Patrol, its QUEUE hub ending PATROL with its pick, latched QUEUE
+keeping the 3.1c PATROL button lit until QUEUE goes off, Info, a greyed
 place), building placement (a drag moving the ghost under the finger, a
 hold near the ghost placing it there, a double tap or a hold away from it
 placing where the finger is, a refused site staying armed, QUEUE keeping the

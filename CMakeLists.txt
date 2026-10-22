@@ -3124,7 +3124,8 @@ endforeach()
       # The screen's edges scrolling the camera, in full screen and in a
       # window, and both interface types' pointer buttons, through SDL input:
       # left clicks and right presses on open ground, units and the radar,
-      # shift clicks taking queued orders and a build site back, mouse look,
+      # shift clicks taking queued orders and a build site back, letting
+      # Shift go ending an armed order or building given with it, mouse look,
       # right clicks beside the in-game menu, one dropping the selection
       # closing it and resuming the game, the Pause key's pause kept, a
       # group's moves and patrols in its shape, a solar collector selected

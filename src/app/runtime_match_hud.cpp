@@ -134,7 +134,6 @@ void Runtime::activate_match_hud(std::size_t index, bool left_button) {
     case hud::BuildPanelClick::place:
         match_command_ = MatchCommand::build;
         pending_build_type_ = click.type;
-        build_queued_with_shift_ = false;
         status_ = "Place " + gadget_name + ": click the map";
         break;
     case hud::BuildPanelClick::queued:
@@ -345,6 +344,7 @@ bool Runtime::match_command_lit(std::size_t index) const {
 
 void Runtime::reset_match_command() {
     match_command_ = MatchCommand::none;
+    command_queued_with_shift_ = false;
     if (!match_hud_)
         return;
     const auto& gadgets = match_hud_->layout.gadgets;
@@ -365,8 +365,14 @@ bool Runtime::queueing() const {
 }
 
 void Runtime::finish_issued_command() {
-    if (!queueing())
+    if (!queueing()) {
         reset_match_command();
+        return;
+    }
+    // The command stays for the next click only while Shift is held.
+    const bool shift_held = (input_modifiers(ModifierUse::order) & SDL_KMOD_SHIFT) != 0;
+    if (match_command_ != MatchCommand::none && shift_held)
+        command_queued_with_shift_ = true;
 }
 
 void Runtime::play_match_interface_sound(std::string_view name) {
@@ -434,7 +440,7 @@ void Runtime::issue_pending_build(const oa::sim::ground_orders::Point& site, boo
             reset_match_command();
             pending_build_type_ = 0;
         } else if ((input_modifiers(ModifierUse::order) & SDL_KMOD_SHIFT) != 0) {
-            build_queued_with_shift_ = true;
+            command_queued_with_shift_ = true;
         }
     } catch (const std::exception& error) {
         status_ = std::string("build placement: ") + error.what();
@@ -442,18 +448,19 @@ void Runtime::issue_pending_build(const oa::sim::ground_orders::Point& site, boo
     }
 }
 
-void Runtime::end_build_on_shift_release() {
-    if (!build_queued_with_shift_)
+void Runtime::end_command_on_shift_release() {
+    if (!command_queued_with_shift_)
         return;
-    // Build mode ended some other way (a right press, Escape, CANCEL) takes
-    // the mark with it.
-    if (!match_ || match_command_ != MatchCommand::build || pending_build_type_ == 0) {
-        build_queued_with_shift_ = false;
+    // A command ended some other way (a right press, Escape, CANCEL, STOP or
+    // its button pressed again) takes the mark with it.
+    if (!match_ || (match_command_ == MatchCommand::none && pending_build_type_ == 0)) {
+        command_queued_with_shift_ = false;
         return;
     }
     if ((input_modifiers(ModifierUse::order) & SDL_KMOD_SHIFT) != 0)
         return;
-    build_queued_with_shift_ = false;
+    // What is armed by then goes, a command armed or a building chosen with
+    // Shift still held included.
     reset_match_command();
     pending_build_type_ = 0;
 }
