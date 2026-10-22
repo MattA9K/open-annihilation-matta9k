@@ -3,15 +3,17 @@
 
 // Headless check of the build ghost and the placing click over the sites the
 // game's building-site test refuses, and over bare ground and a metal deposit,
-// which it accepts alike; and of the ghost's outline over the map's edges and
-// at several zooms.
+// which it accepts alike; of the cursor build mode shows; and of the ghost's
+// outline over the map's edges and at several zooms.
 #include "oa/app/runtime.hpp"
 #include "oa/core/map_plot.h"
+#include "oa/sim/gameplay_input/order_cursor.hpp"
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <iostream>
 #include <limits>
@@ -316,9 +318,65 @@ void Runtime::check_build_site_pointer(uint16_t builder, uint16_t type) {
               << ", on metal " << poorest << " at " << bare->first << ',' << bare->second
               << " and on metal " << richest << " at " << deposit->first << ',' << deposit->second
               << '\n';
+    check_build_cursor(type);
     // A solar collector's wide footprint hangs well over the edges.
     const auto solar = oa::sim::unit_spawn::find_type_index(spawn_type_names_, "ARMSOLAR");
     check_build_site_edges(solar != 0 && solar < spawn_types_.size() ? solar : type);
+}
+
+void Runtime::check_build_cursor(uint16_t type) {
+    namespace input = oa::sim::gameplay_input;
+    if (!cursors_loaded_)
+        throw std::runtime_error("build cursor check: the game's cursors are not loaded");
+    const auto normal = static_cast<uint8_t>(input::OrderCursor::normal);
+    const auto build = static_cast<uint8_t>(input::OrderCursor::build);
+    match_command_ = MatchCommand::build;
+    pending_build_type_ = type;
+    // The middle of the side column, of the battlefield and of the radar.
+    const auto column_x = static_cast<float>(match_layout_.left / 2);
+    const auto column_y =
+        static_cast<float>(match_layout_.top + match_layout_.battlefield_height() / 2);
+    const auto field_x =
+        static_cast<float>(match_layout_.left + match_layout_.battlefield_width() / 2);
+    const auto field_y = column_y;
+    const auto radar_x = static_cast<float>(radar_picture_.x + radar_picture_.width / 2);
+    const auto radar_y = static_cast<float>(radar_picture_.y + radar_picture_.height / 2);
+    if (battlefield_contains(column_x, column_y) || radar_contains(column_x, column_y) ||
+        !battlefield_contains(field_x, field_y) || radar_contains(field_x, field_y) ||
+        !radar_contains(radar_x, radar_y))
+        throw std::runtime_error(
+            "build cursor check: the side column, battlefield and radar overlap"
+        );
+    // The pointer moved to the point, then the frame's cursor pass, as the
+    // main loop runs it, which must leave `cursor` shown.
+    const auto expect = [&](float x, float y, uint8_t cursor, const char* where) {
+        update_pointer(x, y);
+        tick_and_draw_cursor();
+        if (cursor_index_ != cursor)
+            throw std::runtime_error(
+                std::string("build cursor check: cursor ") + std::to_string(cursor_index_) + ' ' +
+                where + ", not " + std::to_string(cursor)
+            );
+    };
+    expect(column_x, column_y, normal, "beside the battlefield");
+    expect(field_x, field_y, normal, "on the battlefield, come from the side column");
+    // The site is centred on the ground under the pointer, and a click there
+    // places the building.
+    const auto ground = build_cursor_point(field_x, field_y);
+    const auto site = build_site_under(field_x, field_y);
+    if (!ground || !site || pick_match_cursor() != build)
+        throw std::runtime_error("build cursor check: a click on the battlefield places nothing");
+    const auto middle_x = (site->cell_x * 2 + site->footprint_x) * (OA_MAP_CELL_PIXELS / 2);
+    const auto middle_z = (site->cell_z * 2 + site->footprint_z) * (OA_MAP_CELL_PIXELS / 2);
+    if (std::abs(((*ground)[0] >> 16) - middle_x) > OA_MAP_CELL_PIXELS / 2 ||
+        std::abs(((*ground)[2] >> 16) - middle_z) > OA_MAP_CELL_PIXELS / 2)
+        throw std::runtime_error("build cursor check: the site is not centred on the pointer");
+    expect(radar_x, radar_y, build, "over the radar");
+    expect(field_x, field_y, build, "on the battlefield, come from the radar");
+    expect(column_x, column_y, normal, "beside the battlefield again");
+    std::cout << "build cursor check: normal cursor beside the battlefield and kept on it over "
+                 "the site's middle; build cursor over the radar and kept on the battlefield "
+                 "from it\n";
 }
 
 void Runtime::check_build_site_edges(uint16_t type) {

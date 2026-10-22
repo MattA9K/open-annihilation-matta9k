@@ -473,6 +473,10 @@ input::OrderCommand armed_order(MatchCommand command) {
 } // namespace
 
 uint8_t Runtime::pick_match_cursor() {
+    return shown_match_cursor().value_or(static_cast<uint8_t>(input::OrderCursor::build));
+}
+
+std::optional<uint8_t> Runtime::shown_match_cursor() {
     if (hovered_ || !match_)
         return static_cast<uint8_t>(input::OrderCursor::normal);
     auto& world = match_->state();
@@ -485,7 +489,7 @@ uint8_t Runtime::pick_match_cursor() {
     }
     input::OrderCursor cursor{};
     if (!input::pointer_cursor(world, order_cursor_hooks(), &cursor))
-        return static_cast<uint8_t>(input::OrderCursor::build);
+        return std::nullopt;
     return static_cast<uint8_t>(cursor);
 }
 
@@ -537,8 +541,11 @@ void Runtime::tick_and_draw_cursor() {
     gui_context_.tick_delta = tick - gui_context_.last_tick;
     gui_context_.last_tick = tick;
     oa::ui::gui_input::tick_cursor_and_read_pointer(gui_context_);
+    // Build placement over the battlefield keeps the cursor the pointer
+    // brought, whose point is the footprint's middle.
     if (screen_ == Screen::match)
-        select_game_cursor(pick_match_cursor());
+        if (const auto cursor = shown_match_cursor())
+            select_game_cursor(*cursor);
     oa::ui::gui_input::follow_hover_cursor(gui_context_, pointer_over_top_panel());
     // A middle-click pan draws its own direction at the pointer.
     if (middle_pan_shows_direction())

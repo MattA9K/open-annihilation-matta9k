@@ -3051,8 +3051,21 @@ class Runtime final : public menu::Host,
     /// the ground point into the Game block first, and stores the cursor cell.
     ///
     /// @return a cursor table index: the normal cursor over a gadget or without a
-    ///     match, the build cursor when the resolution fails
+    ///     match, the build cursor while build placement owns the pointer
     uint8_t pick_match_cursor();
+
+    /// Picks the cursor the match pointer shows, as pick_match_cursor does,
+    /// writing the same into the Game block.
+    ///
+    /// @return a cursor table index, or none while build placement owns the
+    ///     pointer over the battlefield, where the cursor shown stays as it is
+    /// @quirk Over the battlefield build placement keeps the cursor the pointer
+    ///        brought, normally the arrow from the build button, whose point is
+    ///        the footprint's middle. The build cursor, whose point lies left
+    ///        of and above its picture, shows over the radar, and stays when
+    ///        the pointer crosses from the radar onto the battlefield, as in
+    ///        3.1c.
+    std::optional<uint8_t> shown_match_cursor();
 
     /// Picks the cursor a point and a unit given apart from the pointer, as
     /// the megamap's are, show through the order-cursor resolution.
@@ -3084,9 +3097,10 @@ class Runtime final : public menu::Host,
     /// Steps and draws the software cursor, the cursor half of the GUI update.
     ///
     /// The elapsed ticks, the cursor step and pointer read, the match's order
-    /// cursor, then the cursor for the pointer over or off the top panel; the
-    /// cursor is drawn into the frame unless the match presents in layers, or
-    /// the system's pointer shows instead (pointer_shows_cursor).
+    /// cursor (shown_match_cursor), then the cursor for the pointer over or
+    /// off the top panel; the cursor is drawn into the frame unless the match
+    /// presents in layers, or the system's pointer shows instead
+    /// (pointer_shows_cursor).
     void tick_and_draw_cursor();
 
     /// The panel a match dialog opened over, as 3.1c keeps it drawn under the
@@ -11802,13 +11816,24 @@ class Runtime final : public menu::Host,
     /// outlined in the refused colour and the click must leave build mode armed
     /// and the builder without an order; over the clear site the outline must be
     /// the clear colour and the click must give the builder MobileBuild there.
-    /// Then checks the outline over the map's edges (check_build_site_edges),
-    /// for ARMSOLAR when the game has it. Throws std::runtime_error on a
-    /// failure.
+    /// Then checks the cursor shown in build mode (check_build_cursor), and
+    /// the outline over the map's edges (check_build_site_edges), for
+    /// ARMSOLAR when the game has it. Throws std::runtime_error on a failure.
     ///
     /// @param builder local mobile builder
     /// @param type building type to place
     void check_build_site_pointer(uint16_t builder, uint16_t type);
+
+    /// Checks the cursor the frame shows in build mode as the pointer moves.
+    ///
+    /// Off the battlefield and the radar the cursor must be the normal one,
+    /// and it must stay so on the battlefield, where the site is centred on
+    /// the pointer and a click still places the building; over the radar it
+    /// must be the build cursor, which stays when the pointer goes on to the
+    /// battlefield. Throws std::runtime_error on a failure.
+    ///
+    /// @param type building type to place
+    void check_build_cursor(uint16_t type);
 
     /// Checks the build ghost's outline at every edge and corner of the map and at several zooms.
     ///
