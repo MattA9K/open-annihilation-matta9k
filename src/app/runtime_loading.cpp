@@ -268,6 +268,12 @@ void Runtime::teardown_match() {
     offline_services_.set_on_screen_test(nullptr, nullptr);
     effect_boundary_.clock = nullptr;
     match_.reset();
+    release_match_mutators();
+    // A replay or a saved game puts the player's mutators back once its match
+    // ends. A teardown before that match starts leaves the held list as it is.
+    finish_loadout_once();
+    // The menus keep the sides the game started with.
+    restore_run_side_table();
     release_unsaved_unit_limit();
     // A later match may be built at the same address on other game data:
     // the side column's pages are measured again for it.
@@ -293,10 +299,15 @@ void Runtime::teardown_match() {
     unit_info_panel_.reset();
     stop_match_tracking();
     match_hud_.reset();
+    // A GAF this match could not read is tried again in the next match.
+    missing_gaf_paths_.clear();
     match_tick_blocked_ = false;
     // The rules the player's overrides changed while it ran apply from here,
     // so that the next match is built with them.
     play_latest_profile();
+    // A match that ended deletes the crash record. A fatal unwind never
+    // reaches here, so the file stays for the next start.
+    clear_mutator_sentinel();
 }
 
 void Runtime::leave_match() {

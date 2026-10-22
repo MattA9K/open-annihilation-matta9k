@@ -295,6 +295,20 @@ struct Options {
     fs::path mod_dir;
     // Plays the game folder without the remembered mod folder (--base-game).
     bool base_game = false;
+    /// Plays this run with no mutators (--no-mutators). A list `--mutator`
+    /// or a launch file names is refused and logged, and none is applied.
+    /// The last set of each setup is left as it is.
+    bool no_mutators = false;
+    // Mutators for this run (--mutator PATH|ID[:OPTION=VALUE,...]), each
+    // value as written, in the order given. Empty applies none.
+    std::vector<std::string> mutators;
+    /// The launch field that named each entry of `mutators`, such as
+    /// `content.mutators[1]`. Empty for an entry `--mutator` named, so a
+    /// refusal of that entry keeps `--mutator`'s own wording.
+    std::vector<std::string> mutator_fields{};
+    /// The version a launch required of each entry of `mutators`. Empty when
+    /// the file named none, and for an entry `--mutator` named.
+    std::vector<std::string> mutator_versions{};
     /// The base game and expansions for this run (--content
     /// GAME[:EXPANSION,...]). Empty when the run uses the remembered choice.
     /// It is not written to the preferences, and the mounted files change
@@ -441,6 +455,23 @@ struct Options {
     // presenter, in two skirmishes one after the other, and checks the
     // select and order lines it says.
     bool check_unit_speech = false;
+    // Plays skirmishes with the mutators the command line named and checks
+    // the commanders' health, and that a mutator which does not apply
+    // leaves no layer.
+    bool check_mutator_layer = false;
+    // Writes four made-up mutators and checks their verdicts against the
+    // installed game, then again from the verdict file.
+    bool check_mutator_verdicts = false;
+    bool check_mutator_dry_run = false;
+    // Plays skirmishes with the installed mutators the command line named and
+    // checks a recording's loadout is refused, played once, and given back.
+    bool check_replay_loadout = false;
+    // Plays skirmishes over a --mod-dir folder and checks each match reads
+    // side data again when gamedata/sidedata.tdf has changed.
+    bool check_side_data_per_match = false;
+    // Plays three skirmishes over a --mod-dir folder and checks a download
+    // button's picture appears only in the match whose folder holds its art.
+    bool check_gadget_art_per_match = false;
     // Opens a download page through the SDL presenter and builds a download
     // unit from it.
     bool check_download_builds = false;
@@ -523,6 +554,9 @@ struct Options {
     // Shows the progress dialog for a slow fixture, checks it animates and
     // closes with no input, writes pictures, and checks the four languages.
     bool check_progress = false;
+    // Holds one evicted archive's read, checks the window keeps drawing the
+    // iCloud line, then continues the folder step.
+    bool check_icloud_wait = false;
     // Opens every Open Annihilation screen in English, German, French,
     // Spanish, Italian and Simplified Chinese, or in the languages
     // check_languages names, at 640x480 and 1280x720, and fails when any
@@ -659,6 +693,21 @@ struct Options {
     // columns and window, its installed maps, its search, the clashing map
     // greyed with its reason, and Select moving SELMAP's selection.
     bool check_map_browser = false;
+    // Opens the mutator picker over the main menu at four window sizes, on
+    // a feed of made-up mutators, and requires the rows, a download, the
+    // turn-off question, a drag, the handed set and the verdict chip.
+    bool check_mutator_picker = false;
+    // A skirmish one made-up mutator stops, START WITHOUT IT and BACK, the
+    // question after a crash, and Get mutators over the picker.
+    bool check_mutator_prompts = false;
+    // On SKIRMISH and NEWGAME at 640x480 and 1280x720, requires MUTATORS…,
+    // its line, the focus hand-over, the remembered set and the set a start
+    // hands on. A scratch preferences file holds the remembered sets.
+    bool check_mutator_button = false;
+    // Hosts a battle room alone and requires MUTATORS… above Select Map,
+    // the remembered multiplayer set, the chat lines, and the button
+    // disabled while the room's options are locked.
+    bool check_mutator_room = false;
     // Installs one map pack from the check's own registry while both map
     // lists already exist. Requires the map whose stem has a space, an
     // apostrophe and parentheses in both lists, under its index title,
@@ -677,7 +726,7 @@ struct Options {
     // and none for the second.
     bool check_mod_warning = false;
     // --open FILE and --install-mod FILE, repeated, and the bare arguments
-    // that name a .oamod, .oalang, .oamap or .oareg file, any case: files to
+    // that name a .oamod, .oalang, .oamap, .oamut or .oareg file, any case: files to
     // open once the main menu shows; absolute, in the order given.
     std::vector<fs::path> open_files;
     // Installs made-up mod packages through each of the main menu's
@@ -718,6 +767,10 @@ struct Options {
     // skirmish list. The run names --game-dir only so the copy can be made;
     // the check itself plays the player's copy.
     bool check_library_content = false;
+    // At 640x480, installs made-up Ridge from an added registry, offers a
+    // rules-changing update, and for 50 rounds answers UPDATE and requires
+    // the Library still on top with its tabs. NOT NOW leaves the details page.
+    bool check_library_update_question = false;
     // The soft restarts the process has made before this run: 0 for the
     // first; each switch of the mod from the settings adds one.
     uint32_t restarts = 0;

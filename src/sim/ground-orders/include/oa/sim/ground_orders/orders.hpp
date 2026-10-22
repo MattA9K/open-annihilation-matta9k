@@ -230,6 +230,19 @@ uint32_t move_ground(
 /// @param host weapon wake-up, target search, attack and random stream
 /// @return the scheduler result: 1 waiting (phase 0), 5 attacking, 2 waiting again, 7 without an object or in an unknown phase
 uint32_t standby(UnitView u, sim::simulation_state::Order& order, uint32_t tick, Host& host);
+/// How the ground steering treats a unit faster than any stock unit, one that
+/// steps more than 6 pixels a tick.
+enum class FastUnitSteering : uint8_t {
+    /// As 3.1c steers every unit. A match without mutators steers so, since a
+    /// mod's units, fast ones included, must move as 3.1c moves them for its
+    /// network games with 3.1c and its recordings.
+    as_3_1c,
+    /// Held to its route, as a match that applied mutators steers it: it never
+    /// steps past a waypoint, comes on no faster than its braking can stop
+    /// it, and slows while it turns.
+    held_to_route,
+};
+
 /// Drives a ground unit along the navigator route: turns toward and accelerates along it.
 ///
 /// The second route point is pulled back along the first segment to 80 world
@@ -246,13 +259,15 @@ uint32_t standby(UnitView u, sim::simulation_state::Order& order, uint32_t tick,
 /// @param acceleration signed 16.16 speed gain per tick
 /// @param deceleration signed 16.16 speed loss per tick
 /// @param sea_level map sea level in whole world units
+/// @param fast_units how a unit faster than any stock unit is steered; as 3.1c when left out
 void steer_ground(
     sim::unit_movement::Unit& unit,
     sim::unit_movement::Movement& movement,
     const Navigation& n,
     Fixed acceleration,
     Fixed deceleration,
-    uint8_t sea_level
+    uint8_t sea_level,
+    FastUnitSteering fast_units = FastUnitSteering::as_3_1c
 );
 /// Drives a ground unit along a mirrored navigator's shared route head.
 ///
@@ -262,13 +277,15 @@ void steer_ground(
 /// @param acceleration signed 16.16 speed gain per tick
 /// @param deceleration signed 16.16 speed loss per tick
 /// @param sea_level map sea level in whole world units
+/// @param fast_units how a unit faster than any stock unit is steered; as 3.1c when left out
 void steer_ground(
     sim::unit_movement::Unit& unit,
     sim::unit_movement::Movement& movement,
     const MirroredNavigation& n,
     Fixed acceleration,
     Fixed deceleration,
-    uint8_t sea_level
+    uint8_t sea_level,
+    FastUnitSteering fast_units = FastUnitSteering::as_3_1c
 );
 // Default when OTA gravity is unset.
 inline constexpr Fixed default_gravity = 0x1fdb;

@@ -191,14 +191,35 @@ inline constexpr std::string_view file_type_oalang = "open-annihilation.file-typ
 /// "on" or "off" (EngineSettings::file_type_oareg). Absent, or any text
 /// other than off, the game opens registry files.
 inline constexpr std::string_view file_type_oareg = "open-annihilation.file-types.oareg";
+/// "on" or "off" (EngineSettings::file_type_oamut). Absent, or any text
+/// other than off, the game opens mutator packages.
+inline constexpr std::string_view file_type_oamut = "open-annihilation.file-types.oamut";
 /// "on" or "off" (EngineSettings::file_type_oalaunch). Absent, or any text
 /// other than off, the game opens launch files.
 inline constexpr std::string_view file_type_oalaunch = "open-annihilation.file-types.oalaunch";
+/// The last mutator set a skirmish setup started a game with: the canonical
+/// loadout text, mutators in order with versions, package SHA-256s and
+/// options. Absent, or text that cannot be read as that loadout, means no
+/// set. Restore defaults does not erase it.
+inline constexpr std::string_view mutators_skirmish = "open-annihilation.mutators.skirmish";
+/// The last mutator set the multiplayer host's setup started a game with:
+/// the canonical loadout text, mutators in order with versions, package
+/// SHA-256s and options. Absent, or text that cannot be read as that
+/// loadout, means no set. Restore defaults does not erase it.
+inline constexpr std::string_view mutators_multiplayer = "open-annihilation.mutators.multiplayer";
+/// The last mutator set a campaign setup started a game with: the canonical
+/// loadout text, mutators in order with versions, package SHA-256s and
+/// options. Absent, or text that cannot be read as that loadout, means no
+/// set. Restore defaults does not erase it.
+inline constexpr std::string_view mutators_campaign = "open-annihilation.mutators.campaign";
 static_assert(base_game.find('|') == std::string_view::npos);
 static_assert(base_game.find('\\') == std::string_view::npos);
 static_assert(expansions_prefix.find('|') == std::string_view::npos);
 static_assert(expansions_prefix.back() == '.');
 static_assert(content_note.find('|') == std::string_view::npos);
+static_assert(mutators_skirmish.find('|') == std::string_view::npos);
+static_assert(mutators_multiplayer.find('|') == std::string_view::npos);
+static_assert(mutators_campaign.find('|') == std::string_view::npos);
 } // namespace key
 
 /// Tells whether two tags are the same, ignoring ASCII case and reading '_' as '-'.
@@ -1070,6 +1091,7 @@ struct EngineSettings {
     bool file_type_oamap{true};  ///< the game opens map packs (.oamap)
     bool file_type_oalang{true}; ///< the game opens language packs (.oalang)
     bool file_type_oareg{true};  ///< the game opens registry files (.oareg)
+    bool file_type_oamut{true};  ///< the game opens mutator packages (.oamut)
     /// The game opens launch files (.oalaunch), which start it in their
     /// battle room, as -c does.
     bool file_type_oalaunch{true};

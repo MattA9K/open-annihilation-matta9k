@@ -362,6 +362,7 @@ const std::vector<FlagCase>& flag_cases() {
     static const std::vector<FlagCase> cases{
         {"--choose-game-dir", &Options::choose_game_dir, {}},
         {"--base-game", &Options::base_game, {}},
+        {"--no-mutators", &Options::no_mutators, {}},
         {"--print-profile", &Options::print_profile, {"--game-dir", "ta"}},
         {"--accept-unimplemented-hacks",
          &Options::accept_unimplemented_hacks,
@@ -390,6 +391,10 @@ const std::vector<FlagCase>& flag_cases() {
         {"--check-mod-switch", &Options::check_mod_switch, {}},
         {"--check-map-packs", &Options::check_map_packs, {}},
         {"--check-map-browser", &Options::check_map_browser, {}},
+        {"--check-mutator-button", &Options::check_mutator_button, {}},
+        {"--check-mutator-room", &Options::check_mutator_room, {}},
+        {"--check-mutator-picker", &Options::check_mutator_picker, {}},
+        {"--check-mutator-prompts", &Options::check_mutator_prompts, {}},
         {"--check-map-pack-lists", &Options::check_map_pack_lists, {}},
         {"--check-mod-map-settings", &Options::check_mod_map_settings, {}},
         {"--check-mod-warning", &Options::check_mod_warning, {}},
@@ -401,6 +406,7 @@ const std::vector<FlagCase>& flag_cases() {
         {"--check-library-install", &Options::check_library_install, {}},
         {"--check-library-map-previews", &Options::check_library_map_previews, {}},
         {"--check-library-content", &Options::check_library_content, {}},
+        {"--check-library-update-question", &Options::check_library_update_question, {}},
         {"--check-renderer-ladder", &Options::check_renderer_ladder, {}},
         {"--check-briefing-narration", &Options::check_briefing_narration, {}},
         {"--check-match-layers", &Options::check_match_layers, {}},
@@ -409,6 +415,12 @@ const std::vector<FlagCase>& flag_cases() {
         {"--check-side-orders", &Options::check_side_orders, {}},
         {"--check-factory-orders", &Options::check_factory_orders, {}},
         {"--check-unit-speech", &Options::check_unit_speech, {}},
+        {"--check-mutator-layer", &Options::check_mutator_layer, {}},
+        {"--check-mutator-verdicts", &Options::check_mutator_verdicts, {}},
+        {"--check-mutator-dry-run", &Options::check_mutator_dry_run, {}},
+        {"--check-replay-loadout", &Options::check_replay_loadout, {}},
+        {"--check-side-data-per-match", &Options::check_side_data_per_match, {}},
+        {"--check-gadget-art-per-match", &Options::check_gadget_art_per_match, {}},
         {"--check-download-builds", &Options::check_download_builds, {}},
         {"--check-stockpile-builds", &Options::check_stockpile_builds, {}},
         {"--check-unit-page-memory", &Options::check_unit_page_memory, {}},
@@ -425,6 +437,7 @@ const std::vector<FlagCase>& flag_cases() {
         {"--check-setup-window", &Options::check_setup_window, {}},
         {"--check-window-place", &Options::check_window_place, {}},
         {"--check-progress", &Options::check_progress, {}},
+        {"--check-icloud-wait", &Options::check_icloud_wait, {}},
         {"--check-text-fit", &Options::check_text_fit, {}},
         {"--check-folder-chooser", &Options::check_folder_chooser, {}},
         {"--check-patrol-reclaim", &Options::check_patrol_reclaim, {}},
@@ -466,6 +479,7 @@ const std::vector<ValueCase>& value_cases() {
         {"--content", "totala", {}},
         {"--archive", "totala1.hpi", {}},
         {"--mod", "mods/x/oamod.yaml", {}},
+        {"--mutator", "ridge-swift:factor=4", {}},
         {"--mod-dir", "mods/x", {}},
         {"--snapshot", "frame.ppm", {}},
         {"--preferences-file", "p.conf", {}},
@@ -834,29 +848,34 @@ void version_line_stands_alone() {
 
 } // namespace
 
-// --open, --install-mod, bare files of the four types, macOS's process
-// serial number and --check-mod-install.
+// --open, --install-mod, bare files of the five types the game installs or
+// adds, macOS's process serial number and --check-mod-install.
 void mod_install_options() {
     namespace fs = std::filesystem;
     const auto opened = parse(
         {"a.oalang",
          "B.OAMAP",
          "c.oareg",
+         "F.OAMUT",
          "--open",
          "d.oamod",
          "--install-mod",
          "e.oamod",
+         "--open",
+         "g.oamut",
          "-psn_0_123",
          "german"}
     );
-    expect(opened.open_files.size() == 5, "--open, --install-mod and bare files are all opened");
+    expect(opened.open_files.size() == 7, "--open, --install-mod and bare files are all opened");
     expect(
-        opened.open_files.size() == 5 && opened.open_files[0].is_absolute() &&
+        opened.open_files.size() == 7 && opened.open_files[0].is_absolute() &&
             opened.open_files[0].filename() == "a.oalang" &&
             opened.open_files[1].filename() == "B.OAMAP" &&
             opened.open_files[2].filename() == "c.oareg" &&
-            opened.open_files[3].filename() == "d.oamod" &&
-            opened.open_files[4].filename() == "e.oamod",
+            opened.open_files[3].filename() == "F.OAMUT" &&
+            opened.open_files[4].filename() == "d.oamod" &&
+            opened.open_files[5].filename() == "e.oamod" &&
+            opened.open_files[6].filename() == "g.oamut",
         "the files are absolute, in the order given, and --install-mod still opens one"
     );
     expect(opened.skip_intro, "a file opened with the game skips the movies");
@@ -878,7 +897,8 @@ void mod_install_options() {
     expect(
         rejection({"x.oamod", "--headless-check"})
                 .find(
-                    "a file to open (.oamod, .oalang, .oamap or .oareg), after --open or on "
+                    "a file to open (.oamod, .oalang, .oamap, .oamut or .oareg), after --open or "
+                    "on "
                     "its own,"
                 ) != std::string::npos,
         "a bare file's refusal names both ways of giving it"
@@ -977,6 +997,20 @@ void switch_words_keep_their_spaces() {
     );
 }
 
+// Two --mutator values stay in the order given, and a malformed value is
+// refused before the game starts.
+void mutator_options() {
+    const auto options =
+        parse({"--mutator", "ridge-swift", "--mutator", "packages/ridge-tough:health=2000"});
+    expect(
+        options.mutators.size() == 2 && options.mutators[0] == "ridge-swift" &&
+            options.mutators[1] == "packages/ridge-tough:health=2000",
+        "two --mutator values stay in order"
+    );
+    const std::string refused = rejection({"--mutator", "ridge-swift:factor="});
+    expect(refused.starts_with("--mutator: "), "a malformed --mutator names the option");
+}
+
 int main() {
     renderer_ladder_options();
     game_files_options();
@@ -984,6 +1018,7 @@ int main() {
     switch_words_keep_their_spaces();
     options_by_name();
     value_options();
+    mutator_options();
     const auto plain = parse({"--headless-check"});
     expect(plain.trace_digest.empty() && plain.trace_units.empty(), "no trace without the flag");
     expect(!plain.seed, "no fixed seed without the flag");

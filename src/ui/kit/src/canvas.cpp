@@ -398,6 +398,27 @@ bool in_capsule(int64_t sx, int64_t sy, int64_t width8, int64_t height8, int64_t
     return across * across + down * down <= rad8 * rad8;
 }
 
+/// Tells whether a sample lies in a rectangle whose four corners are
+/// quarter circles of a radius, in eighths of a pixel.
+///
+/// @param sx the sample's column, in eighths
+/// @param sy the sample's row, in eighths
+/// @param width8 the rectangle's width, in eighths
+/// @param height8 the rectangle's height, in eighths
+/// @param rad8 the corners' radius, in eighths
+/// @return true when the sample is inside
+bool in_cornered(int64_t sx, int64_t sy, int64_t width8, int64_t height8, int64_t rad8) noexcept {
+    if (rad8 <= 0 || width8 <= 0 || height8 <= 0)
+        return false;
+    if (sx < 0 || sy < 0 || sx > width8 || sy > height8)
+        return false;
+    const int64_t centre_x = std::clamp(sx, rad8, std::max(width8 - rad8, rad8));
+    const int64_t centre_y = std::clamp(sy, rad8, std::max(height8 - rad8, rad8));
+    const int64_t across = sx - centre_x;
+    const int64_t down = sy - centre_y;
+    return across * across + down * down <= rad8 * rad8;
+}
+
 /// Returns how much of each pixel a capsule covers, or of its outline when
 /// the outline is inset by hole pixels.
 ///
@@ -412,8 +433,12 @@ bool in_capsule(int64_t sx, int64_t sy, int64_t width8, int64_t height8, int64_t
 /// @param hole_px the outline's thickness, in pixels; 0 is the filled capsule
 /// @param stepped true rounds each pixel to covered or not
 /// @return columns times rows bytes, rows top to bottom
-std::vector<uint8_t>
-capsule_coverage(int32_t columns, int32_t rows, int32_t radius_px, int32_t hole_px, bool stepped) {
+std::vector<uint8_t> capsule_coverage(
+    int32_t columns, int32_t rows, int32_t radius_px, int32_t hole_px, bool stepped, bool corners
+) {
+    const auto inside_shape = [corners](int64_t x, int64_t y, int64_t w, int64_t h, int64_t r) {
+        return corners ? in_cornered(x, y, w, h, r) : in_capsule(x, y, w, h, r);
+    };
     std::vector<uint8_t> coverage(
         static_cast<std::size_t>(std::max(columns, 0)) * static_cast<std::size_t>(std::max(rows, 0))
     );
@@ -436,10 +461,10 @@ capsule_coverage(int32_t columns, int32_t rows, int32_t radius_px, int32_t hole_
                 for (int64_t across = 0; across < kRoundSamples; ++across) {
                     const int64_t sx = static_cast<int64_t>(column) * 8 + 2 * across + 1;
                     const int64_t sy = static_cast<int64_t>(row) * 8 + 2 * down + 1;
-                    if (!in_capsule(sx, sy, width8, height8, rad8))
+                    if (!inside_shape(sx, sy, width8, height8, rad8))
                         continue;
                     if (hole &&
-                        in_capsule(sx - origin8, sy - origin8, inner_w8, inner_h8, inner_rad8))
+                        inside_shape(sx - origin8, sy - origin8, inner_w8, inner_h8, inner_rad8))
                         continue;
                     ++inside;
                 }
@@ -501,7 +526,12 @@ bool round_stepped(const Canvas& canvas) noexcept {
 /// @param hole_px the outline's thickness, in pixels; 0 fills the capsule
 /// @param ink the colour
 void blend_round(
-    const Canvas& canvas, const Rect& rect, int32_t radius, int32_t hole_px, Colour ink
+    const Canvas& canvas,
+    const Rect& rect,
+    int32_t radius,
+    int32_t hole_px,
+    Colour ink,
+    bool corners = false
 ) {
     const Point size = covered_pixels(canvas, rect);
     if (size.x <= 0 || size.y <= 0)
@@ -522,7 +552,7 @@ void blend_round(
         return;
     }
     const std::vector<uint8_t> coverage =
-        capsule_coverage(size.x, size.y, radius_px, hole_px, round_stepped(canvas));
+        capsule_coverage(size.x, size.y, radius_px, hole_px, round_stepped(canvas), corners);
     blend_coverage(canvas, rect, coverage, ink);
 }
 
@@ -534,6 +564,14 @@ void fill_round_rect(const Canvas& canvas, const Rect& rect, int32_t radius, Col
 
 void outline_round_rect(const Canvas& canvas, const Rect& rect, int32_t radius, Colour ink) {
     blend_round(canvas, rect, radius, round_outline_px(canvas), ink);
+}
+
+void fill_corner_rect(const Canvas& canvas, const Rect& rect, int32_t radius, Colour ink) {
+    blend_round(canvas, rect, radius, 0, ink, true);
+}
+
+void outline_corner_rect(const Canvas& canvas, const Rect& rect, int32_t radius, Colour ink) {
+    blend_round(canvas, rect, radius, round_outline_px(canvas), ink, true);
 }
 
 void rule_rect(const Canvas& canvas, const Rect& rect, Colour ink) {

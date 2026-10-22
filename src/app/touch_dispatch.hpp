@@ -189,6 +189,25 @@ struct TouchDispatchAccess {
     /// @return the gadget a press would select, or none
     [[nodiscard]] static std::optional<std::size_t>
     frontend_gadget_at(const Runtime& runtime, float x, float y, bool* on_gadget = nullptr);
+    /// Returns a canvas point in the frontend panel's own pixels, where its
+    /// gadgets lie, as update_pointer moves it.
+    ///
+    /// @param runtime the runtime
+    /// @param x canvas pixels
+    /// @param y canvas pixels
+    /// @return the point in the panel's pixels
+    [[nodiscard]] static std::array<float, 2>
+    frontend_panel_point(const Runtime& runtime, float x, float y);
+    /// Returns how far a canvas point lies from a frontend gadget, to the
+    /// edge of the rectangle a press finds it in: none inside it.
+    ///
+    /// @param runtime the runtime
+    /// @param x canvas pixels
+    /// @param y canvas pixels
+    /// @param gadget the gadget
+    /// @return the distance, in canvas pixels; infinite for a gadget that is not loaded
+    [[nodiscard]] static float
+    frontend_gadget_distance(const Runtime& runtime, float x, float y, std::size_t gadget);
     /// Finds the nearest gadget within a radius of a point by probing rings around it.
     ///
     /// @param runtime the runtime

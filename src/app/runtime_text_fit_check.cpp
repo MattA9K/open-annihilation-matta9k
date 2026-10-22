@@ -8,24 +8,32 @@
 // The check fails naming the screen, the language and the text. The Game
 // files screen and the folder chooser paint through their own painter, which
 // records the same way. A startup notice drawn by the game's own windows is
-// opened too; that painter keeps no record.
+// opened too; that painter keeps no record. SKIRMISH is painted with
+// Mutators reading "Mutators" and "Mutators (5)", and NEWGAME with the
+// button, in every language and both sizes; its words must read whole.
 
 #include "folder_chooser_screen.hpp"
 #include "game_files_screen.hpp"
 #include "library_host.hpp"
 #include "oa_layer.hpp"
+#include "oa_layer_check.hpp"
 
 #include "oa/app/game_directory.hpp"
 #include "oa/app/game_files_import.hpp"
+#include "oa/app/mutators_memory.hpp"
 #include "oa/app/runtime.hpp"
 #include "oa/data/languages/interface_text.hpp"
 #include "oa/platform/preferences.hpp"
 #include "oa/ui/engine_settings/dialog.hpp"
 #include "oa/ui/first_run/first_run.hpp"
 #include "oa/ui/frontend_dialogs.hpp"
+#include "oa/ui/frontend_state/skirmish_ui.hpp"
 #include "oa/ui/kit/components_more.hpp"
 #include "oa/ui/kit/text.hpp"
 #include "oa/ui/library/library.hpp"
+#include "oa/ui/library/prerequisites.hpp"
+#include "oa/ui/mutator_picker/prompts.hpp"
+#include "oa/ui/mutator_picker/screen.hpp"
 
 #include <SDL3/SDL.h>
 
@@ -51,6 +59,8 @@ namespace kit = oa::ui::kit;
 namespace library = oa::ui::library;
 namespace first_run = oa::ui::first_run;
 namespace dialogs = oa::ui::frontend_dialogs;
+namespace picker = oa::ui::mutator_picker;
+namespace layout = oa::ui::display_layout;
 
 /// Languages the check opens every screen in, in order, unless --check-language
 /// names others.
@@ -86,6 +96,21 @@ constexpr std::string_view kLongText =
     "OA looks for new content and updates in the registries' lists. It never installs anything "
     "until you say so.";
 
+/// A mutator's name at the manifest's most, 64 bytes. A question's title is
+/// one line, so this is the longest name "Start without {name}?" can hold.
+constexpr std::string_view kMutatorName =
+    "Mutator With A Fairly Long Name That Reaches Sixty-Four Bytes xx";
+static_assert(kMutatorName.size() == 64);
+
+/// Looks one interface word up in the language the check is showing.
+///
+/// @param context unused
+/// @param english the word, in English
+/// @return its translation, or the English
+std::string_view fit_shown(void* /*context*/, std::string_view english) {
+    return oa::data::languages::interface_text(english);
+}
+
 /// A startup notice's sentence, as the main menu shows it.
 constexpr std::string_view kStartupNotice =
     "This game includes no skirmish maps, so skirmish is not available.";
@@ -117,6 +142,8 @@ std::string_view tab_word(library::Tab tab) noexcept {
         return "mods";
     case library::Tab::maps:
         return "maps";
+    case library::Tab::mutators:
+        return "mutators";
     case library::Tab::languages:
         return "languages";
     case library::Tab::updates:
@@ -256,15 +283,197 @@ void Runtime::check_text_fit() {
         keep();
     };
 
+    /// Mutators' words read whole on its button: never cut with "…".
+    const auto require_whole_words = [&](std::string_view screen) {
+        std::vector<AutomationControl> controls;
+        oa_layer().automation_controls(controls);
+        bool found = false;
+        for (const AutomationControl& control : controls) {
+            if (control.name != "oa.mutators" || !control.visible)
+                continue;
+            found = true;
+            require(
+                control.text.find("…") == std::string::npos,
+                std::string(screen) + ": Mutators' words are cut (" + control.text + ")"
+            );
+        }
+        require(found, std::string(screen) + ": oa.mutators is not shown");
+    };
+
+    /// Keeps a model the check built from being replaced by the feed.
+    const auto hold_library = [&] {
+        LibraryHost& host = library_host();
+        host.refreshed = true;
+        host.feed_generation =
+            host.feed.generation != nullptr ? host.feed.generation(host.feed.context) : 0;
+    };
+
+    /// Paints one screen without letting the feed rebuild the Library.
+    const auto paint_held = [&](std::string_view screen) {
+        hold_library();
+        paint(screen);
+    };
+
+    /// Made-up mutators on the Mutators tab. Fast Builders is not installed
+    /// and Steady Hands is. Gatehouse Keep needs Gatehouse, and Outer Wall
+    /// needs Gatehouse and Ridge Walls: two downloads, then three. None of
+    /// those four is installed, and Fit Core offers each one. The host's
+    /// check stays unset, so there is no Checked fact.
+    const auto inject_mutators = [&] {
+        LibraryHost& host = library_host();
+        library::Inputs inputs = host.model.inputs;
+        bool listed = false;
+        for (const library::Registry& registry : inputs.registries)
+            if (registry.id == "fit-core")
+                listed = true;
+        if (!listed) {
+            library::Registry registry;
+            registry.id = "fit-core";
+            registry.name = "Fit Core";
+            registry.built_in = true;
+            inputs.registries.push_back(std::move(registry));
+        }
+        library::Listing missing;
+        missing.registry = "fit-core";
+        missing.kind = library::Kind::mutator;
+        missing.key = "fast-builders";
+        missing.name = "Fast Builders";
+        missing.version = "2.0";
+        missing.revision = 1;
+        missing.release = 1;
+        missing.author = "Ada";
+        missing.summary = "Builds faster.";
+        missing.homepage = "https://example.test/fast";
+        missing.size = 1024;
+        missing.requires_engine = ">= 0.8.0";
+        library::MutatorFacts missing_facts;
+        missing_facts.works_with.push_back({"*", {}, {}});
+        missing_facts.layers.push_back("units");
+        missing_facts.tags.push_back("economy");
+        missing.mutator = missing_facts;
+        inputs.listings.push_back(std::move(missing));
+
+        library::Listing steady_listing;
+        steady_listing.registry = "fit-core";
+        steady_listing.kind = library::Kind::mutator;
+        steady_listing.key = "steady";
+        steady_listing.name = "Steady Hands";
+        steady_listing.version = "1.0";
+        steady_listing.release = 1;
+        steady_listing.author = "Ada";
+        steady_listing.summary = "Hands stay steady.";
+        steady_listing.homepage = "https://example.test/steady";
+        steady_listing.size = 1024;
+        steady_listing.requires_engine = ">= 0.8.0";
+        library::MutatorFacts steady_facts;
+        steady_facts.works_with.push_back({"*", {}, {}});
+        steady_facts.layers.push_back("units");
+        library::OptionLine option;
+        option.label = "Speed";
+        option.values.push_back("slow");
+        option.values.push_back("fast");
+        steady_facts.options.push_back(std::move(option));
+        steady_listing.mutator = steady_facts;
+        library::Installed steady;
+        steady.kind = library::Kind::mutator;
+        steady.key = "steady";
+        steady.registry = "fit-core";
+        steady.release = 1;
+        steady.folder = "steady";
+        steady.name = "Steady Hands";
+        steady.version = "1.0";
+        steady.author = "Ada";
+        steady.description = "Hands stay steady.";
+        steady.mutator = std::move(steady_facts);
+        inputs.listings.push_back(std::move(steady_listing));
+        inputs.installed.push_back(std::move(steady));
+
+        // GET WITH's question: one missing prerequisite, then two. The names
+        // are the ones the question writes, so each language's body is fitted.
+        const auto offered = [&](std::string_view key,
+                                 std::string_view name,
+                                 std::string_view version,
+                                 std::vector<library::Prerequisite> needs) {
+            library::Listing listing;
+            listing.registry = "fit-core";
+            listing.kind = library::Kind::mutator;
+            listing.key = std::string(key);
+            listing.name = std::string(name);
+            listing.version = std::string(version);
+            listing.release = 1;
+            listing.author = "Ada";
+            listing.summary = "A made-up mutator.";
+            listing.size = 1024;
+            listing.requires_engine = ">= 0.8.0";
+            library::MutatorFacts facts;
+            facts.works_with.push_back({"*", {}, {}});
+            facts.layers.push_back("units");
+            facts.needs = std::move(needs);
+            listing.mutator = std::move(facts);
+            inputs.listings.push_back(std::move(listing));
+        };
+        offered("gatehouse", "Gatehouse", "4.1", {});
+        offered("ridge-walls", "Ridge Walls", "1.2", {});
+        offered(
+            "gatehouse-keep",
+            "Gatehouse Keep",
+            "2.0",
+            {library::Prerequisite{"gatehouse", ">= 4.0", "Gatehouse"}}
+        );
+        offered(
+            "outer-wall",
+            "Outer Wall",
+            "1.0",
+            {library::Prerequisite{"gatehouse", {}, "Gatehouse"},
+             library::Prerequisite{"ridge-walls", {}, "Ridge Walls"}}
+        );
+
+        library::refresh(host.model, std::move(inputs));
+        library::set_tab(host.model, library::Tab::mutators);
+        hold_library();
+    };
+
+    /// The injected mutator `key`, injected again when the feed has rebuilt
+    /// the Library since. A holding frame keeps out what the feed changed
+    /// before it, but a picture or a minimap that arrives during the frame
+    /// moves the feed on, and a slow build sees that often.
+    const auto injected = [&](std::string_view key) -> const library::Entry* {
+        const library::EntryId id{"fit-core", library::Kind::mutator, std::string(key)};
+        if (library::find_entry(library_host().model, id) == nullptr)
+            inject_mutators();
+        return library::find_entry(library_host().model, id);
+    };
+
+    /// The details of one injected mutator, scrolled, at the window's size.
+    /// Compact shows the details page. Regular and Large show the pane.
+    const auto show_mutator = [&](std::string_view key) {
+        LibraryHost& host = library_host();
+        host.state.details_page = width <= 640;
+        host.state.menu = library::MenuKind::none;
+        const std::string screen = std::string("library/mutators/") + std::string(key);
+        for (const int32_t scroll : kScrolls) {
+            require(injected(key) != nullptr, screen + " has no " + std::string(key));
+            library::select(host.model, {"fit-core", library::Kind::mutator, std::string(key)});
+            library::open_details(host.model);
+            host.state.details_scroll = scroll;
+            host.state.list_scroll = 0;
+            ++host.model_revision;
+            paint_held(screen);
+        }
+    };
+
     const auto close_covering = [&] {
         dialogs::reset_dialogs();
         if (LayerScreen* notice = oa_layer().find(NoticeScreen::screen_name))
             oa_layer().close(notice);
         if (LayerScreen* question = oa_layer().find(QuestionScreen::screen_name))
             oa_layer().close(question);
+        if (LayerScreen* picker_open = oa_layer().find(picker::screen_name))
+            oa_layer().close(picker_open);
         if (LayerScreen* welcome = oa_layer().find("first-run"))
             oa_layer().close(welcome);
         close_library();
+        restore_mutator_picker_feed();
         if (engine_settings_dialog() != nullptr)
             take_settings_screen_action(settings::DialogAction::cancelled);
         else if (LayerScreen* settings_screen = oa_layer().find("settings"))
@@ -356,6 +565,37 @@ void Runtime::check_text_fit() {
             );
             paint("main-menu");
 
+            // Mutators on the skirmish setup, with none and then five chosen,
+            // and on NEWGAME. The rest of this language still starts at the
+            // main menu.
+            load(Screen::skirmish);
+            skirmish::setup(state_, skirmish_settings_, preferences_, skirmish_ui_, *this);
+            paint("skirmish/mutators");
+            require_whole_words("skirmish/mutators");
+            {
+                std::vector<picker::Chosen> long_set;
+                for (const char* id :
+                     {"north-ridge-gatehouse",
+                      "outer-keep-wall",
+                      "steady-builders",
+                      "lantern-line",
+                      "beacon-west"}) {
+                    picker::Chosen one;
+                    one.id = id;
+                    long_set.push_back(std::move(one));
+                }
+                replace_setup_mutators(mutators_memory::Setup::skirmish, std::move(long_set));
+            }
+            paint("skirmish/mutators-five");
+            require_whole_words("skirmish/mutators-five");
+            replace_setup_mutators(mutators_memory::Setup::skirmish, {});
+            load(Screen::single_player);
+            load(Screen::new_campaign);
+            paint("newgame/mutators");
+            require_whole_words("newgame/mutators");
+            replace_setup_mutators(mutators_memory::Setup::campaign, {});
+            load(Screen::main_menu);
+
             open_engine_settings_from_menu();
             settings::Dialog* dialog = engine_settings_dialog();
             require(dialog != nullptr, "Settings did not open");
@@ -382,6 +622,7 @@ void Runtime::check_text_fit() {
                 library::Tab::active,
                 library::Tab::mods,
                 library::Tab::maps,
+                library::Tab::mutators,
                 library::Tab::languages,
                 library::Tab::updates,
                 library::Tab::registries
@@ -417,6 +658,57 @@ void Runtime::check_text_fit() {
                     host.state.details_page = false;
                 }
             }
+            // Made-up mutators, installed and not, at this size. At 640 the
+            // same pair is also drawn at 960x540, Regular, then the window
+            // returns to 640x480 for the screens that follow.
+            require(
+                oa_layer().find(library_screen_name) != nullptr,
+                "the Library did not stay open for the mutator details"
+            );
+            inject_mutators();
+            show_mutator("fast-builders");
+            show_mutator("steady");
+            if (size_at == 0) {
+                const int32_t saved_width = width;
+                const int32_t saved_height = height;
+                width = 960;
+                height = 540;
+                require(
+                    SDL_SetWindowSize(sdl_.window, width, height) && SDL_SyncWindow(sdl_.window),
+                    "the window did not take 960x540"
+                );
+                apply_output_mode();
+                show_mutator("fast-builders");
+                show_mutator("steady");
+                width = saved_width;
+                height = saved_height;
+                require(
+                    SDL_SetWindowSize(sdl_.window, width, height) && SDL_SyncWindow(sdl_.window),
+                    "the window did not return to 640x480"
+                );
+                apply_output_mode();
+            }
+            // GET WITH, over the injected plans: two packages, then three.
+            // The question is built while the injected model is still held.
+            const auto paint_get_with = [&](std::string_view key, std::string_view screen) {
+                LibraryHost& host = library_host();
+                const library::Entry* entry = injected(key);
+                require(entry != nullptr, std::string(screen) + " has no " + std::string(key));
+                oa_layer().push(
+                    std::make_unique<QuestionScreen>(
+                        oa_layer(),
+                        Screen::main_menu,
+                        library::get_with_question(host.model, *entry),
+                        QuestionScreen::Host{}
+                    )
+                );
+                paint_held(screen);
+                if (LayerScreen* question = oa_layer().find(QuestionScreen::screen_name))
+                    oa_layer().close(question);
+            };
+            paint_get_with("gatehouse-keep", "library/get-with");
+            paint_get_with("outer-wall", "library/get-all");
+            library_host().refreshed = false;
             if (oa_layer().find(library_screen_name) != nullptr) {
                 kit::Question asked;
                 asked.title = "Remove";
@@ -435,6 +727,170 @@ void Runtime::check_text_fit() {
                     oa_layer().close(question);
             }
             close_library();
+
+            // The mutator picker, on the check's feed: the list, the details,
+            // the waiting line, the turn-off question and the read-only footer.
+            {
+                const auto named =
+                    [this](std::string_view name) -> std::optional<AutomationControl> {
+                    std::vector<AutomationControl> controls;
+                    oa_layer().automation_controls(controls);
+                    for (const AutomationControl& control : controls)
+                        if (control.name == name && control.visible && control.window_width > 0 &&
+                            control.window_height > 0)
+                            return control;
+                    return std::nullopt;
+                };
+                const auto click_named = [&](std::string_view name) {
+                    const std::optional<AutomationControl> control = named(name);
+                    require(control.has_value(), std::string(name) + " is not shown");
+                    const layout::Point pixel{
+                        control->window_x + control->window_width / 2,
+                        control->window_y + control->window_height / 2
+                    };
+                    bool going = true;
+                    for (const SDL_EventType type :
+                         {SDL_EVENT_MOUSE_MOTION,
+                          SDL_EVENT_MOUSE_BUTTON_DOWN,
+                          SDL_EVENT_MOUSE_BUTTON_UP}) {
+                        SDL_Event event = window_pointer_event(
+                            sdl_.window,
+                            sdl_.renderer,
+                            type,
+                            pixel,
+                            type == SDL_EVENT_MOUSE_MOTION ? 0 : SDL_BUTTON_LEFT
+                        );
+                        dispatch_event(event, going);
+                        require(going, std::string(name) + " ended the run");
+                    }
+                    going = true;
+                    run_frame(going);
+                    require(going, std::string(name) + " ended the run");
+                };
+                const auto open_picker = [&](bool read_only) {
+                    MutatorPickerRequest request;
+                    request.setup = picker::Setup::skirmish;
+                    request.read_only = read_only;
+                    picker::Chosen keep;
+                    keep.id = "gatehouse-keep";
+                    picker::Chosen fast;
+                    fast.id = "fast-builders";
+                    fast.options.emplace_back("build_speed", "4");
+                    request.set.push_back(std::move(keep));
+                    request.set.push_back(std::move(fast));
+                    require(
+                        open_mutator_picker(std::move(request)), "the mutator picker did not open"
+                    );
+                };
+                install_mutator_picker_check_feed();
+                open_picker(false);
+                paint("mutator-picker");
+                click_named("oa.mutators.row.fast-builders");
+                if (width <= 640)
+                    click_named("oa.mutators.details");
+                paint("mutator-picker/details");
+                if (width <= 640)
+                    click_named("oa.mutators.back");
+                if (size_at == 0) {
+                    const int32_t saved_width = width;
+                    const int32_t saved_height = height;
+                    width = 960;
+                    height = 540;
+                    require(
+                        SDL_SetWindowSize(sdl_.window, width, height) &&
+                            SDL_SyncWindow(sdl_.window),
+                        "the window did not take 960x540"
+                    );
+                    apply_output_mode();
+                    paint("mutator-picker/details");
+                    width = saved_width;
+                    height = saved_height;
+                    require(
+                        SDL_SetWindowSize(sdl_.window, width, height) &&
+                            SDL_SyncWindow(sdl_.window),
+                        "the window did not return to 640x480"
+                    );
+                    apply_output_mode();
+                }
+                click_named("oa.mutators.row.grounded.switch.on");
+                paint("mutator-picker/waiting");
+                click_named("oa.mutators.row.gatehouse.switch.off");
+                paint("mutator-picker/turn-off");
+                click_named("oa.prompt.cancel");
+                if (LayerScreen* picker_open = oa_layer().find(picker::screen_name))
+                    oa_layer().close(picker_open);
+                open_picker(true);
+                paint("mutator-picker/read-only");
+                if (LayerScreen* picker_open = oa_layer().find(picker::screen_name))
+                    oa_layer().close(picker_open);
+                restore_mutator_picker_feed();
+            }
+
+            // The four mutator questions, in this language. The mutators' names
+            // are 64 bytes, the manifest's most. Reasons and problems stay a
+            // long sentence, which wraps.
+            {
+                library::TextHooks hooks;
+                hooks.shown = fit_shown;
+                const std::string mutator_name(kMutatorName);
+                const std::string long_name(kLongText);
+                const auto paint_prompt = [&](kit::Question question, std::string_view screen) {
+                    oa_layer().push(
+                        std::make_unique<QuestionScreen>(
+                            oa_layer(),
+                            Screen::main_menu,
+                            std::move(question),
+                            QuestionScreen::Host{}
+                        )
+                    );
+                    paint(screen);
+                    if (LayerScreen* asked = oa_layer().find(QuestionScreen::screen_name))
+                        oa_layer().close(asked);
+                };
+                picker::Failed failed;
+                failed.name = mutator_name;
+                failed.reason = long_name;
+                const picker::Failed one_failure[] = {failed};
+                paint_prompt(
+                    picker::start_without_question(one_failure, hooks), "mutator-prompts/start-one"
+                );
+                const picker::Failed many_failures[] = {failed, failed};
+                paint_prompt(
+                    picker::start_without_question(many_failures, hooks),
+                    "mutator-prompts/start-many"
+                );
+                const std::string names[] = {mutator_name, mutator_name};
+                paint_prompt(picker::forget_set_question(names, hooks), "mutator-prompts/forget");
+                picker::GetProgress fetching;
+                fetching.name = mutator_name;
+                fetching.index = 1;
+                fetching.total = 2;
+                fetching.progress = 400;
+                paint_prompt(picker::get_mutators_question(fetching, hooks), "mutator-prompts/get");
+                fetching.problem = long_name;
+                paint_prompt(
+                    picker::get_mutators_question(fetching, hooks), "mutator-prompts/get-failed"
+                );
+                picker::Differs differs;
+                differs.player = long_name;
+                differs.name = mutator_name;
+                differs.here = long_name;
+                differs.there = long_name;
+                differs.fetches = long_name;
+                const picker::Differs one_differs[] = {differs};
+                paint_prompt(
+                    picker::did_not_start_question(one_differs, hooks), "mutator-prompts/differ"
+                );
+                differs.there.clear();
+                differs.fetches.clear();
+                picker::Differs other = differs;
+                other.player = long_name;
+                const picker::Differs many_differs[] = {differs, other};
+                paint_prompt(
+                    picker::did_not_start_question(many_differs, hooks),
+                    "mutator-prompts/differ-many"
+                );
+            }
 
             kit::Notice told;
             told.title = "NOTICE";
@@ -540,6 +996,10 @@ void Runtime::check_text_fit() {
     if (failures.empty()) {
         std::cout << "text-fit check: every screen fits in " << joined_languages(languages)
                   << " at 640x480 and 1280x720\n";
+        std::cout << "text-fit check: mutator details fit in " << joined_languages(languages)
+                  << " at 640x480, 960x540 and 1280x720\n";
+        std::cout << "text-fit check: mutator-picker fits in " << joined_languages(languages)
+                  << " at 640x480, 960x540 and 1280x720\n";
         return;
     }
     std::string report = "text-fit check: text does not fit:\n";

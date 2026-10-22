@@ -593,7 +593,33 @@ runtime goes).
   finishes when you leave Ridge").
   `tick_library` rebuilds the model, at most once a frame on the main
   menu, whenever the feed's generation moves (the service's, the queue's,
-  the worker's searches and its pictures, added).
+  the worker's searches and its pictures, added). It takes a finished
+  check on every screen but a match's, because the picker asks for checks
+  over SKIRMISH, NEWGAME and the battle room; the Library's model is
+  rebuilt the next time the main menu shows.
+  The runtime's own feed answers `remembered_verdict`, `start_check` and
+  `keep_verdict`. A Checked fact is the verdict the file holds for that
+  mutator with its prerequisites above it, every one at its default
+  options, against the mod being played. CHECK WITH THIS MOD prepares that
+  list on the main thread and the Library's worker runs the dry run; the
+  worker does not touch the live asset store. The verdict is kept when the
+  worker finishes, back on the main thread, and a later rebuild reads it
+  from a cache keyed the same way, not by running the dry run again. The
+  rows' keys are made in one pass: the worker's listing from its last
+  search (a feed of its own lists the folder), the verdict file and each
+  shown list resolved from that listing. A rebuild keeps the pass until a
+  search finishes, the installed mutators change, or the mod key or the
+  clash mode moves, so a download, which rebuilds the Library on each
+  frame, lists nothing and reads no package. The worker's search makes the
+  digest of each mutator folder that has no package SHA-256, off the main
+  thread, and the pass and the picker take it from that cache
+  (`FolderDigests`) while the folder is unchanged. A compatible verdict with no
+  counts reads that it changes other game data, and one whose last
+  mutator declares maps reads that it changes the map when a match
+  starts. With
+  no mod played, the fact uses the base game's own sentence. A cycle, or
+  a prerequisite that is not installed, starts no check and leaves the
+  verdict unchecked.
 - **The worker** (`LibraryWork`) is one thread of the Library's own, made
   from `oa-base-threads` and started at its first job. After a catalogue
   refresh (the service's generation moved), a package the queue installed,
@@ -717,7 +743,9 @@ runtime goes).
   the map browser (`map-browser`) is the OA layer's top screen, as it stays
   after Download and select, or while GET MAP shows over the battle room
   (`ModInstallState::get_map_shows`: the battle room shows with no dialog
-  over it, and GET MAP has its line there). A pack that does not fit TA
+  over it, and GET MAP has its line there). A catalogue mutator installs
+  the same way while GET MUTATORS shows over a guest's battle room
+  (`ModInstallState::get_mutators_shows`). A pack that does not fit TA
   3.1c is refused as in a watched run, the download queue told so, and a
   pack whose plan asks waits, as it does off the main menu, for the
   settled main menu of a run someone watches. Off those screens,
@@ -758,8 +786,22 @@ runtime goes).
   the inbox with the Library closed and installs with no prompt once the
   Library shows, an added registry's copy asks REPLACE MOD over the
   Library, which waits for its answer until REPLACE installs it, and a file
-  opened outside the game stays in the inbox. A FIXTURES_SETUP test
+  opened outside the game stays in the inbox. After those fixture steps
+  the check swaps in the runtime's verdict entries and dry-runs two
+  made-up packages on the Library's worker against the installed game:
+  one that changes every builder, whose Checked fact and verdict file say
+  compatible, and one that matches no unit and reads the no-effect words.
+  Rebuilding the Library shows the same fact and does not dry-run again.
+  A FIXTURES_SETUP test
   (`library-install-clean`) clears its folders before each run.
+- **The update question check.** `native-library-update-question`
+  (`--check-library-update-question`, `runtime_library_actions_check.cpp`)
+  installs made-up Ridge from an added registry and offers an update whose
+  rules change. At 640x480 the row's details page has no tabs. NOT NOW
+  leaves that page. UPDATE, fifty times, leaves the Library on top with its
+  tabs on the next frames, and it is still there once the update is no
+  longer offered. A FIXTURES_SETUP test (`library-update-question-clean`)
+  clears its folders before each run.
 - **Limitations.** A held update is replaced by a ROLL BACK of the mod
   being played, which waits for the run to end in its place; the download
   queue has counted the update installed by then. CANCEL on the held line
@@ -785,8 +827,11 @@ hosts them on the OA layer.
   one kit button, `oa.more-maps` to automation, directly under the picker's
   MAPNAMES list with its right edge on the list's, or above the list when
   that place meets another gadget of the picker, at the layer's scale. It
-  hides while a message box shows. It takes a press or a tap on the button,
-  the controller's Y and Cmd+F (Ctrl+F elsewhere), which the pickers leave
+  hides while a message box shows. A mouse presses the drawn rectangle. A
+  finger presses the button when it is at least as near as any gadget of
+  the picker, the map list included; a point inside a gadget stays that
+  gadget's. It also takes the controller's Y and Cmd+F (Ctrl+F elsewhere),
+  which the pickers leave
   unused, and answers `pass` to everything else, a pointer move that only
   changes its hover included, so the picker sees every other click, key and
   move as before.
@@ -857,6 +902,289 @@ hosts them on the OA layer.
   thread as its card comes into view, once per pack. A map pack installed
   while SELMAP is open joins its list, when the map fits, as Select or
   Download and select chooses it.
+
+## Mutators
+
+SKIRMISH, NEWGAME (and Any Mission, which uses the same panel) and the host's
+battle room carry a filled kit button (white text on the kit's deep green)
+wearing the OA badge at its left, with its words after it keeping to the
+left: "Mutators", or "Mutators (4)" for the count of the set chosen
+("Mutators ({count})" in the catalogue). It is a screen of the layer of its
+own (`mutators-button`, not modal, no backdrop, not opaque, so the picture
+shows round it). `keep_mutator_button_screen`, which
+`OaLayer::tick` calls once a frame beside `keep_more_maps_screen`, pushes it
+while one of those screens shows, and the screen closes itself otherwise.
+On the skirmish setup and the campaign launch that is while no match is
+running and no front-end dialog is up. MORE MAPS… and Mutators never show
+at once: the map picker is its own screen.
+
+- **Placement.** Every place and size is worked out from the 3.1c
+  gadgets' rectangles on each window (`oa_button_place`). On SKIRMISH (and
+  Any Mission) `place_in_column` makes the button as large as the gadget
+  under Difficulty in its column (Previous Menu), with the same left edge,
+  centred down the space between Difficulty and that gadget. On NEWGAME
+  `place_under_middle` makes it as large as the SELECT SIDE middle of the
+  side bar: the space between the gadgets Arm and Core, set in from each
+  by the bolt between them, nine twentieths of the bar's height
+  (`bar_middle`), and stands it under that middle, the left edges
+  together, a bolt's width under the bar. When that place meets a gadget
+  the column rule is used, and when neither is clear `place_block`, MORE
+  MAPS…'s rule, at the button's own size. The badge, the words and the
+  padding are the kit's (`kit::button_mark_parts`): a fifth of the
+  button's height pads the left, the gap after the badge and the right.
+  The words are drawn in the regular font where they fit, otherwise the
+  small font, and cut with … only when even that does not fit. The
+  screen's place also covers the focus ring's 2-point margin, so the
+  button does not jump when the ring is drawn. A Y chip stands inside the
+  button's right end while the pad HUD is showing button badges, the words
+  kept a padding clear of it, and is left out when the button has no room
+  for it.
+- **Focus.** The button is pushed onto the screen's own Tab order. Tab
+  from the record just before it, and Shift+Tab from the one just after,
+  hand the focus over: the GUI's focus goes to none and the kit's ring
+  shows. On SKIRMISH, Down from Difficulty and Up from the next record in
+  its column do too, and the arrows hand the focus to the nearest record
+  that way. On NEWGAME and Any Mission, Up and Down are not taken: they
+  step the campaign lists. While the button holds the focus, Left and
+  Right are consumed there so they do not move the GUI's focus. Return,
+  Space and the pad's A press the button. A mouse presses the drawn
+  rectangle. A finger presses the button when it is at least as near as
+  any gadget, Difficulty included; a point inside a gadget stays that
+  gadget's, so a tap on Difficulty steps Difficulty. A press anywhere else
+  clears the focus. A locked button still takes a press on its rectangle
+  and opens nothing. The pad's R1 and L1 are Tab and Shift+Tab, as on every menu, and
+  `take_pad_action` offers an action to each screen that shows, from the
+  top, until one takes it. A modal screen is the only one offered it, and
+  an action it passes on becomes a key or a click as before.
+- **The set.** Each setup keeps its own chosen set. Skirmish's is emptied
+  when SKIRMISH is entered from anywhere but the map picker and itself, so
+  it holds across SELMAP and a refused start. The campaign's is emptied
+  when NEWGAME or Any Mission is entered from Single Player or the main
+  menu, and holds through the briefing and every mission until the player
+  leaves to the main menu, which empties both sets, so a campaign save
+  loaded from there never starts with an earlier run's set. The button
+  opens the picker with the chosen set, or, when that is empty, with the
+  setup's remembered last set. USE THESE replaces the chosen set. CANCEL
+  changes nothing. START, and each campaign mission, hands the chosen set
+  on: an empty set starts the game as before, and a set that cannot be
+  read refuses the start as any failed start does. The button counts the
+  chosen set: "Mutators" with none, "Mutators (4)" with four.
+- **The check.** `native-mutator-button` (`--check-mutator-button`,
+  `runtime_mutator_button_check.cpp`) uses the mutator picker's feed and a
+  scratch preferences file holding Gatehouse with Gatehouse Keep for
+  skirmish and Fast Builders for the campaign. At 640x480 and 1280x720 it
+  requires the button's size and place, the badge, its words and count,
+  the Y chip inside it, Tab, Down, a finger's reach, Y, SELMAP keeping the
+  set, START handing it on, and a return to the main menu clearing it;
+  then NEWGAME's size and place, Tab, the remembered campaign set and the
+  first mission.
+  With the picker open, the D-pad and A must go on as keys.
+  A start refused for a chosen mutator that is no longer installed must
+  name it and keep the set.
+  The main menu must empty both sets.
+  The button must not read the feed's list on later frames.
+  It writes `mutator-button-skirmish-<w>x<h>.png` and
+  `mutator-button-newgame-<w>x<h>.png`, and with four chosen
+  `mutator-button-skirmish-four-<w>x<h>.png` and
+  `mutator-button-newgame-four-<w>x<h>.png`. `--check-text-fit` paints
+  SKIRMISH with none and five chosen, and NEWGAME, in every language and
+  both sizes, and requires the words whole.
+  A FIXTURES_SETUP test (`mutator-button-clean`) clears its folders before
+  each run.
+- **The battle room.** The host's battle room shows the same button as
+  large as Select Map, directly over it with the same left edge
+  (`place_over`), centred down the space between the player rows and
+  Select Map, counting the room's list. Where that place meets a control,
+  MORE MAPS…'s rule at the button's own size (`place_over_anchor`). Y, Return, Space and a
+  press open the picker for multiplayer, on the room's set, or on the
+  remembered multiplayer set when the room has none. USE THESE stores that
+  set as the room's. CANCEL changes nothing. A guest's battle room shows
+  GET MUTATORS, described under
+  [GET MUTATORS in the battle room](#get-mutators-in-the-battle-room).
+  While a launch locks the host's options the button stays, drawn
+  disabled, and a press, Return, Space and Y open nothing. The waiting
+  text is
+  [src/ui/frontend-multiplayer](../ui/frontend-multiplayer/README.md).
+- **The chat.** Every machine posts a local line when the room's list
+  changes: the host from its own list, a guest from the host's list as its
+  records carry it, a mutator it lacks named by its id, and nothing while
+  that list is still arriving. "*** {host} turned on mutators: {list}" names the host and the
+  mutators, continued as "*** {list}" when the names do not fit one line,
+  and "*** This game is Open Annihilation only, and unranked." when the
+  room goes from none to some. "*** {host} turned mutators off." when it
+  goes to none. The same list posts nothing. The host also posts
+  "*** {player} does not have {name}." once each time a seated player is
+  newly missing a mutator. A guest posts "*** You do not have {name}. GET
+  MUTATORS downloads it from {registry}." once each time the ids of the
+  mutators it lacks change, with the name and registry it knows then; a
+  name or registry its catalogue gives later posts nothing more. It posts
+  "*** You do not have {names}. GET MUTATORS downloads them from
+  {registry}." with the first lack's registry when several are
+  missing. When no registry offers the first lack, "*** You do not have
+  {name}." or "*** You do not have {names}." posts alone. A sentence that
+  does not fit one line splits after its first full stop, ". " or the
+  Chinese "。", and a further name continues as "*** {list}". A line
+  wider than the chat list, measured in hattfont12, the list's font, breaks
+  at a space and goes on in a further line that starts "*** ". With Unicode
+  chat off each line, player names included, is written in the 3.1c font's
+  code page (`oa::netgame::chat_code_page`), so an accented letter is one
+  glyph; with it on the line stays UTF-8. The two lines about a 3.1c player
+  ("*** {player} plays Total Annihilation 3.1c, which cannot play with
+  mutators." and "… and cannot join a game with mutators.") come from the
+  interface catalogue in the language shown and are fitted the same way:
+  the battle room is bound to the list's measure
+  (`mp::multiplayer_bind_chat_measure`, `Runtime::chat_list_width`).
+  Nothing is sent to the other machines.
+- **Beside START.** While mutators hold the host's START and a seated
+  player lacks one, the host reads "Waiting for {player}: {name}" just
+  before START, ending before the doors drawn round it. A guest whose READY
+  is waiting on a mutator reads "Ready once {name} is here" in that place.
+  The line does not enable or disable START or READY.
+- **The room check.** `native-mutator-room` (`--check-mutator-room`,
+  `runtime_mutator_room_check.cpp`) hosts a battle room alone and uses the
+  mutator picker's feed and a scratch preferences file holding Gatehouse
+  with Gatehouse Keep. At 640x480 and 1280x720 it requires the button as
+  large as Select Map over it, wearing the badge and reading "Mutators",
+  meeting no control of the room. Y opens the remembered set, USE THESE
+  stores it and the chat reads the turned-on lines, and at both sizes the
+  button reads "Mutators (2)", and "Mutators (4)" with four on. Turning them off posts the off line. Then,
+  in French at 640x480 with Unicode chat off and the host named "Jörg" in
+  the code page, as a 3.1c player's name arrives, USE THESE posts lines
+  that hold é and ö as one code-page byte each, that each fit the chat
+  list in hattfont12, and whose unranked line wraps with every word kept.
+  Then the room plays Ridge Tough alone, and at 640x480 in English, German,
+  French, Spanish and Italian, and in Simplified Chinese when its pack is in
+  the check's user folder, Visitor is seated in slot 1: on 3.1c, both 3.1c
+  lines post in that language with every word, each stored line within the
+  chat list; on Open Annihilation without Ridge Tough, the line beside
+  START reads "Waiting for Visitor: Ridge Tough" in that language, uncut.
+  Each language writes `mutator-room-3.1c-<tag>-640x480.png` and
+  `mutator-room-waiting-<tag>-640x480.png`.
+  With the room's options locked the button stays disabled and opens
+  nothing.
+  Hosting alone shows none of the guest's controls, and the guest screen
+  has no place while it is on the layer. It
+  writes `mutator-room-host-<w>x<h>.png` and, with the list on,
+  `mutator-room-host-on-<w>x<h>.png`. A FIXTURES_SETUP test
+  (`mutator-room-clean`) clears its folders before each run.
+
+## The mutator picker
+
+The mutator picker is one modal screen on the OA layer (`mutator-picker`),
+centred over the screen that asked, at the size class's dialog size. Its
+model and screen are
+[src/ui/mutator-picker](../ui/mutator-picker/README.md);
+`runtime_mutator_picker.cpp` hosts them. Mutators on the skirmish setup, the
+campaign launch and the host's battle room opens it. It closes as Cancel
+when that screen goes or a match starts.
+
+- **The request.** `open_mutator_picker` takes a `MutatorPickerRequest`: the
+  setup, the set it opens on (each mutator with its options), whether a
+  guest is only looking, and two calls. USE THESE calls the first with the
+  set, in order with its options, once every mutator in it is installed.
+  CANCEL, the header's close mark, and the screen underneath going away call
+  the second and hand nothing back. It refuses while a match is running,
+  while a front-end dialog or a modal OA screen is up, without the layer's
+  fonts, or while the picker is already open.
+- **The feed.** `MutatorPickerFeed` is where the list comes from. The
+  runtime's own feed, installed the first time the picker opens, lists the
+  installed mutators (`list_installed`) and the catalogues' mutator entries,
+  with each one's download, its badge, and why it cannot be switched on
+  here. That list is rebuilt when the catalogues change, when the picture
+  cache changes, or when a download ends, fails or is cancelled. Byte
+  progress does not rebuild it: each frame reads the queue and updates the
+  rows of the downloads the picker queued. An icon that failed to decode is
+  remembered for the rest of the opening and is not read again. Each
+  installed mutator's verdict is the one the file holds for the list it is
+  shown with: its prerequisites, then itself. An On mutator and its On
+  prerequisites take the options they are shown with; an Off mutator is
+  read with defaults. `check` prepares that list on the main thread and
+  the Library's worker runs the dry run, one at a time, a newer check of
+  the same mutator replacing one that has not started. The chip stays on
+  the checking words until the verdict is kept and the list is built
+  again. A list that cannot be resolved stays unchecked and starts
+  nothing, and the chip does not read the checking words unless that
+  check started. A check
+  replaces the feed with `set_mutator_picker_feed` and puts the runtime's
+  back with `restore_mutator_picker_feed`. Switching on a mutator that is
+  not installed queues it and the prerequisites it lacks (`get_plan` on the
+  runtime's own catalogue; the listing itself when a check's feed has none).
+  USE THESE does the same for every On mutator that is not installed yet.
+  While one is still not installed it asks "Get mutators", pushed over the
+  picker, and hands the set back once the last install finishes. CANCEL
+  closes that question and leaves the picker open, with the downloads still
+  queued. `waiting` only replaces the summary's words; it does not disable
+  USE THESE. A refusal switches it off and the
+  row reads why. A package whose download is already under way, such as one
+  the Library queued, is not refused: its row shows that download. Becoming
+  On, changing an option, or a download finishing asks `check` again, and
+  the row reads the checking words until a later list brings the verdict.
+- **Turn off.** Switching off a prerequisite asks "Turn off X?" over the
+  picker, pushed at once. TURN OFF turns it and what needs it off. Switching
+  a mutator off, by its switch or by that question, cancels a download the
+  picker queued that is still waiting (queued, asking for its key, or
+  waiting for the player's confirmation). CANCEL on the question leaves them
+  on.
+- **The check.** `native-mutator-picker` (`--check-mutator-picker`,
+  `runtime_mutator_picker_check.cpp`) turns every built-in registry off and
+  at 640x480, 1280x720, 1920x1080 and 2560x1440 opens the picker over the
+  main menu on a feed of made-up mutators. It requires the size class, the
+  mended On order, every row's grip and switch, one download with the
+  waiting words, that download's cancel, one more check when it installs and
+  when an installed mutator is switched on, the turn-off question, a drag,
+  the set USE THESE hands back, USE THESE fetching an On mutator that is not
+  installed (the question stays up, and the install hands the set), CANCEL
+  handing nothing, and the verdict chip. At 2560x1440 it
+  switches on a mutator whose download is already under way, and restores
+  the runtime's own feed on a mutator written into the check's folder, in
+  English and in German. It then opens that feed as skirmish on Ridge
+  Check Pace, a made-up package that changes every builder: the chip reads
+  the checking words, then the checked words, and again when its option
+  changes, and the verdict file holds one line for each option. Over
+  SKIRMISH it opens the picker with three made-up packages on and no
+  verdict: each is checked in turn and the chip reads the checked words.
+  It also opens that feed with a mutator whose check already stopped and
+  an On mutator whose package cannot be resolved: the chip keeps the
+  stopped verdict. It
+  writes each size's opening frame as
+  `mutator-picker-<w>x<h>.png`. `--check-text-fit` paints the same screen,
+  its details, the waiting line, the question and the read-only footer in
+  every language. A FIXTURES_SETUP test (`mutator-picker-clean`) clears its
+  folders before each run.
+
+## The mutator questions
+
+Four questions live in the picker module (`prompts.hpp`) and the app raises
+them. "Start without X?" is pushed over the skirmish setup or the campaign
+briefing when a mutator stops that start and no match was built. BACK leaves
+the set. START WITHOUT IT, or START WITHOUT THEM, drops the mutators that
+stopped and the ones that need them, and starts again. "Forget the last set?"
+is queued once the main menu shows, when the crash record named a set. KEEP
+IT leaves the remembered set. FORGET IT clears that setup's set and
+uninstalls nothing. "Get mutators" is pushed over the picker, as the feed
+section says. "The game did not start" is pushed where a network start was
+refused because the machines' results differ, on the machine that pressed
+START: the host. A guest's record says only whether it has the host's
+release, so the release line shows when that player has it, and otherwise
+the line says the player does not have it. The GET MUTATORS paragraph names
+the host's release while that player lacks it and this machine's registries
+offer it (`Runtime::mutator_offer`, by the rule a guest's button follows).
+
+`native-mutator-prompts` (`--check-mutator-prompts`,
+`runtime_mutator_prompts_check.cpp`) writes Lantern and Slip into a scratch
+user folder. Slip's plan raises an error. A skirmish with both shows the
+start question naming Slip. START WITHOUT IT starts with Lantern. BACK, on
+a second start, leaves SKIRMISH with both chosen. A crash record written
+beside the preferences file shows the forget question on the main menu, and
+FORGET IT empties the skirmish set. On the picker's check feed, USE THESE
+with Grounded not installed shows Get mutators. Stopping that download shows
+RETRY, RETRY asks the feed again, and installing Grounded hands the set.
+Hosting a room with Lantern, START held on a guest whose record has another
+release, or none, names no release, and one who has it and built another
+layer shows the release line, with no GET MUTATORS paragraph. A
+FIXTURES_SETUP test (`mutator-prompts-clean`) clears its folders before each
+run. `--check-text-fit` paints the four questions, with long names, in every
+language and both sizes.
 
 ## Files
 
@@ -2170,6 +2498,44 @@ hosts them on the OA layer.
   no category cooling down (`NativeOfflineServices::bind_announcements`),
   as each mission start does in 3.1c, so what one match said never
   silences the next.
+- `runtime_mutator_layer_check.cpp`: `--check-mutator-layer`
+  (`native-mutator-layer`): a skirmish with no mutator, one that changes
+  the commanders, the same skirmish again, and one mutator that does not
+  apply. The layer is mounted only while the match that applied it runs.
+- `runtime_mutators_check.cpp`: prepares a dry run from the running game's
+  loose roots and mounts, without a map and without mounting the live
+  store, and remembers the verdict in `Cache/mutator-verdicts.tsv`. The
+  mod key holds the simulation hash, the mod's id, version and packaging
+  revision, the base game and its expansions, and each loose folder and
+  archive the dry run reads, an archive with its size and time: a mod
+  folder without a profile, or a game folder with other archives, is
+  asked again.
+- `runtime_mutator_dry_run.cpp`: `--check-mutator-dry-run`
+  (`native-mutator-dry-run`): two made-up mutators each multiply commander
+  turn rate and worker time. The verdict stays compatible and each field
+  of ARMCOM and CORCOM is held at 65535, with exactly one note each. No
+  match starts.
+- `runtime_mutator_verdicts_check.cpp`: `--check-mutator-verdicts`
+  (`native-mutator-verdicts`): four made-up packages against the installed
+  game, then the same answers from the verdict file. A changed option
+  runs again. A file of garbage is ignored and rewritten. No match starts.
+- `runtime_recorded_mutators_check.cpp`: `--check-replay-loadout`
+  (`native-replay-loadout`): a recorded loadout is refused when it cannot
+  be read or its mutator is not the installed one, played for one skirmish,
+  and the player's own list is put back, including after a start that does
+  not happen.
+- `runtime_side_data_check.cpp`: `--check-side-data-per-match`
+  (`native-side-data-per-match`): each match reads `gamedata/sidedata.tdf`
+  again. When the file is unchanged the match keeps the sides the game
+  started with; when one side names the other's commander the match plays
+  that commander, and the menus return to the started sides afterwards. A
+  file with no sides, or a commander the game has no unit for, refuses the
+  start and leaves those sides in place.
+- `runtime_gadget_art_check.cpp`: `--check-gadget-art-per-match`
+  (`native-gadget-art-per-match`): three skirmishes of one run. A download
+  button is linked with no picture, then draws the picture after the mod
+  folder gains its GAF, then has no picture once that file is gone. A GAF
+  the previous match could not read is read again.
 - `runtime_match_menus.cpp` also registers the load-game overlay
   (`register_load_game_screens`).
 - The Open Annihilation settings ([oa/ui/engine_settings.hpp](../ui/engine-settings/README.md)):
@@ -2377,6 +2743,20 @@ hosts them on the OA layer.
   passes the main menu, waits for it to show again; a run nobody watches
   notes the request and leaves the record untold, and
   `--check-renderer-ladder` notes it and marks it told.
+- `mutators_memory.hpp`, `mutators_memory.cpp` (`oa-app-mutators-memory`):
+  the last mutator set of each setup, and the crash record kept beside the
+  preferences file while a match with mutators runs. A set is the canonical
+  loadout text and nothing else. `preference_key` names the three keys
+  `open-annihilation.mutators.skirmish`, `.multiplayer` and `.campaign`.
+  `Sentinel` reads `mutators-sentinel.conf`, replaces it and
+  deletes it; a file that cannot be read is a leftover with no mutators,
+  logged once, and is never fatal. `runtime_mutators_memory.cpp` is the
+  game's side of it: `remembered_mutators` (the picker), `remember_mutators`
+  and `forget_mutators` (FORGET IT), `start_with_mutators` (a setup's
+  START), `take_mutator_crash` (the crash question) and
+  `mutators_refused_for_run` (`--no-mutators`). The record is opened when
+  the preferences are loaded, including under `--preferences-file`, and a
+  leftover file is deleted once it has been read.
 - `video_capture.hpp`, `video_capture.cpp`: `--capture-video`, the
   developer's capture of the window's frames and the game's sound as an MP4
   video through the `ffmpeg` program; `runtime_showcase.cpp`: the scripted
@@ -2664,7 +3044,14 @@ saves, recordings and network games are unaffected.
   events; `take_touch_event` takes fingers from direct-touch devices,
   claims each by what it lands on (an open sheet or the order wheel, a touch
   control, a dialog, a gadget of the 3.1c panel or of a placed region, the
-  minimap, the battlefield, a frontend screen) and drops the mouse events
+  minimap, the battlefield, a frontend screen). Off a match, a finger that
+  is not already on a 3.1c gadget snaps to the nearest one within about 22
+  points, unless an OA screen that shows has a pressable control under the
+  point or no farther than that gadget: the finger then keeps its own point.
+  Mutators, MORE MAPS… and GET MAP take that finger by their reach only
+  when no gadget of the screen under them is nearer, its anchor included; a
+  point inside a gadget stays that gadget's. A mouse still presses the
+  drawn rectangle. The dispatcher drops the mouse events
   SDL itself made from a finger. Battlefield fingers feed one gesture
   recogniser (`src/ui/touch-gestures`); every other claimed finger has its
   own for tap and hold. Taps, boxes and frontend presses become synthetic
@@ -3187,8 +3574,8 @@ into the player's own Mods folder (`src/app/package-install`,
 in place, and how what a stop leaves is settled). The runtime's part:
 
 - **Opening a package.** `--open FILE` and `--install-mod FILE`, repeated,
-  and any bare argument naming a `.oamod`, `.oalang`, `.oamap` or `.oareg`
-  file, any case, are files to open once the main menu shows. `post_opened_file`
+  and any bare argument naming a `.oamod`, `.oalang`, `.oamap`, `.oamut` or
+  `.oareg` file, any case, are files to open once the main menu shows. `post_opened_file`
   sends a `.oareg` file to the add-registry queue, which opens the Add
   registry window (see the OA layer's Registries), and every other file to
   the package inbox (`oa/app/package_install/inbox.hpp`); macOS's `-psn_`
@@ -3253,7 +3640,7 @@ in place, and how what a stop leaves is settled). The runtime's part:
   NOT ROLLED BACK, `ModInstallState::roll_back_refusal`), pushed over it at
   once, whose OK returns to it; the status line shows the same words.
 - **Registering the file type.** A start someone plays makes the game the
-  opener of `.oamod`, `.oalang`, `.oamap` and `.oareg` files, and of
+  opener of `.oamod`, `.oalang`, `.oamap`, `.oamut` and `.oareg` files, and of
   `.oalaunch` launch files (opened with `-c FILE`), for the player
   where the system registers at run
   time (`oa/platform/file_types.hpp`); none does with `--preferences-file`,
@@ -3435,7 +3822,8 @@ The run names the profile and its sim hash. `--print-profile` applies the
 INI settings of the folder it prints, as a game does (`mod_settings_of`).
 `--accept-unimplemented-hacks` accepts, with a warning each, hacks this build
 does not implement yet, for development. `--trace-lookups FILE` writes every
-game file and listing the run looks up, one a line, which shows that a
+game file and listing the run looks up, one a line, and, for a path a
+mutator serves or hides, which mutator, which shows that a
 renamed directory is never read by its base name. `app-mod-profile` and
 `game-directory` cover these; `native-mod-layout-data` checks a mod's real
 data (docs/development/testing.md).
@@ -3454,7 +3842,14 @@ into the records and decisions of the modules that carry them out, and
   gives a running match new ones as Developer Mode changes them.
 - **Music and the victory announcement** (ui.audio): `music_source` picks
   the disc's layout, numbered MP3 files from `1.mp3` or every MP3 file of
-  the folder in name order ([src/audio](../audio/README.md)); the CD music
+  the folder in name order ([src/audio](../audio/README.md)). A match starts
+  without waiting for the track to open; the music begins when it is ready,
+  and a track that cannot be read is skipped. On macOS the start counts
+  files under Mods, Maps, Languages, Mutators, Games and Expansions that are
+  not on this Mac yet, from startup, and the music folder once it is known,
+  and asks for them in the background
+  ([files kept in iCloud](../../docs/troubleshooting.md#files-kept-in-icloud)).
+  The CD music
   pauses as a finished match leaves for its end screen
   (`music_end_game`); drawing the victory banner plays the "Victory
   Condition" sound, at most once in 300 ticks by
@@ -3748,6 +4143,54 @@ in the standard and accelerated tiers, and in the Full tier after its own
 cases (`check_visual_rule_overlays`), with the megamap opening only while
 the Mouse wheel zoom setting is off and closing when it is turned on.
 
+## Mutators at the start of a match
+
+Every match start applies the mutators the run chose, after a pack map's
+files are mounted and before the match reads its game data. The command
+line's `--mutator` values are that choice, in the order given. A run that
+names none applies nothing, mounts nothing and logs nothing. The pipeline
+leaves its layer mounted for the match. The log names each mutator that
+applied, how many files were added, hidden or rewritten, each conflict,
+and each mutator that did not apply. A list the manifests refuse logs one
+`mutators: refused:` line and nothing about each mutator. The applied line
+is written only when a mutator applied.
+
+A mutator that does not apply stops the start, except one that failed
+alone: its hacks were refused, or it was left out only because a mutator
+it needs failed that way. A list the pipeline refuses stops the start
+too. The message names the mutator that stopped it, by the name in its
+manifest and by its id, and why. The layer is released before the
+failure leaves the start, and again when the match ends. A start that
+fails by an exception after the mutators were applied releases the layer
+too, so a campaign, a save, a network game and a replay leave none
+either. The next match applies the list chosen then, including none.
+
+The scripts' seed is the seed of the mutators that applied. When the
+start leaves a mutator out and still goes on, it runs that list again
+with only the mutators that applied, and the match plays the second
+result. It logs one line, `mutators: seeded again from the mutators that
+applied, because <ids> did not apply`. A second run that does not apply
+every mutator it was given stops the start, and the layer is released.
+A list that applied in full is run once.
+
+The last set each setup started a game with is kept in the preferences:
+one key for skirmish, one for the multiplayer host and one for a campaign.
+A setup's START writes its key through `start_with_mutators`, and only
+when that game has mutators. An empty loadout remembers nothing; the
+next matches play the run's own list (`--mutator`'s or a launch file's),
+normally none. `--mutator`, a launch file, a replay, a
+saved game, a guest's game and a game without mutators do not write it,
+and CANCEL does not erase it. While a match with mutators runs,
+`mutators-sentinel.conf` beside the preferences file names them and the
+setup that started the match, or none when no setup did. The match start
+also writes `open-annihilation: mutators in play:`, naming each mutator.
+A clean match end (`teardown_match`) or a clean exit deletes the file. A
+fatal error that unwinds leaves it. The next start keeps what it names
+(`take_mutator_crash`) and deletes the file. `--no-mutators` refuses every
+mutator for the run: a list `--mutator` or a launch file names is logged
+once and not applied. `remembered_mutators` returns none and
+`start_with_mutators` remembers nothing. The crash record is still read.
+
 ## Extensions
 
 `extension.hpp` is the table of hooks through which libraries linked into
@@ -3953,6 +4396,14 @@ every Developer Mode override that changes the simulation, or the plain
 baseline when the game plays 3.1c. A running match keeps the hash it
 started with. It is not a hook, and no extension fills it.
 
+An extension calls `run_mutators` with that same runtime to read the
+mutators whose digest `simulation_hash` folds in: how many, their ids in
+order, and the simulation hash the run would have without them. That hash
+is 64 lower-case hexadecimal digits and equals `simulation_hash` when none
+play. Both calls read the profile and the mutator digest of that moment. A
+running match keeps them until it ends. It is not a hook, and no extension
+fills it.
+
 Version 15 adds the OA UI kit (`src/ui/kit`) to the contract, so that an
 extension's pages, screens, notices and prompts look, scale, focus and
 answer as OA's own do. `register_settings_pages`, called right after
@@ -4120,7 +4571,11 @@ match from the battle room and runs it over the network, and replays
 recorded games (`.tad`, `src/formats/tad` and `src/session/demo`) through
 `open_recording` and `--play-demo FILE.tad`. Its long options include
 `--net-loopback-check N`, which hosts and joins a match in one process
-over 127.0.0.1 and compares both worlds after N ticks,
+over 127.0.0.1 and compares both worlds after N ticks (when the run
+chooses mutators, the unit sync is read over the shared mutator layer,
+which is taken off before the launch mounts the same bytes again; the
+check creates no battle-room state, so the launch plays the run's own
+list),
 `--check-recording-hook` and `--check-host-not-found`, and `--host` and
 `--join ADDRESS` (with `--player-name`, `--game-name`,
 `--game-password` and `--dplay-guid`), which have the multiplayer screens
@@ -4248,6 +4703,65 @@ other's players carry no presence bytes.
 [docs/development/testing.md](../../docs/development/testing.md#network-play)
 lists its tests.
 
+The battle room builds the host's mutator list on each machine
+(`follow_room_mutators` in `runtime_room_mutators.cpp`). The host's list
+starts as the run's `--mutator` choice. A guest uses only the list the
+host's records are carrying now, and only once every mutator of it has
+arrived; it never builds from a list of its own or from a list it hosted
+before. Joining a room and leaving the screens forget the previous host's
+list, even when the next host's records carry none. The build runs on the
+calling thread when the wanted digest or this machine's sim hash changes,
+on the live mod data, with no map. It
+judges the list as the match start does: the same hack check and the same
+blocking judgement, against this machine's own Developer Mode. It does not
+play the hacks into the profile, so the room's sim hash stays the
+profile's. A mutator whose hacks were refused fails alone, and the field's
+index, while built, names the first mutator this machine dropped for that
+reason. The field's layer digest is the mutator digest of the applied
+loadout and its layer. When the build leaves a mutator out, it runs the
+list again with only the mutators that applied and with their seed, logs
+the same `seeded again` line as the match, and the digest is that second
+run, so the room and the match agree. The index still names the first
+mutator the first run dropped. A second run that does not apply every
+mutator it was given fails the room. A list that applied in full is
+built once. A mutator dropped on every machine alike does not
+hold START; two machines that drop different ones do, and the hold names
+the earlier of the two positions. The same Developer Mode settings are
+what make the machines agree. The room's layer is not the match's: leaving
+the multiplayer screens releases it. A network start applies the list this
+room built; a guest's start applies it only while the host's current
+record names it. The start then puts the run's own choice back, so a
+later skirmish plays that choice. A network start that never showed the
+battle room, such as `--net-loopback-check`, has no room list and plays
+the run's own choice, as a single-player start does. The loopback check
+still builds that choice's layer before its unit sync, without a room
+(`mount_chosen_mutator_layer`, which builds as the room does), and takes
+the layer off before the launch mounts the same bytes
+(`release_chosen_mutator_layer`). The presence record's mutators field
+says what this machine built. The host's names every mutator and says it has each one. Whenever
+that field goes out, the host's record also carries each mutator's clash
+mode, one bit a position: set means Add and clear means Replace. The mode
+is the player's choice for that mutator, or the manifest's `clashes` when
+the player left it unset, or the host's `mutators.clash-default`. The
+loadout digest includes those modes. A guest builds the layer, and the
+match start plays it, with the modes the host sent, never with its own
+default. A record that leaves the modes out is built all Replace; when the
+host's mode was Add the digests differ and START stays unavailable. A guest's
+mutators field carries the host's digest, how much of the list it holds and whether each
+package is installed here, and it names no mutator. While a guest is
+behind, the host's record still leaves room for the map pack, and one
+continued part of the list follows the pack. A guest that has not built
+the host's list keeps READY off. START stays unavailable while mutators
+are on and an OA player of another machine lacks one, failed one, is still
+receiving the list, built another layer or plays another sim hash. It also
+stays unavailable when the host has dropped the list and an OA peer's
+record still carries one. When the layer is built or cleared, the battle
+room reads its unit headers again and restarts unit sync: the host keeps a
+3.1c peer that had finished and greets the OA peers again. The first time
+a peer's record says it built the host's current list, and the first time
+that record drops the field after the host's list is empty, the host
+greets that peer once more.
+
 ### GET MAP in the battle room
 
 A joiner whose host is an OA machine playing a pack map gets the host's
@@ -4281,8 +4795,10 @@ effect and their merged catalogue, and the download queue:
 The words come from the interface's catalogue. The line stands under the
 map name's box and the button, or the bar in its place, above it at its
 right, drawn with the kit at the layer's scale; the 3.1c gadgets are left as
-they are. The button is pressed with the pointer or a finger, and so with a
-gamepad's pointer, as the main menu's OA button is. Automation lists the
+they are. A mouse presses the drawn rectangle, and so does a gamepad's
+pointer. A finger presses the button when it is at least as near as any
+battle-room gadget; a point inside the map name stays the map name's.
+Automation lists the
 button as `oa.get-map`, the line as `oa.get-map-text` and the bar as
 `oa.get-map-progress`, with no dialog, as it lists the OA button, and only
 while they show; on the multiplayer screens the endpoint lists the OA
@@ -4325,6 +4841,113 @@ run without a renderer keeps the badge the 640 by 480 frame draws. The card
 lists the platform and architecture on a Platform line under Engine, leaving
 out a field the record leaves empty and the line when both are, and the mark
 by its title is the same icon.
+
+### GET MUTATORS in the battle room
+
+A guest whose host is playing mutators sees GET MUTATORS over the battle
+room (`runtime_get_mutators.cpp`). The screen `get-mutators` of the OA
+layer, which is not modal, has no backdrop and is not opaque, is kept on
+the layer while the multiplayer screens show (`keep_get_mutators_screen`,
+from the battle room's chat follow, once a frame). It shows only for a
+guest, and only while `host_mutators_fetch` names a set. The host's own
+room leaves it with nothing to draw.
+
+The row is anchored to Select Map and placed by the same rule as the
+host's button, above it, missing every control of the room and GET MAP's
+rectangle while that shows. VIEW… (inset) is the left button. GET MUTATORS
+(accent) stands to its right while a release can be fetched or the last
+try failed. While a download runs, the bar stands where GET MUTATORS
+stood and VIEW… stays. One line sits under the row: the state's text while
+it has one, otherwise "Mutators:" and the host's list, with each mutator
+this machine lacks in the lock colour. A name that does not fit is dropped
+whole, and the line ends with ….
+
+| State | Line | What shows |
+|---|---|---|
+| none | the summary | VIEW… |
+| get | the summary | VIEW… and GET MUTATORS |
+| downloading | "Getting {name}: {percent}%" | VIEW… and the bar |
+| failed | "{name}: {problem}", the problem a short phrase such as "unreachable" | VIEW… and GET MUTATORS |
+| gone | "{name}: not offered." | VIEW… |
+| downloads_off | "{registry}: downloads off.", or "Downloads are off." with no registry | VIEW… |
+
+The first item that is not already here decides, in the host's order.
+`waiting_for_catalogue` shows the summary until that catalogue is read, and
+a later item is not consulted. Pressing GET MUTATORS calls
+`fetch_host_mutators` and nothing else. VIEW… opens the picker read-only
+on the host's set: CLOSE leaves the set as it is, and nothing readies the
+player. Y opens VIEW…. The row joins the room's Tab order as the host's
+button does. While READY is held because a mutator is missing, "Ready once
+{name} is here" sits where the host's START reason sits, in the lock
+colour. It does not enable or disable READY or START.
+
+Automation lists VIEW… as `oa.mutators-view`, GET MUTATORS as
+`oa.get-mutators`, the bar as `oa.get-mutators-progress` (its text the
+percent), the line as `oa.get-mutators-text` and the ready line as
+`oa.get-mutators-ready`, with no dialog, and only while they show.
+
+Every player's card, after Rules, has one row a mutator of the host's set.
+The first is labelled "Mutators". "{item} ✓" when that player has the
+host's release, or, in the lock colour, "{item}: not installed" or
+"{item}: another release here". The host's own card marks every one ✓. A
+player who lacks one then reads, after the content difference lines,
+"Different from the host: no {name}." or "Different from the host: another
+release of {name}.", and "The game cannot start until {player} gets it, or
+the host turns it off." The rules dot on the OA badge already follows that
+same per-player comparison.
+
+### Fetching the host's mutators
+
+A guest whose host plays a mutator this machine lacks can fetch that
+release (`runtime_host_mutators.cpp`). What can be fetched is decided
+without drawing anything (`mutator_fetch_state` in
+`oa/ui/frontend_multiplayer/host_mutators.hpp`), from the host's list
+(each mutator's id, version and the first eight bytes of its package
+SHA-256), the release installed in the Mutators folder, and the
+catalogues in effect. The list names no registry, so every registry this
+machine uses is considered, in the snapshot's order. The battle room's
+screen reads `host_mutators_fetch` and queues with `fetch_host_mutators`
+when the player asks. The guest's screen draws the button, the line and
+the bar from this decision. This path itself draws none of them.
+
+| State | When |
+|---|---|
+| have | an installed package's SHA-256 starts with the host's prefix |
+| get | a registry offers that release, and none is installed |
+| other_release_get | another release is installed, and a registry offers the host's |
+| other_release_gone | another release is installed, and no registry offers the host's |
+| gone | no registry this machine uses offers the host's release |
+| downloads_off | the registry is off, or downloads from it are |
+| waiting_for_catalogue | a usable registry's catalogue has not been read yet |
+| downloading | that release is on its way |
+| failed | the last try failed, and says why |
+
+`host_mutators_fetch` is empty on the host and while the list is still
+arriving. It reads the list, the installed mutators, the catalogues and
+the download queue, and it never starts a download. The battle room asks
+every frame, so the Mutators folder is read again only when its last
+write moves; the installer reads it again after each mutator it installs.
+The first ask of a tick reads, and the rest of that tick reuse its rows;
+the layer's tick forgets them with `drop_host_mutator_fetch_cache`. While
+the rows are read, a line a second counts the reads, the ticks and the
+most reads of one tick without a press. `fetch_host_mutators`
+queues every row in `get` or `other_release_get`, and a press of it tries
+a failed row again. A catalogue entry is refused unless its SHA-256 starts
+with the host's prefix (`not_offered`); the queue then checks the file
+against that catalogue SHA-256 (`queue_download`, reason
+`offered-in-lobby`). The package installs as the Library installs a
+mutator. A prerequisite is fetched only as its own row of the host's
+list, at the release the host named, never as whatever release is newest.
+A refusal, a failure or a cancellation is not tried again by itself. The
+failure is kept in English, for the screen to translate. The log says what
+happened:
+
+```
+open-annihilation: host mutators: read <reads> times in <ticks> ticks, at most <most> in a tick
+open-annihilation: host mutators: downloading <id> release <release> from <registry>
+open-annihilation: host mutators: installed <id>
+open-annihilation: host mutators: couldn't get <id>: <why>
+```
 
 ## The automation endpoint
 

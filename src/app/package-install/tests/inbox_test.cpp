@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// post_opened_file sends each of the four extensions, in any case, to its
+// post_opened_file sends each of the five extensions, in any case, to its
 // queue: a .oareg file to the add-registry queue, which keeps order and
 // drops a repeat, and every other file to the package queue, which a
 // .oareg file leaves untouched.
@@ -33,12 +33,22 @@ int main() {
     OA_CHECK(install::opens_file("B.OAMAP"));
     OA_CHECK(install::opens_file("c.oareg"));
     OA_CHECK(install::opens_file("d.OALANG"));
+    OA_CHECK(install::opens_file("e.OAMUT"));
     OA_CHECK(!install::opens_file("a.zip"));
     OA_CHECK(!install::opens_file("oamod"));
     OA_CHECK(!install::opens_file("notes.oamod.txt"));
 
     for (const char* name :
-         {"a.oamod", "B.OAMOD", "c.oalang", "D.OALANG", "e.oamap", "F.OAMAP", "g.oareg", "H.OAREG"})
+         {"a.oamod",
+          "B.OAMOD",
+          "c.oalang",
+          "D.OALANG",
+          "e.oamap",
+          "F.OAMAP",
+          "i.oamut",
+          "J.OAMUT",
+          "g.oareg",
+          "H.OAREG"})
         install::post_opened_file(name);
 
     std::vector<std::string> packages;
@@ -47,14 +57,16 @@ int main() {
         packages.push_back(file_name(file));
         install::finish_package_file();
     }
-    OA_CHECK(packages.size() == 6);
-    if (packages.size() == 6) {
+    OA_CHECK(packages.size() == 8);
+    if (packages.size() == 8) {
         OA_CHECK(packages[0] == "a.oamod");
         OA_CHECK(packages[1] == "B.OAMOD");
         OA_CHECK(packages[2] == "c.oalang");
         OA_CHECK(packages[3] == "D.OALANG");
         OA_CHECK(packages[4] == "e.oamap");
         OA_CHECK(packages[5] == "F.OAMAP");
+        OA_CHECK(packages[6] == "i.oamut");
+        OA_CHECK(packages[7] == "J.OAMUT");
     }
 
     std::vector<std::string> registries;

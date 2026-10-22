@@ -13,7 +13,7 @@ desktop. `open-annihilation --help` lists the same options.
 - [Starting the program](#starting-the-program): where the program is, and
   how it reads its options and 3.1c's switches
 - [Every option](#every-option), by group: information; game data, folders
-  and files; mods; display and sound; network play; launch; status;
+  and files; mods; mutators; display and sound; network play; launch; status;
   recordings and video; checks; tools
 - [Ways to launch a game](#ways-to-launch-a-game), and
   [examples](#examples) to copy
@@ -147,7 +147,7 @@ the console it was started from.
 | `--preferences-file PATH` | Reads and writes the preferences in `PATH` instead of the usual file. Your Open Annihilation folder is then the one beside it ([settings](settings.md#where-the-settings-are-kept)). |
 | `--data-dir PATH` | Keeps the data the game unpacks for itself in `PATH`, in place of the system's per-user data folder. |
 | `--log-dir PATH` | Writes this run's log into `PATH`, whatever kind of run it is. What the game prints goes into the log too; only `--status-stdout`'s lines stay on standard output. |
-| `--open FILE` | Opens a `.oamod`, `.oalang`, `.oamap` or `.oareg` file once the main menu shows, as opening it from the desktop does; give it once for each file. |
+| `--open FILE` | Opens a `.oamod`, `.oalang`, `.oamap`, `.oamut` or `.oareg` file once the main menu shows, as opening it from the desktop does; give it once for each file. |
 | `--install-mod FILE` | The same as `--open FILE`. |
 | `--no-game-files-screen` | With no usable game folder, shows the notice with its look-again button instead of the Game files screen, where a system offers both ([game files](game-files.md)). |
 
@@ -175,6 +175,24 @@ more about each, and [mods](mods/README.md) how a mod is chosen.
 line, and exits. It needs `--mod FILE`, `--mod-dir PATH` or `--game-dir PATH`.
 The profile comes first, so a program that reads the profile's JSON still
 finds it at the start of the output. The version line is the last line.
+
+### Mutators
+
+| Option | What it does |
+|---|---|
+| `--mutator PATH\|ID[:OPTION=VALUE,...]` | Applies one mutator to every match this run starts. Repeat it for several, in the order given, each acting on the game as the ones before it left it. `PATH` is a package folder, one that holds `oamut.yaml`. `ID` is a mutator installed in the Mutators folder. Options follow the first `:` that is followed by a name and `=`, as `name=value` pairs joined by `,`. A path that starts with a drive letter, `:` and `/` or `\` keeps that `:` on every platform, so `C:\Mods\pack:factor=4` is the folder `C:\Mods\pack` with `factor` set to 4. A toggle is `true` or `false`, a choice one of its values, and a number a step inside its range. |
+| `--no-mutators` | Plays this run with no mutators. A list `--mutator` or a launch file names is refused and logged, even one that is not installed, and no mutator is applied. The last set of each setup is left as it is. |
+
+`--mutator packages/ridge-swift:factor=4` plays the package at that path
+with `factor` set to 4. `--mutator ridge-swift --mutator ridge-tough`
+plays two installed mutators, ridge-swift first.
+
+A value that is not that form, including an id followed by `:` and no
+option, is refused with status 1. A mutator that is not installed, an
+option it does not have, a value outside its choices, or a list the
+manifests refuse (one id twice, a prerequisite that is not above it, or
+two that conflict) is refused with status 2, before the game starts. An
+id is refused the same way when no player folder can be worked out.
 
 ### Display and sound
 
@@ -325,8 +343,14 @@ Network play's own checks, the last rows, are in every build.
 | `--check-render-tiers` | Checks the accelerated drawing of the main menu and a skirmish against the processor's. |
 | `--check-match-orders` | Clicks the order page's buttons and checks what the units do. |
 | `--check-side-orders` | Clicks each side's order page buttons, whatever prefix their names carry, and checks what the units do. |
+| `--check-side-data-per-match` | Plays skirmishes and checks each match reads side data again when `gamedata/sidedata.tdf` has changed. |
+| `--check-gadget-art-per-match` | Plays three skirmishes and checks a download button's picture appears only in the match whose mod folder holds it. |
 | `--check-factory-orders` | Gives a Kbot Lab a move and checks the unit it builds carries it out. |
 | `--check-unit-speech` | Selects and orders the commander and checks what it says. |
+| `--check-mutator-layer` | Plays skirmishes with the mutators `--mutator` named and checks the commanders, and that a mutator which does not apply leaves no layer. |
+| `--check-mutator-verdicts` | Writes four made-up mutators and checks their verdicts against the installed game, then again from the verdict file. |
+| `--check-mutator-dry-run` | Writes two made-up mutators that stack commander turn rate and worker time, and checks each field is held at 65535 with one note. |
+| `--check-replay-loadout` | Checks a recorded loadout against the installed mutators, plays it for one skirmish and puts the player's own list back. |
 | `--check-download-builds` | Builds a unit from a download page. |
 | `--check-stockpile-builds` | Queues and builds rounds for every unit that stockpiles, through a save and a load. |
 | `--check-unit-page-memory` | Checks each unit keeps its order page through reselection, a save and a load. |
@@ -345,6 +369,7 @@ Network play's own checks, the last rows, are in every build.
 | `--check-setup-window` | Walks the window before the game: the language, the game and the copy. |
 | `--check-window-place` | Checks the next start opens the window at the same size and place. |
 | `--check-progress` | Shows the progress dialog for a slow piece of work. |
+| `--check-icloud-wait` | On macOS, holds one evicted archive's read and checks the window keeps drawing the iCloud line, then continues. Elsewhere, checks the line never names iCloud. |
 | `--check-text-fit` | Opens every Open Annihilation screen in each built-in language and Simplified Chinese at two sizes, and fails when a text does not fit. |
 | `--check-language TAG` | With `--check-text-fit`, the language to check in place of those, such as an installed pack's (`uk`); give it once for each. With `--check-language-switch`, the language it starts in. The language must be one the game shows. |
 | `--check-folder-chooser` | Chooses the game folder in the game's own locator. |
@@ -380,6 +405,10 @@ Network play's own checks, the last rows, are in every build.
 | `--check-map-pack-lists` | Installs a map pack while both map lists exist. |
 | `--check-mod-map-settings` | Checks a mod's settings for a map pack's map, with `--mod-dir`. |
 | `--check-map-browser` | Checks the map browser at four window sizes. |
+| `--check-mutator-button` | Checks Mutators on the skirmish setup and the campaign launch at 640x480 and 1280x720: the button's size and place, its badge and count, Tab, Down, a finger's reach, Y, the remembered set and the set a start hands on. |
+| `--check-mutator-room` | Hosts a battle room alone and checks Mutators above Select Map, as large as it, at 640x480 and 1280x720, its count, the remembered multiplayer set, the chat lines, and the button while the room's options are locked. |
+| `--check-mutator-picker` | Checks the mutator picker at four window sizes, including a cancelled download, a check after an install, USE THESE fetching one, a download already under way, and the runtime's own feed. |
+| `--check-mutator-prompts` | Checks the questions a stopped skirmish start, a crash and Get mutators ask: START WITHOUT IT, BACK, FORGET IT and RETRY. Then the host's "The game did not start" for a guest without its release and for one with it. |
 | `--check-mod-warning` | Checks the warning for a mod whose files are missing. |
 | `--check-mod-install` | Installs, rolls back and replaces made-up mod packages. |
 | `--check-language-install` | Installs a language pack from a dropped file. |
@@ -389,6 +418,7 @@ Network play's own checks, the last rows, are in every build.
 | `--check-library-install` | Installs made-up mod packages from three registries while the Library shows. |
 | `--check-library-map-previews` | Checks the Library's map pictures. |
 | `--check-library-content` | Turns Core Contingency off in the Library, and chooses the demo when its installer is there. |
+| `--check-library-update-question` | At 640x480, confirms a rules-changing update fifty times and requires the Library to stay open with its tabs. |
 | `--check-renderer-ladder` | Forces each renderer failure the game handles and checks it goes on. |
 | `--render-fault POINT[@FRAME]` | Forces only that failure, for `--check-renderer-ladder`. |
 | `--check-briefing-narration` | Checks a briefing's narration plays and stops when it should. |
@@ -436,7 +466,7 @@ one, for the engine's developers.
 | `--seed N` | Starts the random numbers from `N`, so two runs play alike. |
 | `--trace-digest FILE` | Writes a digest of the match at each tick. |
 | `--trace-units FILE` | Adds a line for each unit to it. It needs `--trace-digest`. |
-| `--trace-lookups FILE` | Writes every game file and listing the run looks up. |
+| `--trace-lookups FILE` | Writes every game file and listing the run looks up, and, for a path a mutator serves or hides, which mutator. |
 | `--trace-input` | Prints each press of the pointer's buttons, and where it lands, each move of the pointer over a match, and the game's window, its display and the pointer as a match begins and at each change of the window or a display, on standard error. [Below](#--trace-input). |
 | `--debug-order-lines` | Draws each construction beam as a plain line, to debug it. |
 | `--draw-threads N` | The threads that draw, from 1 through 32. |
@@ -742,7 +772,7 @@ word, and a key that is not one is refused with its full name
 | `map` | The map the host plays. |
 | `rules` | The host's rules: commander death, starting metal and energy, the unit limit, line of sight, mapping, start positions, cheats, watchers, the time limit, the lock on the options and the unit restrictions. A player who joins does not apply them: the host's rules are the ones that play. |
 | `computer-players` | The computer players this machine seats, a list. |
-| `content` | The base game, expansions and mod this run plays. |
+| `content` | The base game, expansions, mod and mutators this run plays. |
 | `status` | The status stream ([multiplayer/status.md](multiplayer/status.md)). |
 
 A setting written `on` or `off` may also be written `true` or `false`. A
@@ -776,6 +806,19 @@ installed mod`). A file that leaves `content` out plays what the Library
 has chosen.
 `--content`, `--base-game`, `--mod` and `--mod-dir` beside the file replace
 that choice.
+
+`content.mutators` is the mutators this run plays, in the order they apply,
+top to bottom, at most 32. Each item is an installed mutator's id, or a
+group of its `id`, the `version` it must be and the `options` it plays with.
+An option is `on`, `off`, `true`, `false`, a number or text. A mutator that
+is not installed is refused before a window opens, and the line names the
+file and the item (`host.oalaunch: content.mutators[2]: "wide-sight" is not
+an installed mutator`). A version the file names that is not the installed
+one is refused the same way (`host.oalaunch: content.mutators[1]: "wide-sight"
+1.2 is not installed; 1.3 is`), and so is an option the manifest does not
+have or a value outside it. `--mutator` beside the file replaces the list.
+The list applies in a `--headless-check` run too. A file without the field
+plays no mutators unless `--mutator` names some.
 
 `map` is the map's shown name, or its key (`name@package` for a pack map). A
 map that is not installed is refused before a window opens
@@ -840,6 +883,12 @@ content:
   base-game: totala
   expansions: [core-contingency]
   mod: ridge
+  mutators:
+    - wide-sight
+    - id: fast-builders
+      version: "1.0"
+      options:
+        factor: 2
 status:
   standard-output: on
   file: status.jsonl
@@ -851,7 +900,8 @@ limit of 250, true line of sight, a mapped start, random positions, cheats
 off, watchers on and a player limit of 4, with the Krogoth out and the Flash
 without a limit. The host is Core on team 1 in colour 2, beside an Arm
 computer player on team 2 in colour 5 and a Core one on team 1. The map is
-Acid Foursome. The same launch on the command line, the content and status
+Acid Foursome. The run plays wide-sight, then fast-builders at version 1.0
+with factor 2. The same launch on the command line, the content and status
 groups left out:
 
 ```sh
@@ -916,6 +966,7 @@ settings in src/app/netgame/launch_file.cpp, word for word. -->
 | `content.base-game` | `--content GAME[:EXPANSION,...]` | The base game this run plays, by its id. |
 | `content.expansions` | `--content GAME[:EXPANSION,...]` | The expansions this run plays, a list of ids. It needs a base game. |
 | `content.mod` | `--mod FILE \| --mod-dir PATH` | The mod this run plays: in the file a mod's id or a path, and on the command line its profile or its folder. |
+| `content.mutators` | `--mutator PATH\|ID[:OPTION=VALUE,...]` | The mutators this run plays, applied top to bottom, at most 32: each an installed mutator's id, or a group of its `id`, the `version` it must be and the `options` it plays with. Give the option once for each. |
 | `status.standard-output` | `--status-stdout` | Writes the status stream on standard output: `on` or `off`. |
 | `status.file` | `--status-file PATH` | Writes the status stream to this file. |
 | `status.quit-after-game` | `--quit-after-game[=after-score]` | Leaves when the game ends (`on`), stays (`off`), or leaves after the score (`after-score`). |
@@ -1022,7 +1073,11 @@ What an opened launch file does depends on when it arrives:
   with status 2 and a message that names the file and the field.
 - **While the game shows the main menu,** the game goes to that launch's
   battle room. From the single-player menu it goes back to the main menu
-  first.
+  first. A launch's mutators never keep it from opening, because they apply
+  per match rather than choosing the content the game has mounted. Its list
+  replaces the running game's list for its battle room's games. A mutator
+  that is not installed, or whose version or options do not match, is still
+  refused, and the file is not opened.
 - **During a match,** while a game is being set up (a skirmish, a campaign
   mission, the multiplayer screens), or on any other screen, the game opens
   nothing and says so: in the match's message log, or with a notice. A
@@ -1244,7 +1299,7 @@ the -c file in src/app/netgame/launch_file.cpp, word for word. -->
 |---|---|
 | 0 | The player left the game. `--version`, `--help`, `-r`, `--list-content --json` and a `--print-profile` of a usable profile end with 0 too, and so does a check that passed. With `--quit-after-game`, the game ended. |
 | 1 | An option or a value was refused, an error stopped the game, such as game data it cannot read, or a check failed. A `--print-profile` of a profile with errors ends with 1. |
-| 2 | A launch the game cannot use: a launch file it cannot read, or that is neither kind; a field or an option out of range, or one that needs another; a map, a base game, an expansion or a mod that is not installed. |
+| 2 | A launch the game cannot use: a launch file it cannot read, or that is neither kind; a field or an option out of range, or one that needs another; a map, a base game, an expansion, a mod or a mutator that is not installed, or a mutator option it lacks or a value outside that option's choices, or a mutator list the manifests refuse. |
 | 3 | The game ran out of memory, and said so in a box and in `ErrorLog.txt` beside the program. With `--quit-after-game`, the player left the game or lost the connection. |
 | 77 | A check that cannot run on this machine. |
 

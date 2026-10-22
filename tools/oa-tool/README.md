@@ -47,8 +47,12 @@ same. `--` ends options. A command takes its options through
 | `asset-extract ROOT ENTRY OUTPUT [ARCHIVE...]` | Writes ENTRY from loose files under ROOT, or from the named archives, and prints where it was read. A loose file wins. |
 | `preview ARCHIVE PCX_ENTRY OUTPUT.ppm\|OUTPUT.png` | Decodes a PCX image from an archive as a PPM file, or a PNG file when the path ends in `.png`, and prints its size. |
 | `decode-pcx INPUT.pcx OUTPUT.ppm\|OUTPUT.png` | Decodes a PCX file the same way. |
-| `pack FOLDER [--out FILE] [--force] [--game-dir DIR]` | Packs FOLDER as a `.oamod`, a `.oalang` or a `.oamap`. The manifest is first, then every other file in byte order of its path. A file whose extension, without case, is png, jpg, jpeg, gif, ogg, mp3, zip, gz, bz2, xz, 7z, oamod, oalang or oamap, and an empty file, is stored; every other file is deflated. The same files give the same bytes. `--game-dir` is the game's data; map packs need the game's palette for previews. `--force` replaces an existing file. A map's `players` is the largest whole number in its OTA `numplayers` when every number is from 2 to 10, and otherwise the most start positions of a Network schema. The folder's `oamap.yaml` may leave `maps` out, or set a map's `name`, `description` or `players`. `size`, `preview` and `files` are computed. |
-| `check FILE [--game-dir DIR] [--mod FOLDER[=KEY]]... [--accept-unimplemented-hacks] [--json]` | Runs the checks an install runs before it writes, and reports the facts a catalogue lists. A map pack needs `--game-dir` and may name each further target with `--mod`. `--json` prints one JSON object, and a map pack adds `maps`. Otherwise each fact is a `key: value` line, a map pack then prints one line per map and target, and the last line is `result: ok` or `result: refused`. Exit 0 when the package would be installed, 1 when it would be refused or a map does not fit `ta-3.1c`. A mod that does not fit leaves that exit code unchanged. |
+| `pack FOLDER [--out FILE] [--force] [--game-dir DIR]` | Packs FOLDER as a `.oamod`, a `.oalang`, a `.oamap` or a `.oamut`. The manifest is first, then every other file in byte order of its path. A file whose extension, without case, is png, jpg, jpeg, gif, ogg, mp3, zip, gz, bz2, xz, 7z, oamod, oalang or oamap, and an empty file, is stored; every other file is deflated. The same files give the same bytes. `--game-dir` is the game's data; map packs need the game's palette for previews. `--force` replaces an existing file. A map's `players` is the largest whole number in its OTA `numplayers` when every number is from 2 to 10, and otherwise the most start positions of a Network schema. The folder's `oamap.yaml` may leave `maps` out, or set a map's `name`, `description` or `players`. `size`, `preview` and `files` are computed. A mutator's default name is `<id>-<version>.oamut`. Its Lua is compiled and its rule files are parsed before the file is written, and neither is run. `--game-dir` with a mutator is a usage error. |
+| `check FILE [--game-dir DIR] [--mod FOLDER[=KEY]]... [--accept-unimplemented-hacks] [--json]` | Runs the checks an install runs before it writes, and reports the facts a catalogue lists. A map pack needs `--game-dir` and may name each further target with `--mod`. `--json` prints one JSON object, and a map pack adds `maps`. A mutator adds `summary`, `description`, `homepage`, `tags`, `author`, `requires`, `works_with`, `conflicts_with`, `layers`, `clashes`, `options`, `icon`, `entry`, `scripts`, `rules` and `legacy`, and its `revision` is null. `clashes` is `add` or `replace` when the manifest names it, and is left out when it does not. Without `--json` each fact is a `key: value` line, a map pack then prints one line per map and target, and the last line is `result: ok` or `result: refused`. Exit 0 when the package would be installed, 1 when it would be refused or a map does not fit `ta-3.1c`. A mod that does not fit leaves that exit code unchanged. |
+| `mutator pack FOLDER [--out FILE] [--force]` | Packs a folder whose top holds `oamut.yaml`, the same way `pack` does. A folder without `oamut.yaml` is a usage error. |
+| `mutator check FILE [--json]` | Checks a `.oamut` and reports the same facts as `check`. A file of another kind is a usage error. |
+| `mutator import INPUT... --out DIR [--id ID] [--version VERSION] [--tag TAG]... [--works-with CODE=ENTRY]... [--pack] [--force]` | Imports each `.tam` or zip into `DIR/<id>/`. A `.tam`'s companions are read from its own folder, so DIR is not that folder. A zip is read on its own, so DIR may be the folder that holds the zip. A zip's names are the names the archive recorded. `--id` and `--version` apply to one mutator. `--tag` replaces the `gameplay` tag. `--works-with` maps a compatibility code; `OTA` and `TACC` are already mapped. `--pack` also writes `DIR/<id>-<version>.oamut`. `--force` replaces an existing folder. One line per mutator, then its warnings. Exit 0 when every mutator was imported. A link is not followed. |
+| `mutator diff --game-dir DIR [--mod-dir DIR] [--map NAME] [--seed N] [--mutator SPEC]... [--versus SPEC]... [--allow FILE] [--dump FILE]` | Mounts DIR the way the game does, and `--mod-dir` as a mod folder over it. Each `--mutator` and `--versus` is a package folder, with options after the last colon. An id with no path is refused. The report's change lines are `unit dropped NAME hidden\|copyright\|version`, `unit added NAME`, `file added PATH` or `file added PATH SHA`, `file hidden PATH`, `file replaced PATH OLD NEW`, `field PATH SECTION KEY: OLD -> NEW` and `menu added\|removed BUILDER PAGE BUTTON UNIT`. A missing side is `(absent)`. A section whose name repeats among its siblings is `[name@N]` from its second occurrence on. A byte below 0x20, and 0x7F, is written `\xHH` in a path, a section, a key and a value, in the report and in `--dump`. A journal id is added after a tab as `by <id>[,<id>...]`, for the section the journal names: `[unitinfo]` on a unit, `[<record>]` and `[<block>]` on a weapon or a feature, and `[globalheader]` or `[globalheader][schema N]` on a map. A field with no entry of its own names the file's owner. The header lines are `# oa-tool mutator diff 1`, `# game:`, `# mod:`, `# loadout:`, `# seed:` and, when `--map` is set, `# map:` with the map's name as the game's map list spells it. A map the game does not have is a usage error. `--versus` prints the left header, `# versus:`, the `left only` and `right only` lines, each matched difference as `allowed <line>`, then `allowed difference matched nothing: <pattern>` for each unused pattern, then `mutator diff: <n> differences, <a> allowed, <u> unused allowances`. Download lines are dropped. A unit both sides drop loses its reason, its FBI lines, its menu lines and every field of a GUI gadget whose `[COMMON] name`, or `name`, is that unit. A field path ends at ` [`. A file path may contain spaces and ends before its hash. An allow file ignores a leading BOM and blank lines, treats a `#` line as a reason and every other line as a whole-line pattern (`*` any run, `?` one character). A blank line ends a block. Each pattern needs a reason above it in its own block. `--dump` writes `path`, a tab, the source, a tab and the SHA-256, then one indented field line. Exit 0 when the report was written, or a comparison has nothing left and no unused pattern. |
 | `catalogue keygen --id ID --out FILE [--passphrase-file FILE]` | Makes a new Ed25519 key, seals its seed with a passphrase and writes FILE. The file is created only when that name is new, and on macOS and Linux its mode is 0600. The passphrase is read from the terminal with echo off, twice, and has to be at least 12 bytes. `--passphrase-file` reads the file's first line instead. Prints `key:`, `public: ed25519:` and `fingerprint:`. |
 | `catalogue public KEY_FILE` | Prints the same three lines. The passphrase is not used. |
 | `catalogue sign --key KEY_FILE CATALOGUE [--out SIG] [--passphrase-file FILE]` | Signs CATALOGUE's exact bytes and writes CATALOGUE.sig, or SIG. The line is the one a catalogue check reads: `ed25519`, the key id and the signature. A catalogue this build would refuse is refused before the key is opened. The written pair is checked before the command reports success. Prints `signed <file> with <id>`. |
@@ -87,8 +91,9 @@ given, so a test can capture every line.
   files give the same bytes.
 - `check` accepts a package exactly when an install would, and reports
   `sim_hash` and `full_hash` from the profile resolved without the packaged
-  settings. A missing fact is left out; `revision` is null only when a
-  language pack has no packaging revision.
+  settings. A missing fact is left out. `revision` is null when a language
+  pack has no packaging revision, and for every mutator. A mutator's Lua is
+  compiled and its rule files are parsed, and neither is run.
 - The exit code is 0, 1 or 2.
 - `catalogue sign` writes the signature with the catalogue check's own
   line, and reports success only after that check accepts the written pair.
@@ -107,6 +112,16 @@ given, so a test can capture every line.
 - `interface-words --json` prints one JSON array of the texts the modules
   export for the interface catalogue. The array is sorted and holds each
   text once. Any other arguments exit 2.
+- `mutator diff` prints the same bytes for the same inputs. The header is
+  not sorted with the change lines. Change lines are sorted by their bytes,
+  including the tab and the `by` suffix. Values are the text the file or the
+  formatter wrote, with a byte below 0x20 and 0x7F written `\xHH`.
+- A unit name in the report is the FBI's file name, `units/<NAME>.fbi`.
+  That name matches `UnitName` for all 278 FBIs on 3.1c.
+- `by` follows the section the journal names, not every write of the same
+  key in the file. A GUI gadget is folded from `[GADGETn][COMMON] name`.
+- `mutator diff --versus` exits 0 only when no difference remains and every
+  pattern matched a difference. The comparison is the text before a tab.
 
 ## Adding a command
 
@@ -147,6 +162,28 @@ refused. Two packs of one folder have the same bytes.
 `tools-oa-tool-check` (`oa-tool-check-test`) checks a made-up mod package,
 its refusals, and a language manifest read on its own. Its argument is the
 pseudo pack's `language.yaml`.
+
+`tools-oa-tool-mutator` (`oa-tool-mutator-test`) packs a made-up mutator,
+checks the entry order, the methods and the JSON facts, and checks the
+refusals from `pack` and from `check`. `mutator pack` and `mutator check`
+are the same commands limited to a mutator.
+
+`tools-oa-tool-mutator-import` (`oa-tool-mutator-import-test`) imports
+made-up `.tam` files and a zip into mutator folders, packs one and checks
+it, replaces a folder with `--force`, and checks the usage errors. One
+refused mutator leaves the others written. A companion that is a link is
+not read, on a system that can make a link.
+
+`tools-oa-tool-mutator-diff` (`oa-tool-mutator-diff-test`) runs `mutator diff`
+against a stand-in game and made-up package folders. It checks the report,
+a second run with the same bytes, a relative path after changing directory,
+a dump that does not change the report, two ways of dropping a unit, a
+masked file and a build menu, a map profile, an allow file and the usage
+errors.
+
+`tools-oa-tool-mutator-diff-data` runs the same program with `--data` against
+the installed game. A doubling loadout's change lines are worker-time fields,
+and the same loadout written as rules matches it.
 
 `tools-oa-tool-check-map` (`oa-tool-check-map-test`) checks a made-up map
 pack against a stand-in game and a made-up mod. `tools-oa-tool-check-map-data`
@@ -194,4 +231,9 @@ not sign anything, and it posts no install result. A mirror folder is a copy
 of the registry. It is served as a direct registry: the files and signatures
 stand on their own, and the origin's key API stays the origin's policy. The
 macOS package does not ship `oa-tool`. `interface-words` takes only
-`--json`.
+`--json`. `mutator diff` reads package folders by path. An installed id is
+refused. It does not pack a `.oamut`, and it does not check a package's
+integrity. It does not run the hack check. A comparison folds removals and
+where a build menu or a GUI gadget names a unit, and it does not fold
+anything else. A file that parses on one side only is reported as
+`file replaced` with the two hashes.

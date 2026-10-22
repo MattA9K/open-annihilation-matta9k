@@ -24,6 +24,11 @@ loads a film as a game.
 Saved games stay in `Saves/<mod>/`, and recordings and films stay in their
 own folders for that mod.
 
+A save or a recording made with mutators keeps those mutators, and so does
+a campaign save. Loading it needs the same ones. When one is missing, the
+game names it. [Playing with mutators](playing-with-mutators.md) says what
+the note holds and what the refusal reads.
+
 ## What a saved game keeps
 
 A saved game keeps what a 3.1c saved game keeps. Shots in flight are not

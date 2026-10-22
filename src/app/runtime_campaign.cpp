@@ -3,6 +3,7 @@
 
 // Runtime glue for the campaign package: binds the campaign object, the
 // NEWGAME lists and the MSNBRIEF panel to the frontend runtime.
+#include "oa/app/mutators_memory.hpp"
 #include "oa/app/runtime.hpp"
 #include "oa/data/defs/layout.hpp"
 #include "oa/data/defs/unit_catalog.hpp"
@@ -408,6 +409,25 @@ static missions::CampaignEnv campaign_env(
         asset_find
     };
     return {&state.files, nullptr, static_cast<int32_t>(difficulty), 0, names};
+}
+
+void Runtime::clear_campaign_map_cache() {
+    campaign_runtime().map.mission_name[0] = '\0';
+}
+
+void Runtime::rebind_campaign_mission() {
+    auto& state = campaign_runtime();
+    const auto env = campaign_env(assets_, preferences_.difficulty, difficulty_names());
+    if (!missions::campaign_bind_mission(
+            &state.file, &env, static_cast<int32_t>(selected_mission_index_)
+        )) {
+        std::string message = "the campaign mission could not be bound again";
+        if (!state.events.message.empty()) {
+            message.append(": ");
+            message.append(state.events.message);
+        }
+        throw std::runtime_error(std::move(message));
+    }
 }
 
 // campaign_env for the calls that list the campaigns, whose reports of the
@@ -1491,6 +1511,10 @@ void Runtime::click_briefing_gadget(std::string name) {
     }
     if (state.events.signal == campaign::signal::back) {
         briefing_art_ = {};
+        // A save's list is only for the briefing's mission. Leaving the
+        // briefing drops it, so the next start plays the set chosen there.
+        if (mutators_held_for_next_match())
+            cancel_loadout_once();
         load(briefing_parent_);
         return;
     }
@@ -1849,7 +1873,11 @@ void Runtime::start_campaign_mission() {
         configure_campaign_players();
         campaign_seated = true;
         // The mission info sets the unit limit from the GlobalHeader's maxunits
-        // and mission start leaves it for a campaign.
+        // and mission start leaves it for a campaign. A saved game has already
+        // chosen this match's mutators; the campaign's set is what the missions
+        // after this one start with.
+        if (!mutators_held_for_next_match())
+            hand_chosen_mutators(mutators_memory::Setup::campaign);
         bootstrap_match(
             {.units_per_player = static_cast<uint16_t>(state.file.units_per_player),
              .place_commanders = false}
@@ -1860,6 +1888,8 @@ void Runtime::start_campaign_mission() {
         campaign_mission_ = false;
         status_ = std::string("campaign start: ") + error.what();
         std::cerr << "unsupported operation: " << status_ << '\n';
+        if (match_ == nullptr)
+            offer_mutator_start_question();
     }
     // A start that never builds a match puts the player's setup back. The
     // preferences then keep those slots, not the mission's two players.

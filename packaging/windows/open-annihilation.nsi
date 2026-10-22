@@ -110,7 +110,7 @@ SetCompressor /SOLID lzma
 !define OA_DESKTOP_LNK "$DESKTOP\Open Annihilation.lnk"
 # A launch file (.oalaunch) opens the game in that launch's battle room, as
 # open-annihilation.exe -c FILE does. The installer associates it for everyone
-# who uses this computer; the game's own registration of the five types is per
+# who uses this computer; the game's own registration of the six types is per
 # user, at run time, and a player who turns Settings' Launch files switch off
 # hides this association from themselves alone. These are the names
 # src/platform/file-types uses. The uninstaller removes both: the association
@@ -456,7 +456,7 @@ FunctionEnd
 !define OA_WithdrawUserType "!insertmacro OA_WithdrawUserType"
 
 Section "Uninstall"
-  # The game's own registration of the five file types, for the account that
+  # The game's own registration of the six file types, for the account that
   # uninstalls, while it names this install's program: first, while the
   # program is still there to be named in its short form too. The extensions
   # and program identifiers are those of src/platform/file-types.
@@ -471,6 +471,7 @@ Section "Uninstall"
   ${OA_WithdrawUserType} ".oamod" "OpenAnnihilation.Mod" "application/x-oamod"
   ${OA_WithdrawUserType} ".oalang" "OpenAnnihilation.Language" "application/x-oalang"
   ${OA_WithdrawUserType} ".oamap" "OpenAnnihilation.MapPack" "application/x-oamap"
+  ${OA_WithdrawUserType} ".oamut" "OpenAnnihilation.Mutator" "application/x-oamut"
   ${OA_WithdrawUserType} ".oareg" "OpenAnnihilation.Registry" "application/x-oareg"
   ${OA_WithdrawUserType} ".oalaunch" "${OA_LAUNCH_PROGRAM_ID}" "${OA_LAUNCH_MIME_TYPE}"
 

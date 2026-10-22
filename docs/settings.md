@@ -760,17 +760,18 @@ of the game's file types this copy opens.
   menu. **Cancel** leaves it as it was. During a game the row is locked
   and says "Choose from the main menu." The welcome itself is
   [the first-run setup](first-run.md).
-- **File Type Registration**, on Windows, Linux and macOS. Five switches,
+- **File Type Registration**, on Windows, Linux and macOS. Six switches,
   all On at first:
   - **Mod packages (.oamod)**
   - **Map packs (.oamap)**
   - **Language packs (.oalang)**
   - **Registry files (.oareg)**
+  - **Mutator packages (.oamut)**
   - **Launch files (.oalaunch)**: a launch file opened from the file
     manager starts the game in its battle room
     ([Opening a launch file](command-line.md#opening-a-launch-file))
 
-  ![The end of the System section: File Type Registration with its line, then the Mod packages, Map packs, Language packs, Registry files and Launch files switches, each On.](images/settings/system-2.png)
+  ![The end of the System section: File Type Registration with its line, then the Mod packages, Map packs, Language packs, Registry files, Mutator packages and Launch files switches, each On.](images/settings/system-2.png)
 
   The hint says "Open these files with the game from your file manager."
   **OK** applies a switch you moved, at once. **Cancel** leaves every
@@ -812,7 +813,7 @@ of the game's file types this copy opens.
   System opens in this run, and it goes away when every switch matches
   what you asked. [macOS](installation/macos.md) says the same for opening
   a file.
-- **File types**, on iPhone and iPad, in place of the five switches. The
+- **File types**, on iPhone and iPad, in place of the six switches. The
   system takes the types from the app, and there is no way to choose a
   default opener, so there is no switch. The hint is one sentence.
 

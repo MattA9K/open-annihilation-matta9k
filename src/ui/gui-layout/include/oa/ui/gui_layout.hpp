@@ -201,6 +201,37 @@ struct Rect {
     bool operator==(const Rect&) const = default;
 };
 
+/// Tells whether the gadget engine will move the keyboard focus onto a gadget.
+///
+/// Inactive gadgets, gadgets marked to take no focus, grayed buttons, locked
+/// scroll bars, vertical scroll bars, lists that only cycle frames, and every
+/// other kind are left out. A gadget with no area is not left out here: a
+/// screen that draws nothing for it decides that itself.
+///
+/// @param active the gadget's active byte; 0 is inactive
+/// @param attributes the gadget's attribute bits
+/// @param type the gadget's type byte
+/// @param button_grayed true when a button is grayed out
+/// @param scroll_locked true when a scroll bar is locked
+/// @param width the gadget's width
+/// @param height the gadget's height
+/// @return true when Tab can stop on it
+[[nodiscard]] bool keyboard_focusable(
+    int8_t active,
+    uint32_t attributes,
+    uint8_t type,
+    bool button_grayed,
+    bool scroll_locked,
+    int32_t width,
+    int32_t height
+) noexcept;
+
+/// Tells whether the gadget engine will move the keyboard focus onto a gadget.
+///
+/// @param gadget the gadget
+/// @return true when Tab can stop on it
+[[nodiscard]] bool keyboard_focusable(const Gadget& gadget) noexcept;
+
 /// Returns a gadget's screen rectangle.
 ///
 /// A zero type byte keeps that record's stored xpos/ypos. Any other type adds

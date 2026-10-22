@@ -1,8 +1,8 @@
 # Library
 
 The Library's model (`oa/ui/library/library.hpp`, `oa::ui::library`): one
-list of every package the player can get or has installed, mods, map packs
-and language packs together, searchable on the player's own machine and
+list of every package the player can get or has installed, mods, map packs,
+language packs and mutators together, searchable on the player's own machine and
 honest about what each package does to the game. It turns plain inputs into
 the Library's state: the entries and their states, which of them show, the
 selection, the facts and buttons of the selected entry, and the footer's
@@ -45,7 +45,16 @@ translator finds them together. Every word passes through `Library::text`
     have or this build does not carry out (up to three named, then
     "· N more"); for UPDATE, what its update note says. An INSTALLED or
     PLAYING entry is never blocked, so ROLL BACK and OPEN FOLDER stay. A
-    blocked GET is listed with its reason, never hidden;
+    blocked GET is listed with its reason, never hidden. A mutator that
+    does not work with the mod being played is still listed, and GET and
+    UPDATE stay on: `not_compatible` is information, and the details name
+    the mods it works with (`details_note`). An unmet prerequisite is
+    recorded on `needs_missing` and does not block GET or dim the row.
+    `works_with_played` reads the installed facts when they are set, even
+    when that works-with list is empty (any mod), otherwise the listing's.
+    An empty list or `*` works with any mod, `ta-3.1c` works while no mod
+    is played, and a mod id works when it is the played mod and its range,
+    read by the mutator manifest's matcher, holds the played version;
   - `built_in`, taken only from `Registry::built_in` (its GET and UPDATE
     never ask the player first), `not_reviewed` for every other registry,
     the registry's name, and, on a GET entry, the name of another registry
@@ -68,12 +77,14 @@ translator finds them together. Every word passes through `Library::text`
 - `set_tab`, `set_filter`, `set_tag`, `set_query`, `select`,
   `move_selection`, `open_details` and `close_details` browse; each
   recomputes `visible`, the entries shown in their order:
-  - the tabs are Active, Mods, Maps, Languages, Updates and Registries,
-    in that order. A Library opens on Active (`Library::tab`), which lists
-    no entry and selects none: it shows the player's setup (`active_setup`,
-    below). Registries lists the registries (`Inputs::registries`) and has
-    no search, no filter and no package list;
-  - Mods, Maps and Languages show their kind and Updates every kind, under
+  - the tabs are Active, Mods, Maps, Mutators, Languages, Updates and
+    Registries, in that order. A Library opens on Active (`Library::tab`),
+    which lists no entry and selects none: it shows the player's setup
+    (`active_setup`, below). Registries lists the registries
+    (`Inputs::registries`) and has no search, no filter and no package
+    list. Mutators lists every mutator the player has or a registry lists,
+    and nothing there switches one on;
+  - Mods, Maps, Mutators and Languages show their kind and Updates every kind, under
     the tab's own filter (`Library::filters`, `shown_filter`) and, when that
     filter offers it, the tag. A tag left from another tab or filter is kept
     and hides nothing until a tab offers it again. The filters are:
@@ -90,14 +101,28 @@ translator finds them together. Every word passes through `Library::text`
     entries that can be installed, then blocked ones; within each, by name
     folded to lower case, built-in registries first, then registry id;
   - with a search (`rank`, in `search.cpp`): every word must be found; a
-    word's class is the best field it is in: the name, a tag that starts
-    with it, the author or publisher, the summary. Entries order by the
+    word's class is the best field it is in: the name, a tag whose id or
+    shown label starts with it, the author or publisher, the summary. A
+    label is the word of one of the eight ids (`statistics`, `economy`,
+    `commanders`, `new-units`, `disable`, `gameplay`, `ai`, `maps`),
+    matched exactly; any other id, including a different case of one of
+    those, is searched as written and is not given that word. Entries order by the
     worst class among the words, then the sum of the classes, then names
     that start with the first word, then as with no search. The search is
     kept to 64 bytes, cut at a character boundary. Whenever the list keeps
     the base game entry, it is moved to the front after that order;
 - `tags_in_tab` counts the tags of the entries a tab shows under its
-  filter. The list applies a stored tag only when that count includes it;
+  filter. A mutator's tags are the ids on its facts, the listing's before
+  the installed copy's, and not the listing's own tag list as well. On
+  Mutators the eight ids come first, in the order statistics, economy,
+  commanders, new-units, disable, gameplay, ai, maps, and any other id
+  after them in alphabetical order. On the other tabs the ids stay in
+  alphabetical order. A mutator's chips and detail pills, and the Mutators
+  tab's filter pills, pane and menu, show the word of an id matched
+  exactly (`tag_label`). A mod's or a map pack's tag stays as written on
+  every tab, so `economy` stays `economy` and `maps` stays `maps`, and a
+  different case such as `Economy` stays as written. The search still
+  matches a mutator's label. The list applies a stored tag only when that count includes it;
   `filter_count` counts the packages a filter keeps on the tab
   shown before the tag and the search, so no count moves with them, and
   leaves the base game entry out of every count, and
@@ -133,7 +158,12 @@ translator finds them together. Every word passes through `Library::text`
     SWITCH OFF and ROLL BACK are off during a game, and PLAY NOW and
     SWITCH OFF while `Inputs::mod_from_command_line` says `--mod-dir` or
     `--base-game` chose the mod. GET stays on. A package that cannot run
-    stays in the list;
+    stays in the list. A mutator offers GET or UPDATE (CANCEL while queued,
+    RETRY after a failure that can be retried), then CHECK WITH THIS MOD
+    when an installed copy's verdict is set (off during a game and while a
+    check runs), then UNINSTALL, OPEN FOLDER and HOMEPAGE. It never offers
+    ROLL BACK, PLAY NOW, SWITCH OFF, USE NOW or TURN ON, and an incompatible
+    verdict does not turn GET or UPDATE off;
   - the facts Installed, Latest, Author, Size, Base, Games, Needs, Hacks, Rules,
     Maps, Coverage and From, in a long and a short form. Installed and
     Latest are the installed copy's and the listing's version and revision
@@ -147,7 +177,17 @@ translator finds them together. Every word passes through `Library::text`
     ("9c1f 4e0b → 51d2 07aa · changes the game's rules; saved games from
     revision 3 won't load under revision 4"), since a built-in registry's
     update asks no question that would say it. From says "Not reviewed by
-    the OA team" for an added registry;
+    the OA team" for an added registry. A mutator leaves out Size, Base,
+    Games, Hacks, Maps and Coverage. After Author it lists Works with
+    ("Any mod" when the list is empty or names `*`, marked when the mutator
+    does not fit the mod being played), Checked (an installed copy whose
+    verdict is set: the played mod's name, or "No Mod"; a bad mark is the
+    danger colour), one Needs per prerequisite (the name alone when it names
+    no range: "Gatehouse: not installed", or "Gatehouse ✓" when it is met)
+    and then the engine's Needs,
+    Options, Changes, Rules ("Changes the game: unranked on Core Prime",
+    shown whole) and From. `verdict_of_record` maps a dry-run record; a
+    compatible summary counts the collections ("changes 2 units");
   - the byline names the author, or the publisher when there is no author.
     A listing that names neither shows nothing more. The byline does not
     change an entry's state, order or search rank;
@@ -155,7 +195,10 @@ translator finds them together. Every word passes through `Library::text`
     Ridge."), after "The command line chose this run's mod." on every
     installed mod while the command line chose it;
   - the status line says "No oamod.yaml present" for a mod folder without
-    one (`Installed::without_manifest`), installed or played.
+    one (`Installed::without_manifest`), installed or played. A mutator that
+    is not installed names its version, including a revision of 1
+    ("Not installed · 2.0 · rev 1"). Installed, update and queue lines stay
+    as they are for every kind.
 - `entry_summary` gives the words under the details' status line: the
   listing's summary, else the installed manifest's description
   (`Installed::description`), as for a mod of the player's own.
@@ -265,7 +308,11 @@ app removes the folder (`Runtime::library_uninstall`,
   lists it, so the Library cannot get it again."; CANCEL (`cancel`) marked
   and answering Escape, B and N, and UNINSTALL (`uninstall`) primary. Its
   word is the kit's default, so automation lists `oa.prompt.cancel` and
-  `oa.prompt.uninstall`.
+  `oa.prompt.uninstall`. `uninstall_question(library, entry, folder)` is
+  the same question, and for a mutator other installed mutators need it
+  adds, before that last paragraph, that they stay installed and cannot
+  be switched on until it is back. The host uses this form. The answer
+  and the removal are unchanged.
 - `uninstall_notice(entry, step)` makes the notice for a package in use,
   and `uninstall_failed_notice(name, problem)` the one for an uninstall
   that removed nothing (busy, changed, a link, outside the player's
@@ -439,7 +486,24 @@ app removes the folder (`Runtime::library_uninstall`,
   word's first three, or the first of up to three words) in the kit's ink
   for the accent (`colour::on_accent`) on `colour::hint`, which reads at
   every class, at 20 points in Compact's rows, 28 in Regular's
-  and Large's, and 40 in the details. The Rules and From facts are shown
+  and Large's, and 40 in the details. A mutator's picture is its listing's
+  badge, or the installed copy's icon when the listing has none. With no
+  picture, the badge is the icon of its first tag on that same hint ground
+  when the id is one of the eight, and its letters when the id is not or it
+  has no tag. The listing's tags are used when that list is not empty, and
+  otherwise the installed manifest's. Large's mutator rows carry those tags
+  as chips under the summary, then "Needs {name}" and "Not compatible with
+  this mod" in the lock colour. When the row cannot hold every chip, those
+  two stay and the tag chips are the ones left off. Compact's mutator rows
+  keep the version on the second line and, after the title, "· needs {name}"
+  or "· not compatible with this mod" in the lock colour, the missing
+  mutator first when both apply. Neither dims the row, and GET stays on.
+  On the Mutators tab the Regular tag pills, Large's filter pane and the
+  details' tag pills show those eight icons beside the label. A tag outside
+  the eight draws no icon, and a mod's, map pack's or language's tag never
+  does. Compact's mutator details page puts the 40-point badge beside the
+  name, and the header stays Library and Mutators; a mod's Compact details
+  page is unchanged. A fact marked bad is drawn in the danger colour. The Rules and From facts are shown
   whole at every class; the other facts take at most two lines at Compact
   and three in the details pane. The list and the details scroll, each with
   the kit's scroll bar while it holds more than it shows. A press on a
@@ -602,12 +666,86 @@ stay valid until the model's next refresh.
 - No two controls meet, but the list and the rows it holds and each row
   and its icon; a row that does not show has no control. Every control that takes the focus is in Tab's
   declared order and reached by the arrows from the first tab.
-- An update's Rules fact is shown whole at every class, never cut.
+- An update's Rules fact is shown whole at every class, never cut. An
+  updatable mutator's actions are controls at every class, Compact's on the
+  details page with MORE ▾ open, its Rules fact is whole, and an
+  incompatible verdict is drawn in the danger colour.
 - A press on a row only selects it, and at Compact opens its details; only
-  its download arrow or up-arrow asks for GET or UPDATE, by the same rule
-  as the details' button.
+  its download arrow or up-arrow asks for GET, GET WITH or UPDATE, by the
+  same rule as the details' button. The arrow's name stays `get` or
+  `update` from the row's state.
+
+### Prerequisites
+
+`prerequisites.hpp` is the order every mutator screen uses when it switches
+a mutator on or downloads one. The graph is ids only (`Need`): the caller
+turns the Library's prerequisite records into needs, and version ranges
+stay with the caller.
+
+- `prerequisite_closure(graph, ids)` returns every id `ids` reach. An id
+  is met when `ids` names it, or when a need list names it while each id's
+  needs are read from left to right before the next id in `ids`. The ids
+  of one cycle stay together in that order. Every other id goes after
+  everything it needs. A component goes after the components it needs, and
+  a tie keeps the component whose id was met first. An id the graph does
+  not hold is a leaf. A cycle sets `Closure::cyclic`. A repeated id in
+  `ids` is kept once.
+- `dependants_of(graph, among, id)` returns every id in `among` that needs
+  `id`, directly or through other ids, in `among`'s order. `id` itself is
+  included only when a cycle leads back to it.
+- `prerequisites_above(graph, order)` is true when no id in `order` comes
+  before an id in `order` that it needs, directly or through other ids.
+
+The list applies from top to bottom, so a prerequisite stands above the
+mutator that needs it. The Library, the picker and the other mutator
+screens all call these three, so a mutator applies after the mutators it
+needs whichever screen put it in a list. They read no file, clock or
+network, and they hold no words.
+
+`needs_of(library)` is the graph those three read: one record per mutator
+entry, its id the package key, its needs the installed manifest's when
+that copy is installed and otherwise the listing's. `get_plan(library,
+entry)` is the download: every missing prerequisite, transitively, from
+the listing that offers a version in range (the entry's own registry,
+then a registry that ships with the game, then the lowest registry id;
+the newest release in that set), in that closure's order, then the entry.
+A prerequisite already installed in range is left out. One installed
+below its range is an update of the listing that meets it. A prerequisite
+no usable listing offers in range blocks the plan, and so does a step
+GET would refuse; a step that does not work with the mod being played
+does not. A cycle blocks the plan and names the ids in the loop, and
+places nothing. The picker reuses this plan. No other part of the Library
+orders prerequisites.
+
+GET WITH takes GET's place when that plan holds more than the mutator, or
+is blocked before the mutator can be the only download. One missing
+prerequisite names it (`GET WITH {name}`); more than one counts them
+(`GET WITH {count} MORE`). The button is off while the plan is blocked.
+`details_note` then says those packages download first and sit above this
+mutator in every list. `get_with_question(library, entry)` asks "Get
+{name}?" with one paragraph, one line per package that will download (its
+badge, "{name} {version}", and " · from {registry}"), CANCEL marked and
+GET BOTH for two packages or GET ALL for more. Nothing is queued until
+that button. Automation reads `library.action.get-with`, `oa.prompt.cancel`,
+`oa.prompt.get-both` and `oa.prompt.get-all`.
 
 ## Tests
+
+`ui-library-prerequisites` closes made-up mutators: one id, a chain of
+three, a diamond, two roots that share a prerequisite, a cycle of two and
+of three, an id the graph does not hold, a repeated id, and an id that
+needs a cycle without being on it. It takes
+dependants direct, through another id and none, in the list's own order,
+and an order that keeps a chain, a diamond and a list naming an outside
+id, and one that does not. A chain of 1,000 closes with the first id at
+the top. It also builds the download plan: needs from an installed
+manifest and from a listing, Gatehouse Keep with Gatehouse absent, installed
+below its range and in range, listed only below the range, and listed by
+two registries; a chain of three missing prerequisites; a prerequisite the
+played mod cannot use; a cycle; GET WITH's words and whether it is on;
+the question's title, paragraph, items, buttons and fit at every class;
+the note; the uninstall paragraph for one dependant and for two; and a
+lookup that translates.
 
 `ui-library-update-question` builds Libraries over a built-in and an added
 registry: `asks_before_update` and `update_question` for an added
@@ -629,10 +767,21 @@ without an update, played with and without one, a blocked update, and each
 queue phase with its status line and button; every reason GET or UPDATE is
 off and their order; installed entries never blocked; built-in and added
 registries, two registries with one key, and a key installed from another
-registry; the Library opening on Active; tabs, each tab's own filter, the
+registry; the Library opening on Active; tabs, Mutators between Maps and
+Languages and opening on All, each tab's own filter, the
 Updates tab's filters across every kind, and tags with their counts; the
 filters' counts unmoved by the tag and the search; New's ten newest by
 day, ties by name, never an undated listing, on Mods, Maps and Updates;
+the Mutators tab's GET, INSTALLED and UPDATE rows, an update beside a
+mod's, a mutator that does not work with the mod being played still
+getting with its note naming the mods, an unmet prerequisite that does
+not block, the eight tags ahead of any other id, and each tag's label,
+an unknown id and a different case left as written; a mutator's badge at
+every class and window, its picture, else its first tag's icon, else its
+letters, Large's "Needs {name}" and "Not compatible with this mod" chips
+in the lock colour with the tag chips kept only while they fit, Compact's
+lock-coloured bylines, the tag icons on the pills and in the filter pane,
+and an incompatible row left bright with GET on;
 the Active tab's mod, language and maps in each case, ordered by folded
 title and then pack, with the From link when the pack holds several maps and the minimap when one is set;
 the order with
@@ -658,7 +807,13 @@ in for a listing's for a mod of the player's own, and "No oamod.yaml
 present" for a folder without one; the facts with the sample numbers, Installed,
 Latest and Author among them, a revision of 0 left out, a version left
 out, a fact with nothing to say left out and the manifest's author
-standing in; the Rules fact for an unchanged, changed and unknown rules
+standing in; a listed and an installed mutator's facts in both forms, each
+verdict state's words and mark from `verdict_of_record`, the counts'
+summary, no Checked fact and no CHECK WITH THIS MOD when the verdict is
+unset, Ridge Walls' Works with marked while No Mod is played with GET
+still on, an incompatible verdict marked and still offered UPDATE and
+CHECK WITH THIS MOD, the status "Not installed · 2.0 · rev 1", and no
+ROLL BACK even with a kept copy; the Rules fact for an unchanged, changed and unknown rules
 hash in both lengths; status lines, "Update available" for an update
 that names no revision, bylines with a maker and with none, and
 the playing note; the queue lines, after an update that changed the
@@ -680,11 +835,13 @@ translates.
 
 `ui-library-search` checks that a name beats a tag, a tag an author or
 publisher and those a summary; several words; a word in no field hiding
-the entry; ASCII folding; tag prefixes; the 64-byte cap at a character
-boundary; and ties ordered by name and then registry.
+the entry; ASCII folding; tag prefixes, a translated label of a known id,
+and a different case of that id matching the id and not the label; the
+64-byte cap at a character boundary; and ties ordered by name and then registry.
 
 `ui-library-layout` lays the screens out over a fixture of fifteen
-packages of the three kinds from a built-in and an added registry (an
+packages of the three kinds, and over five made-up mutators on the
+Mutators tab, from a built-in and an added registry (an
 update of the built-in Ridge that changes the rules, a blocked update, the
 mod being played, a GET blocked by three missing hacks, and four queue
 items: downloading, waiting, failed, and an installed update that changed
@@ -766,8 +923,9 @@ its maps, with many maps at
 Regular, and at Compact while the command line chose a mod that needs
 Campaign, whose pill is locked, the Updates tab at Compact and Large, the Registries tab at
 Compact, Regular and Large,
-Languages at Compact, and the Maps tab at Large for one map and for
-several: each twice, byte for byte the same, with nothing
+Languages at Compact, the Maps tab at Large for one map and for
+several, and the Mutators tab at Compact (640x480), Regular (1920x1080
+at 2x) and Large (2560x1440 at 2x): each twice, byte for byte the same, with nothing
 drawn outside the window and every pixel of it drawn, every part inside
 it and every text fitting. The Active and Maps pictures dress the
 fixture's maps with made-up minimaps and a long description, on that
@@ -794,8 +952,12 @@ Built in. `library-languages-zh-compact.png` is the same window with
 `library-updates-compact.png`, `library-updates-large.png`,
 `library-registries-compact.png`, `library-registries-regular.png`,
 `library-registries-large.png`, `library-languages-compact.png`, `library-languages-zh-compact.png`,
-`library-maps-one-large.png` and `library-maps-several-large.png`
-for review.
+`library-maps-one-large.png`, `library-maps-several-large.png`,
+`library-mutators-compact.png`, `library-mutators-regular.png` and
+`library-mutators-large.png`
+for review. The Mutators pictures dress the fixture with made-up mutators
+on that drawing only, so a picture, a tag icon, letters, "Needs Gatehouse"
+and "Not compatible with this mod" are on the list.
 
 ## Limitations
 

@@ -1367,7 +1367,15 @@ void Runtime::load_profile_layers() {
     state.profile_source = folder_profile_source(
         options_.game_folders.empty() ? std::vector<fs::path>{options_.game_dir}
                                       : options_.game_folders,
-        ModChoice{{}, options_.mod_file, options_.accept_unimplemented_hacks, &preference_values_}
+        // The layered mod folder, so --mod-dir and a folder chosen in
+        // Settings are read again. An empty folder still uses the game
+        // install, which is what a run without a mod does.
+        ModChoice{
+            options_.layered_mod_folder,
+            options_.mod_file,
+            options_.accept_unimplemented_hacks,
+            &preference_values_
+        }
     );
     if (!state.profile_source)
         return;
@@ -1720,7 +1728,7 @@ settings::Dialog& Runtime::open_engine_settings_dialog(settings::DialogKind kind
         }
         settings::set_registered_pages(dialog, pages, preference_values_);
     }
-    // On macOS the five switches show what the system reports now, not the
+    // On macOS the six switches show what the system reports now, not the
     // stored preference. A start does not change an opener; only a switch
     // that moves, at OK, does.
     if (const std::optional<oa::platform::file_types::OpenerReport> report =
@@ -1760,7 +1768,7 @@ std::string kept_opener_hint_for(
     return settings::kept_opener_hint(dotted);
 }
 
-/// Sets the five switches from what the system reports, where a switch is the
+/// Sets the six switches from what the system reports, where a switch is the
 /// default opener. A question that fails leaves that switch as the dialog
 /// already shows it and is logged. The hint under File Type Registration
 /// names a type this copy still opens that OK asked off, and clears when the

@@ -1147,6 +1147,61 @@ void paint_draws_what_draw_notice_draws() {
     OA_CHECK(kit::notice_list(other_ok, nullptr).controls[0].text == "CLOSE");
 }
 
+/// The header item's words.
+///
+/// @param list the display list
+/// @return the header's text; empty when it has none
+std::string header_text(const kit::DisplayList& list) {
+    for (const kit::Item& item : list.items)
+        if (item.role == kit::Role::header)
+            return item.text;
+    return {};
+}
+
+/// The columns kept for a question's title at Compact.
+///
+/// @return the title rectangle's width
+int32_t compact_title_room() {
+    const int32_t box = kit::metrics_of(kit::SizeClass::compact).notice_width;
+    const int32_t title_left =
+        kit::notice_mark.x + kit::notice_mark.width + kit::compact_metrics.header_gap;
+    return box - kit::compact_metrics.padding - title_left;
+}
+
+void a_question_title_is_cut_to_its_header() {
+    kit::Question plain = question_of({"OK"});
+    plain.title = "Start";
+    OA_CHECK(header_text(kit::question_list(plain, &fonts())) == "Start");
+
+    kit::Question wide = question_of({"OK"});
+    wide.title = std::string(12, 'W') + " " + std::string(12, 'W') + " " + std::string(12, 'W') +
+                 " " + std::string(12, 'W') + " " + std::string(12, 'W');
+    const int32_t room = compact_title_room();
+    OA_CHECK(
+        kit::tracked_width(
+            fonts(), kit::FontRole::regular, wide.title, kit::compact_metrics.heading_tracking
+        ) > room
+    );
+    const std::string shown = header_text(kit::question_list(wide, &fonts()));
+    OA_CHECK(shown != wide.title);
+    OA_CHECK(shown.size() >= kit::ellipsis.size() && shown.ends_with(kit::ellipsis));
+    const std::string prefix = shown.substr(0, shown.size() - kit::ellipsis.size());
+    OA_CHECK(wide.title.starts_with(prefix));
+    OA_CHECK(
+        prefix.size() == wide.title.size() ||
+        (prefix.size() < wide.title.size() && wide.title[prefix.size()] == ' ')
+    );
+    // The header records the line after stand-ins. A font that draws the
+    // ellipsis as three stops is wider than the ellipsis counted as one.
+    const std::string drawn = kit::with_stand_ins(fonts(), kit::FontRole::regular, shown);
+    OA_CHECK(
+        kit::tracked_width(
+            fonts(), kit::FontRole::regular, drawn, kit::compact_metrics.heading_tracking
+        ) <= room
+    );
+    OA_CHECK(header_text(kit::question_list(wide, nullptr)) == wide.title);
+}
+
 void paint_draws_what_draw_question_draws() {
     std::vector<kit::Question> questions{
         question_of({"OK"}),
@@ -1167,6 +1222,10 @@ void paint_draws_what_draw_question_draws() {
     held.progress = kit::question_progress_whole;
     held.hovered = 2;
     questions.push_back(held);
+    kit::Question wide = question_of({"OK"});
+    wide.title = std::string(12, 'W') + " " + std::string(12, 'W') + " " + std::string(12, 'W') +
+                 " " + std::string(12, 'W') + " " + std::string(12, 'W');
+    questions.push_back(wide);
     for (const kit::Question& question : questions)
         for (const int32_t scale : {1, 2}) {
             const int32_t height = kit::place_question(question, &fonts()).height;
@@ -1355,6 +1414,7 @@ int main() {
     every_key_on_a_notice();
     every_key_on_a_question();
     paint_draws_what_draw_notice_draws();
+    a_question_title_is_cut_to_its_header();
     paint_draws_what_draw_question_draws();
     the_progress_bar_fills_as_far_as_it_came();
     the_work_dialog_has_no_buttons();

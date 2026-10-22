@@ -23,6 +23,9 @@
 #include "oa/sim/scenario/condition_persist.hpp"
 #include "oa/data/persist/hapibank.hpp"
 #include "oa/data/mod_profile/registry.hpp"
+#include "oa/data/mutators/choice.hpp"
+#include "oa/data/mutators/loadout.hpp"
+#include "oa/data/persist/save_mutators.hpp"
 #include "oa/data/persist/save_profile.hpp"
 #include "oa/data/persist/save_sections.hpp"
 #include "oa/sim/feature_runtime.hpp"
@@ -45,6 +48,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <exception>
 #include <iostream>
 #include <limits>
 #include <map>
@@ -55,6 +59,7 @@
 #include <string>
 #include <string_view>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 namespace oa::app {
@@ -76,6 +81,33 @@ constexpr const char* kGameBuildTime = "11:45:48";
 
 constexpr std::size_t kSightWordBytes = sizeof(uint16_t);
 constexpr const char* kHeadlessSaveName = "headless.sav";
+
+/// The campaign's chosen set for a save's loadout.
+///
+/// Each entry's id and its options are the text `options_text` writes, which
+/// the loadout's resolution already read. The clash mode is the one the
+/// loadout recorded.
+///
+/// @param resolved the save's mutators, in play order
+/// @return the set the campaign run keeps
+std::vector<oa::ui::mutator_picker::Chosen>
+campaign_set_from(const std::vector<oa::data::mutators::ResolvedMutator>& resolved) {
+    namespace picker = oa::ui::mutator_picker;
+    std::vector<picker::Chosen> chosen;
+    chosen.reserve(resolved.size());
+    for (const oa::data::mutators::ResolvedMutator& one : resolved) {
+        picker::Chosen item;
+        item.id = one.manifest.id;
+        item.options = one.choice.options;
+        if (one.clashes) {
+            item.clash = *one.clashes == oa::formats::oamut::ClashMode::add
+                             ? picker::Clash::add
+                             : picker::Clash::replace;
+        }
+        chosen.push_back(std::move(item));
+    }
+    return chosen;
+}
 
 // World units along one side of a map cell.
 
@@ -1055,7 +1087,9 @@ bool Runtime::write_saved_game(
         hud::save_players_section(*static_cast<SummaryBindings*>(context)->world, *bank);
     };
     summary.save_profile = [](void* context, persist::Bank* bank) {
-        static_cast<SummaryBindings*>(context)->runtime->save_mod_profile(bank);
+        auto* runtime = static_cast<SummaryBindings*>(context)->runtime;
+        runtime->save_mod_profile(bank);
+        runtime->save_mutators(bank);
     };
     summary.save_conditions = [](void* context, persist::Bank* bank) {
         auto* runtime = static_cast<SummaryBindings*>(context)->runtime;
@@ -1373,6 +1407,41 @@ void Runtime::save_mod_profile(persist::Bank* bank) const {
         throw std::runtime_error("the mod profile's account cannot be saved");
 }
 
+void Runtime::save_mutators(persist::Bank* bank) const {
+    // A match that is still running has the loadout. The end screen's save
+    // is made after that match was released, and uses the text kept with it.
+    const std::string text =
+        match_ != nullptr ? played_loadout_text() : finished_campaign_loadout_text();
+    if (text.empty())
+        return;
+    if (!persist::save_write_mutators(bank, text))
+        throw std::runtime_error("the mutators' account cannot be saved");
+}
+
+bool Runtime::check_saved_mutators(persist::Bank* bank) {
+    saved_campaign_mutators_.reset();
+    const std::optional<std::string> saved = persist::save_read_mutators(bank);
+    std::vector<oa::data::mutators::ResolvedMutator> resolved;
+    if (saved && !saved->empty()) {
+        const std::string refusal = recorded_mutators_refusal(*saved, &resolved);
+        if (!refusal.empty()) {
+            status_ = refusal;
+            return false;
+        }
+    }
+    // Opening Summary finds the account a valid save already has. A save
+    // without one is refused later, when the summary itself is read.
+    const bool had_summary = persist::bank_open_account(bank, save_key::summary);
+    const bool campaign = had_summary && persist::bank_get_int(bank, save_key::game_type, -1) ==
+                                             persist::game_type_campaign;
+    // The set is applied only after the campaign load has worked. A skirmish
+    // save, and a campaign load that fails, leave the run's set as it is.
+    if (campaign)
+        saved_campaign_mutators_ = campaign_set_from(resolved);
+    play_loadout_once(std::move(resolved));
+    return true;
+}
+
 bool Runtime::check_saved_mod_profile(persist::Bank* bank) {
     namespace profiles = oa::data::mod_profile;
     const auto saved = persist::save_read_profile(bank);
@@ -1443,14 +1512,44 @@ bool Runtime::load_saved_game(const fs::path& path) {
     }
     if (!check_saved_mod_profile(bank))
         return false;
+    if (!check_saved_mutators(bank))
+        return false;
+
+    // The save's mutators are chosen. A load that stops before its match
+    // puts the player's list back; one that starts keeps them until the
+    // match ends.
+    struct HeldMutators {
+        Runtime& runtime;
+        bool keep = false;
+        int exceptions = std::uncaught_exceptions();
+
+        ~HeldMutators() {
+            if (!keep || std::uncaught_exceptions() > exceptions)
+                runtime.cancel_loadout_once();
+        }
+    } held_mutators{*this};
+
+    // A campaign load that stops before it has worked must not change the
+    // run's set. The destructor drops a set the success path did not take.
+    struct DropSavedCampaignSet {
+        Runtime& runtime;
+
+        ~DropSavedCampaignSet() { runtime.saved_campaign_mutators_.reset(); }
+    } drop_saved_campaign_set{*this};
+
     persist::bank_open_account(bank, save_key::summary);
     ui::frontend::LoadSummary summary;
     if (!ui::frontend::savegame_read_load_summary(bank_summary_reader(), bank, summary)) {
         status_ = "Savegame names no mission";
         return false;
     }
-    if (summary.game_type == persist::game_type_campaign)
-        return load_saved_campaign(path, bank, summary);
+    if (summary.game_type == persist::game_type_campaign) {
+        const bool loaded = load_saved_campaign(path, bank, summary);
+        if (loaded && saved_campaign_mutators_)
+            campaign_mutators_ = std::move(*saved_campaign_mutators_);
+        held_mutators.keep = loaded;
+        return loaded;
+    }
     if (summary.game_type != persist::game_type_skirmish) {
         status_ = "Invalid savegame file";
         return false;
@@ -1530,6 +1629,7 @@ bool Runtime::load_saved_game(const fs::path& path) {
     enter_match_view();
     status_ = "Loaded " + path_to_utf8(path.filename()) + " at tick " +
               std::to_string(match_timing_.tick);
+    held_mutators.keep = true;
     return true;
 }
 

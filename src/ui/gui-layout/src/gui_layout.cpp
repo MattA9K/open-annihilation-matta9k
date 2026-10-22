@@ -5,6 +5,7 @@
 
 #include "oa/base/text.hpp"
 #include "oa/data/languages/translation.hpp"
+#include "oa/ui/gui_layout/gui_gadget.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -627,6 +628,52 @@ TranslationLookup game_translation_lookup() {
             translated->resize(oa::base::text::whole_characters(*translated, limit::text_bytes));
         return translated;
     };
+}
+
+bool keyboard_focusable(
+    int8_t active,
+    uint32_t attributes,
+    uint8_t type,
+    bool button_grayed,
+    bool scroll_locked,
+    int32_t width,
+    int32_t height
+) noexcept {
+    if (active == 0 || (attributes & attribute::no_focus) != 0)
+        return false;
+    switch (type) {
+    case static_cast<uint8_t>(GadgetType::button):
+        return !button_grayed;
+    case static_cast<uint8_t>(GadgetType::text_box):
+    case static_cast<uint8_t>(GadgetType::hot_surface):
+        return true;
+    case static_cast<uint8_t>(GadgetType::scroll_bar):
+        if (width < height || scroll_locked)
+            return false;
+        return true;
+    case static_cast<uint8_t>(GadgetType::list_box):
+        return (attributes & attribute::cycle_frames) == 0;
+    default:
+        return false;
+    }
+}
+
+bool keyboard_focusable(const Gadget& gadget) noexcept {
+    bool button_grayed = false;
+    bool scroll_locked = false;
+    if (const auto* button = std::get_if<ButtonFields>(&gadget.fields))
+        button_grayed = button->grayed_out;
+    if (const auto* bar = std::get_if<ScrollBarFields>(&gadget.fields))
+        scroll_locked = bar->locked;
+    return keyboard_focusable(
+        gadget.common.active,
+        static_cast<uint32_t>(gadget.common.attributes),
+        static_cast<uint8_t>(gadget.common.type),
+        button_grayed,
+        scroll_locked,
+        gadget.common.width,
+        gadget.common.height
+    );
 }
 
 } // namespace oa::ui::gui_layout

@@ -39,12 +39,16 @@ Every document in the repository, by what you want to do.
 - [first-run.md](first-run.md): the welcome at the first main menu, which
   chooses a language, explains online features and points out the Library
   and Settings buttons.
-- [library.md](library.md): the Library, where mods, map packs and
-  language packs are found, installed, updated and rolled back from inside
-  the game: opening it, its tabs and states, search and filters, the
-  details, the download queue, updates, which downloads ask first and the
-  update question, "Finishes when you leave …", offline use and the check
-  that you are a person.
+- [library.md](library.md): the Library, where mods, map packs, mutators
+  and language packs are found, installed, updated and rolled back from
+  inside the game: opening it, its tabs and states, the Mutators tab,
+  search and filters, the details, the download queue, updates, which
+  downloads ask first and the update question, "Finishes when you leave …",
+  offline use and the check that you are a person.
+- [playing-with-mutators.md](playing-with-mutators.md): getting a mutator
+  and switching it on for a skirmish, a battle room or a campaign: the
+  picker, the remembered last set, a start that stops, a crash, playing
+  with none, and what a save or a recording keeps.
 - [downloads.md](downloads.md): registries and downloads: Core Prime's
   built-in registry, adding one by its address or an `.oareg` file, "Not
   reviewed by the OA team", mirrors, the Downloads settings and the install
@@ -58,7 +62,8 @@ Every document in the repository, by what you want to do.
   group that is already selected, which centres the view and does not
   follow it.
 - [skirmish.md](skirmish.md): the skirmish setup's one **Player** row,
-  which a campaign mission leaves as you set it.
+  which a campaign mission leaves as you set it, and the **Mutators**
+  button on that setup.
 - [saves.md](saves.md): saved games, recordings and films: the content
   note beside each, **This save needs other content**, where they are kept,
   and what a saved game keeps (no shots in flight, as in 3.1c).
@@ -78,6 +83,10 @@ Every document in the repository, by what you want to do.
 - [multiplayer/content.md](multiplayer/content.md): the base game and
   expansions each player shows in the battle room, and when a difference
   keeps the game from starting.
+- [multiplayer/mutators.md](multiplayer/mutators.md): mutators in the
+  battle room: the host chooses, a guest sees the list and **GET
+  MUTATORS**, **START** waits, and a room with mutators is Open
+  Annihilation only and unranked.
 - [typing.md](typing.md): typing in any script, Chinese among them, in
   the chat lines, a saved game's name and the whiteboard: input methods,
   commands, saves and recordings named in any script, the iPhone and iPad
@@ -138,6 +147,16 @@ Every document in the repository, by what you want to do.
   format of a mod profile (`oamod.yaml`) and its rules: parameters,
   presets, settings, limits, script extensions, data keys, hashes and
   network compatibility.
+- [mutators/README.md](mutators/README.md): mutators: a package that changes
+  one game, what it can and cannot change, and where the format, the guide
+  and the command line are.
+- [mutators/oamut-standard.md](mutators/oamut-standard.md): the OAMUT
+  standard, the format of a mutator package (`oamut.yaml` inside a
+  `.oamut`) and its rules: the manifest, the script, files, rules, hooks
+  and what a recording keeps.
+- [mutators/authoring.md](mutators/authoring.md): writing a mutator, from an
+  empty folder to a checked package, including options, `fixed` and
+  importing a TA: Mutation mutator.
 - [registries/README.md](registries/README.md): the OA Registry
   Specification, version 1: the descriptor and `.oareg` file, the
   catalogue and its signature, packages, the download API, running a

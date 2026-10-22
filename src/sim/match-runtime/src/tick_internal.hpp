@@ -610,6 +610,16 @@ class TickHost final : public sim::simulation_state::Host,
     /// @param point signed 16.16 point; its whole x, y and z are the move's
     void send_ahead(sim::unit_spawn::Slot& s, const sim::ground_orders::Point& point);
 
+    /// Returns how the ground steering treats a unit faster than any stock
+    /// unit: held to its route in a match that applied mutators (it holds a
+    /// mutator digest), as 3.1c steers it in any other.
+    ///
+    /// @return the steering for this match's fast units
+    [[nodiscard]] sim::ground_orders::FastUnitSteering fast_unit_steering() const noexcept {
+        return match.mutator_digest_held() ? sim::ground_orders::FastUnitSteering::held_to_route
+                                           : sim::ground_orders::FastUnitSteering::as_3_1c;
+    }
+
     /// Moves the unit's movement-rate bits (OA_UNIT_FLAG_MOVE_RATE_MASK) to its
     /// movement_rate and, on a change, runs StopMoving (rate 0), or
     /// StartMoving when the old rate was 0, then MoveRate1..3.

@@ -25,8 +25,8 @@ target_include_directories(oa-app-netgame-options PUBLIC "${CMAKE_CURRENT_SOURCE
 target_link_libraries(oa-app-netgame-options PUBLIC oa::app::headers oa-app-netgame-launch oa-netgame-frontend
   oa-app-command-line oa-ui-frontend-renderer oa-ui-frontend-state oa-sim-scenario oa-ui-screen-registry
   oa-core-types
-  PRIVATE oa-netgame oa-options oa-formats-oamod oa-base-text oa-platform-shims oa-base-threads
-  oa-platform-file-types oa-data-content-bundles)
+  PRIVATE oa-netgame oa-options oa-formats-oamod oa-formats-oamut oa-base-text oa-platform-shims oa-base-threads
+  oa-platform-file-types oa-data-content-bundles oa-data-mutators)
 
 # The network rules a mod profile gives network play, which their test
 # reads without a running app.
@@ -113,7 +113,8 @@ if(BUILD_TESTING)
   target_link_libraries(oa-netgame-launch-switches-test PRIVATE oa-app-netgame-launch oa-options)
   add_test(NAME net-launch-switches COMMAND oa-netgame-launch-switches-test)
   add_executable(oa-netgame-options-test tests/options_test.cpp)
-  target_link_libraries(oa-netgame-options-test PRIVATE oa-app-netgame-options oa-app-game-options oa-netgame oa-options)
+  target_link_libraries(oa-netgame-options-test PRIVATE oa-app-netgame-options oa-app-game-options oa-netgame oa-options
+    oa-test-support)
   add_test(NAME netgame-game-options COMMAND oa-netgame-options-test)
   add_executable(oa-netgame-launch-file-test tests/launch_file_test.cpp)
   target_link_libraries(oa-netgame-launch-file-test PRIVATE oa-app-netgame-options oa-app-game-options
@@ -272,6 +273,27 @@ if(BUILD_TESTING AND TARGET oa-game AND IS_DIRECTORY "${OA_GAME_DIR}")
       --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
       --scratch-root "${oa_netgame_checks}")
     set_tests_properties(native-net-options PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+    # The battle room's mutator layer, on two programs: a joiner without the
+    # package holds START, and one who has it builds the same layer.
+    add_test(NAME native-net-room-mutators COMMAND ${Python3_EXECUTABLE}
+      "${PROJECT_SOURCE_DIR}/tools/check_native_room_mutators.py"
+      --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+      --scratch-root "${oa_netgame_checks}"
+      --source "${PROJECT_SOURCE_DIR}")
+    set_tests_properties(native-net-room-mutators PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+    # A loopback recording carries the played loadout, and playback applies it
+    # or refuses. ridge-art-a changes no units. ridge-tough rewrites the
+    # commanders and ridge-add-unit adds one; the loopback reads both over
+    # the mutators' layer. The driver installs the packages and writes their
+    # origin records.
+    add_test(NAME native-replay-mutators COMMAND ${Python3_EXECUTABLE}
+      "${PROJECT_SOURCE_DIR}/tools/check_native_replay_mutators.py"
+      --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+      --art "${PROJECT_SOURCE_DIR}/tests/data/mutators/packages/ridge-art-a"
+      --tough "${PROJECT_SOURCE_DIR}/tests/data/mutators/packages/ridge-tough"
+      --added "${PROJECT_SOURCE_DIR}/tests/data/mutators/packages/ridge-add-unit"
+      --scratch-root "${oa_netgame_checks}")
+    set_tests_properties(native-replay-mutators PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
     # A launch file, TA Forever's or this game's, opens the battle room on
     # the file's map and rules. A file the game cannot use, or a map or mod
     # it names that is not installed, ends before a window with the status

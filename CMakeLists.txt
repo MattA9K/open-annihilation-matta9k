@@ -2,12 +2,12 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 cmake_minimum_required(VERSION 3.24)
-project(open_annihilation VERSION 0.8.4 LANGUAGES C CXX)
+project(open_annihilation VERSION 0.8.5 LANGUAGES C CXX)
 # The version's label. A build of a tree whose label is not empty is a
 # development build. The label is empty for a release, and for a build the
 # maintainer reviews as one; the commit after a release sets it back to "dev"
 # and raises the version.
-set(OA_VERSION_LABEL "")
+set(OA_VERSION_LABEL "dev")
 # A target that links one static library both directly and through
 # another library gets it once on its link line, in dependency order, rather
 # than once for each path that reaches it. The linker then has nothing to
@@ -156,6 +156,7 @@ add_subdirectory(src/data/content-bundles)
 add_subdirectory(src/data/saves)
 add_subdirectory(src/data/registry)
 add_subdirectory(src/data/catalogue)
+add_subdirectory(src/data/script-host)
 add_subdirectory(src/data/match-rules)
 add_subdirectory(src/sim/unit-activation)
 add_subdirectory(src/base/game-math)
@@ -199,10 +200,12 @@ add_subdirectory(src/formats/png)
 add_subdirectory(src/formats/pe)
 add_subdirectory(src/formats/oascript)
 add_subdirectory(src/formats/oamod)
+add_subdirectory(src/formats/oamut)
 add_subdirectory(src/formats/json)
 add_subdirectory(src/formats/url)
 add_subdirectory(src/data/mod-profile)
 add_subdirectory(src/data/map-pack)
+add_subdirectory(src/data/mutator-library)
 add_subdirectory(src/data/map-fit)
 add_subdirectory(src/data/pe-icon)
 add_subdirectory(src/formats/zip)
@@ -220,6 +223,7 @@ add_subdirectory(src/sim/unit-spawn)
 add_subdirectory(src/sim/ballistics)
 add_subdirectory(src/sim/combat-state)
 add_subdirectory(src/formats/tdf)
+add_subdirectory(src/formats/soft-mutator)
 add_subdirectory(src/data/unit-definitions)
 add_subdirectory(src/formats/objects3d)
 add_subdirectory(src/sim/model-runtime)
@@ -275,6 +279,10 @@ endif()
 add_subdirectory(src/formats/sqsh)
 add_subdirectory(src/formats/hpi)
 add_subdirectory(src/data/defs)
+add_subdirectory(src/data/field-schema)
+add_subdirectory(src/data/mutation-rules)
+add_subdirectory(src/data/mutators)
+add_subdirectory(src/data/mutator-import)
 add_subdirectory(src/present/world-renderer)
 add_subdirectory(src/present/gpu-world)
 add_subdirectory(src/present/unit-playout)
@@ -304,7 +312,7 @@ target_link_libraries(oa-app-game-options PUBLIC oa-app-headers)
 target_link_libraries(oa-app-game-options PUBLIC oa-ui-frontend-renderer oa-ui-frontend-state oa-sim-scenario
   oa-ui-screen-registry oa-app-command-line oa-platform-preferences oa-app-mod-profile
   PRIVATE oa-app-package-install oa-platform-job-pool oa-platform-display-modes oa-options
-  oa-data-content-bundles)
+  oa-data-content-bundles oa-data-mutators)
 # oa-game's game folder: --game-dir, the remembered folder, a folder found
 # where Steam, Heroic or Lutris put it, or the folder dialog's choice, the
 # installation checks, and the installer of the Total Annihilation demo
@@ -363,6 +371,13 @@ add_library(oa-app-renderer-state src/app/renderer_state.cpp)
 add_library(oa::app::renderer_state ALIAS oa-app-renderer-state)
 target_link_libraries(oa-app-renderer-state PUBLIC oa-app-renderer-records
   PRIVATE oa-platform-preferences oa-options)
+# The last mutator set of each setup, and the crash record kept beside the
+# preferences file while a match with mutators runs. A set is the canonical
+# loadout text (mutators_memory.hpp). The game reads it at start.
+add_library(oa-app-mutators-memory src/app/mutators_memory.cpp)
+add_library(oa::app::mutators_memory ALIAS oa-app-mutators-memory)
+target_link_libraries(oa-app-mutators-memory PUBLIC oa-app-headers oa-platform-preferences
+  oa-data-mutators PRIVATE oa-options)
 # A mod profile's display rules as the records and decisions of the modules
 # that carry them out (view_rules.hpp).
 add_library(oa-app-view-rules src/app/view_rules.cpp)
@@ -821,6 +836,14 @@ if(BUILD_TESTING)
   target_link_libraries(oa-app-renderer-state-test PRIVATE oa-app-renderer-state oa-platform-preferences
     oa-test-support oa-options)
   add_test(NAME app-renderer-state COMMAND oa-app-renderer-state-test)
+  # The last mutator set of each setup and the crash record: a set read back
+  # as the canonical loadout, text that is no set, and the sentinel file in
+  # scratch folders.
+  add_executable(oa-app-mutators-memory-test src/app/mutators_memory_test.cpp)
+  target_link_libraries(oa-app-mutators-memory-test PRIVATE oa-app-mutators-memory
+    oa-test-support oa-options)
+  add_test(NAME app-mutators-memory COMMAND oa-app-mutators-memory-test)
+  set_tests_properties(app-mutators-memory PROPERTIES TIMEOUT 30)
   # The draw states the match renderer keeps per unit slot and per 3D feature.
   add_executable(oa-match-model-draws-test src/app/match_model_draws_test.cpp)
   target_link_libraries(oa-match-model-draws-test PRIVATE oa-app-headers oa-present-model oa-sim-feature-runtime
@@ -1060,6 +1083,7 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_skirmish_host.cpp
   src/app/runtime_skirmish_start.cpp src/app/runtime_map_units.cpp src/app/runtime_world_draw.cpp src/app/world_draws.cpp src/app/runtime_benchmark.cpp src/app/runtime_music.cpp
   src/app/runtime_saveload.cpp src/app/runtime_saves.cpp src/app/runtime_recordings.cpp
+  src/app/runtime_recorded_mutators.cpp
   src/app/runtime_sides.cpp src/app/asset_files.cpp
   src/app/runtime_platform.cpp
   src/app/runtime_endgame.cpp src/app/runtime_radar.cpp
@@ -1075,9 +1099,18 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_mod_install.cpp src/app/runtime_content.cpp src/app/runtime_challenge.cpp
   src/app/runtime_registries.cpp
   src/app/runtime_package_kinds.cpp
+  src/app/runtime_mutator_library.cpp
+  src/app/runtime_mutators.cpp
+  src/app/runtime_mutators_check.cpp
+  src/app/runtime_mutators_hacks.cpp
+  src/app/runtime_mutators_maps.cpp
+  src/app/runtime_mutators_memory.cpp
   src/app/runtime_pack_maps.cpp
   src/app/pack_map_source.cpp
   src/app/runtime_get_map.cpp
+  src/app/runtime_get_mutators.cpp
+  src/app/runtime_host_mutators.cpp
+  src/app/runtime_room_mutators.cpp
   src/app/mod_install_watch.cpp
   src/app/user_folder_open.cpp
   src/app/runtime_mission_orders.cpp src/app/runtime_showcase.cpp src/app/match_clock.cpp
@@ -1093,6 +1126,10 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/oa_layer.cpp
   src/app/runtime_library.cpp src/app/runtime_library_actions.cpp
   src/app/runtime_map_browser.cpp
+  src/app/runtime_mutator_picker.cpp
+  src/app/runtime_mutator_prompts.cpp
+  src/app/runtime_mutator_button.cpp
+  src/app/runtime_mutator_room.cpp
   src/app/runtime_engine_settings_app_menu.cpp
   src/app/runtime_view_rules.cpp src/app/runtime_game_text.cpp src/app/runtime_language.cpp
   src/app/runtime_language_notice.cpp
@@ -1135,7 +1172,13 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_match_panel_keys_check.cpp src/app/runtime_turret_draw_check.cpp
   src/app/runtime_megamap_check.cpp src/app/runtime_radar_orders_check.cpp
   src/app/runtime_inactive_loop_check.cpp src/app/runtime_factory_check.cpp
-  src/app/runtime_unit_speech_check.cpp src/app/runtime_build_page_check.cpp
+  src/app/runtime_unit_speech_check.cpp src/app/runtime_mutator_layer_check.cpp
+  src/app/runtime_mutator_verdicts_check.cpp
+  src/app/runtime_mutator_dry_run.cpp
+  src/app/runtime_recorded_mutators_check.cpp
+  src/app/runtime_side_data_check.cpp
+  src/app/runtime_gadget_art_check.cpp
+  src/app/runtime_build_page_check.cpp
   src/app/runtime_language_check.cpp src/app/runtime_language_switch_check.cpp
   src/app/runtime_language_registry_check.cpp
   src/app/runtime_language_notice_check.cpp
@@ -1151,6 +1194,10 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_map_pack_lists_check.cpp
   src/app/runtime_mod_map_settings_check.cpp
   src/app/runtime_map_browser_check.cpp
+  src/app/runtime_mutator_picker_check.cpp
+  src/app/runtime_mutator_prompts_check.cpp
+  src/app/runtime_mutator_button_check.cpp
+  src/app/runtime_mutator_room_check.cpp
   src/app/runtime_mod_warning_check.cpp src/app/runtime_mod_install_check.cpp
   src/app/runtime_language_install_check.cpp src/app/runtime_challenge_check.cpp
   src/app/runtime_registries_check.cpp
@@ -1172,7 +1219,8 @@ endif()
 # Game files screen's header name the engine's version, and the renderer
 # records are written under it.
 set_property(SOURCE src/app/runtime_director.cpp src/app/runtime_engine_settings.cpp
-  src/app/main.cpp src/app/game_files_screen.cpp src/app/runtime_game_files.cpp APPEND
+  src/app/main.cpp src/app/game_files_screen.cpp src/app/runtime_game_files.cpp
+  src/app/runtime_mutators.cpp src/app/runtime_mutators_check.cpp APPEND
   PROPERTY COMPILE_DEFINITIONS "OA_ENGINE_VERSION=\"${PROJECT_VERSION}\"")
 set(oa_game_libraries oa-formats-hpi oa-formats-json oa-app-game-options oa-app-game-directory oa-app-mod-profile
   oa-app-user-folder
@@ -1192,9 +1240,13 @@ set(oa_game_libraries oa-formats-hpi oa-formats-json oa-app-game-options oa-app-
   oa-present-gpu-world oa-app-full-models oa-app-platform-hooks oa-ui-paint oa-ui-kit
   oa-ui-touch-gestures oa-ui-touch-hud oa-app-game-files oa-ui-game-files oa-app-package-install
   oa-app-map-packs
+  oa-data-mutator-library
+  oa-data-mutators
+  oa-app-mutators-memory
   oa-ui-pad-controls oa-ui-folder-chooser oa-platform-game-installs oa-platform-file-types
   oa-data-content-bundles
-  oa-ui-frontend-multiplayer oa-ui-library oa-ui-map-browser oa-ui-first-run
+  oa-ui-frontend-multiplayer oa-ui-library oa-ui-map-browser oa-ui-mutator-picker
+  oa-ui-first-run
   oa-data-saves)
 # The table that combines the extensions' tables of oa-game
 # (extension_list.hpp); the extensions themselves are registered with
@@ -1294,6 +1346,8 @@ if(OA_BUILD_PLATFORM)
       OBJECT_DEPENDS "${oa_windows_manifest}")
   endif()
   target_link_libraries(oa-game PRIVATE oa-ui-display-layout oa-ui-gadget-render)
+  # The recorded mutators compare a loadout with the text one recording holds.
+  target_link_libraries(oa-game PRIVATE oa-session-demo)
   target_link_libraries(oa-game PRIVATE oa-media-director oa-media-director-planner oa-audio-offline-mix
     oa-formats-oascript oa-formats-zip oa-app-director-output)
   target_link_libraries(oa-game PRIVATE ${oa_game_intro_player} SDL3::SDL3 ${oa_game_libraries}
@@ -1693,9 +1747,12 @@ if(OA_BUILD_PLATFORM)
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
         FIXTURES_REQUIRED kit-gallery-clean)
       # The simulation hash an extension reads: the plain baseline with no
-      # mod, a mod profile's when that profile changes the simulation, a
-      # different hash after a Developer Mode override of a rule in the same
-      # start, and the first hash again once the settings are put back.
+      # mod, a mod profile's when that profile changes the simulation, the
+      # same hash through a skirmish with no mutators, then that hash folded
+      # with the command line mutator's digest for one skirmish, the first
+      # hash again once that match ends, a different hash after a Developer
+      # Mode override of a rule in the same start, and the first hash again
+      # once the settings are put back.
       set(oa_simulation_hash_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/simulation-hash")
       file(MAKE_DIRECTORY "${oa_simulation_hash_dir}")
       file(WRITE "${oa_simulation_hash_dir}/changed.oamod.yaml"
@@ -1710,13 +1767,99 @@ if(OA_BUILD_PLATFORM)
         "  units.id-reuse-delay: 90\n")
       add_test(NAME native-simulation-hash COMMAND oa-game --game-dir "${OA_GAME_DIR}"
         --skip-intro --mute --check-simulation-hash
+        --mutator "${CMAKE_SOURCE_DIR}/tests/data/mutators/packages/ridge-tough"
         --preferences-file "${oa_simulation_hash_dir}/simulation-hash.conf")
       add_test(NAME native-simulation-hash-mod COMMAND oa-game --game-dir "${OA_GAME_DIR}"
         --skip-intro --mute --check-simulation-hash
         --mod "${oa_simulation_hash_dir}/changed.oamod.yaml"
+        --mutator "${CMAKE_SOURCE_DIR}/tests/data/mutators/packages/ridge-tough"
         --preferences-file "${oa_simulation_hash_dir}/simulation-hash-mod.conf")
       set_tests_properties(native-simulation-hash native-simulation-hash-mod PROPERTIES
         TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT} WORKING_DIRECTORY "${oa_simulation_hash_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # Mutators at match start: none, then ridge-tough's commanders at 4000
+      # with the layer mounted, then none again with the first health back,
+      # then ridge-commander-boom stopping the start and leaving no layer.
+      set(oa_mutator_layer_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/mutator-layer")
+      file(MAKE_DIRECTORY "${oa_mutator_layer_dir}")
+      add_test(NAME native-mutator-layer COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-mutator-layer
+        --mutator "${CMAKE_SOURCE_DIR}/tests/data/mutators/packages/ridge-tough"
+        --mutator "${CMAKE_SOURCE_DIR}/tests/data/mutators/packages/ridge-commander-boom"
+        --preferences-file "${oa_mutator_layer_dir}/mutator-layer.conf")
+      set_tests_properties(native-mutator-layer PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_mutator_layer_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # Four made-up packages, written by the check beside the preferences
+      # file, against the installed game. The verdicts file is in that run's
+      # Cache folder. Asking again reads the file. A changed option runs
+      # again, and a file of garbage is ignored and rewritten. Each run
+      # starts from a clean folder, so no verdict is remembered from the last.
+      set(oa_mutator_verdicts_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/mutator-verdicts")
+      file(MAKE_DIRECTORY "${oa_mutator_verdicts_dir}")
+      add_test(NAME mutator-verdicts-clean COMMAND ${CMAKE_COMMAND} -E rm -rf
+        "${oa_mutator_verdicts_dir}/Open Annihilation"
+        "${oa_mutator_verdicts_dir}/ridge-verdict-health"
+        "${oa_mutator_verdicts_dir}/ridge-verdict-quiet"
+        "${oa_mutator_verdicts_dir}/ridge-verdict-stop"
+        "${oa_mutator_verdicts_dir}/ridge-verdict-bad"
+        "${oa_mutator_verdicts_dir}/mutator-verdicts.conf")
+      set_tests_properties(mutator-verdicts-clean PROPERTIES FIXTURES_SETUP mutator-verdicts-clean)
+      add_test(NAME native-mutator-verdicts COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-mutator-verdicts
+        --preferences-file "${oa_mutator_verdicts_dir}/mutator-verdicts.conf")
+      set_tests_properties(native-mutator-verdicts PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_mutator_verdicts_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        FIXTURES_REQUIRED mutator-verdicts-clean)
+      # Two made-up mutators each multiply commander turn rate and worker
+      # time. The dry run stays compatible and notes each field held at 32767.
+      set(oa_mutator_dry_run_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/mutator-dry-run")
+      file(MAKE_DIRECTORY "${oa_mutator_dry_run_dir}")
+      add_test(NAME mutator-dry-run-clean COMMAND ${CMAKE_COMMAND} -E rm -rf
+        "${oa_mutator_dry_run_dir}/Open Annihilation"
+        "${oa_mutator_dry_run_dir}/ridge-hold-wide"
+        "${oa_mutator_dry_run_dir}/ridge-hold-again"
+        "${oa_mutator_dry_run_dir}/mutator-dry-run.conf")
+      set_tests_properties(mutator-dry-run-clean PROPERTIES FIXTURES_SETUP mutator-dry-run-clean)
+      add_test(NAME native-mutator-dry-run COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-mutator-dry-run
+        --preferences-file "${oa_mutator_dry_run_dir}/mutator-dry-run.conf")
+      set_tests_properties(native-mutator-dry-run PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_mutator_dry_run_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        FIXTURES_REQUIRED mutator-dry-run-clean)
+      # A recorded loadout: refusals, one match of ridge-art-a, an empty
+      # recording, a list chosen while a match is running, and a start that
+      # throws. Both packages are installed; ridge-commander-boom is a folder.
+      set(oa_replay_loadout_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/replay-loadout")
+      set(oa_replay_loadout_user "${oa_replay_loadout_dir}/user")
+      file(MAKE_DIRECTORY "${oa_replay_loadout_user}/Mutators")
+      file(COPY "${CMAKE_SOURCE_DIR}/tests/data/mutators/packages/ridge-tough"
+        DESTINATION "${oa_replay_loadout_user}/Mutators")
+      file(COPY "${CMAKE_SOURCE_DIR}/tests/data/mutators/packages/ridge-art-a"
+        DESTINATION "${oa_replay_loadout_user}/Mutators")
+      file(COPY "${CMAKE_SOURCE_DIR}/tests/data/mutators/packages/ridge-commander-boom"
+        DESTINATION "${oa_replay_loadout_dir}")
+      file(WRITE "${oa_replay_loadout_user}/Mutators/ridge-art-a/.oa-origin.yaml"
+        "# Written by Open Annihilation when it installed this folder; not part of the package.\n"
+        "oa-origin: 1\n"
+        "origin: file\n"
+        "sha256: \"a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90\"\n"
+        "installed: \"2026-10-21\"\n")
+      file(WRITE "${oa_replay_loadout_user}/Mutators/ridge-tough/.oa-origin.yaml"
+        "# Written by Open Annihilation when it installed this folder; not part of the package.\n"
+        "oa-origin: 1\n"
+        "origin: file\n"
+        "sha256: \"0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0\"\n"
+        "installed: \"2026-10-21\"\n")
+      add_test(NAME native-replay-loadout COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-replay-loadout
+        --user-folder "${oa_replay_loadout_user}"
+        --mutator ridge-tough --mutator ridge-art-a
+        --preferences-file "${oa_replay_loadout_dir}/replay-loadout.conf")
+      set_tests_properties(native-replay-loadout PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_replay_loadout_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # The player's own folder beside the check's preferences file: saved
       # games where earlier versions kept them, beside the preferences file
@@ -1736,6 +1879,31 @@ if(OA_BUILD_PLATFORM)
       set_tests_properties(native-user-folder PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_user_folder_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # Each match reads gamedata/sidedata.tdf again. The scratch mod folder
+      # starts empty; the check writes that file there between skirmishes.
+      set(oa_side_data_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/side-data-per-match")
+      file(MAKE_DIRECTORY "${oa_side_data_dir}")
+      file(MAKE_DIRECTORY "${oa_side_data_dir}/mod")
+      add_test(NAME native-side-data-per-match COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-side-data-per-match
+        --mod-dir "${oa_side_data_dir}/mod"
+        --preferences-file "${oa_side_data_dir}/side-data.conf")
+      set_tests_properties(native-side-data-per-match PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_side_data_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # A download button's picture is read for the match that is playing.
+      # The scratch mod folder starts empty; the check writes a download
+      # file and, between skirmishes, the button's GAF.
+      set(oa_gadget_art_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/gadget-art-per-match")
+      file(MAKE_DIRECTORY "${oa_gadget_art_dir}")
+      file(MAKE_DIRECTORY "${oa_gadget_art_dir}/mod")
+      add_test(NAME native-gadget-art-per-match COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-gadget-art-per-match
+        --mod-dir "${oa_gadget_art_dir}/mod"
+        --preferences-file "${oa_gadget_art_dir}/gadget-art.conf")
+      set_tests_properties(native-gadget-art-per-match PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_gadget_art_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # The progress dialog: a short job shows nothing, a long spinner and a
       # long bar animate and close with no input, the four languages have
       # the lines, and pictures of both states are written at three sizes.
@@ -1747,6 +1915,21 @@ if(OA_BUILD_PLATFORM)
         --user-folder "${oa_progress_dir}/Open Annihilation")
       set_tests_properties(native-progress PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_progress_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # One evicted archive's read is held. The window keeps drawing the iCloud
+      # line in the stored language, and the folder step then continues. Off
+      # macOS no file is evicted, and the line never names iCloud.
+      set(oa_icloud_wait_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/icloud-wait")
+      file(MAKE_DIRECTORY "${oa_icloud_wait_dir}")
+      file(WRITE "${oa_icloud_wait_dir}/icloud-wait.conf"
+        "open-annihilation-preferences 1\n\"open-annihilation.language\" \"de\"\n")
+      add_test(NAME native-startup-icloud-wait COMMAND oa-game
+        --skip-intro --mute --check-icloud-wait
+        --preferences-file "${oa_icloud_wait_dir}/icloud-wait.conf"
+        --user-folder "${oa_icloud_wait_dir}/Open Annihilation")
+      set_tests_properties(native-startup-icloud-wait PROPERTIES
+        TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_icloud_wait_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # The Library switches the mod ten times, between no mod and two test
       # profiles it writes into the player's own Mods folder: each switch
@@ -1803,6 +1986,93 @@ if(OA_BUILD_PLATFORM)
         WORKING_DIRECTORY "${oa_map_browser_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
         FIXTURES_REQUIRED map-browser-clean)
+      # The mutator picker over the main menu, on a feed of made-up mutators,
+      # at 640x480, 1280x720, 1920x1080 and 2560x1440: the mended On order,
+      # every row's grip and switch, one download and the waiting words, the
+      # turn-off question, a drag, the set USE THESE hands back, CANCEL
+      # handing nothing, and the verdict chip. It leaves each size's frame
+      # in its folder for review. Every built-in registry is off, so nothing
+      # is fetched. Each run starts from a clean folder.
+      set(oa_mutator_picker_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/mutator-picker")
+      file(MAKE_DIRECTORY "${oa_mutator_picker_dir}")
+      add_test(NAME mutator-picker-clean COMMAND ${CMAKE_COMMAND} -E rm -rf
+        "${oa_mutator_picker_dir}/Open Annihilation" "${oa_mutator_picker_dir}/files"
+        "${oa_mutator_picker_dir}/data" "${oa_mutator_picker_dir}/mutator-picker.conf")
+      set_tests_properties(mutator-picker-clean PROPERTIES FIXTURES_SETUP mutator-picker-clean)
+      add_test(NAME native-mutator-picker COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-mutator-picker
+        --preferences-file "${oa_mutator_picker_dir}/mutator-picker.conf"
+        --user-folder "${oa_mutator_picker_dir}/Open Annihilation"
+        --data-dir "${oa_mutator_picker_dir}/data")
+      set_tests_properties(native-mutator-picker PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_mutator_picker_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        FIXTURES_REQUIRED mutator-picker-clean)
+      # Start without a mutator that stopped a skirmish, the question after a
+      # crash, Get mutators over the picker, and the host's "The game did not
+      # start". A scratch user folder holds two made-up mutators. Each run
+      # starts from a clean folder.
+      set(oa_mutator_prompts_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/mutator-prompts")
+      file(MAKE_DIRECTORY "${oa_mutator_prompts_dir}")
+      add_test(NAME mutator-prompts-clean COMMAND ${CMAKE_COMMAND} -E rm -rf
+        "${oa_mutator_prompts_dir}/Open Annihilation" "${oa_mutator_prompts_dir}/files"
+        "${oa_mutator_prompts_dir}/data" "${oa_mutator_prompts_dir}/mutator-prompts.conf")
+      set_tests_properties(mutator-prompts-clean PROPERTIES FIXTURES_SETUP mutator-prompts-clean)
+      add_test(NAME native-mutator-prompts COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-mutator-prompts
+        --preferences-file "${oa_mutator_prompts_dir}/mutator-prompts.conf"
+        --user-folder "${oa_mutator_prompts_dir}/Open Annihilation"
+        --data-dir "${oa_mutator_prompts_dir}/data")
+      set_tests_properties(native-mutator-prompts PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_mutator_prompts_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        FIXTURES_REQUIRED mutator-prompts-clean)
+      # MUTATORS… on the skirmish setup and on NEWGAME, at 640x480 and
+      # 1280x720: the button and its line by the anchor rule, Tab and Down,
+      # the remembered set, USE THESE, Y, SELMAP keeping the set, and START
+      # handing it on. A scratch preferences file holds Gatehouse with
+      # Gatehouse Keep for skirmish and Fast Builders for the campaign. The
+      # feed is the mutator picker's. It leaves each size's frames in its
+      # folder for review. Each run starts from a clean folder.
+      set(oa_mutator_button_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/mutator-button")
+      file(MAKE_DIRECTORY "${oa_mutator_button_dir}")
+      add_test(NAME mutator-button-clean COMMAND ${CMAKE_COMMAND} -E rm -rf
+        "${oa_mutator_button_dir}/Open Annihilation" "${oa_mutator_button_dir}/files"
+        "${oa_mutator_button_dir}/data" "${oa_mutator_button_dir}/mutator-button.conf")
+      set_tests_properties(mutator-button-clean PROPERTIES FIXTURES_SETUP mutator-button-clean)
+      add_test(NAME native-mutator-button COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-mutator-button
+        --preferences-file "${oa_mutator_button_dir}/mutator-button.conf"
+        --user-folder "${oa_mutator_button_dir}/Open Annihilation"
+        --data-dir "${oa_mutator_button_dir}/data")
+      set_tests_properties(native-mutator-button PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_mutator_button_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        FIXTURES_REQUIRED mutator-button-clean)
+      # MUTATORS… for the host of a battle room hosted alone, at 640x480 and
+      # 1280x720: the button and Mutators: off above Select Map, Y opening
+      # the remembered multiplayer set, USE THESE posting the turned-on
+      # lines, turning them off posting the off line, and the button staying
+      # disabled while the room's options are locked. A scratch preferences
+      # file holds Gatehouse with Gatehouse Keep. The feed is the mutator
+      # picker's. It leaves each size's frame in its folder for review.
+      # Each run starts from a clean folder.
+      set(oa_mutator_room_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/mutator-room")
+      file(MAKE_DIRECTORY "${oa_mutator_room_dir}")
+      add_test(NAME mutator-room-clean COMMAND ${CMAKE_COMMAND} -E rm -rf
+        "${oa_mutator_room_dir}/Open Annihilation" "${oa_mutator_room_dir}/files"
+        "${oa_mutator_room_dir}/data" "${oa_mutator_room_dir}/mutator-room.conf")
+      set_tests_properties(mutator-room-clean PROPERTIES FIXTURES_SETUP mutator-room-clean)
+      add_test(NAME native-mutator-room COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-mutator-room
+        --host --player-name Steve --game-name Ridge
+        --preferences-file "${oa_mutator_room_dir}/mutator-room.conf"
+        --user-folder "${oa_mutator_room_dir}/Open Annihilation"
+        --data-dir "${oa_mutator_room_dir}/data")
+      set_tests_properties(native-mutator-room PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_mutator_room_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        FIXTURES_REQUIRED mutator-room-clean)
       # A two-map pack installed from the check's own registry after the
       # skirmish list has been shown and the battle room's list has been
       # read. One stem has a space, an apostrophe and parentheses and the
@@ -2100,6 +2370,32 @@ if(OA_BUILD_PLATFORM)
         WORKING_DIRECTORY "${oa_library_content_dir}"
         ENVIRONMENT "${oa_library_content_env}"
         FIXTURES_REQUIRED library-content-clean)
+      # Ridge, from an added registry, installed while the Library shows, then
+      # an update whose rules change. At 640x480 the row's details page has no
+      # tabs. NOT NOW leaves that page. UPDATE, fifty times, leaves the Library
+      # on top with its tabs on the next frames, and it is still there once the
+      # update is no longer offered. The player's folder stays in the build
+      # tree and is cleared before each run, which is when the settings are read.
+      set(oa_library_update_question_dir
+        "${CMAKE_CURRENT_BINARY_DIR}/native-checks/library-update-question")
+      file(MAKE_DIRECTORY "${oa_library_update_question_dir}")
+      add_test(NAME library-update-question-clean COMMAND ${CMAKE_COMMAND} -E rm -rf
+        "${oa_library_update_question_dir}/Open Annihilation"
+        "${oa_library_update_question_dir}/files"
+        "${oa_library_update_question_dir}/data"
+        "${oa_library_update_question_dir}/library-update-question.conf")
+      set_tests_properties(library-update-question-clean PROPERTIES
+        FIXTURES_SETUP library-update-question-clean)
+      add_test(NAME native-library-update-question COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-library-update-question
+        --preferences-file "${oa_library_update_question_dir}/library-update-question.conf"
+        --user-folder "${oa_library_update_question_dir}/Open Annihilation"
+        --data-dir "${oa_library_update_question_dir}/data")
+      set_tests_properties(native-library-update-question PROPERTIES
+        TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_library_update_question_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        FIXTURES_REQUIRED library-update-question-clean)
       # Made-up mod packages posted as the download queue posts them, from a
       # built-in registry and two added ones, installed while the Library
       # shows: the built-in one's with no question, the added ones' asking
@@ -2976,6 +3272,15 @@ endforeach()
           --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
           --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
         set_tests_properties(native-saveload PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        # A skirmish saved with mutators loads with those mutators, refuses a
+        # missing one by name, and a save without them loads with none
+        # (tools/check_native_saveload_mutators.py).
+        add_test(NAME native-saveload-mutators COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_saveload_mutators.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-saveload-mutators PROPERTIES
+          TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT} SKIP_RETURN_CODE ${OA_GAME_DATA_SKIP_CODE})
         # --check-game-files: the Game files screen driven through its routes
         # by taps and keys, over a subset of OA_GAME_DIR linked into a work
         # folder, writing game-files-<variant>-<nn>-<step>-*.png pictures for
@@ -3108,6 +3413,19 @@ endforeach()
           --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
           --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
         set_tests_properties(native-group-orders PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        # A commander far faster than any stock unit (42 pixels a tick, as
+        # seven stacked commander mutators leave it) arrives where it is
+        # sent, east, in five other directions and round a wall, without
+        # oscillating over the point, and a build queued behind its move is
+        # finished. With the same values from a mod's unit file and no
+        # mutator, it steps past its point as 3.1c's steering makes it.
+        add_test(NAME native-fast-commanders COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_fast_commanders.py"
+          --native $<TARGET_FILE:oa-game> --oa-tool $<TARGET_FILE:oa-tool>
+          --game-dir "${OA_GAME_DIR}"
+          --packages "${CMAKE_SOURCE_DIR}/tests/data/mutators/packages"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-fast-commanders PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
         # The Open Annihilation settings leave the game as it plays without
         # them: the seeded skirmish, drawn, writes the same trace stream and
         # last frame with every key at its default as with no preferences,
@@ -3207,6 +3525,20 @@ endforeach()
           --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
           --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
         set_tests_properties(native-unreadable-unit-script PROPERTIES
+          TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        # --mutator on a headless skirmish: no mutators, one package, a
+        # number option, two packages in each order, a missing id, an
+        # unknown option and a mutator whose script stops. Also
+        # --no-mutators, a match that leaves no crash record and no
+        # remembered set, a planted crash record, a campaign start the
+        # mutators refuse, and the clash mode the preferences' default
+        # gives a mutator whose manifest names none.
+        add_test(NAME native-mutators-command-line COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_mutators.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --packages "${CMAKE_SOURCE_DIR}/tests/data/mutators/packages"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-mutators-command-line PROPERTIES
           TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
         # A mod folder whose sides name commanders of their own, without the
         # commander flag, and bar colours of their own, with a third side that
@@ -3461,8 +3793,9 @@ if(BUILD_TESTING)
     # have the sizes the builds and the platforms want.
     add_test(NAME branding-icons COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/make_icons.py --check)
     set_tests_properties(branding-icons PROPERTIES TIMEOUT 60)
-    # The macOS and iOS bundles declare the .oamod mod package as the game's own type and open
-    # it as its owner, with the icon each system takes (tools/check_bundle_file_types.py).
+    # The macOS and iOS bundles declare the game's six file types as its own and open each as
+    # its owner, with the icon each system takes; the Windows uninstaller withdraws all six and
+    # iOS brings in the five the game installs or adds (tools/check_bundle_file_types.py).
     add_test(NAME app-bundle-file-types COMMAND ${Python3_EXECUTABLE}
       ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_bundle_file_types.py
       ${CMAKE_CURRENT_SOURCE_DIR}/src/app/Info.plist.in ${CMAKE_CURRENT_SOURCE_DIR}/platforms/ios/Info.plist.in)
@@ -3593,6 +3926,8 @@ add_subdirectory(src/ui/frontend-multiplayer)
 add_subdirectory(src/ui/map-previews)
 # The map browser: MORE MAPS… over the map lists opens it on the OA layer.
 add_subdirectory(src/ui/map-browser)
+# The mutator picker. This module is its model: order, prerequisites and options.
+add_subdirectory(src/ui/mutator-picker)
 add_subdirectory(src/netgame)
 # Catalogues are fetched with the HTTP client src/netgame adds, so this
 # library follows that directory. oa-game is linked earlier in this file,

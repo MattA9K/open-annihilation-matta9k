@@ -92,8 +92,8 @@ Open Annihilation's own settings open with **Cmd+,**, or from
 bottom right of the main menu opens. See [Settings](../settings.md), and
 [the Library](../library.md) for mods, maps and languages to download.
 
-The app declares `.oamod`, `.oalang`, `.oamap`, `.oareg` and `.oalaunch`
-files.
+The app declares `.oamod`, `.oalang`, `.oamap`, `.oamut`, `.oareg` and
+`.oalaunch` files.
 Double-click a `.oamod` file to install the mod it holds in Open
 Annihilation ([mods](../mods/README.md#installing-a-oamod-file)) while
 Open Annihilation is the program Finder uses for that type, and a

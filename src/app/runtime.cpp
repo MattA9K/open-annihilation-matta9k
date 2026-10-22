@@ -34,6 +34,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <exception>
 #include <filesystem>
 #include <iostream>
 #include <limits>
@@ -333,6 +334,8 @@ void Runtime::finish_screen_change(std::string_view name) {
 void Runtime::note_shown_frame() {
     note_launch_frame();
     finish_screen_change(screen_label(screen_));
+    if (screen_ == Screen::main_menu && !mutator_crash_offered_)
+        offer_mutator_crash_question();
     if (screen_ == Screen::main_menu && !main_menu_phase_logged()) {
         main_menu_phase_logged() = true;
         oa::platform::log_files::note_timing("main menu first frame");
@@ -399,12 +402,20 @@ Runtime::Runtime(
     uint32_t phase_began = oa::platform::tick_ms();
     load_preference_file();
     mark_phase("preferences", phase_began);
+    // Beside the preferences file, including one --preferences-file names.
+    // A leftover is kept in memory and the file is deleted, so the next
+    // start does not ask again.
+    open_mutator_sentinel();
     // The player's own folder, and the one-time move of the saved games into
     // it, before the frontend's preferences read the Image Output Directory
     // that defaults to it.
     phase_began = oa::platform::tick_ms();
     start_user_folder();
     mark_phase("user folder", phase_began);
+    // --mutator is resolved once the player's folder is known. A value that
+    // does not name an installed mutator, or an option it cannot take, ends
+    // the run here.
+    take_command_line_mutators();
     // Which copied files differ, for the main menu's notice and for the
     // Library and Settings. A named --game-dir still fills it; the notice
     // stays closed then. A bundle this start's setup already copied and
@@ -480,6 +491,9 @@ Runtime::Runtime(
             prepare_registries_check();
         if (options_.check_map_browser)
             prepare_map_browser_check();
+        if (options_.check_mutator_picker || options_.check_mutator_button ||
+            options_.check_mutator_room || options_.check_mutator_prompts)
+            prepare_mutator_picker_check();
         if (options_.check_map_pack_lists)
             prepare_map_pack_lists_check();
         if (options_.check_first_run)
@@ -543,6 +557,22 @@ void Runtime::run_progress(std::string_view line, const std::function<void(LongW
 }
 
 int Runtime::run() {
+    // Deletes the crash record when this call returns with no exception in
+    // flight. A fatal error that unwinds through run() leaves the file, so
+    // the next start can ask. This is not Runtime's destructor, which must
+    // not delete the file: a destructor would run on that unwind too.
+    struct MutatorSentinelOnReturn {
+        Runtime& runtime;
+        int depth = std::uncaught_exceptions();
+
+        ~MutatorSentinelOnReturn() {
+            if (std::uncaught_exceptions() == depth)
+                runtime.clear_mutator_sentinel();
+        }
+    };
+
+    [[maybe_unused]] MutatorSentinelOnReturn mutator_sentinel_on_return{*this};
+
     // The menu draws this window from here. A launch pump must not clear it.
     release_launch_window();
     take_pending_content();
@@ -700,6 +730,26 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (options_.check_mutator_picker) {
+            check_mutator_picker();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_mutator_prompts) {
+            check_mutator_prompts();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_mutator_button) {
+            check_mutator_button();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_mutator_room) {
+            check_mutator_room();
+            flush_preferences();
+            return 0;
+        }
         if (options_.check_mod_map_settings) {
             check_mod_map_settings();
             flush_preferences();
@@ -755,6 +805,11 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (options_.check_library_update_question) {
+            check_library_update_question();
+            flush_preferences();
+            return 0;
+        }
         if (options_.check_renderer_ladder) {
             const int status = check_renderer_ladder();
             flush_preferences();
@@ -797,6 +852,36 @@ int Runtime::run() {
         }
         if (options_.check_unit_speech) {
             check_unit_speech();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_mutator_layer) {
+            check_mutator_layer();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_mutator_verdicts) {
+            check_mutator_verdicts();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_mutator_dry_run) {
+            check_mutator_dry_run();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_replay_loadout) {
+            check_replay_loadout();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_side_data_per_match) {
+            check_side_data_per_match();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_gadget_art_per_match) {
+            check_gadget_art_per_match();
             flush_preferences();
             return 0;
         }
@@ -1513,6 +1598,12 @@ void Runtime::move_frontend_focus(oa::ui::gui_input::FocusDirection direction) {
 
 void Runtime::load(Screen screen) {
     begin_screen_change(screen_label(screen));
+    // Leaving to the main menu ends both setups' chosen mutators, before a
+    // save waiting to load can start a campaign mission with them.
+    if (screen == Screen::main_menu) {
+        skirmish_mutators_.clear();
+        campaign_mutators_.clear();
+    }
     if (screen == Screen::main_menu && !pending_save_path_.empty()) {
         const fs::path pending = path_from_utf8(pending_save_path_);
         pending_save_path_.clear();
@@ -1529,6 +1620,19 @@ void Runtime::load(Screen screen) {
     // Screens over or after the match read the options the match changed.
     if (screen_ == Screen::match && match_)
         take_match_options(match_->state().game);
+    // SKIRMISH keeps its mutators across the map picker and a refused start,
+    // whether START refused it or the loading match did, and drops them when
+    // it is entered from anywhere else. NEWGAME and Any
+    // Mission drop theirs when Single Player or the main menu opens them.
+    if (screen == Screen::skirmish && screen_ != Screen::map_selection &&
+        screen_ != Screen::skirmish && screen_ != Screen::loading)
+        skirmish_mutators_.clear();
+    if ((screen == Screen::new_campaign || screen == Screen::any_mission) &&
+        (screen_ == Screen::single_player || screen_ == Screen::main_menu)) {
+        campaign_mutators_.clear();
+        if (mutators_held_for_next_match())
+            cancel_loadout_once();
+    }
     if (const auto* previous = screen_find(&screens_, screen_id(screen_));
         previous != nullptr && previous->leave != nullptr) {
         auto context = screen_context();

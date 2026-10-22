@@ -5045,6 +5045,61 @@ void test_rules_dot() {
     }
 }
 
+// A guest that lacks one mutator of the host's list carries the rules dot
+// through the mutator comparison, while the sim hashes stay equal. A guest
+// that has every one does not, and the host's own row never does.
+void test_mutator_rules_dot() {
+    namespace ng = oa::netgame;
+    ng::PresenceMutators ready;
+    ready.built = true;
+    ready.index = ng::presence_mutator_index_none;
+    ready.total = 2;
+    ready.held = 2;
+    ready.digest.fill(0x11);
+    ready.layer_digest.fill(0x22);
+    const auto encode = [](const ng::PresenceMutators& field) {
+        ng::PresenceRecord record;
+        record.engine = ng::PresenceEngine{"0.8.0", "macOS", "arm64"};
+        record.mutators = field;
+        record.sim_hash = filled_hash(0x5a);
+        return encoded_presence(record);
+    };
+
+    auto room = std::make_unique<Room>(true);
+    auto& lobby = room->lobby;
+    expect(
+        mp::lobby_apply_event(lobby, record_event(kRoomGuest, setup_block(kRoomGuest, 1, 2))),
+        "the OA guest's block applies"
+    );
+    bind_presence_source(lobby, encode(ready));
+    mp::presence_refresh(lobby);
+
+    ng::PresenceMutators missing = ready;
+    ng::presence_mutator_set_state(missing.states, 0, 1);
+    expect(
+        mp::lobby_apply_event(lobby, presence_event(kRoomGuest, encode(missing))),
+        "the guest's record that lacks one mutator is kept"
+    );
+    expect(!mp::lobby_sim_hash_differs_from_host(lobby, 1), "equal sim hashes do not differ");
+    expect(
+        mp::lobby_mutators_differ_from_host(lobby, 1),
+        "a missing mutator differs through the mutator rule"
+    );
+    expect(shows_dot(lobby, 1), "a missing mutator puts the dot on the guest");
+    expect(!shows_dot(lobby, 0), "the host's own row has no dot");
+    expect(!mp::lobby_mutators_differ_from_host(lobby, 0), "the host does not differ from itself");
+
+    expect(
+        mp::lobby_apply_event(lobby, presence_event(kRoomGuest, encode(ready))),
+        "the guest's record that has every mutator is kept"
+    );
+    expect(
+        !mp::lobby_mutators_differ_from_host(lobby, 1), "a guest that has them all does not differ"
+    );
+    expect(!shows_dot(lobby, 1), "a guest that has them all has no dot");
+    expect(!shows_dot(lobby, 0), "the host's row still has no dot");
+}
+
 /// A presence record that names a base game and expansions.
 ///
 /// @param hash the sim hash
@@ -6745,6 +6800,7 @@ int main(int argc, char** argv) {
         test_no_presence_bytes_in_the_battle_room();
         test_presence_records_in_the_battle_room();
         test_rules_dot();
+        test_mutator_rules_dot();
         test_content_difference();
         test_unicode_chat_in_the_battle_room();
         test_recorder_commands_in_the_battle_room();

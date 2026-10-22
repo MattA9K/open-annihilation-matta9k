@@ -11,7 +11,7 @@
 // edge's 25% in effect at once, Window edge's strip and Edge stickiness's
 // slider, locked but for Sticky, in effect at once and fitting the 640x480
 // dialog in English and German,
-// System's five file-type switches fitting it too, OK,
+// System's six file-type switches fitting it too, OK,
 // Cancel and Restore defaults and the preferences they leave, Developer
 // Mode's overrides in effect and kept), and the main menu
 // with its OA button and Settings button and the dialog as the window shows
@@ -199,7 +199,7 @@ void require(bool ok, std::string_view what) {
 }
 
 #if defined(__APPLE__) && !TARGET_OS_IPHONE
-/// The five file-type switches, cleared, so a comparison can ignore them.
+/// The six file-type switches, cleared, so a comparison can ignore them.
 ///
 /// @param settings the settings
 /// @return the same settings with every file-type switch off
@@ -208,6 +208,7 @@ settings::EngineSettings without_file_type_switches(settings::EngineSettings set
     settings.file_type_oamap = false;
     settings.file_type_oalang = false;
     settings.file_type_oareg = false;
+    settings.file_type_oamut = false;
     settings.file_type_oalaunch = false;
     return settings;
 }
@@ -414,6 +415,8 @@ std::string_view label_of(settings::Setting setting) {
         return "Language packs (.oalang)";
     case settings::Setting::file_type_oareg:
         return "Registry files (.oareg)";
+    case settings::Setting::file_type_oamut:
+        return "Mutator packages (.oamut)";
     case settings::Setting::file_type_oalaunch:
         return "Launch files (.oalaunch)";
     case settings::Setting::file_types_note:
@@ -2848,7 +2851,7 @@ void Runtime::check_window_edge_rows_fit() {
 }
 
 void Runtime::check_file_type_rows_fit() {
-    // System's File Type Registration and its five switches, the launch
+    // System's File Type Registration and its six switches, the launch
     // file's last, on the 640x480 window, Compact, in English and German, at
     // the section's top and at its end: no text of theirs is wider than its
     // box or drawn across another. Simplified Chinese draws from its pack,
@@ -2860,13 +2863,14 @@ void Runtime::check_file_type_rows_fit() {
     load(Screen::main_menu);
     require(screen_ == Screen::main_menu, "the main menu did not open on the 640x480 window");
     const std::string kept_language = language_state().choice;
-    constexpr std::array<std::string_view, 7> words{
+    constexpr std::array<std::string_view, 8> words{
         "File Type Registration",
         "Open these files with the game from your file manager.",
         "Mod packages (.oamod)",
         "Map packs (.oamap)",
         "Language packs (.oalang)",
         "Registry files (.oareg)",
+        "Mutator packages (.oamut)",
         "Launch files (.oalaunch)",
     };
     for (const std::string_view tag : {std::string_view{"en"}, std::string_view{"de"}}) {
@@ -2921,7 +2925,7 @@ void Runtime::check_file_type_rows_fit() {
             launch_shown,
             "System at its end does not show Launch files (.oalaunch) in " + std::string(tag)
         );
-        std::cout << "engine settings check: File Type Registration and its five switches fit "
+        std::cout << "engine settings check: File Type Registration and its six switches fit "
                      "the 640x480 dialog in "
                   << tag << '\n';
     }
