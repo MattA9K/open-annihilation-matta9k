@@ -437,4 +437,28 @@ void require_icloud_download_lines() {
         throw std::runtime_error("icloud wait: a built-in language is missing");
 }
 
+bool warm_progress_dialog(SDL_Window* window, SDL_Renderer* renderer) noexcept {
+    if (window == nullptr || renderer == nullptr)
+        return false;
+    try {
+        paint::Canvas pixels;
+        const kit::Frame room = progress_room(window, renderer, pixels);
+        if (room.area.width <= 0 || pixels.width <= 0)
+            return false;
+        fill_progress_behind(pixels, nullptr);
+        for (uint32_t turn = 0; turn < 8; ++turn)
+            paint_progress_dialog(
+                pixels,
+                room,
+                oa::data::languages::interface_text("Open Annihilation"),
+                oa::data::languages::interface_text("Loading the game's archives"),
+                -1,
+                turn
+            );
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
 } // namespace oa::app

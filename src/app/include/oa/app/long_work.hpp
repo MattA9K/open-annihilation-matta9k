@@ -87,6 +87,17 @@ struct LongWorkResult {
 /// @return true while run_long_work is drawing for a job
 [[nodiscard]] bool long_work_running() noexcept;
 
+/// Paints the progress dialog once off the screen, at the window's size, so
+/// what its first showing keeps for the rest of the process is kept now:
+/// the bundled fonts with the glyphs of its words, and the app icon.
+/// Nothing is shown.
+///
+/// @param window the game's window
+/// @param renderer its renderer
+/// @return true when it was painted; false when the window has no size or
+///     the bundled fonts cannot be read
+bool warm_progress_dialog(SDL_Window* window, SDL_Renderer* renderer) noexcept;
+
 /// Fills a canvas with the quiet launch colour, or with `under` stretched
 /// over it when that picture has pixels.
 ///

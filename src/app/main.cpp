@@ -901,6 +901,32 @@ constexpr uint64_t kModSwitchHeapNoise = uint64_t{128} * 1024;
 class ModSwitchMemory {
   public:
 
+    /// Paints the progress dialog off the screen before the first run is
+    /// sampled. The dialog keeps its fonts, the glyphs it drew and the app
+    /// icon from its first showing, when a step of a start lasts longer than
+    /// long_work_show_after_ms, for the rest of the process. A start slowed
+    /// by a loaded machine would otherwise first show it in a later round,
+    /// and the heap would step up by that much once, as if a switch kept
+    /// memory. The heap it takes is logged.
+    ///
+    /// @param window the game's window
+    /// @param renderer its renderer
+    void warm_progress_dialog(SDL_Window* window, SDL_Renderer* renderer) {
+        oa::platform::HostHeapUse before{};
+        const bool known = oa::platform::sample_host_heap_use(&before);
+        if (!oa::app::warm_progress_dialog(window, renderer)) {
+            std::cout << "mod switch check: the progress dialog could not be painted ahead\n";
+            return;
+        }
+        oa::platform::HostHeapUse after{};
+        if (known && oa::platform::sample_host_heap_use(&after) && after.bytes >= before.bytes)
+            std::cout << "mod switch check: the progress dialog, painted before the first run, "
+                         "keeps "
+                      << (after.bytes - before.bytes) / 1024 << " KiB\n";
+        else
+            std::cout << "mod switch check: the progress dialog was painted before the first run\n";
+    }
+
     /// Notes the host heap's use as a run starts on the main menu, with the
     /// working set beside it.
     ///
@@ -2127,6 +2153,8 @@ int run_once(
 
     runtime->take_video_capture(std::move(capture));
     runtime->take_full_screen_switch(display.full_screen);
+    if (check_mod_switch && restarts == 0)
+        switch_memory.warm_progress_dialog(display.window, display.renderer_host.renderer());
     if (check_mod_switch)
         switch_memory.sample(restarts);
     const int status = runtime->run();
