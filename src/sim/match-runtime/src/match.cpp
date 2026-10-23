@@ -342,11 +342,14 @@ Match::Match(const OfflineInputs& input, OfflineServices& services)
     keep_unit_rules();
     target_projection_.resize(slots_.size());
     const auto sighting_capacity = static_cast<uint32_t>(slots_.size());
-    sighting_slots_.assign(std::size_t{2} * sightings_.size() * sighting_capacity, 0);
+    // Each player's seen, radar and pad lists.
+    constexpr std::size_t lists = 3;
+    sighting_slots_.assign(lists * sightings_.size() * sighting_capacity, 0);
     for (std::size_t player = 0; player < sightings_.size(); ++player) {
         auto& sightings = sightings_[player];
-        sightings.seen = &sighting_slots_[2 * player * sighting_capacity];
+        sightings.seen = &sighting_slots_[lists * player * sighting_capacity];
         sightings.radar = sightings.seen + sighting_capacity;
+        sightings.pads = sightings.radar + sighting_capacity;
         sightings.capacity = sighting_capacity;
     }
     type_bounds_.resize(input.types.size());

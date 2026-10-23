@@ -490,9 +490,15 @@ sort and due tasks in `src/sim/ai`), then the weapon sweep retargets the slots o
 units that fire at will; command-fire weapons take part only for computer
 players. Interceptors aim at an enemy missile; other weapons take a random
 enemy in range. The knowledge refresh follows for the same players: every 30
-ticks it rebuilds the player's sightings (`src/sim/detection`) and, for a
-computer player, its own-unit counts and base position, then a one-in-30 draw
-runs the strategic refresh. Offline matches run the wind from the OTA
+ticks it rebuilds the player's sightings (`src/sim/detection`), its pad list
+and, for a computer player, its own-unit counts and base position, then a
+one-in-30 draw runs the strategic refresh. The pad list holds the player's
+own finished, switched-on air bases that are builders, in unit slot order. A
+damaged aircraft that breaks off for a repair pad (attack, strike, seek,
+patrol and repair patrol missions) draws one of the listed pads still
+switched on within 0xf00 world units (`Match::repair_pads_in_reach` and
+`repair_pad_in_reach`), so a pad built or switched on since the last rebuild
+is not chosen until the next one. Offline matches run the wind from the OTA
 `MinWindSpeed` and `MaxWindSpeed`.
 
 The computer players reach the match through `ComputerHost`

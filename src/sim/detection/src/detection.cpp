@@ -43,6 +43,17 @@ bool allied(const Player& player, uint8_t other) noexcept {
     return other < sizeof player.alliance && player.alliance[other] != 0;
 }
 
+// Whether a unit of the pad list still serves a damaged aircraft at a point.
+bool pad_serves(const World& world, uint16_t slot, const FixedVec3& at) noexcept {
+    constexpr int32_t reach = repair_pad_reach * repair_pad_reach;
+    const auto* pad = world_unit_at(&world, slot);
+    if (pad == nullptr || pad->type_index == 0)
+        return false;
+    const auto* def = world_unit_def_of(&world, pad);
+    return def != nullptr && (def->flags & repair_pad_flags) == repair_pad_flags &&
+           (pad->state_flags & OA_UNIT_STATE_ACTIVE) != 0 &&
+           squared_distance_high(at, pad->position) <= reach;
+}
 } // namespace
 
 int32_t squared_distance_high(const FixedVec3& a, const FixedVec3& b) noexcept {
@@ -85,6 +96,7 @@ bool sightings_due(const Sightings& sightings, uint32_t tick) noexcept {
 void clear_sightings(Sightings& sightings) noexcept {
     sightings.seen_count = 0;
     sightings.radar_count = 0;
+    sightings.pad_count = 0;
     sightings.radar_fallback = 0;
 }
 
@@ -115,10 +127,31 @@ bool file_sighting(
     if (owner != player.index || !finished_unit(unit))
         return false;
     const auto* def = world_unit_def_of(&world, &unit);
-    if (def != nullptr && (def->flags & OA_UNIT_DEF_FLAG_TARGETING_UPGRADE) != 0 &&
-        (unit.state_flags & OA_UNIT_STATE_ACTIVE) != 0)
+    const bool active = (unit.state_flags & OA_UNIT_STATE_ACTIVE) != 0;
+    if (def != nullptr && (def->flags & repair_pad_flags) == repair_pad_flags && active &&
+        sightings.pad_count < sightings.capacity)
+        sightings.pads[sightings.pad_count++] = slot;
+    if (def != nullptr && (def->flags & OA_UNIT_DEF_FLAG_TARGETING_UPGRADE) != 0 && active)
         sightings.radar_fallback = 1;
     return true;
+}
+
+uint32_t
+pads_in_reach(const Sightings& sightings, const World& world, const FixedVec3& at) noexcept {
+    uint32_t count = 0;
+    for (uint32_t i = 0; i < sightings.pad_count; ++i)
+        if (pad_serves(world, sightings.pads[i], at))
+            ++count;
+    return count;
+}
+
+uint16_t pad_in_reach(
+    const Sightings& sightings, const World& world, const FixedVec3& at, uint32_t index
+) noexcept {
+    for (uint32_t i = 0; i < sightings.pad_count; ++i)
+        if (pad_serves(world, sightings.pads[i], at) && index-- == 0)
+            return sightings.pads[i];
+    return 0;
 }
 
 bool sighted_within(

@@ -35,6 +35,11 @@ inline constexpr uint32_t cloak_ordered = OA_UNIT_FLAG_CLOAK_RUNNING;
 inline constexpr uint32_t cloak_locked = OA_UNIT_FLAG_CLOAK_LOCKED;
 // Unit.flags bit that keeps a unit off every player's seen list.
 inline constexpr uint32_t unsighted = OA_UNIT_FLAG_NOT_SELECTABLE;
+// UnitDef.flags of a repair pad: a builder that is an air base.
+inline constexpr uint32_t repair_pad_flags = OA_UNIT_DEF_FLAG_BUILDER | OA_UNIT_DEF_FLAG_IS_AIRBASE;
+// How far a damaged aircraft looks for a repair pad: world units, on the
+// ground plane.
+inline constexpr int32_t repair_pad_reach = 0xf00;
 
 // Ticks between rebuilds of a player's sightings.
 inline constexpr uint32_t sighting_period = 30;
@@ -49,14 +54,19 @@ struct ScanRecord {
 };
 
 // One player's sightings of other players' units, by unit slot: a seen list
-// and a radar list with their counts. The caller owns the list storage,
-// `capacity` slots for each list.
+// and a radar list with their counts, and with them the player's own repair
+// pads. The caller owns the list storage, `capacity` slots for each list.
 struct Sightings {
     uint16_t* seen{};  // enemies in the player's line of sight
     uint16_t* radar{}; // enemies carrying the radar-contact bit
+    // The player's own finished, switched-on air bases that are builders,
+    // in unit slot order: the repair pads its damaged aircraft choose among
+    // until the next rebuild.
+    uint16_t* pads{};
     uint32_t capacity{};
     uint32_t seen_count{};
     uint32_t radar_count{};
+    uint32_t pad_count{};
     uint32_t refreshed_tick{};
     // The player owns a finished, switched-on targeting facility: target
     // searches that find nothing seen fall back to the radar list.
@@ -108,7 +118,7 @@ void jam_sonar(Unit& unit) noexcept;
 /// @return true once a full 30-tick period has passed since the last rebuild
 bool sightings_due(const Sightings& sightings, uint32_t tick) noexcept;
 
-/// Empties both sighting lists and the radar fallback before a rebuild.
+/// Empties the sighting lists, the pad list and the radar fallback before a rebuild.
 ///
 /// @param[in,out] sightings the player's sightings
 void clear_sightings(Sightings& sightings) noexcept;
@@ -131,7 +141,8 @@ bool sighting_candidate(const World& world, const Player& player, const Unit& un
 ///
 /// An active enemy enters the seen list when `seen` holds and it is not unsighted, and
 /// the radar list when it is a radar contact. The player's own finished, switched-on
-/// targeting facility turns the radar fallback on.
+/// targeting facility turns the radar fallback on, and its own finished, switched-on
+/// air base that is a builder enters the pad list.
 ///
 /// @param[in,out] sightings the player's sightings
 /// @param world unit table and types
@@ -142,6 +153,29 @@ bool sighting_candidate(const World& world, const Player& player, const Unit& un
 ///         counts into the player's computer knowledge
 bool file_sighting(
     Sightings& sightings, const World& world, const Player& player, const Unit& unit, bool seen
+) noexcept;
+
+/// Counts the repair pads a damaged aircraft of the player may make for.
+///
+/// Each unit of the player's pad list, as its last rebuild filed it, counts while it is
+/// still a switched-on air base that is a builder, within repair_pad_reach of the point.
+///
+/// @param sightings the player's sightings
+/// @param world unit table and types
+/// @param at the aircraft's position, 16.16 world coordinates
+/// @return the number of pads
+uint32_t
+pads_in_reach(const Sightings& sightings, const World& world, const FixedVec3& at) noexcept;
+
+/// Returns one of the repair pads pads_in_reach counts.
+///
+/// @param sightings the player's sightings
+/// @param world unit table and types
+/// @param at the aircraft's position, 16.16 world coordinates
+/// @param index which of them, from 0, in pad list order
+/// @return the pad's unit slot, or 0 when there are not that many
+uint16_t pad_in_reach(
+    const Sightings& sightings, const World& world, const FixedVec3& at, uint32_t index
 ) noexcept;
 
 /// Tests whether an active unit on the seen list stands within a distance of a position.

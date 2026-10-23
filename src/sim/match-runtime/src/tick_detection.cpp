@@ -6,6 +6,8 @@
 #include "oa/sim/ai.hpp"
 #include "oa/sim/detection.hpp"
 
+#include <cstdint>
+
 namespace oa::sim::match_runtime {
 namespace {
 
@@ -235,6 +237,24 @@ void Match::scan_contacts_for(const oa::Player& viewer, bool scan_own_units) {
             point_seen_by(viewer.index, fixed_words(unit.position)))
             unit.flags |= detection::radar_contact;
     }
+}
+
+uint32_t Match::repair_pads_in_reach(const oa::Unit& aircraft) const {
+    const auto& world = state();
+    const auto* owner = oa::world_unit_owner(&world, &aircraft);
+    if (owner == nullptr || owner->index >= sightings_.size())
+        return 0;
+    return sim::detection::pads_in_reach(sightings_[owner->index], world, aircraft.position);
+}
+
+oa::Unit* Match::repair_pad_in_reach(const oa::Unit& aircraft, uint32_t index) {
+    auto& world = state();
+    const auto* owner = oa::world_unit_owner(&world, &aircraft);
+    if (owner == nullptr || owner->index >= sightings_.size())
+        return nullptr;
+    const auto slot =
+        sim::detection::pad_in_reach(sightings_[owner->index], world, aircraft.position, index);
+    return slot != 0 ? oa::world_unit_at(&world, slot) : nullptr;
 }
 
 void Match::refresh_player_knowledge(uint8_t player) {

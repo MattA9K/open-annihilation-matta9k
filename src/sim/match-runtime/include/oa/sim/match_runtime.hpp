@@ -1156,8 +1156,9 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     /// contacts. Nothing happens with a single participant.
     void scan_contacts();
     /// Rebuilds a player's knowledge once a period has passed since the
-    /// last: its sightings and, for a computer player, its own-unit counts
-    /// and base position; then it rolls one in 30 for its strategic refresh.
+    /// last: its sightings and repair pads and, for a computer player, its
+    /// own-unit counts and base position; then it rolls one in 30 for its
+    /// strategic refresh.
     ///
     /// Only a player with a knowledge record (built with its controller)
     /// takes part.
@@ -1165,7 +1166,22 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     /// @param player Player index 0..9.
     void refresh_player_knowledge(uint8_t player);
 
-    /// Returns a player's sightings (seen and radar lists).
+    /// Counts the repair pads a damaged aircraft may make for: the pads on
+    /// its owner's pad list, which the owner's knowledge refresh rebuilds
+    /// every 30 ticks, that are still switched-on air bases and builders
+    /// within 0xf00 world units of it.
+    ///
+    /// @param aircraft The aircraft.
+    /// @return The number of pads; none when its owner has no pad list.
+    uint32_t repair_pads_in_reach(const oa::Unit& aircraft) const;
+    /// Returns one of the pads repair_pads_in_reach counts.
+    ///
+    /// @param aircraft The aircraft.
+    /// @param index Which of them, from 0, in pad list order.
+    /// @return The pad, or null when there are not that many.
+    oa::Unit* repair_pad_in_reach(const oa::Unit& aircraft, uint32_t index);
+
+    /// Returns a player's sightings (seen, radar and pad lists).
     ///
     /// @param player Player index 0..9; another throws.
     /// @return The player's sightings.
@@ -3239,7 +3255,7 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
 
     std::array<std::optional<std::array<uint8_t, 10>>, 10> player_alliances_;
     // Each player's sightings, over storage of one entry per unit slot for
-    // both lists of every player.
+    // the seen, radar and pad lists of every player.
     std::array<sim::detection::Sightings, OA_PLAYER_COUNT> sightings_{};
     std::vector<uint16_t> sighting_slots_;
     std::vector<sim::combat_state::TargetUnit> sighting_query_;

@@ -92,17 +92,11 @@
   "src/sim/match-runtime/src/targeting.cpp": {
    "tier-heap-container": 1
   },
-  "src/sim/match-runtime/src/tick_missions_air.cpp": {
-   "tier-heap-container": 1
-  },
   "src/sim/match-runtime/src/tick_missions_ground.cpp": {
    "tier-heap-container": 1
   },
-  "src/sim/match-runtime/src/tick_missions_vtol.cpp": {
-   "tier-heap-container": 1
-  },
   "src/sim/match-runtime/src/tick_missions_vtol_build.cpp": {
-   "tier-heap-container": 5
+   "tier-heap-container": 4
   },
   "src/sim/match-runtime/src/tick_projectiles.cpp": {
    "tier-heap-container": 1

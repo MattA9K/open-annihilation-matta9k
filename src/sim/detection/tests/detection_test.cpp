@@ -183,7 +183,8 @@ void test_shared_radar() {
 struct SightingLists {
     uint16_t seen[slot_count]{};
     uint16_t radar[slot_count]{};
-    Sightings sightings{seen, radar, slot_count};
+    uint16_t pads[slot_count]{};
+    Sightings sightings{seen, radar, pads, slot_count};
 };
 
 // Files slots 1..7 for the viewer; `visible` is the viewer's sight test.
@@ -263,6 +264,74 @@ void test_sightings_lists() {
     world_destroy(w);
 }
 
+// The pad list holds the player's own finished, live, switched-on air bases
+// that are builders, in slot order; a search re-tests each listed pad and
+// measures its reach.
+void test_pad_list() {
+    World* w = make_world();
+    // Slots 1 and 2 are the viewer's here, 3..6 the enemy's.
+    auto& me = w->game.players[viewer];
+    me.alliance[viewer] = 1;
+    me.last_unit = oa_unit_ref_from_slot(enemy_first);
+    w->units[enemy_first].owner = oa_ref_from_index(viewer);
+    w->units[enemy_first].owner_index = viewer;
+    w->game.players[enemy].first_unit = oa_unit_ref_from_slot(enemy_first + 1);
+    w->unit_defs[plain].flags = repair_pad_flags;
+    w->unit_defs[stealthy].flags = OA_UNIT_DEF_FLAG_IS_AIRBASE;
+    auto& near_pad = place(*w, viewer_slot, plain, 100, sea_level, 0);
+    auto& far_pad = place(*w, enemy_first, plain, 0x1000, sea_level, 0);
+    auto& enemy_pad = place(*w, enemy_first + 1, plain, 50, sea_level, 0);
+    for (Unit* pad : {&near_pad, &far_pad, &enemy_pad})
+        pad->state_flags = OA_UNIT_STATE_ACTIVE;
+    const bool visible[slot_count]{};
+    SightingLists lists;
+    CHECK(file_all(lists, *w, visible) == 2);
+    CHECK(lists.sightings.pad_count == 2);
+    CHECK(lists.pads[0] == viewer_slot && lists.pads[1] == enemy_first);
+
+    // An unfinished, switched-off, dying or non-builder base is not filed.
+    near_pad.build_remaining = 0.5F;
+    file_all(lists, *w, visible);
+    CHECK(lists.sightings.pad_count == 1 && lists.pads[0] == enemy_first);
+    near_pad.build_remaining = 0.0F;
+    near_pad.state_flags = 0;
+    file_all(lists, *w, visible);
+    CHECK(lists.sightings.pad_count == 1);
+    near_pad.state_flags = OA_UNIT_STATE_ACTIVE;
+    near_pad.flags |= OA_UNIT_FLAG_DEATH_PENDING;
+    file_all(lists, *w, visible);
+    CHECK(lists.sightings.pad_count == 1);
+    near_pad.flags = OA_UNIT_FLAG_LIVE;
+    near_pad.type_index = stealthy;
+    near_pad.def = oa_ref_from_index(stealthy);
+    file_all(lists, *w, visible);
+    CHECK(lists.sightings.pad_count == 1);
+    near_pad.type_index = plain;
+    near_pad.def = oa_ref_from_index(plain);
+    file_all(lists, *w, visible);
+    CHECK(lists.sightings.pad_count == 2);
+
+    // The search keeps the filed pads in reach that are still switched on,
+    // in list order.
+    const FixedVec3 origin{0, fixed(sea_level), 0};
+    CHECK(pads_in_reach(lists.sightings, *w, origin) == 1);
+    CHECK(pad_in_reach(lists.sightings, *w, origin, 0) == viewer_slot);
+    CHECK(pad_in_reach(lists.sightings, *w, origin, 1) == 0);
+    const FixedVec3 between{fixed(0x800), fixed(sea_level), 0};
+    CHECK(pads_in_reach(lists.sightings, *w, between) == 2);
+    CHECK(pad_in_reach(lists.sightings, *w, between, 0) == viewer_slot);
+    CHECK(pad_in_reach(lists.sightings, *w, between, 1) == enemy_first);
+    // 0xf00 away is in reach, a world unit further is not.
+    const FixedVec3 edge{fixed(100 + repair_pad_reach), fixed(sea_level), 0};
+    CHECK(pads_in_reach(lists.sightings, *w, edge) == 2);
+    const FixedVec3 past{fixed(100 - repair_pad_reach - 1), fixed(sea_level), 0};
+    CHECK(pads_in_reach(lists.sightings, *w, past) == 0);
+    near_pad.state_flags = 0;
+    CHECK(pads_in_reach(lists.sightings, *w, between) == 1);
+    CHECK(pad_in_reach(lists.sightings, *w, between, 0) == enemy_first);
+    world_destroy(w);
+}
+
 void test_sighted_within() {
     World* w = make_world();
     auto& far = place(*w, enemy_first, plain, 100, sea_level, 0);
@@ -331,6 +400,7 @@ int main() {
     test_shared_radar();
     test_sightings_cadence();
     test_sightings_lists();
+    test_pad_list();
     test_sighted_within();
     test_expose_cloaker();
     test_finished_unit();
