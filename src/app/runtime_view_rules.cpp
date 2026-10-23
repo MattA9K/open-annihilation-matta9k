@@ -87,6 +87,7 @@ void Runtime::load_view_settings() {
 void Runtime::save_view_settings() {
     view_rules::write_view_settings(
         view_settings_,
+        ui_rules(),
         [this](std::string_view name, uint32_t value) {
             write_number(view_settings_section, name, value);
         },

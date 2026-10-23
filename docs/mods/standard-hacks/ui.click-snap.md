@@ -52,6 +52,9 @@ hacks:
   player's settings, or the options page of
   [ui.options-dialog](ui.options-dialog.md)) replace the defaults and are
   held to 0 and to the maxima.
+- A radius the profile gives no room, with the hack off or its maximum 0,
+  is not the player's choice and is never stored: once the profile, or
+  Developer Mode, gives it room, the radius starts at its default.
 - The defaults are `install` parameters: a profile may also bind them to the
   mod's own settings under `settings`.
 
@@ -117,7 +120,7 @@ their own radii and nothing needs to agree between machines.
   called with the snapped click from
   [src/app/runtime_pointer_press.cpp](../../../src/app/runtime_pointer_press.cpp).
 - Tests: `app-view-rules` (`click_snap_search`, `view_settings_round_trip`,
-  `options_dialog_round_trip`).
+  `unchosen_snap_radius_not_stored`, `options_dialog_round_trip`).
 
 ## Full configuration schema
 

@@ -3894,7 +3894,8 @@ into the records and decisions of the modules that carry them out, and
   feature with metal or energy, and a queued order then cancels only
   within -8 to 7 whole pixels (`Match::cancel_queued_order`). The ghost
   shows a snapped site as one that may be built on. The radii start at the
-  profile's defaults and are held to its maxima (`click_snap_radius`).
+  profile's defaults and are held to its maxima (`click_snap_radius`); a
+  radius the profile gives no room is never stored (`write_view_settings`).
 - **Line and ring build tools** (ui.build-tools): in build mode, with the
   autoclick key (X) held, a click starts a line at the cursor (at a snapped
   site's middle cell when the click snaps); the line follows the cursor
