@@ -4981,6 +4981,76 @@ void Runtime::check_full_overlays(
                   << dithered_differing << " not the even tone\n";
         if ((whole_in_view && dithered < least_fog_pixels) || dithered_differing != 0)
             fail("the dithered fog at zoom " + zoom_text(zoom) + " is not the even tone");
+        // Fog of War's Classic: the card draws the FOG.GAF shapes the
+        // processor draws, so that under every tile with a corner out of
+        // sight or never mapped, its edges included, each pixel the objects
+        // leave alone, where the two tiers agree with the fog off, is the
+        // processor's, under the greyed fog, the black, and the dithered
+        // with the black, whose band along the black's edge is the fringe.
+        {
+            namespace engine = oa::ui::engine_settings;
+            const engine::EngineSettings smooth_settings = engine_settings();
+            engine::EngineSettings classic_settings = smooth_settings;
+            classic_settings.fog_of_war = engine::FogOfWar::classic;
+            apply_engine_settings(classic_settings);
+
+            struct ClassicCase {
+                bool line_of_sight{};
+                bool mapping{};
+                bool dithered{};
+                std::string_view name;
+            };
+
+            for (const ClassicCase& fog_case :
+                 {ClassicCase{true, false, false, "greyed"},
+                  ClassicCase{true, true, false, "black"},
+                  ClassicCase{true, true, true, "dithered"}}) {
+                set_fog(fog_case.line_of_sight, fog_case.mapping, fog_case.dithered);
+                const auto card = full_frame();
+                const auto classic_objects = object_mask(zoom, card);
+                const auto processor = standard();
+                const std::string slug =
+                    "fog-classic-" + std::string(fog_case.name) + "-zoom-" + zoom_text(zoom);
+                write_png(picture(slug), card);
+                std::size_t fogged = 0;
+                std::size_t at_edges = 0;
+                std::size_t differing = 0;
+                for (const auto& tile : fog_tiles(zoom)) {
+                    if (tile.tile.unseen == 0 && tile.tile.unmapped == 0)
+                        continue;
+                    const bool edge_tile =
+                        tile.tile.unmapped != wr::fog_mask_full &&
+                        (tile.tile.unseen != wr::fog_mask_full || tile.tile.unmapped != 0);
+                    for (int y = tile.area.y; y < tile.area.y + tile.area.h; ++y)
+                        for (int x = tile.area.x; x < tile.area.x + tile.area.w; ++x) {
+                            if (!inside(field, x, y) || inside(pointer, x, y) ||
+                                classic_objects
+                                        [static_cast<std::size_t>(y) * card.width +
+                                         static_cast<std::size_t>(x)] != 0 ||
+                                !same(pixel(full_clear, x, y), pixel(processor_clear, x, y)))
+                                continue;
+                            ++fogged;
+                            if (edge_tile)
+                                ++at_edges;
+                            if (!same(pixel(card, x, y), pixel(processor, x, y)))
+                                ++differing;
+                        }
+                }
+                std::cout << "render tiers check: full tier classic " << fog_case.name
+                          << " fog at zoom " << zoom_text(zoom) << ": " << fogged
+                          << " pixels under fogged tiles, " << at_edges << " of them at edges, "
+                          << differing << " differing from the processor's\n";
+                if (at_edges == 0 || differing != 0) {
+                    write_png(picture(slug + "-standard"), processor);
+                    apply_engine_settings(smooth_settings);
+                    fail(
+                        "the classic " + std::string(fog_case.name) + " fog at zoom " +
+                        zoom_text(zoom) + " strays from the processor's"
+                    );
+                }
+            }
+            apply_engine_settings(smooth_settings);
+        }
     }
     // At a quarter and at the floor, where every level drawn comes from its
     // mosaic, one level at a quarter and two at the floor: the greyed pass

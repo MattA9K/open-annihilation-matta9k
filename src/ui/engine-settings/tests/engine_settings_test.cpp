@@ -1992,6 +1992,44 @@ void explosion_flash_default_read_and_round_trip() {
     }
 }
 
+/// Fog of War: Smooth everywhere by default, read from its two words alone,
+/// and Classic written alone and read back; Restore defaults then OK erases
+/// it.
+void fog_of_war_default_read_and_round_trip() {
+    CHECK(settings::key::fog_of_war == "open-annihilation.fog-of-war");
+    settings::Inputs own_mac = players_own_on_linux;
+    own_mac.macos = true;
+    settings::Inputs light = players_own_on_linux;
+    light.light_machine = true;
+    for (const auto& inputs : {settings::Inputs{}, players_own_on_linux, own_mac, light}) {
+        const auto defaults = settings::default_settings(inputs);
+        CHECK(defaults.fog_of_war == settings::FogOfWar::smooth);
+        CHECK(settings::read_settings({}, inputs, false) == defaults);
+    }
+    const auto fog = [](const char* text) {
+        return read_one(settings::key::fog_of_war, text).fog_of_war;
+    };
+    CHECK(fog("classic") == settings::FogOfWar::classic);
+    CHECK(fog("smooth") == settings::FogOfWar::smooth);
+    for (const char* text : {"", "Classic", "CLASSIC", "0", "1", "hard", " classic", "none"})
+        CHECK(fog(text) == settings::FogOfWar::smooth);
+
+    const auto defaults = settings::default_settings(players_own_on_linux);
+    auto chosen = defaults;
+    chosen.fog_of_war = settings::FogOfWar::classic;
+    Values values;
+    settings::write_settings(values, defaults, chosen, defaults, false);
+    CHECK(values.size() == 1);
+    CHECK(values.at(std::string{settings::key::fog_of_war}) == "classic");
+    CHECK(settings::read_settings(values, players_own_on_linux, false) == chosen);
+    // Set back to Smooth by hand, the key stays, written as smooth.
+    settings::write_settings(values, chosen, defaults, defaults, false);
+    CHECK(values.at(std::string{settings::key::fog_of_war}) == "smooth");
+    settings::write_settings(values, defaults, chosen, defaults, false);
+    settings::write_settings(values, chosen, defaults, defaults, true);
+    CHECK(values.empty());
+}
+
 /// The zoom's limits: Automatic and 4x everywhere by default, as the view
 /// always zoomed; a file written before them, which holds neither key,
 /// reads the defaults; each word reads its choice and any other text the
@@ -2744,6 +2782,7 @@ int main() {
     the_controller_settings_round_trip_and_restore();
     menu_scaling_and_native_density_default_read_and_round_trip();
     explosion_flash_default_read_and_round_trip();
+    fog_of_war_default_read_and_round_trip();
     the_zoomed_out_units_default_read_and_round_trip();
     the_window_edge_default_read_and_round_trip();
     the_edge_stickiness_default_read_and_round_trip();

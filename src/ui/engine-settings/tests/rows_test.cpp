@@ -67,7 +67,7 @@ struct Expected {
 // choices are those of a dialog of the engine's settings opened over the
 // defaults: Language offers System default and the built-in languages.
 // clang-format off
-constexpr std::array<Expected, 84> kExpected{{
+constexpr std::array<Expected, 85> kExpected{{
     {Setting::path_search, RowKind::slider, "Pathfinding cycles", 1, 1, 8, 0, 0, false, Lock::in_game, &Locks::path_search},
     {Setting::wheel_zoom, RowKind::toggle, "Mouse wheel zoom", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::max_zoom_out, RowKind::choice, "Maximum zoom out", 1, 1, 7, 200, 0, false, Lock::none, nullptr},
@@ -156,11 +156,12 @@ constexpr std::array<Expected, 84> kExpected{{
     {Setting::skirmish_players, RowKind::slider, "Skirmish players", 1, 1, 9, 0, 0, false, Lock::in_game, &Locks::skirmish_players},
     {Setting::smooth_motion, RowKind::toggle, "Smooth motion", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::welcome_setup, RowKind::value_and_button, "Welcome setup", 2, 2, 0, 0, 0, false, Lock::main_menu, &Locks::welcome_setup},
+    {Setting::fog_of_war, RowKind::levels, "Fog of War", 1, 1, 2, 56, 2, false, Lock::none, nullptr},
 }};
 // clang-format on
 
 static_assert(
-    kExpected.size() == static_cast<std::size_t>(Setting::welcome_setup) + 1,
+    kExpected.size() == static_cast<std::size_t>(Setting::fog_of_war) + 1,
     "every setting has its row"
 );
 
@@ -479,7 +480,7 @@ struct StoredChoice {
 };
 
 /// Every strip's and drop-down's setting, with its key.
-constexpr std::array<StoredChoice, 23> kStoredChoices{{
+constexpr std::array<StoredChoice, 24> kStoredChoices{{
     {Setting::max_zoom_out, settings::key::max_zoom_out},
     {Setting::max_zoom_in, settings::key::max_zoom_in},
     {Setting::view_past_map_edge, settings::key::view_past_map_edge},
@@ -499,6 +500,7 @@ constexpr std::array<StoredChoice, 23> kStoredChoices{{
     {Setting::pad_prompts, settings::key::pad_prompts},
     {Setting::menu_scaling, settings::key::menu_scaling},
     {Setting::explosion_flash, settings::key::explosion_flash},
+    {Setting::fog_of_war, settings::key::fog_of_war},
     {Setting::zoomed_out_units, settings::key::zoomed_out_units},
     {Setting::zoomed_out_after, settings::key::zoomed_out_after},
     {Setting::window_frame, settings::key::window_frame},
@@ -577,6 +579,7 @@ void every_row_and_choice_has_an_id_of_one_word() {
     OA_CHECK(
         ids_of(Setting::zoomed_out_units) == (std::vector<std::string>{"rendered", "dots", "icons"})
     );
+    OA_CHECK(ids_of(Setting::fog_of_war) == (std::vector<std::string>{"classic", "smooth"}));
     OA_CHECK(
         ids_of(Setting::interface_size) ==
         (std::vector<std::string>{"automatic", "100", "200", "300", "400"})
@@ -633,11 +636,11 @@ void tab_follows_the_dialogs_focus_order() {
     settings::Dialog graphics = controls;
     graphics.page = settings::Page::graphics;
     OA_CHECK(
-        tab_order(graphics) == (std::vector<int32_t>{16, 17, 18, 19, 20,
-                                                     21, 22, 23, 24, 12,
-                                                     13, 14, 0,  1,  2,
-                                                     3,  4,  5,  6,  8,
-                                                     9,  11, 10, 7,  settings::close_x_control})
+        tab_order(graphics) ==
+        (std::vector<int32_t>{
+            16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 12, 13, 14,
+            0,  1,  2,  3,  4,  5,  6,  8,  9,  11, 10, 7,  settings::close_x_control
+        })
     );
     // Developer with its first area open: its rows, UI kit gallery's SHOW
     // last of them, its list's headers, Show Active Only and Restore profile

@@ -144,12 +144,12 @@ constexpr std::array<WindowLayout, 5> kWindowLayouts{{
 }};
 static_assert(kWindowLayouts.size() == kWindowSizes.size(), "one layout for each window size");
 
-/// Graphics' scroll limit at Compact: its ten rows, Smooth motion among
-/// them, after Menu scaling, Window frame, HUD scaling and Interface size
-/// left for User Interface.
-constexpr int32_t kGraphicsScrollLimit = 395;
+/// Graphics' scroll limit at Compact: its eleven rows, Smooth motion and
+/// Fog of War among them, after Menu scaling, Window frame, HUD scaling and
+/// Interface size left for User Interface.
+constexpr int32_t kGraphicsScrollLimit = 454;
 /// Graphics' scroll limit at Large, whose taller view all but holds its rows.
-constexpr int32_t kGraphicsLargeScrollLimit = 35;
+constexpr int32_t kGraphicsLargeScrollLimit = 82;
 /// Interface size's place on User Interface, from the section's first row.
 constexpr int32_t kInterfaceSizeRow = 3;
 
@@ -425,6 +425,8 @@ std::string_view label_of(settings::Setting setting) {
         return "Skirmish players";
     case settings::Setting::welcome_setup:
         return "Welcome setup";
+    case settings::Setting::fog_of_war:
+        return "Fog of War";
     default:
         return {};
     }
@@ -1221,6 +1223,19 @@ void Runtime::check_engine_settings_dialog() {
         explosion_flash() == settings::ExplosionFlash::reduced,
         "Explosion flash Reduced is not the level the frames draw"
     );
+    // Fog of War: Classic is the fog the next frame draws, and its hint says so.
+    focus(settings::first_row_control + 8, "Fog of War");
+    click(settings::first_row_control + 8, "Classic", "Fog of War's Classic");
+    chosen.fog_of_war = settings::FogOfWar::classic;
+    expect("Fog of War Classic");
+    require(
+        fog_of_war() == settings::FogOfWar::classic &&
+            shows_sentence(
+                settings::dialog_layout(*dialog),
+                "Hard edges that step from cell to cell, as the game drew the fog."
+            ),
+        "Fog of War Classic is not the fog the frames draw, or its hint does not say what it is"
+    );
     // Menu scaling, the first row of User Interface.
     click(settings::page_control(settings::Page::user_interface), {}, "User Interface's entry");
     focus(settings::first_row_control, "Menu scaling");
@@ -1352,6 +1367,7 @@ void Runtime::check_engine_settings_dialog() {
     expected_keys.emplace(std::string(settings::key::menu_scaling), "whole-steps");
     expected_keys.emplace(std::string(settings::key::native_density), "1");
     expected_keys.emplace(std::string(settings::key::explosion_flash), "reduced");
+    expected_keys.emplace(std::string(settings::key::fog_of_war), "classic");
     const auto saved = oa::platform::preferences::load(preference_path_);
     require(engine_keys(saved) == expected_keys, "OK did not save exactly the settings changed");
     require(saved_general_number("SwitchAlt") == 1, "OK did not save SwitchAlt");
