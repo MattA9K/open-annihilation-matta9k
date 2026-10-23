@@ -2367,7 +2367,11 @@ language and both sizes.
   dialog while the game's archives load at start among them, still lets
   them settle the hold (`drop_window_events`), and the menu settles it as
   it takes the window over, so a window that opened in full screen holds
-  the pointer from the start, as one Alt+Enter switched does.
+  the pointer from the start, as one Alt+Enter switched does. macOS places
+  a full-screen window below the camera housing of a MacBook's built-in
+  display, with the strip beside the housing above it; there a pointer in
+  that strip, or past any other edge of a full-screen window on its
+  display, touches that edge for the edge scroll (`full_screen_pointer`).
   Switching to another program (Alt+Tab, Command+Tab), a dialog of the
   system's taking the focus, or Alt+Enter to a window lets the pointer
   go, and coming back to full screen with the focus holds it again. A window
