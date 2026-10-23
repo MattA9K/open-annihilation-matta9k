@@ -3457,6 +3457,15 @@ endforeach()
           --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
           --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
         set_tests_properties(native-group-orders PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        # Damaged gunships beside air repair pads: the pointer shows the pad
+        # cursor with Move armed, Move and a right press land them and the
+        # pads repair them, a patrolling one breaks off for a pad once its
+        # owner's pad list holds it, and an idle one stays where it is.
+        add_test(NAME native-air-pads COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_air_pads.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-air-pads PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
         # A commander far faster than any stock unit (42 pixels a tick, as
         # seven stacked commander mutators leave it) arrives where it is
         # sent, east, in five other directions and round a wall, without

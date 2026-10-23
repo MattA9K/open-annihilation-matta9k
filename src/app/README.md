@@ -2315,8 +2315,20 @@ language and both sizes.
   and `fire-order GROUP STANCE` set their standing move or fire order to
   stance 0, 1 or 2 (Hold, Maneuver, Roam; Hold Fire, Return Fire, Fire at
   Will) with the panel's standing-order buttons' orders; a type without
-  that button stays as it is. `at TICK` before any
-  action keeps its line for that match tick, and the line
+  that button stays as it is. `health GROUP PERCENT` leaves each live unit
+  of a group with that share of its type's health, rounded down and at
+  least 1. The pointer's lines act as a player's pointer does:
+  `select GROUP` makes the group's live units of the local player the
+  selection, `interface left` or `interface right` sets the interface type,
+  `arm COMMAND` arms an order button's command (`none`, `move`, `attack`,
+  `patrol`, `guard`, `repair`, `reclaim`, `capture`, `load` or `unload`),
+  `hover GROUP` centres the view on the group's first live unit and moves
+  the pointer onto it, printing `stage: hover GROUP: unit N under the
+  pointer, cursor NAME` with the unit the pointer picked and the cursor's
+  CURSORS.GAF sequence, and `press left` or `press right` presses and lets
+  go of that button there, printing `stage: press BUTTON: ORDER` with the
+  order the press gave (`-` for none); `native-air-pads` uses them.
+  `at TICK` before any action keeps its line for that match tick, and the line
   runs before the tick does (`run_due_stage_lines`, from every step of the
   match), the lines of a tick in the order the file gives them; each tick
   that runs lines prints `stage: tick TICK` before their own lines. A
