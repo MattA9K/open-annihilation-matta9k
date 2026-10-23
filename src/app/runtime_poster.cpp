@@ -295,6 +295,19 @@ void Runtime::render_poster(
         }
     }
     if (!strip.empty()) {
+        // Every view is drawn as the standard tier draws it, whatever the
+        // tier: in the Full tier the graphics card draws the battlefield and
+        // the world layer holds only the overlay canvas. The view's place on
+        // screen is left alone, as for every reader that keeps a picture, and
+        // the frame drawn after the poster is the tier's own again.
+        struct StandardTierDraws {
+            bool& suspended;
+            bool kept{};
+
+            ~StandardTierDraws() { suspended = kept; }
+        } standard_tier_draws{accelerated_.suspended, accelerated_.suspended};
+
+        accelerated_.suspended = true;
         const PosterScene scene = enter_poster_scene();
         oa::Surface surface{};
         present::init_surface(surface, width, strip_rows, width, strip.data());

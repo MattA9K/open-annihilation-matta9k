@@ -1549,7 +1549,9 @@ language and both sizes.
   the standard tier's picture of the same moment (`ensure_screen_world`),
   drawn again with the frame's counts of units drawn kept and the HUD's
   resource readout, which saves keep in `Game.resource_readout`, not eased
-  again.
+  again. MakePoster draws every view of its poster as the standard tier
+  draws it too (`render_poster`), and the frame again in its own tier
+  after.
   `app-scaled-world-software` checks the drawing on SDL's software
   renderer against nearest replication and that renderer's own LINEAR,
   modelled on the processor (`software_linear_rgb24`), within 2 levels,

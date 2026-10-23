@@ -14123,7 +14123,9 @@ class Runtime final : public menu::Host,
     /// Draws a map rectangle into the next <directory>\<prefix>nnnn.bmp, as MakePoster captures it.
     ///
     /// The battlefield is drawn at 1:1 in strips one view high less a row, each
-    /// filled one view wide at a time with the camera there.
+    /// filled one view wide at a time with the camera there. Every view is
+    /// drawn as the standard tier draws it, in every tier, and the frame is
+    /// drawn again in its own tier afterwards.
     ///
     /// @param directory output folder under the save root
     /// @param prefix file name prefix
