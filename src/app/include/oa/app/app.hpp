@@ -577,8 +577,8 @@ struct Options {
     // it is drawn.
     bool check_wreck_pick = false;
     // Clicks RECLAIM beside a wreck and builds a metal extractor beside a
-    // deposit through the SDL presenter under a profile with ui.click-snap,
-    // and checks where each click lands.
+    // deposit through the SDL presenter, with ui.click-snap on or off, and
+    // checks the cursor RECLAIM shows and where each click lands.
     bool check_click_snap = false;
     // Places a tower under the build cursor in every tier and checks the
     // building drawn there (ui.build-preview): its pulse, the same at every

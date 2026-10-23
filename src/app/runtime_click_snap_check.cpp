@@ -1,11 +1,12 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// The click snap (ui.click-snap) through SDL input on dummy devices: a
-// RECLAIM click on open ground beside a wreck, plain, queued with Shift and
-// with the snap override key held, one beyond the wreck radius and a click
-// there with no order armed, and a Metal Extractor's build click beside a
-// metal deposit.
+// The click snap (ui.click-snap) through SDL input on dummy devices: the
+// cursor RECLAIM shows over open ground beside a wreck, a RECLAIM click
+// there, plain, queued with Shift and with the snap override key held, one
+// beyond the wreck radius and a click there with no order armed, and a
+// Metal Extractor's build click beside a metal deposit; with the hack off,
+// that nothing snaps.
 #include "oa/app/runtime.hpp"
 #include "device_state.hpp"
 #include "oa/core/map_plot.h"
@@ -56,11 +57,14 @@ void Runtime::check_click_snap() {
         fail("needs the SDL renderer");
     start_benchmark_skirmish();
     apply_output_mode();
-    const auto& snap = ui_rules().click_snap;
-    if (!snap.enabled || view_settings_.wreck_snap_radius != kWreckRadius ||
-        view_settings_.mex_snap_radius != kMexRadius)
+    // Without a profile that turns the hack on, the check shows that
+    // nothing snaps.
+    const bool snapping = ui_rules().click_snap.enabled;
+    if (snapping ? view_settings_.wreck_snap_radius != kWreckRadius ||
+                       view_settings_.mex_snap_radius != kMexRadius
+                 : view_settings_.wreck_snap_radius != 0 || view_settings_.mex_snap_radius != 0)
         fail(
-            "needs a profile with ui.click-snap on, wreck radius " + std::to_string(kWreckRadius) +
+            "needs ui.click-snap off, or on with wreck radius " + std::to_string(kWreckRadius) +
             " and mex radius " + std::to_string(kMexRadius) + "; plays wreck " +
             std::to_string(view_settings_.wreck_snap_radius) + ", mex " +
             std::to_string(view_settings_.mex_snap_radius)
@@ -207,6 +211,56 @@ void Runtime::check_click_snap() {
     };
     const auto near_point = pointer_on(near_cell);
     const auto far_point = pointer_on(far_cell);
+
+    // With RECLAIM armed, the cursor over open ground beside the wreck.
+    const auto expect_cursor =
+        [&](std::array<float, 2> point, input::OrderCursor expected, const std::string& where) {
+            match_command_ = MatchCommand::reclaim;
+            send(SDL_EVENT_MOUSE_MOTION, 0, point[0], point[1]);
+            const auto shown = static_cast<input::OrderCursor>(pick_match_cursor());
+            if (shown != expected)
+                fail(
+                    "with RECLAIM armed, the cursor " + where + " is " +
+                    std::to_string(static_cast<int>(shown)) + ", not " +
+                    std::to_string(static_cast<int>(expected))
+                );
+        };
+    if (!snapping) {
+        expect_cursor(
+            near_point,
+            input::OrderCursor::normal,
+            "with ui.click-snap off one cell beside " + wreck_text
+        );
+        match_->stop_orders(commander);
+        click(near_point);
+        if (!queue_of(commander).empty())
+            fail("with ui.click-snap off, a RECLAIM click beside " + wreck_text + " gave an order");
+        std::cout << "click snap check: with ui.click-snap off, RECLAIM one cell beside "
+                  << wreck_text << " shows the arrow and a click gives nothing\n";
+        reset_match_command();
+        return;
+    }
+    // The Reclaim cursor shows where a click snaps, and the arrow where it
+    // does not: with the snap override key held, beyond the radius, or with
+    // the player's wreck radius at 0.
+    expect_cursor(near_point, input::OrderCursor::reclaim, "one cell beside " + wreck_text);
+    device_state::hold_key(SDL_SCANCODE_LALT, true);
+    expect_cursor(
+        near_point, input::OrderCursor::normal, "with Alt held one cell beside " + wreck_text
+    );
+    device_state::hold_key(SDL_SCANCODE_LALT, false);
+    expect_cursor(far_point, input::OrderCursor::normal, "two cells beside " + wreck_text);
+    const auto chosen_radius = view_settings_.wreck_snap_radius;
+    view_settings_.wreck_snap_radius = 0;
+    expect_cursor(
+        near_point,
+        input::OrderCursor::normal,
+        "with a wreck radius of 0 one cell beside " + wreck_text
+    );
+    view_settings_.wreck_snap_radius = chosen_radius;
+    std::cout << "click snap check: with RECLAIM armed, the cursor one cell beside " << wreck_text
+              << " shows Reclaim, and the arrow with Alt held, two cells away and with a wreck "
+                 "radius of 0\n";
 
     // A RECLAIM click one cell beside the wreck reclaims it.
     match_->stop_orders(commander);

@@ -3104,11 +3104,12 @@ endforeach()
         WORKING_DIRECTORY "${oa_wreck_pick_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # Under a profile with ui.click-snap (wreck radius 1, mex radius 3), the
-      # selected commander's RECLAIM click on open ground one cell beside a
-      # wreck, through SDL input, gives a Reclaim of the wreck, plain and
-      # queued with Shift; with Alt held, or two cells away, it gives nothing,
-      # and with no order armed it moves there. A Metal Extractor's build
-      # click beside a deposit is placed on it.
+      # selected commander's RECLAIM, through SDL input, shows the Reclaim
+      # cursor on open ground one cell beside a wreck, and a click there gives
+      # a Reclaim of the wreck, plain and queued with Shift; with Alt held, or
+      # two cells away, the cursor is the arrow and the click gives nothing,
+      # and with no order armed the click moves there. A Metal Extractor's
+      # build click beside a deposit is placed on it.
       set(oa_click_snap_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/click-snap")
       file(MAKE_DIRECTORY "${oa_click_snap_dir}")
       file(WRITE "${oa_click_snap_dir}/click-snap.oamod.yaml"
@@ -3127,6 +3128,16 @@ endforeach()
         --preferences-file "${oa_click_snap_dir}/click-snap.conf")
       set_tests_properties(native-click-snap PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_click_snap_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # The same without the hack: RECLAIM one cell beside the wreck shows
+      # the arrow and a click there gives nothing.
+      set(oa_click_snap_off_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/click-snap-off")
+      file(MAKE_DIRECTORY "${oa_click_snap_off_dir}")
+      add_test(NAME native-click-snap-off COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-click-snap
+        --preferences-file "${oa_click_snap_off_dir}/click-snap-off.conf")
+      set_tests_properties(native-click-snap-off PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_click_snap_off_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # A tower placed under the build cursor with ui.build-preview on, in
       # the standard, Basic and Full tiers at zoom 0.5, 1 and 2: drawn at
