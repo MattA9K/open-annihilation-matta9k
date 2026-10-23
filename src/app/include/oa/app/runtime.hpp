@@ -11816,9 +11816,10 @@ class Runtime final : public menu::Host,
     /// outlined in the refused colour and the click must leave build mode armed
     /// and the builder without an order; over the clear site the outline must be
     /// the clear colour and the click must give the builder MobileBuild there.
-    /// Then checks the cursor shown in build mode (check_build_cursor), and
-    /// the outline over the map's edges (check_build_site_edges), for
-    /// ARMSOLAR when the game has it. Throws std::runtime_error on a failure.
+    /// Then checks the cursor shown in build mode (check_build_cursor), the
+    /// site under the pointer zoomed out (check_build_site_zooms), and the
+    /// outline over the map's edges (check_build_site_edges), for ARMSOLAR
+    /// when the game has it. Throws std::runtime_error on a failure.
     ///
     /// @param builder local mobile builder
     /// @param type building type to place
@@ -11834,6 +11835,28 @@ class Runtime final : public menu::Host,
     ///
     /// @param type building type to place
     void check_build_cursor(uint16_t type);
+
+    /// Checks build placement over the battlefield zoomed out, on the game's
+    /// own screen and on a larger window at two chrome scales.
+    ///
+    /// On 640x480, and on 1920x1080 with HUD scaling on (the chrome twice
+    /// the game's size) and off, the wheel zooms out about the
+    /// battlefield's centre from zoom 1 to half way to the farthest zoom any
+    /// Maximum zoom out choice allows, then on to that farthest zoom. At
+    /// each zoom the pointer, moved by SDL's events, goes to a clear stretch
+    /// of ground and to points of the battlefield that show the map: the
+    /// normal cursor must stay, drawn with its point on the pointer; the
+    /// outline must be drawn exactly around the footprint of the site under
+    /// the pointer, in the colour that says whether it may be built on,
+    /// centred on the pointer within half a cell and the site's lift above
+    /// the ground there; and a click must order MobileBuild at that site
+    /// when it is clear, always on the clear ground, and nothing when it is
+    /// refused. Restores the layout, the settings, the zoom and the camera;
+    /// throws std::runtime_error listing every failure.
+    ///
+    /// @param builder local mobile builder, selected
+    /// @param type building type to place
+    void check_build_site_zooms(uint16_t builder, uint16_t type);
 
     /// Checks the build ghost's outline at every edge and corner of the map and at several zooms.
     ///
