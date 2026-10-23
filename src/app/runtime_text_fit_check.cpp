@@ -429,6 +429,9 @@ void Runtime::check_text_fit() {
         );
 
         library::refresh(host.model, std::move(inputs));
+        // The refresh freed the badges the Library's last layout points into:
+        // it lays out again before it draws, as after the feed's own rebuild.
+        ++host.model_revision;
         library::set_tab(host.model, library::Tab::mutators);
         hold_library();
     };
