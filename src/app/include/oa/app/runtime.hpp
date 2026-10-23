@@ -3057,6 +3057,10 @@ class Runtime final : public menu::Host,
     /// Picks the cursor the match pointer shows, as pick_match_cursor does,
     /// writing the same into the Game block.
     ///
+    /// With ui.click-snap, RECLAIM over open ground where a click would snap
+    /// onto a feature (snapped_reclaim_point) shows the cursor the click
+    /// gets there when that is Reclaim, in place of the arrow.
+    ///
     /// @return a cursor table index, or none while build placement owns the
     ///     pointer over the battlefield, where the cursor shown stays as it is
     /// @quirk Over the battlefield build placement keeps the cursor the pointer
@@ -13562,16 +13566,20 @@ class Runtime final : public menu::Host,
     /// std::runtime_error on a failure.
     void check_wreck_pick();
 
-    /// Checks the click snap (ui.click-snap) under a profile that gives a
-    /// wreck radius of 1 cell and a mex radius of 3, through SDL input: with
-    /// the commander selected and RECLAIM armed, a click on open ground one
-    /// cell beside a placed wreck must give the commander a Reclaim of the
-    /// wreck, plain and queued with Shift after a Move; with the snap
-    /// override key held, or two cells beside the wreck, the click must give
-    /// nothing, and with no order armed it must give a Move to the ground
-    /// clicked. A Metal Extractor's build click on a clear site two cells
-    /// from a deposit must snap onto the deposit and order MobileBuild there.
-    /// Throws std::runtime_error on a failure.
+    /// Checks the click snap (ui.click-snap) through SDL input, under a
+    /// profile that gives a wreck radius of 1 cell and a mex radius of 3, or
+    /// without the hack. With the hack on, the commander selected and
+    /// RECLAIM armed, the cursor on open ground one cell beside a placed
+    /// wreck must show Reclaim, and the arrow with the snap override key
+    /// held, two cells beside it or with the player's wreck radius at 0; a
+    /// click there must give the commander a Reclaim of the wreck, plain and
+    /// queued with Shift after a Move; with the snap override key held, or
+    /// two cells beside the wreck, the click must give nothing, and with no
+    /// order armed it must give a Move to the ground clicked. A Metal
+    /// Extractor's build click on a clear site two cells from a deposit must
+    /// snap onto the deposit and order MobileBuild there. With the hack off,
+    /// RECLAIM one cell beside the wreck must show the arrow and a click
+    /// there give nothing. Throws std::runtime_error on a failure.
     void check_click_snap();
 
     /// Checks the building drawn under the build cursor (ui.build-preview)

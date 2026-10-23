@@ -483,13 +483,29 @@ std::optional<uint8_t> Runtime::shown_match_cursor() {
     world.game.local_player_index = match_local_player_;
     input::set_pointer_command(world.game, armed_order(match_command_));
     refresh_pointer_area();
-    if (const auto ground = match_world_point(pointer_x_, pointer_y_)) {
+    const auto ground = match_world_point(pointer_x_, pointer_y_);
+    if (ground) {
         input::set_pointer_position(world.game, {(*ground)[0], (*ground)[1], (*ground)[2]});
         store_cursor_cell(*ground);
     }
+    const auto hooks = order_cursor_hooks();
     input::OrderCursor cursor{};
-    if (!input::pointer_cursor(world, order_cursor_hooks(), &cursor))
+    if (!input::pointer_cursor(world, hooks, &cursor))
         return std::nullopt;
+    // Where the click snap moves a RECLAIM click on open ground onto a
+    // feature, the cursor is Reclaim when the click is one there
+    // (ui.click-snap); the snap override key leaves the arrow.
+    if (cursor == input::OrderCursor::normal && match_command_ == MatchCommand::reclaim && ground &&
+        world.game.cursor_unit_id == 0 &&
+        (input::pointer_flags(world.game) & input::pointer_over_view) != 0)
+        if (const auto snapped = snapped_reclaim_point(*ground)) {
+            input::set_pointer_position(world.game, {(*snapped)[0], (*snapped)[1], (*snapped)[2]});
+            input::OrderCursor at_feature{};
+            if (input::pointer_cursor(world, hooks, &at_feature) &&
+                at_feature == input::OrderCursor::reclaim)
+                cursor = at_feature;
+            input::set_pointer_position(world.game, {(*ground)[0], (*ground)[1], (*ground)[2]});
+        }
     return static_cast<uint8_t>(cursor);
 }
 
