@@ -127,6 +127,9 @@ if(BUILD_TESTING)
   add_executable(oa-tool-mutator-import-test tests/mutator_import_test.cpp)
   target_link_libraries(oa-tool-mutator-import-test PRIVATE oa-tool-commands oa-test-support
     oa-options ZLIB::ZLIB)
+  # The import writes ">= " and this version, as the commands are built with it.
+  target_compile_definitions(oa-tool-mutator-import-test
+    PRIVATE "OA_ENGINE_VERSION=\"${PROJECT_VERSION}\"")
   add_test(NAME tools-oa-tool-mutator-import COMMAND oa-tool-mutator-import-test)
   set_tests_properties(tools-oa-tool-mutator-import PROPERTIES TIMEOUT 60)
 

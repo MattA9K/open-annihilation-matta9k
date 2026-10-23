@@ -23,6 +23,10 @@
 #include <system_error>
 #include <vector>
 
+#ifndef OA_ENGINE_VERSION
+#error OA_ENGINE_VERSION is set from the project version
+#endif
+
 namespace {
 
 namespace fs = std::filesystem;
@@ -141,7 +145,7 @@ void test_folder() {
     const fs::path folder = out / "steady-hands";
     const std::string yaml = read_text(folder / "oamut.yaml");
     OA_CHECK(contains(yaml, "id: \"steady-hands\""));
-    OA_CHECK(contains(yaml, ">= 0.8.5"));
+    OA_CHECK(contains(yaml, "\">= " OA_ENGINE_VERSION "\""));
     OA_CHECK(contains(yaml, "Ridge Works"));
     OA_CHECK(contains(yaml, "gameplay"));
     OA_CHECK(fs::is_regular_file(folder / "mutator.lua"));
