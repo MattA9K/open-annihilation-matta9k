@@ -1645,7 +1645,10 @@ language and both sizes.
   accepts, the sprites under tiles of more than one state, the blended
   sprites over the fog and the models; with mapping too the tiles never
   mapped are the processor's black and nothing else changes; the dithered
-  option is the even tone within 2; the overlay canvas is painted exactly
+  option is the even tone within 2; with Fog of War at Classic, under every
+  tile with a corner out of sight or never mapped, its edges included, the
+  greyed, the black, and the dithered with the black are the processor's
+  exactly; the overlay canvas is painted exactly
   where the overlay is opaque; the kill board pinned by F4 darkens the
   world under it to the shade level's share within 2 with its foreground
   on the overlay, the local player's lit row left out and nothing outside
@@ -1715,7 +1718,16 @@ language and both sizes.
   colours exactly and a tile at an edge ramps from colour to grey where
   the processor's FOG.GAF masks cut, a terrain tile under four such tiles
   as one quad, and where two terrain levels blend each level's greyed pass
-  at its share (`pass_alpha`). The model stage's shadows, then the list's
+  at its share (`pass_alpha`). With Fog of War at Classic
+  (`Runtime::fog_of_war`) a tile at an edge is drawn as the processor
+  draws it instead (`full_fog::append_unseen_terrain_classic`,
+  `append_unmapped_classic`, `append_unseen_dither_classic`): the greyed
+  terrain at alpha 1 under the rectangles of its gray FOG.GAF tile
+  (`ClassicShapes`, built once from the tile art the fog pass loads), the
+  black tile's rectangles in their palette colours, and under the dithered
+  option the gray tile's rectangles through a page of the checkerboard,
+  drawn NEAREST over the objects, so that the card's fog is the
+  processor's pixel for pixel; the fog mask is not used. The model stage's shadows, then the list's
   draws in painter's order, each to the stage of its kind (`sprite_kind`,
   `model_kind`), a stage's batches never joining another's: the sprites,
   blended sprites, explosions' flashes, particle squares, lines and

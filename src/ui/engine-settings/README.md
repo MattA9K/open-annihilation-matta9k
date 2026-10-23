@@ -44,6 +44,7 @@ the locks a running game puts on them (`settings_locks`).
 | | Smooth motion: whether the frames between two ticks show units, their pieces, projectiles, debris and particles part of the way from one tick to the next, or each frame the latest tick whole | Off, On | On | `open-annihilation.smooth-motion` |
 | | Native pixel density, from the next start | Off, On; always On where the platform opens every window at native density | Off | `open-annihilation.native-density` |
 | | Explosion flash; a mod's profile may draw the flashes lower still (`ui.explosion-flash`), and the lower of the two is drawn | Off, Reduced, Full | Full | `open-annihilation.explosion-flash` (`off`, `reduced` or `full`) |
+| | Fog of War: how the graphics card draws the fog's edges (Hardware acceleration Full); the processor always draws them Classic | Classic, Smooth | Smooth | `open-annihilation.fog-of-war` (`classic` or `smooth`; any other word reads as Smooth) |
 | | Zoomed out units: how units are drawn farther out than After zoom | Rendered, Dots; Icons shown faded, not offered | Rendered | `open-annihilation.zoomed-out-units` (`rendered` or `dots`; any other word, `icons` among them, reads as Rendered) |
 | | After zoom, a drop-down, locked "Needs Dots" while Zoomed out units is Rendered | 1/2, 1/3, 1/4, 1/6, 1/8, 1/12, 1/16 of normal size | 1/6 | `open-annihilation.zoomed-out-after` (`1/2`, `1/3`, `1/4`, `1/6`, `1/8`, `1/12` or `1/16`) |
 | User Interface | Menu scaling | Sharp, Whole steps, Unfiltered | Sharp | `open-annihilation.menu-scaling` (`sharp`, `whole-steps` or `unfiltered`) |
@@ -1225,7 +1226,11 @@ drew when the kit was taken out of the dialog: a SHA-256 of each scene,
 with a stand-in font and with the installed game's fonts. The Developer
 scenes (at its top, with Developer Mode on and its first area open, and at
 scale 2) were recorded again when UI kit gallery joined Developer's rows,
-which moved its list down; no other scene changed.
+which moved its list down; no other scene changed. The Graphics scenes
+(at its top, locked, and at its end) were recorded again when Fog of War
+joined Graphics' rows, which shortened the scroll bar's thumb and put the
+row between Explosion flash and Zoomed out units at the end; no other
+scene changed.
 
 `ui-engine-settings-dialog` also holds UI kit gallery's row: its label,
 its hint in two lines at Compact and one at Regular and Large, and SHOW,

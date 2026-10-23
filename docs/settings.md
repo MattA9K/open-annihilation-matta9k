@@ -467,6 +467,22 @@ the game draws its text and how the modern fonts draw it.
   more than you chose. It changes only what your screen shows, never the
   game, and takes effect at once, in a multiplayer game or a replay too.
   Choose Reduced or Off if flashing light is uncomfortable for you.
+- **Fog of War**, Classic or Smooth, Smooth by default. It says how the
+  graphics card draws the edges of the fog of war (Hardware acceleration
+  Full): the black over ground never seen, and the greyed ground seen
+  before but out of sight now.
+  - **Classic**: hard edges that step from sight cell to sight cell, drawn
+    through the game's own fog tiles, as the original game drew them. The
+    greyed band along an edge reaches a few pixels past the black, and
+    under the game's dithered fog (`+dither`) that band, like all ground
+    out of sight, has every other pixel blacked out: the thin chequered
+    fringe the original game shows.
+  - **Smooth**: soft edges that fade across each sight cell.
+
+  While the processor draws the battlefield (Hardware acceleration Off or
+  Basic) the fog is always Classic, as the original game drew it. It
+  changes only what your screen shows, never what any player can see, and
+  takes effect at once, in a multiplayer game or a replay too.
 - **Zoomed out units**, Rendered or Dots, Rendered by default; Icons is
   shown but cannot be chosen yet. It says how units are drawn when the
   view is zoomed out farther than After zoom. Rendered draws every unit,
@@ -486,6 +502,8 @@ the game draws its text and how the modern fonts draw it.
   zoom out at Automatic the view never goes farther out than 1/2, or 1/6
   with Full hardware acceleration, so choose a farther Maximum zoom out to
   see the dots.
+
+![The end of the Graphics section: the end of Explosion flash's line, Fog of War at Smooth, Zoomed out units at Rendered, and After zoom greyed at 1/6, Needs Dots.](images/settings/graphics-2.png)
 
 Some computers start with other defaults, which Restore defaults puts back
 and which a value you choose always replaces:
