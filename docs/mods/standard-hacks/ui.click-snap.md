@@ -83,6 +83,11 @@ While the snap override key (Alt unless the player chose another) is up:
 - A reclaim click on ground with no feature snaps, within the wreck radius,
   to the nearest reclaimable feature that holds metal or energy. A click on
   a feature does not snap.
+- A reclaim click is one given with the order panel's RECLAIM armed,
+  Shift-queued or not. A click with no order armed is not one: beside a
+  feature, a construction unit's default order is a Move, and the click
+  moves it there. The cursor does not change: over ground that snaps,
+  RECLAIM shows the normal cursor, as over any ground.
 - When the snapped click queues an order that matches one already queued,
   the queued one is cancelled only when it lies from 8 whole pixels before
   to 7 after the click, on x and on z. An unsnapped click keeps 3.1c's reach
@@ -120,7 +125,9 @@ their own radii and nothing needs to agree between machines.
   called with the snapped click from
   [src/app/runtime_pointer_press.cpp](../../../src/app/runtime_pointer_press.cpp).
 - Tests: `app-view-rules` (`click_snap_search`, `view_settings_round_trip`,
-  `unchosen_snap_radius_not_stored`, `options_dialog_round_trip`).
+  `unchosen_snap_radius_not_stored`, `options_dialog_round_trip`) and
+  `native-click-snap`, which clicks beside a wreck and a metal deposit
+  through SDL input under a profile with the hack on.
 
 ## Full configuration schema
 

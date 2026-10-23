@@ -443,6 +443,7 @@ const std::vector<FlagCase>& flag_cases() {
         {"--check-patrol-reclaim", &Options::check_patrol_reclaim, {}},
         {"--check-reclaim-cursor", &Options::check_reclaim_cursor, {}},
         {"--check-wreck-pick", &Options::check_wreck_pick, {}},
+        {"--check-click-snap", &Options::check_click_snap, {}},
         {"--check-build-preview", &Options::check_build_preview, {}},
         {"--check-pointer-interfaces", &Options::check_pointer_interfaces, {}},
         {"--check-megamap-clicks", &Options::check_megamap_clicks, {}},

@@ -1169,6 +1169,7 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_render_tiers_check.cpp src/app/runtime_smooth_pan_check.cpp
   src/app/runtime_reclaim_check.cpp src/app/runtime_patrol_check.cpp
   src/app/runtime_reclaim_cursor_check.cpp src/app/runtime_wreck_pick_check.cpp
+  src/app/runtime_click_snap_check.cpp
   src/app/runtime_build_preview_check.cpp
   src/app/runtime_pointer_check.cpp src/app/runtime_dgun_check.cpp
   src/app/runtime_attack_command_check.cpp src/app/runtime_tracking_zoom_check.cpp
@@ -3100,6 +3101,31 @@ endforeach()
         --preferences-file "${oa_wreck_pick_dir}/wreck-pick.conf")
       set_tests_properties(native-wreck-pick PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_wreck_pick_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # Under a profile with ui.click-snap (wreck radius 1, mex radius 3), the
+      # selected commander's RECLAIM click on open ground one cell beside a
+      # wreck, through SDL input, gives a Reclaim of the wreck, plain and
+      # queued with Shift; with Alt held, or two cells away, it gives nothing,
+      # and with no order armed it moves there. A Metal Extractor's build
+      # click beside a deposit is placed on it.
+      set(oa_click_snap_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/click-snap")
+      file(MAKE_DIRECTORY "${oa_click_snap_dir}")
+      file(WRITE "${oa_click_snap_dir}/click-snap.oamod.yaml"
+        "oamod: 1\n"
+        "id: click-snap\n"
+        "name: Click snap\n"
+        "version: \"1.0\"\n"
+        "requires: {base: ta-3.1c, catalogue: 1}\n"
+        "author: {name: unknown}\n"
+        "packaging: {revision: 1, date: 2026-10-23, packager: Open Annihilation}\n"
+        "hacks:\n"
+        "  ui.click-snap: {mex-default: 3, mex-max: 3, wreck-default: 1, wreck-max: 1}\n")
+      add_test(NAME native-click-snap COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-click-snap
+        --mod "${oa_click_snap_dir}/click-snap.oamod.yaml"
+        --preferences-file "${oa_click_snap_dir}/click-snap.conf")
+      set_tests_properties(native-click-snap PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_click_snap_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # A tower placed under the build cursor with ui.build-preview on, in
       # the standard, Basic and Full tiers at zoom 0.5, 1 and 2: drawn at

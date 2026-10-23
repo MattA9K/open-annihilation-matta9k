@@ -576,6 +576,10 @@ struct Options {
     // high ground through the SDL presenter and checks each is picked where
     // it is drawn.
     bool check_wreck_pick = false;
+    // Clicks RECLAIM beside a wreck and builds a metal extractor beside a
+    // deposit through the SDL presenter under a profile with ui.click-snap,
+    // and checks where each click lands.
+    bool check_click_snap = false;
     // Places a tower under the build cursor in every tier and checks the
     // building drawn there (ui.build-preview): its pulse, the same at every
     // zoom and frame rate, and that it is drawn the right way up.

@@ -349,6 +349,7 @@ void check_game_files_options(Options& options) {
         {options.check_patrol_reclaim, "--check-patrol-reclaim"},
         {options.check_reclaim_cursor, "--check-reclaim-cursor"},
         {options.check_wreck_pick, "--check-wreck-pick"},
+        {options.check_click_snap, "--check-click-snap"},
         {options.check_build_preview, "--check-build-preview"},
         {options.check_pointer_interfaces, "--check-pointer-interfaces"},
         {options.check_megamap_clicks, "--check-megamap-clicks"},
@@ -577,6 +578,7 @@ void check_director_options(Options& options) {
         {options.check_patrol_reclaim, "--check-patrol-reclaim"},
         {options.check_reclaim_cursor, "--check-reclaim-cursor"},
         {options.check_wreck_pick, "--check-wreck-pick"},
+        {options.check_click_snap, "--check-click-snap"},
         {options.check_build_preview, "--check-build-preview"},
         {options.check_pointer_interfaces, "--check-pointer-interfaces"},
         {options.check_megamap_clicks, "--check-megamap-clicks"},
@@ -675,6 +677,7 @@ void refuse_left_out_self_checks([[maybe_unused]] const Options& options) {
             {options.check_patrol_reclaim, "--check-patrol-reclaim"},
             {options.check_reclaim_cursor, "--check-reclaim-cursor"},
             {options.check_wreck_pick, "--check-wreck-pick"},
+            {options.check_click_snap, "--check-click-snap"},
             {options.check_build_preview, "--check-build-preview"},
             {options.check_pointer_interfaces, "--check-pointer-interfaces"},
             {options.check_megamap_clicks, "--check-megamap-clicks"},
@@ -905,6 +908,7 @@ constexpr FlagOption kFlagOptions[] = {
     {"--check-patrol-reclaim", &Options::check_patrol_reclaim},
     {"--check-reclaim-cursor", &Options::check_reclaim_cursor},
     {"--check-wreck-pick", &Options::check_wreck_pick},
+    {"--check-click-snap", &Options::check_click_snap},
     {"--check-build-preview", &Options::check_build_preview},
     {"--check-pointer-interfaces", &Options::check_pointer_interfaces},
     {"--check-megamap-clicks", &Options::check_megamap_clicks},
@@ -1489,6 +1493,7 @@ void write_startup_line(std::string_view text) {
                      "[--check-text-fit [--check-language TAG]...] "
                      "[--check-folder-chooser] "
                      "[--check-patrol-reclaim] [--check-reclaim-cursor] [--check-wreck-pick] "
+                     "[--check-click-snap] "
                      "[--check-build-preview] "
                      "[--check-megamap-clicks] [--check-radar-orders] "
                      "[--check-pointer-interfaces] [--check-pad-controls] [--check-touch-controls] "
@@ -1724,7 +1729,8 @@ void write_startup_line(std::string_view text) {
         result.check_paused_save || result.check_simulation_hash || result.check_zoom_memory ||
         result.check_map_packs || result.check_map_browser || result.check_mutator_button ||
         result.check_mutator_room || result.check_mutator_picker || result.check_mutator_prompts ||
-        result.check_map_pack_lists || result.check_mod_map_settings || result.check_side_orders;
+        result.check_map_pack_lists || result.check_mod_map_settings || result.check_side_orders ||
+        result.check_click_snap;
     // A capture and a showcase need the application's own loop and window,
     // which checks and benchmarks do not run.
     const bool check_run = result.fixed_clock || result.check_navigation ||

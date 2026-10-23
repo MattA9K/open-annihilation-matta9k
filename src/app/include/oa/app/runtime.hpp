@@ -13556,6 +13556,18 @@ class Runtime final : public menu::Host,
     /// std::runtime_error on a failure.
     void check_wreck_pick();
 
+    /// Checks the click snap (ui.click-snap) under a profile that gives a
+    /// wreck radius of 1 cell and a mex radius of 3, through SDL input: with
+    /// the commander selected and RECLAIM armed, a click on open ground one
+    /// cell beside a placed wreck must give the commander a Reclaim of the
+    /// wreck, plain and queued with Shift after a Move; with the snap
+    /// override key held, or two cells beside the wreck, the click must give
+    /// nothing, and with no order armed it must give a Move to the ground
+    /// clicked. A Metal Extractor's build click on a clear site two cells
+    /// from a deposit must snap onto the deposit and order MobileBuild there.
+    /// Throws std::runtime_error on a failure.
+    void check_click_snap();
+
     /// Checks the building drawn under the build cursor (ui.build-preview)
     /// in the standard, Basic and Full tiers at several zooms: a tower is
     /// placed over a site near the commander and drawn at every tick of two
