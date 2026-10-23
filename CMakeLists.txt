@@ -993,12 +993,16 @@ if(BUILD_TESTING)
     # the window is still switching, and a window of SDL's dummy video
     # driver switched and back;
     # the pointer held on the window in full screen with the focus and let go
-    # in a window or without the focus; a window that leaves full screen
+    # in a window or without the focus, held from the start by a window
+    # opened in full screen whose first events were dropped, and a pointer
+    # past the edge of a full-screen window below a MacBook's camera housing
+    # touching that edge for the edge scroll; a window that leaves full screen
     # brought back onto its display, at a size asked for, a window asked for
     # a size kept on its display, and the line --trace-input writes of the
     # window's place on its display and the pointer's.
     add_executable(oa-app-full-screen-test src/app/full_screen_test.cpp src/app/full_screen.cpp)
-    target_link_libraries(oa-app-full-screen-test PRIVATE oa-app-headers SDL3::SDL3 oa-options)
+    target_link_libraries(oa-app-full-screen-test PRIVATE oa-app-headers oa-ui-hud SDL3::SDL3
+      oa-options)
     add_test(NAME app-full-screen COMMAND oa-app-full-screen-test)
     set_tests_properties(app-full-screen PROPERTIES TIMEOUT 60
       ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
