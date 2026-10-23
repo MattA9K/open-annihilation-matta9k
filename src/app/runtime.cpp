@@ -575,6 +575,11 @@ int Runtime::run() {
 
     // The menu draws this window from here. A launch pump must not clear it.
     release_launch_window();
+    // The screens before the menu, the setup among them, may have dropped
+    // the window's events, so the window's state settles the pointer's hold
+    // here: a window that opened in full screen holds the pointer from the
+    // menu on, as one Alt+Enter switched to full screen does.
+    keep_pointer_on_screen(sdl_.window);
     take_pending_content();
     log_first_run_gate(false);
     int exit_code = 0;

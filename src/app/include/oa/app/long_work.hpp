@@ -138,10 +138,11 @@ void paint_progress_frame(
 /// may change the language the catalogue shows. The job may replace the
 /// line while it runs (LongWork::use_line); the new line is read when it
 /// changes, so a job that does must leave the language alone. Input is
-/// discarded. A close is put back for after the dialog has closed, unless
-/// `close` is LongWorkClose::ends_game: the game then ends at once, after
-/// the renderer records a clean exit, without waiting for the job. The
-/// dialog closes on its own.
+/// discarded, and the window's events with it, though the pointer's hold in
+/// full screen follows them (drop_window_events). A close is put back for
+/// after the dialog has closed, unless `close` is LongWorkClose::ends_game:
+/// the game then ends at once, after the renderer records a clean exit,
+/// without waiting for the job. The dialog closes on its own.
 ///
 /// With no window, or while a dialog is already running, `job` runs on the
 /// caller and nothing is drawn. The job must not call back onto this thread

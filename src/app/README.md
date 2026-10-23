@@ -2363,8 +2363,13 @@ language and both sizes.
   never strays onto another monitor. Windows clips the cursor to the window,
   macOS confines it to the window's content, X11 grabs it inside the window
   and Wayland confines it there, each following the window's size and
-  display. Switching to another program (Alt+Tab, Command+Tab), a dialog of
-  the system's taking the focus, or Alt+Enter to a window lets the pointer
+  display. A screen that answers none of the window's events, the progress
+  dialog while the game's archives load at start among them, still lets
+  them settle the hold (`drop_window_events`), and the menu settles it as
+  it takes the window over, so a window that opened in full screen holds
+  the pointer from the start, as one Alt+Enter switched does.
+  Switching to another program (Alt+Tab, Command+Tab), a dialog of the
+  system's taking the focus, or Alt+Enter to a window lets the pointer
   go, and coming back to full screen with the focus holds it again. A window
   keeps the pointer only while a match's battlefield shows and the window
   has the focus, as Window edge says (`apply_window_edge`). Capture, the

@@ -8,6 +8,7 @@
 #include "render_state.hpp"
 #include "window_pixels.hpp"
 
+#include "oa/app/full_screen.hpp"
 #include "oa/app/game_directory.hpp"
 #include "oa/app/window_icon.hpp"
 #include "oa/data/languages.hpp"
@@ -210,20 +211,6 @@ void paint_progress_dialog(
     kit::draw_work_dialog(kit::placed_at(drawn, {x, y}), dialog);
 }
 
-/// Drops every event but a close, which is put back for after the dialog.
-///
-/// @return true when the player asked to close the window
-bool pump_progress_events() {
-    SDL_Event polled;
-    while (SDL_PollEvent(&polled)) {
-        if (polled.type == SDL_EVENT_QUIT || polled.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) {
-            std::ignore = SDL_PushEvent(&polled);
-            return true;
-        }
-    }
-    return false;
-}
-
 } // namespace
 
 void LongWork::use_line(std::string_view key) {
@@ -311,7 +298,10 @@ LongWorkResult run_long_work(
         WindowFrame window_frame(renderer, "the progress dialog");
         paint::Canvas pixels;
         while (true) {
-            if (pump_progress_events() && close == LongWorkClose::ends_game) {
+            // A close is put back for after the dialog. The window's own
+            // events are dropped, though full screen's hold on the pointer
+            // still follows them.
+            if (drop_window_events(window) && close == LongWorkClose::ends_game) {
                 work.stop.store(true, std::memory_order_release);
                 std::cerr << "open-annihilation: progress dialog: the window was closed; the "
                              "game ends\n";

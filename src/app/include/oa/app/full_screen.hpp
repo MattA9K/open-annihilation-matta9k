@@ -349,6 +349,21 @@ void keep_pointer_on_screen(SDL_Window* window);
 /// @param window the game's window; null does nothing
 void release_pointer(SDL_Window* window);
 
+/// Drops every event waiting but a close, which is put back for whatever
+/// answers it next, as a screen that answers none of them does: the
+/// progress dialog while the game's archives load at start and while other
+/// work runs.
+///
+/// A dropped event that may change whether the pointer is kept on the
+/// game's window (changes_pointer_bounds) still has its say: the window's
+/// state then settles the hold (keep_pointer_on_screen). A window that
+/// opened in full screen, or took the focus, while its events were dropped
+/// holds the pointer as one Alt+Enter switched to full screen does.
+///
+/// @param window the game's window; null leaves the pointer as it is
+/// @return true when the player asked to close the window
+bool drop_window_events(SDL_Window* window);
+
 /// How far each edge of a window lies inside a display, in the desktop's
 /// coordinates: above 0 inside the display, 0 on the display's own edge, and
 /// below 0 past it, where the pointer cannot reach that edge of the window.

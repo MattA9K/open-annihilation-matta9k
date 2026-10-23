@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // Alt+Enter: switching the game's window between full screen and a window,
-// the pointer kept on the game's screen in full screen, the window brought
-// back onto its display when it leaves full screen, its title bar and
-// borders shown or hidden, and the line --trace-input writes of it.
+// the pointer kept on the game's screen in full screen, also while a screen
+// drops the window's events; the window brought back onto its display when
+// it leaves full screen, its title bar and borders shown or hidden, and the
+// line --trace-input writes of it.
 #include "oa/app/full_screen.hpp"
 
 #include <SDL3/SDL.h>
@@ -323,6 +324,25 @@ void release_pointer(SDL_Window* window) {
         return;
     std::ignore = SDL_SetWindowMouseGrab(window, false);
     std::ignore = SDL_SetWindowMouseRect(window, nullptr);
+}
+
+bool drop_window_events(SDL_Window* window) {
+    bool closed = false;
+    bool bounds_changed = false;
+    SDL_Event polled{};
+    while (SDL_PollEvent(&polled)) {
+        if (polled.type == SDL_EVENT_QUIT || polled.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) {
+            std::ignore = SDL_PushEvent(&polled);
+            closed = true;
+            break;
+        }
+        bounds_changed = bounds_changed || changes_pointer_bounds(polled);
+    }
+    // SDL has updated the window's flags by the time its event is read, so
+    // the flags settle the hold whichever of the events came last.
+    if (bounds_changed)
+        keep_pointer_on_screen(window);
+    return closed;
 }
 
 namespace {
