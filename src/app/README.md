@@ -3908,7 +3908,11 @@ into the records and decisions of the modules that carry them out, and
   shows a snapped site as one that may be built on. The radii start at the
   profile's defaults and are held to its maxima (`click_snap_radius`); a
   radius the profile gives no room is never stored (`write_view_settings`).
-  `native-click-snap` clicks beside a wreck and a deposit.
+  With RECLAIM armed and no unit under the pointer, open ground where a
+  click would snap shows the Reclaim cursor when the cursor at the snapped
+  point would be Reclaim (`shown_match_cursor`). `native-click-snap` shows
+  the cursor and clicks beside a wreck and a deposit, and
+  `native-click-snap-off` does without the hack.
 - **Line and ring build tools** (ui.build-tools): in build mode, with the
   autoclick key (X) held, a click starts a line at the cursor (at a snapped
   site's middle cell when the click snaps); the line follows the cursor
