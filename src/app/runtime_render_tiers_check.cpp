@@ -2088,6 +2088,15 @@ int Runtime::check_render_tiers() {
     } else
         std::cout << "render tiers check: the Full cases need --hardware-acceleration=full; "
                      "skipped\n";
+    // MakePoster writes the standard tier's battlefield in every tier.
+    {
+        std::vector<HardwareAcceleration> poster_levels{
+            HardwareAcceleration::off, HardwareAcceleration::basic
+        };
+        if (asked_level == HardwareAcceleration::full)
+            poster_levels.push_back(HardwareAcceleration::full);
+        check_poster_tiers(set_level, poster_levels, at_zoom, report_directory);
+    }
     // Switched off, every frame is the standard tier's again, the whole
     // frame where the chrome's scale is a whole number.
     switch_tier(false);

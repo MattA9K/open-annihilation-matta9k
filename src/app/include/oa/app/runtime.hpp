@@ -14197,6 +14197,31 @@ class Runtime final : public menu::Host,
     /// @param enter_line runs one console line
     /// @return what was checked, as the end of the poster check's report
     std::string check_long_output_directory(const std::function<void(const char*)>& enter_line);
+
+    /// Checks that MakePoster writes the battlefield as the processor draws
+    /// it in every tier.
+    ///
+    /// With the view zoomed out to a half, whole ticks and the interface's
+    /// clock held, a rectangle two views wide and high around the view is
+    /// written in each tier given: the standard tier's poster shows the map
+    /// in many colours, and each other tier's is the same file byte for
+    /// byte. Each poster puts the zoom and the camera back and leaves the
+    /// Full tier's frame to the card; the first rebuilds the sight grids
+    /// from what the units see (enter_poster_scene), and after each later
+    /// one the frame presented is the frame presented before it. Ends in
+    /// the last tier given. Throws std::runtime_error on a failure.
+    ///
+    /// @param set_level sets the flag's level and decides the tier again
+    /// @param levels the tiers checked, by the level that draws in each,
+    ///        the standard tier's first
+    /// @param at_zoom sets a zoom and centres the camera on the check's unit
+    /// @param report_directory where a poster that differs is kept
+    void check_poster_tiers(
+        const std::function<void(oa::ui::engine_settings::HardwareAcceleration)>& set_level,
+        std::span<const oa::ui::engine_settings::HardwareAcceleration> levels,
+        const std::function<void(float)>& at_zoom,
+        const fs::path& report_directory
+    );
     // The 8-bit view of the match frame the poster writes: the palette index
     // of an RGB pixel and the display whose palette the image carries.
 

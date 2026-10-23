@@ -1473,7 +1473,8 @@ if(OA_BUILD_PLATFORM)
       # processor's composition or keep within that renderer's own filters;
       # a frame must not depend on those before it, the first after the tier
       # is switched on or the window resized among them; the picture kept for
-      # screenshots must be the standard tier's and ease nothing; a slow
+      # screenshots must be the standard tier's and ease nothing, and
+      # MakePoster's poster the standard tier's file in every tier; a slow
       # scroll at zoom 2.5 and 0.5 must move the battlefield read back by at
       # most a pixel a frame, at the scroll's rate, while the camera steps
       # whole map pixels, where at 2.5 the standard tier jumps them, and the
