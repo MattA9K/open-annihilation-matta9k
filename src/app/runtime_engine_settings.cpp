@@ -1180,6 +1180,10 @@ settings::ExplosionFlash Runtime::explosion_flash() const noexcept {
                             : settings::ExplosionFlash::full;
 }
 
+settings::FogOfWar Runtime::fog_of_war() const noexcept {
+    return engine_settings_ ? engine_settings_->current.fog_of_war : settings::FogOfWar::smooth;
+}
+
 bool Runtime::smooth_motion() const noexcept {
     return !engine_settings_ || engine_settings_->current.smooth_motion;
 }

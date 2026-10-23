@@ -450,7 +450,8 @@ add_library(oa::app::window_icon ALIAS oa-app-window-icon)
 target_link_libraries(oa-app-window-icon PUBLIC oa-app-headers PRIVATE oa-formats-png oa-options)
 # The Full tier's fog of war on the card (full_fog.hpp): the fog grid's
 # tiles as passes of quads with corner alphas, the greyed terrain pass from
-# the greyed pages, its dithered form and the black pass; pure, so that
+# the greyed pages, its dithered form and the black pass, and the Classic
+# fog's passes through the FOG.GAF tiles' shapes; pure, so that
 # runtime_full.cpp draws from it and a test checks it alone.
 add_library(oa-app-full-fog src/app/full_fog.cpp)
 add_library(oa::app::full_fog ALIAS oa-app-full-fog)
@@ -463,7 +464,7 @@ if(BUILD_TESTING)
   # whole tiles and quarters at their texels and corner alphas, at two
   # levels and through a placement; the black and dithered passes with
   # their runs merged; the fog mask read LINEAR to the corner alphas; the
-  # refusals.
+  # refusals; the Classic shapes and passes drawing the processor's tiles.
   add_executable(oa-app-full-fog-test src/app/full_fog_test.cpp)
   target_link_libraries(oa-app-full-fog-test PRIVATE oa-app-full-fog oa-sim-visibility-state
     oa-test-support oa-options)

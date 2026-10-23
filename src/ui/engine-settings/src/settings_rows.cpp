@@ -45,7 +45,7 @@ using Stepper = kit::Stepper<SettingsModel>;
 using Hint = std::array<std::string_view, 2>;
 
 /// The number of settings: Setting's enumerators.
-constexpr std::size_t kSettingCount = static_cast<std::size_t>(Setting::welcome_setup) + 1;
+constexpr std::size_t kSettingCount = static_cast<std::size_t>(Setting::fog_of_war) + 1;
 
 // ---------------------------------------------------------------------------
 // The sections' rows.
@@ -72,9 +72,10 @@ constexpr std::array<Setting, 3> kEngineLimitsRows{
     Setting::skirmish_players,
 };
 /// Graphics' rows: how the frames are drawn, Smooth motion right under
-/// Vertical sync, then how units look zoomed out, and the zoom they look so
-/// from right under the way.
-constexpr std::array<Setting, 10> kGraphicsRows{
+/// Vertical sync, the fog's edges under the explosions' flash, then how
+/// units look zoomed out, and the zoom they look so from right under the
+/// way.
+constexpr std::array<Setting, 11> kGraphicsRows{
     Setting::max_frame_rate,
     Setting::anti_aliasing,
     Setting::screen_size,
@@ -83,6 +84,7 @@ constexpr std::array<Setting, 10> kGraphicsRows{
     Setting::smooth_motion,
     Setting::native_density,
     Setting::explosion_flash,
+    Setting::fog_of_war,
     Setting::zoomed_out_units,
     Setting::zoomed_out_after,
 };
@@ -354,6 +356,11 @@ constexpr std::array<std::string_view, 3> kViewPastMapEdgeCaptions{"Off", "25%",
 static_assert(
     kViewPastMapEdgeCaptions.size() == view_past_map_edge_choices.size(),
     "every choice of View past the map's edge has its caption"
+);
+/// Fog of War's captions, in fog_of_war_choices' order.
+constexpr std::array<std::string_view, 2> kFogOfWarCaptions{"Classic", "Smooth"};
+static_assert(
+    kFogOfWarCaptions.size() == fog_of_war_choices.size(), "every way of Fog of War has its caption"
 );
 /// Zoomed out units' captions, in zoomed_out_units_choices' order.
 constexpr std::array<std::string_view, 3> kZoomedOutUnitsCaptions{"Rendered", "Dots", "Icons"};
@@ -1563,6 +1570,19 @@ std::string explosion_flash_hint(const SettingsModel& model, std::size_t line) {
     return {};
 }
 
+/// Returns a line of Fog of War's hint, by the way chosen.
+std::string fog_of_war_hint(const SettingsModel& model, std::size_t line) {
+    // How the fog's edges look, and where Smooth draws them so: the
+    // processor's drawing is always the game's own.
+    switch (model.settings->fog_of_war) {
+    case FogOfWar::classic:
+        return line_of({"Hard edges that step from cell to cell, as the game drew the fog."}, line);
+    case FogOfWar::smooth:
+        return line_of({"Soft edges where the graphics card draws the battlefield (Full)."}, line);
+    }
+    return {};
+}
+
 /// Returns a line of Zoomed out units' hint, by the way chosen.
 std::string zoomed_out_units_hint(const SettingsModel& model, std::size_t line) {
     // What the way chosen draws past After zoom, and what it costs.
@@ -2456,6 +2476,12 @@ constexpr std::array<SettingRow, kSettingCount> kDeclared{{
     {.setting = S::welcome_setup,
      .spec = welcome_setup_row(),
      .lock = &Locks::welcome_setup},
+    {.setting = S::fog_of_war,
+     .spec = changing(kit::levels("fog-of-war", "Fog of War",
+                                  LevelStrip<FogOfWar, 2, fog_of_war_choices, &E::fog_of_war, kFogOfWarCaptions, &table_word<fog_of_war_words, FogOfWar>>::stepper(),
+                                  fog_of_war_level_width),
+                      &fog_of_war_hint, &lines<1>),
+     .copy = &copy_field<&E::fog_of_war>},
 }};
 // clang-format on
 
@@ -2545,6 +2571,7 @@ constexpr std::array<std::string_view, kSettingCount> kSettingNames{
     "skirmish-players",
     "smooth-motion",
     "first-run",
+    "fog-of-war",
 };
 
 /// Tells whether every row stands at its setting's place and is named by

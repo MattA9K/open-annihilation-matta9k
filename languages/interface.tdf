@@ -2026,6 +2026,14 @@
 	it=Cerchio;
 	}
 
+[Classic]
+	{
+	de=Klassisch;
+	fr=Classique;
+	es=Clásico;
+	it=Classico;
+	}
+
 [Clear Session Description]
 	{
 	de=Sitzungsbeschreibung leeren;
@@ -3266,6 +3274,14 @@
 	it=Adatto a {game} ✓;
 	}
 
+[Fog of War]
+	{
+	de=Kriegsnebel;
+	fr=Brouillard de guerre;
+	es=Niebla de guerra;
+	it=Nebbia di guerra;
+	}
+
 [Font outline]
 	{
 	de=Schriftumriss;
@@ -3896,6 +3912,14 @@
 	fr=Difficile;
 	es=Difícil;
 	it=Difficile;
+	}
+
+[Hard edges that step from cell to cell, as the game drew the fog.]
+	{
+	de=Harte Kanten, die von Feld zu Feld springen, wie das Spiel den Nebel gezeichnet hat.;
+	fr=Bords nets qui avancent de case en case, comme le jeu a dessiné le brouillard.;
+	es=Bordes nítidos que avanzan de celda en celda, como el juego dibujó la niebla.;
+	it=Bordi netti che avanzano di cella in cella, come il gioco ha disegnato la nebbia.;
 	}
 
 [Hardware acceleration]
@@ -8658,6 +8682,14 @@
 	it=Piccoli colpi e scosse avvertiti dal controller.;
 	}
 
+[Smooth]
+	{
+	de=Weich;
+	fr=Doux;
+	es=Suave;
+	it=Morbido;
+	}
+
 [Smooth motion]
 	{
 	de=Flüssige Bewegung;
@@ -8720,6 +8752,14 @@
 	fr=Touche pour outrepasser l'aimant;
 	es=Tecla para anular el ajuste;
 	it=Tasto per ignorare l'aggancio;
+	}
+
+[Soft edges where the graphics card draws the battlefield (Full).]
+	{
+	de=Weiche Kanten, wo die Grafikkarte das Schlachtfeld zeichnet (Voll).;
+	fr=Bords doux là où la carte graphique dessine le champ de bataille (Complet).;
+	es=Bordes suaves donde la tarjeta gráfica dibuja el campo de batalla (Completo).;
+	it=Bordi morbidi dove la scheda grafica disegna il campo di battaglia (Completo).;
 	}
 
 [Solid]

@@ -29,6 +29,11 @@ inline constexpr std::array<ChoiceWord<ExplosionFlash>, 3> explosion_flash_words
     {ExplosionFlash::reduced, "reduced"},
     {ExplosionFlash::full, "full"},
 }};
+/// Fog of War's words, in fog_of_war_choices' order.
+inline constexpr std::array<ChoiceWord<FogOfWar>, 2> fog_of_war_words{{
+    {FogOfWar::classic, "classic"},
+    {FogOfWar::smooth, "smooth"},
+}};
 /// Zoomed out units' words, for the ways a player may choose: Icons, which
 /// the dialog shows but does not offer yet, has none.
 inline constexpr std::array<ChoiceWord<ZoomedOutUnits>, 2> zoomed_out_units_words{{

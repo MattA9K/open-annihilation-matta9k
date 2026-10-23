@@ -1022,6 +1022,8 @@ void Runtime::free_full_match_textures() noexcept {
             full.greyed_mosaic_pages[index]
         );
     full.destroy_fog_mask();
+    full.executor.destroy_page(full.dither_page);
+    full.dither_page = {};
     full.page_bytes = 0;
     full.pages_from_load = false;
     full.executor.destroy_target(full.target);
@@ -1338,6 +1340,7 @@ void Runtime::ensure_full_executor() {
         full.fog_mask_page_width = 0;
         full.fog_mask_page_height = 0;
         full.fog_mask_held = {};
+        full.dither_page = {};
         full.card_pages.clear();
         full.pages_from_load = false;
         full.atlas_source = {};
@@ -1680,6 +1683,12 @@ bool Runtime::present_full_match_layers(bool dialogs) {
         // everything, drawn after the stages.
         const auto& fog = full.fog;
         const bool fogged = !fog.grid.tiles.empty();
+        // Fog of War's Classic draws the FOG.GAF shapes the processor draws,
+        // once their art is loaded; Smooth, the corner alphas.
+        if (!full.fog_shapes.built() && fog_tiles_.loaded())
+            full_fog::build_classic_shapes(fog_tiles_, full.fog_shapes);
+        const bool classic = fogged && fog_of_war() == oa::ui::engine_settings::FogOfWar::classic &&
+                             full.fog_shapes.built();
         // Where the fog grid lands in a view.
         const auto fog_placement = [&](const ft::TerrainView& where) {
             full_fog::FogPlacement placement;
@@ -1697,6 +1706,20 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                                        const card::Rect* scissor) {
             if (!fogged || fog.dithered)
                 return;
+            if (classic) {
+                fog_quads += full_fog::append_unseen_terrain_classic(
+                    frame,
+                    fog.grid,
+                    full.fog_shapes,
+                    full.atlas,
+                    full.greyed_pages,
+                    levels,
+                    fog_placement(where),
+                    target,
+                    scissor
+                );
+                return;
+            }
             fog_quads += full_fog::append_unseen_terrain(
                 frame,
                 fog.grid,
@@ -1824,6 +1847,38 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                     );
                 full.stage_ns += nanoseconds_since(stage_start);
             };
+        // The Classic dither's page, made and filled the first time it is
+        // drawn; false where the card would not make it.
+        const auto ensure_dither_page = [&]() {
+            if (full.dither_page != card::PageHandle{})
+                return true;
+            card::PageDescription description;
+            description.width = full_fog::dither_page_edge;
+            description.height = full_fog::dither_page_edge;
+            full.dither_page = full.executor.create_page(description);
+            if (full.dither_page == card::PageHandle{})
+                return false;
+            std::vector<card::Texel> texels;
+            full_fog::build_dither_texels(texels);
+            const card::Rect whole{
+                0,
+                0,
+                static_cast<int32_t>(full_fog::dither_page_edge),
+                static_cast<int32_t>(full_fog::dither_page_edge)
+            };
+            if (!full.executor.update_page(
+                    full.dither_page,
+                    0,
+                    &whole,
+                    reinterpret_cast<const uint8_t*>(texels.data()),
+                    full_fog::dither_page_edge * card::texel_bytes
+                )) {
+                full.executor.destroy_page(full.dither_page);
+                full.dither_page = {};
+                return false;
+            }
+            return true;
+        };
         // Appends the fog's passes over everything the card drew into a
         // view: the fog's dither, where the option is on, since the
         // processor dithers the objects as it does the ground and the pages
@@ -1837,6 +1892,30 @@ bool Runtime::present_full_match_layers(bool dialogs) {
             if (!fogged)
                 return;
             const full_fog::FogPlacement placement = fog_placement(where);
+            if (classic) {
+                if (fog.dithered && ensure_dither_page())
+                    fog_quads += full_fog::append_unseen_dither_classic(
+                        frame,
+                        fog.grid,
+                        full.fog_shapes,
+                        full.dither_page,
+                        fog.dither,
+                        placement,
+                        target,
+                        scissor
+                    );
+                fog_quads += full_fog::append_unmapped_classic(
+                    frame,
+                    fog.grid,
+                    full.fog_shapes,
+                    fog.unmapped,
+                    fog.palette,
+                    placement,
+                    target,
+                    scissor
+                );
+                return;
+            }
             if (fog.dithered)
                 fog_quads += full_fog::append_unseen_dither(
                     frame, fog.grid, fog.dither, placement, target, scissor
@@ -1921,8 +2000,9 @@ bool Runtime::present_full_match_layers(bool dialogs) {
         const auto append_masked_unseen = [&](const ft::TerrainView& where,
                                               std::span<const full_fog::GreyedLevel> levels,
                                               card::TargetHandle target) {
-            if (!fogged || fog.dithered || full.fog_mask_off || target == card::TargetHandle{} ||
-                target != full.moved_target || full.shifted_target == card::TargetHandle{} ||
+            if (!fogged || fog.dithered || classic || full.fog_mask_off ||
+                target == card::TargetHandle{} || target != full.moved_target ||
+                full.shifted_target == card::TargetHandle{} ||
                 levels.size() != full.plan.pass_count)
                 return false;
             for (uint32_t index = 0; index < full.plan.pass_count; ++index) {

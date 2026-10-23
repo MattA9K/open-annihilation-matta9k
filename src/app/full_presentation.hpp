@@ -361,6 +361,9 @@ struct Runtime::FullPresentation {
         bool dithered{};         ///< the DitheredFog option
         card::Colour unmapped{}; ///< UI colour 0 through the display gamma
         card::Colour dither{};   ///< palette index 0 through the display gamma
+        /// Each palette index through the display gamma, the colours of the
+        /// black FOG.GAF tiles' texels the Classic fog draws.
+        std::array<card::Colour, OA_PALETTE_COLORS> palette{};
         /// Counts the grids noted that differ from the one before, so that
         /// what is made from a grid is made again only for a new one.
         uint64_t revision{};
@@ -382,6 +385,13 @@ struct Runtime::FullPresentation {
 
     /// Destroys the fog mask's page and forgets what it held.
     void destroy_fog_mask() noexcept;
+
+    /// The Classic fog's shapes (Fog of War's Classic), built once from the
+    /// FOG.GAF tile art, and the page of the checkerboard its dithered form
+    /// draws (full_fog::build_dither_texels), made the first time it is
+    /// drawn; none before.
+    full_fog::ClassicShapes fog_shapes;
+    card::PageHandle dither_page{};
 
     // The overlay canvas: the key colour the world layer is cleared to
     // before the painters paint it, and the overlay of what they painted.

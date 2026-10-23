@@ -633,6 +633,7 @@ EngineSettings read_settings(
     if (const auto number = stored_number(values, key::native_density))
         settings.native_density = inputs.native_density_windows || *number > 0;
     read_word(values, key::explosion_flash, explosion_flash_words, settings.explosion_flash);
+    read_word(values, key::fog_of_war, fog_of_war_words, settings.fog_of_war);
     read_word(values, key::zoomed_out_units, zoomed_out_units_words, settings.zoomed_out_units);
     read_word(values, key::zoomed_out_after, zoomed_out_after_words, settings.zoomed_out_after);
     read_word(values, key::window_frame, window_frame_words, settings.window_frame);
@@ -881,6 +882,15 @@ void write_settings(
         opened.explosion_flash,
         chosen.explosion_flash,
         defaults.explosion_flash,
+        restored
+    );
+    store_word(
+        values,
+        key::fog_of_war,
+        fog_of_war_words,
+        opened.fog_of_war,
+        chosen.fog_of_war,
+        defaults.fog_of_war,
         restored
     );
     store_word(

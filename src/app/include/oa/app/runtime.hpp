@@ -9555,6 +9555,12 @@ class Runtime final : public menu::Host,
     /// @return the setting; Full before the settings are read
     [[nodiscard]] oa::ui::engine_settings::ExplosionFlash explosion_flash() const noexcept;
 
+    /// Returns the Fog of War setting: how the graphics card draws the
+    /// fog's edges. The processor always draws them as the game did.
+    ///
+    /// @return the setting; Smooth before the settings are read
+    [[nodiscard]] oa::ui::engine_settings::FogOfWar fog_of_war() const noexcept;
+
     /// Returns whether Smooth motion is On: frames between the game's ticks
     /// show units, their pieces, shots, debris and effects part of the way
     /// from one tick to the next. Off, each frame shows them where the

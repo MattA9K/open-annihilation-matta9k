@@ -96,6 +96,8 @@ inline constexpr std::string_view menu_scaling = "open-annihilation.menu-scaling
 inline constexpr std::string_view native_density = "open-annihilation.native-density";
 /// "off", "reduced" or "full" (EngineSettings::explosion_flash).
 inline constexpr std::string_view explosion_flash = "open-annihilation.explosion-flash";
+/// "classic" or "smooth" (EngineSettings::fog_of_war).
+inline constexpr std::string_view fog_of_war = "open-annihilation.fog-of-war";
 /// "rendered" or "dots" (EngineSettings::zoomed_out_units).
 inline constexpr std::string_view zoomed_out_units = "open-annihilation.zoomed-out-units";
 /// The share of normal size past which Zoomed out units applies: "1/2",
@@ -601,6 +603,25 @@ inline constexpr std::array<ExplosionFlash, 3> explosion_flash_choices{
     ExplosionFlash::full,
 };
 
+/// Fog of War: how the edges of the fog are drawn where the graphics card
+/// draws the battlefield (Hardware acceleration Full). Where the processor
+/// draws it, the fog is always drawn as the game drew it. Either way it
+/// changes only what the frames show, never what any player can see.
+enum class FogOfWar : uint8_t {
+    /// as the game drew it: black and greyed ground with hard edges that
+    /// step from sight cell to sight cell, through the game's own fog tiles
+    /// with their dithered fringe
+    classic,
+    /// soft edges that fade across each sight cell
+    smooth,
+};
+
+/// The ways of Fog of War, in the order the dialog offers them.
+inline constexpr std::array<FogOfWar, 2> fog_of_war_choices{
+    FogOfWar::classic,
+    FogOfWar::smooth,
+};
+
 /// Zoomed out units: how the battlefield's units are drawn farther out than
 /// After zoom.
 enum class ZoomedOutUnits : uint8_t {
@@ -1014,6 +1035,9 @@ struct EngineSettings {
     /// How strongly explosions' flashes light the battlefield; a mod's
     /// profile may hold them lower still (ui.explosion-flash).
     ExplosionFlash explosion_flash{ExplosionFlash::full};
+    /// How the fog's edges are drawn while the graphics card draws the
+    /// battlefield; the processor's drawing is always Classic.
+    FogOfWar fog_of_war{FogOfWar::smooth};
     /// How units are drawn farther out than zoomed_out_after: as at any
     /// zoom, or as dots. Never icons, which the dialog shows but does not
     /// offer yet.
