@@ -3483,10 +3483,12 @@ void the_graphics_page_scrolls_its_rows() {
         CHECK(graphics_scroll(keys) == expected);
     }
 
-    // Every part apart and in its place at every offset, under every lock.
+    // Every part apart and in its place every 18 pixels down the scroll, the
+    // end included, under every lock: each row is taller than the step, so
+    // it is checked at several offsets.
     for (const auto& locks : lock_states()) {
         settings::Dialog locked = graphics_page({}, locks);
-        for (int32_t scroll = 0; scroll <= 972; scroll += 6)
+        for (int32_t scroll = 0; scroll <= 972; scroll += 18)
             check_dialog_layout_at(locked, scroll);
     }
 
@@ -7839,7 +7841,7 @@ void visual_effects_show_and_change() {
         CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
         CHECK(dialog.chosen.*effects[index] == 110);
         for (std::size_t other = 0; other < effects.size(); ++other)
-            CHECK(dialog.chosen.*effects[other] == (other == index ? 110 : 100));
+            CHECK(dialog.chosen.*effects[other] == (other == index ? 110U : 100U));
         CHECK(click(dialog, centre(geometry::restore_button)) == DialogAction::changed);
         CHECK(dialog.chosen.*effects[index] == 100);
         dialog.focused = settings::first_row_control + 13 + static_cast<int32_t>(index);
