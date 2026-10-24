@@ -2030,10 +2030,44 @@ class Runtime final : public menu::Host,
     /// EngineView::margin pixels larger and cut at the view's offset, with
     /// the default gamma; the player's saved gamma never applies. No
     /// overlay, label, panel, message or cursor is drawn. The Game block's
-    /// camera is left bound to the drawn view.
+    /// camera is left bound to the drawn view. The processor draws it,
+    /// unless director_draws_on_card (draw_director_card_frame).
     ///
     /// @param[out] rgb the frame, width * height * 3 bytes, row by row
     void draw_director_frame(std::span<uint8_t> rgb);
+
+    /// Tells whether director mode's frames are drawn by the graphics card's
+    /// Full tier (DirectorPresentation::full), on the renderer with no window
+    /// open_director_card made.
+    ///
+    /// @return true in director mode once that renderer is open
+    [[nodiscard]] bool director_draws_on_card() const noexcept;
+
+    /// Opens the renderer the Full tier draws director frames on: starts
+    /// SDL's video, makes SDL's GPU renderer with no window, makes it the
+    /// runtime's renderer, switches the accelerated presentation on at a
+    /// Full rung and runs the Full function test on its card executor.
+    /// Called by enter_director_mode when the presentation asks for the
+    /// graphics card.
+    ///
+    /// Throws DirectorCardUnavailable when SDL's video or the renderer does
+    /// not start, and std::runtime_error when the function test fails.
+    void open_director_card();
+
+    /// Closes what open_director_card opened, as much of it as was opened,
+    /// and puts the runtime's renderer back.
+    ///
+    /// @param[in,out] state director mode's state, whose card is closed
+    void close_director_card(DirectorState& state) noexcept;
+
+    /// Draws the running match's current tick from the director's camera on
+    /// the graphics card's Full tier and reads it back into a frame:
+    /// draw_director_frame's frame, the card's picture in place of the
+    /// processor's. Throws std::runtime_error when the Full tier does not
+    /// draw it.
+    ///
+    /// @param[out] rgb the frame, width * height * 3 bytes, row by row
+    void draw_director_card_frame(std::span<uint8_t> rgb);
 
     /// Runs --check-director-view: a headless skirmish drawn in director
     /// mode, checked against the same skirmish replayed in director mode
@@ -2097,8 +2131,13 @@ class Runtime final : public menu::Host,
     /// Runs --check-director-render: a small director script rendered over
     /// the headless skirmish with encoding off, in full and its second chunk
     /// alone, checked for its files, its sound and the world it reaches.
-    /// Throws std::runtime_error when a check fails.
-    void check_director_render();
+    /// With --hardware-acceleration=full the frames are drawn by the
+    /// graphics card's Full tier, and the run manifest must say so. Throws
+    /// std::runtime_error when a check fails.
+    ///
+    /// @return 0 when it ran; 77, which ctest reports as skipped, when the
+    ///     Full tier was asked for and no graphics card renderer could be made
+    [[nodiscard]] int check_director_render();
 
     /// Starts the --campaign mission --mission names through the Any Mission list, its briefing and
     /// Start.

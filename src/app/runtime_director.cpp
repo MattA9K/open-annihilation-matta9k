@@ -78,6 +78,9 @@ struct Runtime::DirectorRender {
     RunDescription run{};   ///< what the run manifest says besides the chunks
     bool mute{};            ///< the sound is silence: no sound reaches the mix
     bool quiet{};           ///< print no line for each chunk
+    /// The frames are drawn by the graphics card's Full tier
+    /// (DirectorPresentation::full); the run manifest says so.
+    bool full{};
     /// The frames also written as stills (write_still), in increasing order;
     /// each lies in a chunk drawn.
     std::vector<uint64_t> stills{};
@@ -117,6 +120,9 @@ constexpr uint32_t kMinUsableTicks = 60 * 30;
 constexpr uint32_t kMaxStalledSteps = 30;
 /// Bytes of one pixel of a frame: red, green and blue.
 constexpr size_t kPixelBytes = 3;
+/// The exit status ctest reports as skipped: a check of the card's frames
+/// where no renderer on a graphics card can be made.
+constexpr int kSkippedExitCode = 77;
 /// The extensions of a director script and a director bundle.
 constexpr std::string_view kScriptExtension = ".oascript";
 constexpr std::string_view kBundleExtension = ".oamovie";
@@ -490,9 +496,12 @@ void Runtime::render_director_frames(DirectorRender& render, const ReplayHooks& 
     const DirectorSoundHooks sounds =
         render.mute ? DirectorSoundHooks{} : DirectorSoundHooks{&glue, SoundGlue::play};
     enter_director_mode(
-        {output_size.width, output_size.height, render.script->output.show_ux, true}, sounds
+        {output_size.width, output_size.height, render.script->output.show_ux, true, render.full},
+        sounds
     );
     ScopeExit leave{[this]() noexcept { leave_director_mode(); }};
+    if (director_draws_on_card())
+        render.run.graphics_card = director_->card.driver;
     DirectorOutput output(render.output);
     director::CameraRig rig(shots);
     const size_t frame_bytes =
@@ -887,6 +896,8 @@ int Runtime::run_render_script() {
         render.first_chunk = first_chunk;
         render.last_chunk = last_chunk;
         render.mute = silent;
+        render.full =
+            options_.hardware_acceleration == oa::ui::engine_settings::HardwareAcceleration::full;
         render.run.engine_version = OA_ENGINE_VERSION;
         render.run.script_name = script_name;
         render.run.recording_name = recording_name;
@@ -1253,10 +1264,15 @@ render_check_script(uint32_t first_tick, int32_t centre_x, int32_t centre_z) {
 
 } // namespace
 
-void Runtime::check_director_render() {
+int Runtime::check_director_render() {
     // The match's sounds reach the mix through the director's hooks alone,
     // as in a render.
     options_.mute = true;
+    // --hardware-acceleration=full draws the frames on the graphics card's
+    // Full tier: the sound, the world and the files are checked as on the
+    // processor, the frames only for being pictures.
+    const bool card =
+        options_.hardware_acceleration == oa::ui::engine_settings::HardwareAcceleration::full;
     const auto require = [](bool ok, const std::string& what) {
         if (!ok)
             throw std::runtime_error("director render check: " + what);
@@ -1341,6 +1357,7 @@ void Runtime::check_director_render() {
         render->first_chunk = first_chunk;
         render->last_chunk = last_chunk;
         render->quiet = true;
+        render->full = card;
         render->run.engine_version = OA_ENGINE_VERSION;
         render->run.script_name = "check.oascript";
         render->run.recording_name = "skirmish";
@@ -1364,8 +1381,20 @@ void Runtime::check_director_render() {
         return std::tuple{std::move(render), digest, tick};
     };
 
-    // Every chunk.
-    auto [full, full_digest, full_tick] = render_pass(0, 1, "full");
+    // Every chunk. Where no renderer on a graphics card can be made, the
+    // check of the card's frames skips.
+    std::unique_ptr<DirectorRender> full;
+    uint64_t full_digest = 0;
+    uint32_t full_tick = 0;
+    try {
+        std::tie(full, full_digest, full_tick) = render_pass(0, 1, "full");
+    } catch (const DirectorCardUnavailable& error) {
+        std::printf("director render: skipped: %s\n", error.what());
+        std::fflush(stdout);
+        if (options_.snapshot.empty())
+            fs::remove_all(directory, removed);
+        return kSkippedExitCode;
+    }
     const DirectorPaths full_paths{directory / "full", "check"};
     require(full->chunks.size() == 2, "the render did not write two chunks");
     require(
@@ -1397,11 +1426,34 @@ void Runtime::check_director_render() {
         frame_manifests.append(manifest.begin(), manifest.end());
     }
     const auto run_manifest = read_check_file(run_manifest_path(full_paths));
+    const std::string manifest_text(run_manifest.begin(), run_manifest.end());
     require(
-        std::string(run_manifest.begin(), run_manifest.end())
-            .starts_with("open-annihilation director render\n"),
+        manifest_text.starts_with("open-annihilation director render\n"),
         "the run manifest was not written"
     );
+    require(
+        (manifest_text.find("\ndrawn graphics-card ") != std::string::npos) == card,
+        card ? "the run manifest does not say the graphics card drew the frames"
+             : "the run manifest says the graphics card drew the processor's frames"
+    );
+    if (card) {
+        // A frame the card failed to draw or to read back reads as the same
+        // picture every time; the camera moves and dissolves on every frame.
+        std::vector<std::string> pictures;
+        for (size_t at = 0; at < frame_manifests.size();) {
+            const size_t end = frame_manifests.find('\n', at);
+            const size_t space = frame_manifests.rfind(' ', end);
+            pictures.push_back(frame_manifests.substr(space + 1, end - space - 1));
+            at = end + 1;
+        }
+        std::sort(pictures.begin(), pictures.end());
+        const auto distinct =
+            std::distance(pictures.begin(), std::unique(pictures.begin(), pictures.end()));
+        require(
+            distinct * 2 > static_cast<std::ptrdiff_t>(full->frames_drawn),
+            "the graphics card drew the same picture for most frames"
+        );
+    }
     require(full->sounds_started != 0, "no sound of the fight reached the mix");
     require(full->clip_errors.empty(), "a sound could not be played");
     const auto second_wave = read_check_file(chunk_audio_path(full_paths, 1));
@@ -1477,9 +1529,12 @@ void Runtime::check_director_render() {
         static_cast<unsigned long long>(full->sounds_started),
         frames_alike ? "the same" : "other"
     );
+    if (card)
+        std::printf("director render: drawn by the graphics card's Full tier, not pinned\n");
     std::fflush(stdout);
     if (options_.snapshot.empty())
         fs::remove_all(directory, removed);
+    return 0;
 }
 
 } // namespace oa::app

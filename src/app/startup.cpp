@@ -523,6 +523,14 @@ void check_director_options(Options& options) {
         throw std::runtime_error(
             "--render-script takes the frame size from the script, not from --resolution"
         );
+    // A render's frames are the processor's, or the graphics card's Full
+    // tier's; Basic presents the processor's frames and draws none itself.
+    if (render &&
+        options.hardware_acceleration == oa::ui::engine_settings::HardwareAcceleration::basic)
+        throw std::runtime_error(
+            "--render-script draws its frames on the processor, or on the graphics card with "
+            "--hardware-acceleration=full; Basic draws no frames of its own"
+        );
     const char* run = generate ? "--generate-script" : "--render-script";
     // Options of other runs, and those that would change the match, its
     // seed or its camera.

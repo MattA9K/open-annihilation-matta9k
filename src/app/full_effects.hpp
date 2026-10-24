@@ -54,6 +54,7 @@ struct Pixels {
 /// @param fits the memory guard, asked for the bytes the readback, its
 ///        conversion and a grown upload hold together before any is made;
 ///        empty allows every size
+/// @param final_target the texture the window's frame is presented into, or null for the window
 /// @return empty on success, otherwise the SDL failure or the guard's refusal
 std::string compose(
     SDL_Renderer* renderer,
@@ -63,7 +64,8 @@ std::string compose(
     uint32_t moved_factor,
     const std::function<void(const Pixels&)>& process,
     const SDL_FRect* effect_bounds = nullptr,
-    const std::function<bool(uint64_t bytes)>& fits = {}
+    const std::function<bool(uint64_t bytes)>& fits = {},
+    SDL_Texture* final_target = nullptr
 );
 
 } // namespace oa::app::full_effects

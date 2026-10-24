@@ -2074,6 +2074,23 @@ int main() {
             "--render-script takes the frame size from the script, not from --resolution",
         "a render's size is the script's"
     );
+    // A render draws its frames on the processor or on the graphics card's
+    // Full tier; Basic draws none of its own.
+    expect(
+        rejection({"--render-script", "game.oascript", "--hardware-acceleration=basic"}) ==
+            "--render-script draws its frames on the processor, or on the graphics card with "
+            "--hardware-acceleration=full; Basic draws no frames of its own",
+        "a render is not drawn by Basic"
+    );
+    expect(
+        parse({"--render-script", "game.oascript", "--hardware-acceleration=full"})
+                    .hardware_acceleration == oa::ui::engine_settings::HardwareAcceleration::full &&
+            parse({"--render-script", "game.oascript", "--hardware-acceleration"})
+                    .hardware_acceleration == oa::ui::engine_settings::HardwareAcceleration::full &&
+            parse({"--render-script", "game.oascript", "--no-hardware-acceleration"})
+                    .hardware_acceleration == oa::ui::engine_settings::HardwareAcceleration::off,
+        "a render is drawn by the card's Full tier or by the processor"
+    );
     const std::vector<std::vector<const char*>> refused_with_scripts{
         {"--seed", "5"},
         {"--capture-video", "game.mp4"},

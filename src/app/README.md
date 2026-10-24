@@ -3166,7 +3166,11 @@ language and both sizes.
   every player's unit announcements sent to the director's sound hooks;
   as everywhere, nothing drawn changes the match, and
   `--check-director-view` checks that a drawn and an undrawn replay reach
-  one world. `director_output.hpp` and
+  one world. `runtime_director_full.cpp` draws director mode's frames on
+  the graphics card when a render asks for `--hardware-acceleration=full`:
+  the Full tier's presenter on SDL's GPU renderer with no window,
+  presenting into a texture (`FullPresentation::final_target`) that is read
+  back into the frame. `director_output.hpp` and
   `director_output.cpp` (`oa-app-director-output`) write a render's files
   (each chunk's frame manifest and sound, the run manifest, the stills as
   PNG pictures), run `ffmpeg` on

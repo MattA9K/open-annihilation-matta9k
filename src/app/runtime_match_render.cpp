@@ -878,7 +878,10 @@ bool Runtime::draw_match_surface() {
     // rasterised; the world layer is the overlay canvas, cleared to the key
     // colour, which the painters after the fog paint. The camera and the
     // zoom the frame draws at are kept for the card's frame.
-    const bool card_world = full_presentation() && !directed && !far && !live_renderer_active();
+    // A director's frame is the card's only on the renderer with no window
+    // that draws director frames on the graphics card.
+    const bool card_world = full_presentation() && (!directed || director_draws_on_card()) &&
+                            !far && !live_renderer_active();
     // The live renderer consumes the draw list directly. Its GPU picture replaces
     // the whole battlefield, so a classic terrain, model and fog raster is unused.
     const bool live_world = !directed && live_renderer_active() && !live_renderer_failed();
@@ -971,7 +974,8 @@ bool Runtime::draw_match_surface() {
     else
         track_match_drag();
     auto viewport = live_viewport(camera_x, camera_y);
-    match_use_layers_ = sdl_.renderer != nullptr && !options_.headless_check;
+    match_use_layers_ =
+        (sdl_.renderer != nullptr && !options_.headless_check) || director_draws_on_card();
     // The sweep that has just opened the menu shows the sound page on this
     // frame, so the HUD drawn below is that page and not the tabs alone.
     advance_options_lightbar();

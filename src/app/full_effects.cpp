@@ -33,7 +33,8 @@ std::string compose(
     uint32_t moved_factor,
     const std::function<void(const Pixels&)>& process,
     const SDL_FRect* effect_bounds,
-    const std::function<bool(uint64_t bytes)>& fits
+    const std::function<bool(uint64_t bytes)>& fits,
+    SDL_Texture* final_target
 ) {
     RenderState saved(renderer);
     std::optional<RenderState> moved_state;
@@ -94,7 +95,7 @@ std::string compose(
         area.h = std::max(bottom - area.y, 0);
         origin_x = (static_cast<float>(area.x) - left) / scale_x;
         origin_y = (static_cast<float>(area.y) - top) / scale_y;
-        saved.use_window_pixels();
+        saved.use_target_pixels(final_target);
     }
     int row_offset = 0;
     if (effect_bounds != nullptr) {

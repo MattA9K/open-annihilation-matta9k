@@ -328,7 +328,7 @@ See [what a game reports as it is played](multiplayer/status.md).
 | `--capture-video PATH.mp4` | Records what the window shows to an MP4 video; it needs the `ffmpeg` program ([capturing video](capture.md)). |
 | `--showcase arm-first-mission\|skirmish-battle\|base-construction` | Plays a scripted run for a showcase video, in place of a player ([capturing video](capture.md)). |
 | `--generate-script RECORDING` | Plans a director script's camera shots from a recorded game ([director scripts](director.md)). |
-| `--render-script PATH.oascript\|PATH.oamovie` | Renders a director script, or a bundle of one and its recording, to video with its sound ([director scripts](director.md)). |
+| `--render-script PATH.oascript\|PATH.oamovie` | Renders a director script, or a bundle of one and its recording, to video with its sound ([director scripts](director.md)). With `--hardware-acceleration=full` its frames are drawn by the graphics card's Full tier, with no window ([drawing on the graphics card](director.md#drawing-on-the-graphics-card)). |
 | `--output PATH` | Where `--generate-script` writes its script or bundle, or the folder `--render-script` renders into. |
 | `--chunks A-B` | The chunks `--render-script` draws, counted from 0. |
 | `--stills F,F...` | The frames `--render-script` also writes as pictures, counted from 0. |
@@ -446,7 +446,7 @@ Network play's own checks, the last rows, are in every build.
 | `--render-fault POINT[@FRAME]` | Forces only that failure, for `--check-renderer-ladder`. |
 | `--check-briefing-narration` | Checks a briefing's narration plays and stops when it should. |
 | `--check-director-view` | Checks the director's view of a headless skirmish. |
-| `--check-director-render` | Renders a small director script and checks the files it writes. |
+| `--check-director-render` | Renders a small director script and checks the files it writes; with `--hardware-acceleration=full`, on the graphics card's Full tier. |
 | `--check-interpolation` | Checks the frames drawn between ticks, and the frames at whole ticks with Smooth motion Off. |
 | `--check-unit-playout` | Checks another machine's units move evenly. |
 | `--reclaim-check` | Has the commander reclaim the nearest feature in a headless skirmish. |

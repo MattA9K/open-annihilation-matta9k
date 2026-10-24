@@ -1581,14 +1581,17 @@ bool Runtime::present_full_match_layers(bool dialogs) {
         // The front end's prescale target is not kept during a match.
         accelerated_.screen_prescale.destroy();
         const auto frame_format = opaque_layer_format();
-        ensure_streaming_texture(
-            match_hud_tex_,
-            frame_format,
-            static_cast<int>(match_hud_cpu_.width),
-            static_cast<int>(match_hud_cpu_.height),
-            match_hud_tex_w_,
-            match_hud_tex_h_
-        );
+        // A director's frame of the battlefield alone has no HUD layer.
+        const bool hud_layer = !match_hud_cpu_.rgb.empty();
+        if (hud_layer)
+            ensure_streaming_texture(
+                match_hud_tex_,
+                frame_format,
+                static_cast<int>(match_hud_cpu_.width),
+                static_cast<int>(match_hud_cpu_.height),
+                match_hud_tex_w_,
+                match_hud_tex_h_
+            );
         // The HUD layer's prescale target and the layout's bookkeeping, as
         // Basic's frame makes them, so that the HUD strips are drawn by
         // sharp_draw from that target at every chrome scale as Basic draws
@@ -1640,7 +1643,7 @@ bool Runtime::present_full_match_layers(bool dialogs) {
             throw_present_error("SDL_RenderClear");
         // In placed mode the HUD's pieces are drawn after the world
         // (finish_match_layers).
-        if (!oa::ui::display_layout::placed_mode(match_layout_))
+        if (hud_layer && !oa::ui::display_layout::placed_mode(match_layout_))
             draw_accelerated_hud_strips();
 
         // The card's frame: the terrain from the pages, by the level rule at
@@ -2328,7 +2331,7 @@ bool Runtime::present_full_match_layers(bool dialogs) {
         // card's own.
         if (render_fault_due(RenderFaultPoint::card))
             throw FullCardError(std::string(forced_card_failure));
-        if (!full.executor.execute(frame, nullptr))
+        if (!full.executor.execute(frame, full.final_target))
             throw_frame_failure(full.executor, "the frame");
         oa::base::float_precision::restore_program_float_control();
         full.execute_ns = nanoseconds_since(execute_start);
@@ -2395,7 +2398,8 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                     process,
                     &effect_bounds,
                     // The readback is a buffer the frame can do without.
-                    [this](uint64_t bytes) { return accelerated_buffer_fits(bytes); }
+                    [this](uint64_t bytes) { return accelerated_buffer_fits(bytes); },
+                    full.final_target
                 );
             // A failed effects pass leaves the card's world as it drew it:
             // the frame goes on without the effects, and Full stays.
@@ -2445,7 +2449,7 @@ bool Runtime::present_full_match_layers(bool dialogs) {
             draw_one_to_one(
                 sdl_.renderer, full.overlay_texture, nullptr, &in_target, one_to_one_scale_mode()
             );
-            if (!SDL_SetRenderTarget(sdl_.renderer, nullptr))
+            if (!SDL_SetRenderTarget(sdl_.renderer, full.final_target))
                 throw FullCardError(
                     std::string("SDL_SetRenderTarget of the window: ") + SDL_GetError()
                 );
@@ -2488,7 +2492,7 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                 onto.shift_y = 0.0F;
             }
             move.batches.push_back(onto);
-            if (!full.executor.execute(move, nullptr))
+            if (!full.executor.execute(move, full.final_target))
                 throw_frame_failure(full.executor, "the zoomed-out target's move");
             oa::base::float_precision::restore_program_float_control();
         } else {
