@@ -79,10 +79,10 @@ DEFAULTS = {
     "open-annihilation.smooth-motion": "1",
     "open-annihilation.allow-full-3d": "1",
     "open-annihilation.unlocked-camera": "0",
-    "open-annihilation.weapon-lighting.intensity": "100",
-    "open-annihilation.nanolathe-lighting.intensity": "100",
-    "open-annihilation.wreck-glow.intensity": "100",
-    "open-annihilation.heat-distortion.intensity": "100",
+    "open-annihilation.weapon-lighting.intensity": "0",
+    "open-annihilation.nanolathe-lighting.intensity": "0",
+    "open-annihilation.wreck-glow.intensity": "0",
+    "open-annihilation.heat-distortion.intensity": "0",
     "open-annihilation.water-ripples.intensity": "100",
     "open-annihilation.coastal-waves.intensity": "100",
     "open-annihilation.underwater-shimmer.intensity": "100",
@@ -113,10 +113,10 @@ PRESENTATION = {
     "open-annihilation.smooth-motion": "0",
     "open-annihilation.allow-full-3d": "0",
     "open-annihilation.unlocked-camera": "1",
-    "open-annihilation.weapon-lighting.intensity": "0",
-    "open-annihilation.nanolathe-lighting.intensity": "0",
-    "open-annihilation.wreck-glow.intensity": "0",
-    "open-annihilation.heat-distortion.intensity": "0",
+    "open-annihilation.weapon-lighting.intensity": "100",
+    "open-annihilation.nanolathe-lighting.intensity": "100",
+    "open-annihilation.wreck-glow.intensity": "100",
+    "open-annihilation.heat-distortion.intensity": "100",
     "open-annihilation.water-ripples.intensity": "0",
     "open-annihilation.coastal-waves.intensity": "0",
     "open-annihilation.underwater-shimmer.intensity": "0",
@@ -133,14 +133,9 @@ PRESENTATION = {
     "open-annihilation.text-background": "1",
     SWITCH_ALT_KEY: "1",
 }
-# The original director frame reference predates local lighting and heat.
-DIRECTOR_REFERENCE = {
-    **DEFAULTS,
-    "open-annihilation.weapon-lighting.intensity": "0",
-    "open-annihilation.nanolathe-lighting.intensity": "0",
-    "open-annihilation.wreck-glow.intensity": "0",
-    "open-annihilation.heat-distortion.intensity": "0",
-}
+# The director frame reference draws the defaults: a named file's acceleration
+# is Off, so local lighting and heat are off too.
+DIRECTOR_REFERENCE = dict(DEFAULTS)
 HUD_SCALING_KEY = "open-annihilation.hud-scaling"
 SMOOTH_MOTION_KEY = "open-annihilation.smooth-motion"
 ANTI_ALIASING_KEY = "open-annihilation.anti-aliasing"

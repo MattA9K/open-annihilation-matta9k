@@ -384,6 +384,11 @@ EngineSettings default_settings(const Inputs& inputs) {
     // card is used is decided apart, so the default never moves with it.
     settings.hardware_acceleration =
         inputs.players_own_profile ? HardwareAcceleration::full : HardwareAcceleration::off;
+    const uint32_t effects = default_effect_intensity(settings.hardware_acceleration);
+    settings.weapon_lighting = effects;
+    settings.nanolathe_lighting = effects;
+    settings.wreck_glow = effects;
+    settings.heat_distortion = effects;
     // A named file draws game text in the game's own fonts.
     settings.modern_fonts = inputs.players_own_profile;
     // A named file plays in English, as the game does without a language on
@@ -602,6 +607,20 @@ std::optional<TouchLatches> touch_latches_from_text(std::string_view text) noexc
     return std::nullopt;
 }
 
+void follow_acceleration_with_effects(
+    EngineSettings& settings, HardwareAcceleration before
+) noexcept {
+    const bool was_full = before == HardwareAcceleration::full;
+    const bool is_full = settings.hardware_acceleration == HardwareAcceleration::full;
+    if (was_full == is_full)
+        return;
+    const uint32_t effects = default_effect_intensity(settings.hardware_acceleration);
+    settings.weapon_lighting = effects;
+    settings.nanolathe_lighting = effects;
+    settings.wreck_glow = effects;
+    settings.heat_distortion = effects;
+}
+
 EngineSettings read_settings(
     const oa::platform::preferences::Values& values, const Inputs& inputs, bool switch_alt
 ) {
@@ -651,14 +670,16 @@ EngineSettings read_settings(
         settings.unlocked_camera = *number > 0;
     if (const auto number = stored_number(values, key::smooth_motion))
         settings.smooth_motion = *number > 0;
+    // An effect with no stored percent follows the stored acceleration.
+    const uint32_t unset_effect = default_effect_intensity(settings.hardware_acceleration);
     settings.weapon_lighting =
         stored_intensity(values, key::weapon_lighting_intensity, key::weapon_lighting)
-            .value_or(settings.weapon_lighting);
+            .value_or(unset_effect);
     settings.nanolathe_lighting =
         stored_intensity(values, key::nanolathe_lighting_intensity, key::nanolathe_lighting)
-            .value_or(settings.nanolathe_lighting);
-    settings.wreck_glow = stored_intensity(values, key::wreck_glow_intensity, key::wreck_glow)
-                              .value_or(settings.wreck_glow);
+            .value_or(unset_effect);
+    settings.wreck_glow =
+        stored_intensity(values, key::wreck_glow_intensity, key::wreck_glow).value_or(unset_effect);
     settings.water_ripples =
         stored_intensity(values, key::water_ripples_intensity).value_or(settings.water_ripples);
     settings.coastal_waves =
@@ -669,7 +690,7 @@ EngineSettings read_settings(
                                      .value_or(settings.naval_reflections);
     settings.heat_distortion =
         stored_intensity(values, key::heat_distortion_intensity, key::heat_distortion)
-            .value_or(settings.heat_distortion);
+            .value_or(unset_effect);
 
     if (const auto found = values.find(std::string{key::menu_scaling}); found != values.end())
         settings.menu_scaling =
@@ -920,41 +941,40 @@ void write_settings(
         chosen.smooth_motion == defaults.smooth_motion,
         restored
     );
-    // An effect's earlier On and Off key goes when its percent key is written
-    // or erased, never alone, so that a Restore defaults followed by the
-    // value read from it keeps that value.
-    if ((restored && chosen.weapon_lighting == defaults.weapon_lighting) ||
-        chosen.weapon_lighting != opened.weapon_lighting)
-        values.erase(std::string{key::weapon_lighting});
-    store(
-        values,
-        key::weapon_lighting_intensity,
-        std::to_string(chosen.weapon_lighting),
-        chosen.weapon_lighting != opened.weapon_lighting,
-        chosen.weapon_lighting == defaults.weapon_lighting,
-        restored
+    // Coloured weapon lighting, Nanolathe glow, Wreck glow and Heat
+    // distortion: a percent the chosen acceleration gives an unset effect
+    // (default_effect_intensity) is stored as no key, any other as its key,
+    // and a change of acceleration counts as a change of all four, so the
+    // file reads back as chosen. An effect's earlier On and Off key goes when
+    // its percent key is written or erased, never alone, so that a Restore
+    // defaults followed by the value read from it keeps that value.
+    const bool acceleration_moved = chosen.hardware_acceleration != opened.hardware_acceleration;
+    const uint32_t unset_effect = default_effect_intensity(chosen.hardware_acceleration);
+    const auto store_effect = [&](std::string_view switch_key,
+                                  std::string_view intensity_key,
+                                  uint32_t EngineSettings::* field) {
+        const uint32_t percent = chosen.*field;
+        const bool changed = percent != opened.*field || acceleration_moved;
+        const bool unset = percent == unset_effect;
+        if (!changed && !(restored && unset))
+            return;
+        values.erase(std::string{switch_key});
+        if (unset)
+            values.erase(std::string{intensity_key});
+        else
+            values[std::string{intensity_key}] = std::to_string(percent);
+    };
+    store_effect(
+        key::weapon_lighting, key::weapon_lighting_intensity, &EngineSettings::weapon_lighting
     );
-    if ((restored && chosen.nanolathe_lighting == defaults.nanolathe_lighting) ||
-        chosen.nanolathe_lighting != opened.nanolathe_lighting)
-        values.erase(std::string{key::nanolathe_lighting});
-    store(
-        values,
+    store_effect(
+        key::nanolathe_lighting,
         key::nanolathe_lighting_intensity,
-        std::to_string(chosen.nanolathe_lighting),
-        chosen.nanolathe_lighting != opened.nanolathe_lighting,
-        chosen.nanolathe_lighting == defaults.nanolathe_lighting,
-        restored
+        &EngineSettings::nanolathe_lighting
     );
-    if ((restored && chosen.wreck_glow == defaults.wreck_glow) ||
-        chosen.wreck_glow != opened.wreck_glow)
-        values.erase(std::string{key::wreck_glow});
-    store(
-        values,
-        key::wreck_glow_intensity,
-        std::to_string(chosen.wreck_glow),
-        chosen.wreck_glow != opened.wreck_glow,
-        chosen.wreck_glow == defaults.wreck_glow,
-        restored
+    store_effect(key::wreck_glow, key::wreck_glow_intensity, &EngineSettings::wreck_glow);
+    store_effect(
+        key::heat_distortion, key::heat_distortion_intensity, &EngineSettings::heat_distortion
     );
     store(
         values,
@@ -986,17 +1006,6 @@ void write_settings(
         std::to_string(chosen.naval_reflections),
         chosen.naval_reflections != opened.naval_reflections,
         chosen.naval_reflections == defaults.naval_reflections,
-        restored
-    );
-    if ((restored && chosen.heat_distortion == defaults.heat_distortion) ||
-        chosen.heat_distortion != opened.heat_distortion)
-        values.erase(std::string{key::heat_distortion});
-    store(
-        values,
-        key::heat_distortion_intensity,
-        std::to_string(chosen.heat_distortion),
-        chosen.heat_distortion != opened.heat_distortion,
-        chosen.heat_distortion == defaults.heat_distortion,
         restored
     );
     store(

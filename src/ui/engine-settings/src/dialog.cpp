@@ -1259,7 +1259,9 @@ DialogAction scroll_key(Dialog& dialog, layout::ScrolledRows& open, DialogKey ke
 
 /// Reports a change of the chosen settings, or only a look's. Hardware
 /// acceleration passing to a higher level, from Off to Basic or Full or
-/// from Basic to Full, asks for the graphics card to be tried afresh.
+/// from Basic to Full, asks for the graphics card to be tried afresh, and
+/// leaving or reaching Full turns the four effects off or on
+/// (follow_acceleration_with_effects).
 ///
 /// @param[in,out] dialog the dialog, its chosen settings after the event
 /// @param before the chosen settings before the event
@@ -1267,6 +1269,7 @@ DialogAction scroll_key(Dialog& dialog, layout::ScrolledRows& open, DialogKey ke
 DialogAction changed_or_redraw(Dialog& dialog, const EngineSettings& before) noexcept {
     if (dialog.chosen.hardware_acceleration > before.hardware_acceleration)
         ++dialog.forget_renderer_failures;
+    follow_acceleration_with_effects(dialog.chosen, before.hardware_acceleration);
     return before == dialog.chosen ? DialogAction::redraw : DialogAction::changed;
 }
 

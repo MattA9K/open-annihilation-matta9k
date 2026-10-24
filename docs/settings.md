@@ -518,9 +518,12 @@ the game draws its text and how the modern fonts draw it.
   angles at which the game's flat art still looks right. Alt+U (Option+U)
   turns it On or Off during a match and keeps the choice.
 - **Coloured weapon lighting**, **Nanolathe glow**, **Wreck glow** and
-  **Heat distortion**, each from 0% to 200% in steps of 10%, 100% by
-  default. Zero leaves the effect out and 100% draws it at its standard
-  strength. The lighting sliders change how bright a light is, never how
+  **Heat distortion**, each from 0% to 200% in steps of 10%. They are 100%
+  by default with Full hardware acceleration and 0% below it, so Off and
+  Basic keep the game's own look. Setting Hardware acceleration from Full
+  to Basic or Off turns all four to 0%, and back to Full turns them to
+  100%; below Full each can still be turned on. Zero leaves the effect out
+  and 100% draws it at its standard strength. The lighting sliders change how bright a light is, never how
   far it reaches or how long it lasts; Heat distortion changes how far the
   shimmer moves the picture. They apply in the classic and the rotated
   view and take effect at once, in a match too. A saved Off or On from an

@@ -182,6 +182,7 @@ void hardware_acceleration_reads_its_words_and_the_switchs_numbers() {
     const auto own = settings::default_settings(players_own_on_linux);
     auto off = own;
     off.hardware_acceleration = HardwareAcceleration::off;
+    settings::follow_acceleration_with_effects(off, own.hardware_acceleration);
     off.vertical_sync = true;
     Values values;
     settings::write_settings(values, own, off, own, false);
@@ -2456,7 +2457,7 @@ void visual_effect_switches_round_trip() {
         CHECK(defaults.*field == 100);
         CHECK(read_one(legacy, "0").*field == 0);
         CHECK(read_one(legacy, "1").*field == 100);
-        CHECK(read_one(key, "invalid").*field == 100);
+        CHECK(read_one(key, "invalid").*field == 0);
         CHECK(read_one(key, "-10").*field == 0);
         CHECK(read_one(key, "999").*field == 200);
         CHECK(read_one(key, "143").*field == 140);
@@ -2492,6 +2493,72 @@ void visual_effect_switches_round_trip() {
     settings::write_settings(values, defaults, chosen, defaults, false);
     CHECK(settings::read_settings(values, players_own_on_linux, false) == chosen);
     settings::write_settings(values, chosen, defaults, defaults, true);
+    CHECK(values.empty());
+}
+
+/// The four effects default to 100% with Full and 0% below it, leaving or
+/// reaching Full turns them off or on, and the file reads back as chosen.
+void effects_follow_hardware_acceleration() {
+    constexpr std::array<uint32_t settings::EngineSettings::*, 4> effects{
+        &settings::EngineSettings::weapon_lighting,
+        &settings::EngineSettings::nanolathe_lighting,
+        &settings::EngineSettings::wreck_glow,
+        &settings::EngineSettings::heat_distortion,
+    };
+    const auto own = settings::default_settings(players_own_on_linux);
+    const auto named = settings::default_settings({});
+    for (const auto field : effects) {
+        CHECK(own.*field == 100);
+        CHECK(named.*field == 0);
+        CHECK(read_one(settings::key::hardware_acceleration, "basic").*field == 0);
+        CHECK(read_one(settings::key::hardware_acceleration, "full").*field == 100);
+        CHECK(
+            settings::read_settings(
+                one_key(settings::key::hardware_acceleration, "off"), players_own_on_linux, false
+            ).*field ==
+            0
+        );
+    }
+    // The water effects keep their own default.
+    CHECK(named.water_ripples == own.water_ripples);
+
+    // Leaving Full turns the four off; a level below Full keeps what the
+    // player chose; reaching Full turns them on.
+    auto chosen = own;
+    chosen.weapon_lighting = 150;
+    chosen.hardware_acceleration = HardwareAcceleration::basic;
+    settings::follow_acceleration_with_effects(chosen, HardwareAcceleration::full);
+    for (const auto field : effects)
+        CHECK(chosen.*field == 0);
+    CHECK(chosen.water_ripples == own.water_ripples);
+    chosen.wreck_glow = 60;
+    chosen.hardware_acceleration = HardwareAcceleration::off;
+    settings::follow_acceleration_with_effects(chosen, HardwareAcceleration::basic);
+    CHECK(chosen.wreck_glow == 60);
+    chosen.hardware_acceleration = HardwareAcceleration::full;
+    settings::follow_acceleration_with_effects(chosen, HardwareAcceleration::off);
+    for (const auto field : effects)
+        CHECK(chosen.*field == 100);
+
+    // An effect turned on below Full is stored and read back; one that is
+    // what the acceleration gives an unset effect leaves no key.
+    auto basic = own;
+    basic.hardware_acceleration = HardwareAcceleration::basic;
+    settings::follow_acceleration_with_effects(basic, own.hardware_acceleration);
+    basic.heat_distortion = 100;
+    Values values;
+    settings::write_settings(values, own, basic, own, false);
+    CHECK(values.size() == 2);
+    CHECK(values.at(std::string{settings::key::hardware_acceleration}) == "basic");
+    CHECK(values.at(std::string{settings::key::heat_distortion_intensity}) == "100");
+    CHECK(settings::read_settings(values, players_own_on_linux, false) == basic);
+    // Acceleration moved with the effects left as they were still reads back.
+    auto moved = own;
+    moved.hardware_acceleration = HardwareAcceleration::off;
+    values.clear();
+    settings::write_settings(values, own, moved, own, false);
+    CHECK(settings::read_settings(values, players_own_on_linux, false) == moved);
+    settings::write_settings(values, moved, own, own, true);
     CHECK(values.empty());
 }
 
@@ -2849,6 +2916,7 @@ void menu_scaling_and_native_density_default_read_and_round_trip() {
 }
 
 int main() {
+    effects_follow_hardware_acceleration();
     defaults_play_as_without_the_settings();
     escape_opens_the_menu_by_default_only_on_macos_with_the_players_own_file();
     the_unit_limit_defaults_to_the_installations_with_the_players_own_file();

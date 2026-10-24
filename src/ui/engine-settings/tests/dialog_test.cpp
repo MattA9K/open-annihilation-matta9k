@@ -7773,6 +7773,44 @@ void smooth_motion_shows_and_changes() {
     CHECK(dialog.chosen == dialog.opened);
 }
 
+/// Leaving Full turns the four effects off, an effect turned on below Full
+/// stays on, and reaching Full turns all four on.
+void hardware_acceleration_moves_the_effects() {
+    const std::array<uint32_t settings::EngineSettings::*, 4> effects{
+        &settings::EngineSettings::weapon_lighting,
+        &settings::EngineSettings::nanolathe_lighting,
+        &settings::EngineSettings::wreck_glow,
+        &settings::EngineSettings::heat_distortion,
+    };
+    constexpr int32_t acceleration_row = settings::first_row_control + 3;
+    constexpr int32_t wreck_glow_row = settings::first_row_control + 15;
+    auto dialog = graphics_page();
+    dialog.chosen.hardware_acceleration = settings::HardwareAcceleration::full;
+    settings::follow_acceleration_with_effects(dialog.chosen, settings::HardwareAcceleration::off);
+    dialog.chosen.wreck_glow = 150;
+    dialog.focused = acceleration_row;
+    CHECK(settings::dialog_key(dialog, DialogKey::left) == DialogAction::changed);
+    CHECK(dialog.chosen.hardware_acceleration == settings::HardwareAcceleration::basic);
+    for (const auto field : effects)
+        CHECK(dialog.chosen.*field == 0);
+    CHECK(dialog.chosen.water_ripples == 100);
+
+    dialog.scroll[static_cast<std::size_t>(Page::graphics)] = 1200;
+    dialog.focused = wreck_glow_row;
+    CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
+    CHECK(dialog.chosen.wreck_glow == 10);
+    dialog.scroll[static_cast<std::size_t>(Page::graphics)] = 0;
+    dialog.focused = acceleration_row;
+    CHECK(settings::dialog_key(dialog, DialogKey::left) == DialogAction::changed);
+    CHECK(dialog.chosen.hardware_acceleration == settings::HardwareAcceleration::off);
+    CHECK(dialog.chosen.wreck_glow == 10);
+    CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
+    CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
+    CHECK(dialog.chosen.hardware_acceleration == settings::HardwareAcceleration::full);
+    for (const auto field : effects)
+        CHECK(dialog.chosen.*field == 100);
+}
+
 /// Effect sliders have ten-percent stops, restore defaults and cancel edits.
 void visual_effects_show_and_change() {
     const std::array<uint32_t settings::EngineSettings::*, 8> effects{
@@ -7787,8 +7825,15 @@ void visual_effects_show_and_change() {
     };
     for (std::size_t index = 0; index < effects.size(); ++index) {
         auto dialog = graphics_page();
+        // Full, as the player's own file starts: the four effects at 100%.
         dialog.chosen.hardware_acceleration = settings::HardwareAcceleration::full;
         dialog.defaults.hardware_acceleration = settings::HardwareAcceleration::full;
+        settings::follow_acceleration_with_effects(
+            dialog.chosen, settings::HardwareAcceleration::off
+        );
+        settings::follow_acceleration_with_effects(
+            dialog.defaults, settings::HardwareAcceleration::off
+        );
         dialog.scroll[static_cast<std::size_t>(Page::graphics)] = 1200;
         dialog.focused = settings::first_row_control + 13 + static_cast<int32_t>(index);
         CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
@@ -10387,6 +10432,7 @@ int main(int argc, char** argv) {
         menu_scaling_and_native_density_show_and_change();
         smooth_motion_shows_and_changes();
         visual_effects_show_and_change();
+        hardware_acceleration_moves_the_effects();
         explosion_flash_shows_and_changes();
         fog_of_war_shows_and_changes();
         zoomed_out_units_show_and_change();

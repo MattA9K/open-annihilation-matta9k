@@ -1093,13 +1093,17 @@ struct EngineSettings {
     /// Allows angles beyond the range suited to the map artwork.
     bool unlocked_camera{};
     /// Weapon fire, projectiles and impacts light nearby surfaces; percent.
-    uint32_t weapon_lighting{100};
+    /// 0 as constructed, where acceleration is Off (default_effect_intensity).
+    uint32_t weapon_lighting{};
     /// Nanolathe streams and construction glow intensity, in percent.
-    uint32_t nanolathe_lighting{100};
+    /// 0 as constructed, where acceleration is Off (default_effect_intensity).
+    uint32_t nanolathe_lighting{};
     /// Cooling wreck glow intensity, in percent.
-    uint32_t wreck_glow{100};
+    /// 0 as constructed, where acceleration is Off (default_effect_intensity).
+    uint32_t wreck_glow{};
     /// Heat distortion strength around hot weapons and wrecks, in percent.
-    uint32_t heat_distortion{100};
+    /// 0 as constructed, where acceleration is Off (default_effect_intensity).
+    uint32_t heat_distortion{};
     /// Water ripples intensity, in percent.
     uint32_t water_ripples{100};
     /// Coastal waves intensity, in percent.
@@ -1301,6 +1305,29 @@ highest_offered_unit_limit(const oa::data::limits::UnitsPerPlayer& units) noexce
 /// @param inputs the platform, the preferences file and the installation
 /// @return the defaults
 [[nodiscard]] EngineSettings default_settings(const Inputs& inputs);
+
+/// Returns the percent Coloured weapon lighting, Nanolathe glow, Wreck glow
+/// and Heat distortion read as when none is stored: 100 with Hardware
+/// acceleration Full and 0 below it, so a battlefield drawn without Full
+/// keeps the game's own look until the player turns an effect on.
+///
+/// @param acceleration the Hardware acceleration setting
+/// @return 100 or 0
+[[nodiscard]] constexpr uint32_t
+default_effect_intensity(HardwareAcceleration acceleration) noexcept {
+    return acceleration == HardwareAcceleration::full ? 100U : 0U;
+}
+
+/// Moves the four effects with Hardware acceleration: leaving Full sets
+/// Coloured weapon lighting, Nanolathe glow, Wreck glow and Heat distortion
+/// to 0%, and reaching Full sets them to 100%. A change that neither leaves
+/// nor reaches Full leaves them, so a player may turn them on below Full.
+///
+/// @param[in,out] settings the settings after the change
+/// @param before Hardware acceleration before the change
+void follow_acceleration_with_effects(
+    EngineSettings& settings, HardwareAcceleration before
+) noexcept;
 
 /// Reads the settings from the preferences.
 ///

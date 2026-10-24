@@ -224,7 +224,7 @@ of range is clamped. A switch is On for any number above 0: a word such as
 | `open-annihilation.zoomed-out-after` | `1/2`, `1/3`, `1/4`, `1/6`, `1/8`, `1/12` or `1/16`; any other text reads as `1/6` | `1/6` |
 | `open-annihilation.allow-full-3d` | 0 or 1 | 1 |
 | `open-annihilation.unlocked-camera` | 0 or 1 | 0 |
-| `open-annihilation.weapon-lighting.intensity`, `open-annihilation.nanolathe-lighting.intensity`, `open-annihilation.wreck-glow.intensity`, `open-annihilation.heat-distortion.intensity` | percent, 0 to 200, held to that range and rounded to the nearest 10; any other text is ignored. Without it, the effect's earlier switch (`open-annihilation.weapon-lighting`, `.nanolathe-lighting`, `.wreck-glow` or `.heat-distortion`, 0 or 1) reads as 0 or 100 | 100 |
+| `open-annihilation.weapon-lighting.intensity`, `open-annihilation.nanolathe-lighting.intensity`, `open-annihilation.wreck-glow.intensity`, `open-annihilation.heat-distortion.intensity` | percent, 0 to 200, held to that range and rounded to the nearest 10; any other text is ignored. Without it, the effect's earlier switch (`open-annihilation.weapon-lighting`, `.nanolathe-lighting`, `.wreck-glow` or `.heat-distortion`, 0 or 1) reads as 0 or 100 | 100 with `open-annihilation.hardware-acceleration` at `full`, else 0 |
 | `open-annihilation.water-ripples.intensity`, `open-annihilation.coastal-waves.intensity`, `open-annihilation.underwater-shimmer.intensity`, `open-annihilation.naval-reflections.intensity` | percent, 0 to 200, held to that range and rounded to the nearest 10; any other text is ignored | 100 |
 | `open-annihilation.window-frame` | `hidden-in-play` or `always-shown`; any other text reads as `hidden-in-play` | `hidden-in-play` |
 | `open-annihilation.hud-scaling` | 0 or 1 | 1 |
