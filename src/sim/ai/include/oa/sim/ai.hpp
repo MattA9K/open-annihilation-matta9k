@@ -419,9 +419,9 @@ void computer_profile_apply(
 /// A file with no final newline still has that last line. `words` is valid
 /// only while the visit runs: the words live in the tokenizer's stack
 /// storage. A line is cut into at most 20 words, separated by space, tab,
-/// `\r`, `\n`, `\v` or `\f`. `#` ends the line, even inside a word, and that
-/// word ends there too. The words of one line share 126 bytes, so a long
-/// word is cut and a full line stops early.
+/// carriage return, line feed, vertical tab or form feed. `#` ends the line,
+/// even inside a word, and that word ends there too. The words of one line
+/// share 126 bytes, so a long word is cut and a full line stops early.
 struct ProfileLine {
     uint32_t number{};          ///< line number, from 1, one per `\n`
     uint32_t count{};           ///< stored words, 1 to 20
