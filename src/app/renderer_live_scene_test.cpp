@@ -140,7 +140,7 @@ void canonical_terrain_grid() {
     Fixture fixture;
     constexpr std::array<uint8_t, 12> heights{0, 0, 32, 96, 128, 128, 96, 16, 0, 0, 0, 0};
     fixture.map.attribute_width = 8;
-    fixture.map.attribute_height = heights.size();
+    fixture.map.attribute_height = static_cast<uint32_t>(heights.size());
     fixture.map.tile_width = 4;
     fixture.map.tile_height = 6;
     fixture.map.tile_indices.assign(24, 0);

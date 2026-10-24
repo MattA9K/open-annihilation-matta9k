@@ -1380,8 +1380,16 @@ std::array<oa::present::world_renderer::ScreenPoint, 2> Runtime::match_drag_corn
 ) const {
     if (live_renderer_active() && match_drag_)
         return {
-            live_project_world(match_drag_->start[0], match_drag_->start[1], match_drag_->start[2]),
-            live_project_world(match_drag_->end[0], match_drag_->end[1], match_drag_->end[2])
+            live_project_world(
+                static_cast<float>(match_drag_->start[0]),
+                static_cast<float>(match_drag_->start[1]),
+                static_cast<float>(match_drag_->start[2])
+            ),
+            live_project_world(
+                static_cast<float>(match_drag_->end[0]),
+                static_cast<float>(match_drag_->end[1]),
+                static_cast<float>(match_drag_->end[2])
+            )
         };
     const double scale = viewport.scale == 0.0F ? 1.0 : static_cast<double>(viewport.scale);
     const auto project = [&](const std::array<int32_t, 3>& point) {

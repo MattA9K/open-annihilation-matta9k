@@ -133,7 +133,7 @@ void heat_boundaries() {
         for (int x = 0; x < width; ++x) {
             const auto index = size_t(y * width + x);
             visibility[index] = x < 12 ? 255 : 0;
-            depth[index] = x < 12 ? 0 : 5;
+            depth[index] = x < 12 ? 0.0F : 5.0F;
             for (int channel = 0; channel < 3; ++channel)
                 pixels[size_t(y * stride + x * channels + channel)] = x < 12 ? 20 : 230;
         }

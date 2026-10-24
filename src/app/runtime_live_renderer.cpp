@@ -821,8 +821,8 @@ void Runtime::draw_live_selection() {
                 ? build_site_for(build_queue_drag_->type, build_queue_drag_->facing, *ground)
                 : pending_build_site(*ground);
         if (site) {
-            const float x0 = site->cell_x * terrain_cell_edge;
-            const float z0 = site->cell_z * terrain_cell_edge;
+            const float x0 = static_cast<float>(site->cell_x * terrain_cell_edge);
+            const float z0 = static_cast<float>(site->cell_z * terrain_cell_edge);
             const float x1 = x0 + site->footprint_x * terrain_cell_edge;
             const float z1 = z0 + site->footprint_z * terrain_cell_edge;
             constexpr float fixed_scale = 65536;

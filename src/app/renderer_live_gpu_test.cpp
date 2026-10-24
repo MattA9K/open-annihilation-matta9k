@@ -604,8 +604,8 @@ void ripple_visible_contrast() {
             Vertex{0, height, size}
         };
         for (auto& vertex : faces) {
-            vertex.terrain_size = water_surface ? -2 : 0;
-            vertex.terrain_x = water_surface ? 20 : 0;
+            vertex.terrain_size = water_surface ? -2.0F : 0.0F;
+            vertex.terrain_x = water_surface ? 20.0F : 0.0F;
         }
         vertices.insert(vertices.end(), faces.begin(), faces.end());
     };
@@ -785,7 +785,7 @@ void submerged_faces() {
     for (const float facing : {1.0F, -1.0F}) {
         scene.projection = classic_projection;
         scene.projection[0] = facing;
-        scene.projection[3] = facing < 0 ? large_target : 0;
+        scene.projection[3] = facing < 0 ? static_cast<float>(large_target) : 0.0F;
         water.shimmer = 0;
         OA_CHECK(frame() == Result::success);
         const auto ordinary = scene.pixels;
@@ -836,7 +836,7 @@ void crossing_waterline() {
     for (float facing : {1.0F, -1.0F}) {
         scene.projection = classic_projection;
         scene.projection[0] = facing;
-        scene.projection[3] = facing < 0 ? large_target : 0;
+        scene.projection[3] = facing < 0 ? static_cast<float>(large_target) : 0.0F;
         water.shimmer = 0;
         OA_CHECK(frame() == Result::success);
         const auto baseline = scene.pixels;
@@ -885,8 +885,8 @@ void underwater_billboard_depth() {
         Vertex a{x, 0, 16}, b{x + 8, 0, 16};
         Vertex c{x + 8, 32, 16}, d{x, 32, 16};
         for (auto* vertex : {&a, &b, &c, &d}) {
-            vertex->terrain_size = x == 0 ? -5 : -1;
-            vertex->terrain_x = x == 0 ? 8 : 0;
+            vertex->terrain_size = x == 0 ? -5.0F : -1.0F;
+            vertex->terrain_x = x == 0 ? 8.0F : 0.0F;
         }
         scene.vertices.insert(scene.vertices.end(), {a, b, c, a, c, d});
     }

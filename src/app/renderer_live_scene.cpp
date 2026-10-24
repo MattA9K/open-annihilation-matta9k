@@ -877,7 +877,7 @@ void unit_shadows(const Inputs& in, Scene& scene) {
                     scene.aircraft_shadow_materials.clear();
                 cached = scene.aircraft_shadow_materials.emplace(key, rectangle).first;
             }
-            const float padding = style.radius * 2;
+            const float padding = static_cast<float>(style.radius) * 2.0F;
             const float left = position.x / fixed_scale + model::shadow_offset_x -
                                (image.origin_x + padding) * style.spread;
             const float top = position.z / fixed_scale - receiver * height_lift -
@@ -1568,8 +1568,8 @@ void models(const Inputs& in, Scene& scene) {
             screen_bounds ? nanoframe_margin * (std::abs(projection[4]) + std::abs(projection[5]) +
                                                 std::abs(projection[6]))
                           : nanoframe_margin;
-        const float left = screen_bounds ? 0 : in.left;
-        const float top = screen_bounds ? 0 : in.top;
+        const float left = screen_bounds ? 0.0F : static_cast<float>(in.left);
+        const float top = screen_bounds ? 0.0F : static_cast<float>(in.top);
         const float right = screen_bounds ? float(in.clip_width) : in.right;
         const float bottom = screen_bounds ? float(in.clip_height) : in.bottom;
         if (bounded && (max_x + margin_x < left || min_x - margin_x > right ||
@@ -2023,10 +2023,10 @@ float surface_effect_lift(
         }
     if (left >= right_pixel || top >= bottom)
         return 0;
-    const float min_across = left - frame.origin_x;
-    const float max_across = right_pixel - frame.origin_x;
-    const float min_above = frame.origin_y - bottom;
-    const float max_above = frame.origin_y - top;
+    const float min_across = static_cast<float>(left - frame.origin_x);
+    const float max_across = static_cast<float>(right_pixel - frame.origin_x);
+    const float min_above = static_cast<float>(frame.origin_y - bottom);
+    const float max_above = static_cast<float>(frame.origin_y - top);
     const float determinant = right[0] * up[2] - right[2] * up[0];
     if (std::abs(determinant) < 0.000001F)
         return 0;

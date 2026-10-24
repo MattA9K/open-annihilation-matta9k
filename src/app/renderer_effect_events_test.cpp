@@ -7,8 +7,8 @@
 #include "oa/sim/match_runtime.hpp"
 #include "oa/test/check.hpp"
 
+#include <cstdio>
 #include <memory>
-#include <cstring>
 #include <stdexcept>
 
 namespace {
@@ -76,11 +76,11 @@ int main() {
     using namespace oa::app;
     oa::WeaponDef definition{};
     for (const char* key : {"EMG", "emg2", "eMg", "VTOL_EMG"}) {
-        std::strcpy(definition.key, key);
+        std::snprintf(definition.key, sizeof definition.key, "%s", key);
         OA_CHECK(renderer_weapon_style::is_emg(definition));
     }
     for (const char* key : {"", "EMG_LARGE", "EMG3", "PLASMA"}) {
-        std::strcpy(definition.key, key);
+        std::snprintf(definition.key, sizeof definition.key, "%s", key);
         OA_CHECK(!renderer_weapon_style::is_emg(definition));
     }
     renderer_effect_sources::Source impact;
@@ -112,12 +112,14 @@ int main() {
     world->game.tick = 42;
     world->game.weapon_defs[0].color = 17;
     world->game.weapon_defs[0].render_type = 4;
-    std::strcpy(world->game.weapon_defs[0].key, "VTOL_EMG");
+    std::snprintf(
+        world->game.weapon_defs[0].key, sizeof world->game.weapon_defs[0].key, "%s", "VTOL_EMG"
+    );
     std::array<oa::Unit, 3> units{};
     oa::UnitDef naval{};
     naval.flags = OA_UNIT_DEF_FLAG_FLOATER;
     world->units = units.data();
-    world->unit_slot_count = units.size();
+    world->unit_slot_count = static_cast<uint32_t>(units.size());
     world->unit_defs = &naval;
     world->unit_def_count = 1;
     units[1].def = units[2].def = 1;

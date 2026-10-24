@@ -1829,7 +1829,7 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                     selected_tnt_->sea_level > 0
                         ? water.shimmer * std::clamp((zoom - 0.25F) / 0.25F, 0.0F, 1.0F)
                         : 0;
-                model_inputs.water_sea_level = selected_tnt_->sea_level;
+                model_inputs.water_sea_level = static_cast<float>(selected_tnt_->sea_level);
                 model_inputs.water_seconds = water.seconds;
                 const auto water_coverage = match_->player_coverage(match_view_player());
                 const auto& water_sight = match_->sight();
