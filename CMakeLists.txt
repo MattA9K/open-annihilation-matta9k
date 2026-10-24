@@ -4041,14 +4041,16 @@ endif()
 add_subdirectory(tools/oa-tool)
 add_executable(oa-tool tools/oa-tool/main.cpp)
 target_link_libraries(oa-tool PRIVATE oa-tool-commands oa-options)
+# The same version line as the game, so `oa-tool --version` matches
+# `open-annihilation --version`. A build without the platform has no
+# engine-build header, and the line names no commit.
+target_include_directories(oa-tool PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/app/include")
+target_compile_definitions(oa-tool PRIVATE "OA_ENGINE_VERSION=\"${PROJECT_VERSION}\""
+  "OA_ENGINE_VERSION_LABEL=\"${OA_VERSION_LABEL}\"")
 if(TARGET oa-app-engine-build)
-  # The same version line as the game: the commit the build wrote, and the
-  # version, so `oa-tool --version` matches `open-annihilation --version`.
+  # The commit the build wrote.
   add_dependencies(oa-tool oa-app-engine-build)
-  target_include_directories(oa-tool PRIVATE "${oa_engine_build_dir}"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/app/include")
-  target_compile_definitions(oa-tool PRIVATE "OA_ENGINE_VERSION=\"${PROJECT_VERSION}\""
-    "OA_ENGINE_VERSION_LABEL=\"${OA_VERSION_LABEL}\"")
+  target_include_directories(oa-tool PRIVATE "${oa_engine_build_dir}")
   if(TARGET oa-game-options-test)
     add_dependencies(oa-game-options-test oa-app-engine-build)
     target_include_directories(oa-game-options-test PRIVATE "${oa_engine_build_dir}")
