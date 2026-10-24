@@ -393,7 +393,11 @@ const std::vector<FlagCase>& flag_cases() {
         {"--check-map-browser", &Options::check_map_browser, {}},
         {"--check-mutator-button", &Options::check_mutator_button, {}},
         {"--check-mutator-room", &Options::check_mutator_room, {}},
+        {"--check-brain-room", &Options::check_brain_room, {}},
         {"--check-mutator-picker", &Options::check_mutator_picker, {}},
+        {"--check-brain-picker", &Options::check_brain_picker, {}},
+        {"--check-brain-seat-buttons", &Options::check_brain_seat_buttons, {}},
+        {"--check-brain-campaign", &Options::check_brain_campaign, {}},
         {"--check-mutator-prompts", &Options::check_mutator_prompts, {}},
         {"--check-map-pack-lists", &Options::check_map_pack_lists, {}},
         {"--check-mod-map-settings", &Options::check_mod_map_settings, {}},
@@ -428,6 +432,7 @@ const std::vector<FlagCase>& flag_cases() {
         {"--check-match-bars", &Options::check_match_bars, {}},
         {"--check-kill-board", &Options::check_kill_board, {}},
         {"--check-paused-save", &Options::check_paused_save, {}},
+        {"--check-saved-brains", &Options::check_saved_brains, {}},
         {"--check-simulation-hash", &Options::check_simulation_hash, {}},
         {"--check-zoom-memory", &Options::check_zoom_memory, {}},
         {"--check-language-switch", &Options::check_language_switch, {}},
@@ -510,6 +515,26 @@ const std::vector<ValueCase>& value_cases() {
         {"--zoom", "2", {}},
         {"--camera", "10,20", {}},
         {"--seed", "5", {}},
+        {"--brain-match",
+         "builtin,builtin",
+         {"--headless-check", "--match-ticks", "60", "--brain-map", "Ashap Plateau"}},
+        {"--brain-levels",
+         "easy,hard",
+         {"--headless-check",
+          "--match-ticks",
+          "60",
+          "--brain-match",
+          "builtin,builtin",
+          "--brain-map",
+          "Ashap Plateau"}},
+        {"--brain-map",
+         "Ashap Plateau",
+         {"--headless-check", "--match-ticks", "60", "--brain-match", "builtin,builtin"}},
+        {"--brain-record", "records.txt", {"--headless-check", "--match-ticks", "60"}},
+        {"--brain-shadow", "steady-commander", {}},
+        {"--brain-shadow-log", "shadow-logs", {"--brain-shadow", "steady-commander"}},
+        {"--brain-shadow-sections", "build,attack", {"--brain-shadow", "steady-commander"}},
+        {"--brain-trace", "log.txt", {"--headless-check", "--match-ticks", "60"}},
         {"--render-fault", "present", {"--check-renderer-ladder"}},
         {"--check-unit-pages", "whole:ARMCOM", {}},
         {"--check-unit-language", "fr", {}},
@@ -849,7 +874,7 @@ void version_line_stands_alone() {
 
 } // namespace
 
-// --open, --install-mod, bare files of the five types the game installs or
+// --open, --install-mod, bare files of the six types the game installs or
 // adds, macOS's process serial number and --check-mod-install.
 void mod_install_options() {
     namespace fs = std::filesystem;
@@ -864,19 +889,21 @@ void mod_install_options() {
          "e.oamod",
          "--open",
          "g.oamut",
+         "h.OABRAIN",
          "-psn_0_123",
          "german"}
     );
-    expect(opened.open_files.size() == 7, "--open, --install-mod and bare files are all opened");
+    expect(opened.open_files.size() == 8, "--open, --install-mod and bare files are all opened");
     expect(
-        opened.open_files.size() == 7 && opened.open_files[0].is_absolute() &&
+        opened.open_files.size() == 8 && opened.open_files[0].is_absolute() &&
             opened.open_files[0].filename() == "a.oalang" &&
             opened.open_files[1].filename() == "B.OAMAP" &&
             opened.open_files[2].filename() == "c.oareg" &&
             opened.open_files[3].filename() == "F.OAMUT" &&
             opened.open_files[4].filename() == "d.oamod" &&
             opened.open_files[5].filename() == "e.oamod" &&
-            opened.open_files[6].filename() == "g.oamut",
+            opened.open_files[6].filename() == "g.oamut" &&
+            opened.open_files[7].filename() == "h.OABRAIN",
         "the files are absolute, in the order given, and --install-mod still opens one"
     );
     expect(opened.skip_intro, "a file opened with the game skips the movies");
@@ -898,7 +925,8 @@ void mod_install_options() {
     expect(
         rejection({"x.oamod", "--headless-check"})
                 .find(
-                    "a file to open (.oamod, .oalang, .oamap, .oamut or .oareg), after --open or "
+                    "a file to open (.oamod, .oalang, .oamap, .oamut, .oabrain or .oareg), after "
+                    "--open or "
                     "on "
                     "its own,"
                 ) != std::string::npos,
@@ -1282,6 +1310,257 @@ int main() {
         rejection({"--headless-check", "--match-ticks", "60", "--frame-clock", "0"}) ==
             "--frame-log, --scroll-camera, --march, --follow and --frame-clock need --frame-rate",
         "--frame-clock needs --frame-rate"
+    );
+    const auto brain_match = parse(
+        {"--headless-check",
+         "--match-ticks",
+         "60",
+         "--brain-match",
+         "builtin,builtin",
+         "--brain-levels",
+         "easy,hard",
+         "--brain-map",
+         "Ashap Plateau"}
+    );
+    expect(
+        brain_match.brain_match == "builtin,builtin" && brain_match.brain_levels == "easy,hard" &&
+            brain_match.brain_map == "Ashap Plateau",
+        "a brain match stores its three options"
+    );
+    expect(
+        rejection({"--brain-levels", "easy,hard"}) == "--brain-levels needs --brain-match",
+        "--brain-levels needs --brain-match"
+    );
+    expect(
+        rejection({"--brain-map", "Ashap Plateau"}) == "--brain-map needs --brain-match",
+        "--brain-map needs --brain-match"
+    );
+    expect(
+        rejection({"--brain-shadow-sections", "build,attack"}) ==
+            "--brain-shadow-sections needs --brain-shadow",
+        "--brain-shadow-sections needs --brain-shadow"
+    );
+    expect(
+        rejection({"--brain-shadow-log", "shadow-logs"}) ==
+            "--brain-shadow-log needs --brain-shadow",
+        "--brain-shadow-log needs --brain-shadow"
+    );
+    expect(
+        rejection({"--brain-shadow", ""}) == "--brain-shadow requires a value",
+        "an empty shadow brain is refused"
+    );
+    expect(
+        rejection({"--brain-shadow-sections", ""}) == "--brain-shadow-sections requires a value",
+        "an empty shadow section list is refused"
+    );
+    expect(
+        rejection({"--brain-shadow-log", ""}) == "--brain-shadow-log requires a value",
+        "an empty shadow log folder is refused"
+    );
+    {
+        const auto shadow = parse(
+            {"--brain-shadow",
+             "steady-commander",
+             "--brain-shadow-sections",
+             "build,attack",
+             "--brain-shadow-log",
+             "shadow-logs"}
+        );
+        expect(
+            shadow.brain_shadow == "steady-commander" &&
+                shadow.brain_shadow_sections == "build,attack" &&
+                shadow.brain_shadow_log == "shadow-logs",
+            "a shadow run stores its three options"
+        );
+    }
+    expect(
+        rejection({"--brain-trace", "log.txt"}) == "--brain-trace needs --headless-check",
+        "--brain-trace needs --headless-check"
+    );
+    expect(
+        rejection({"--headless-check", "--brain-trace", "log.txt"}) ==
+            "--brain-trace needs --match-ticks",
+        "--brain-trace needs --match-ticks"
+    );
+    expect(
+        rejection({"--brain-record", "records.txt"}) == "--brain-record needs --headless-check",
+        "--brain-record needs --headless-check"
+    );
+    expect(
+        rejection({"--headless-check", "--brain-record", "records.txt"}) ==
+            "--brain-record needs --match-ticks",
+        "--brain-record needs --match-ticks"
+    );
+    expect(
+        rejection({"--brain-trace"}) == "--brain-trace requires a value",
+        "--brain-trace requires a value"
+    );
+    expect(
+        rejection({"--brain-trace", ""}) == "--brain-trace requires a value",
+        "an empty brain log path is refused"
+    );
+    expect(
+        rejection({"--brain-record"}) == "--brain-record requires a value",
+        "--brain-record requires a value"
+    );
+    expect(
+        rejection({"--brain-record", ""}) == "--brain-record requires a value",
+        "an empty record path is refused"
+    );
+    {
+        const auto logged = parse(
+            {"--headless-check",
+             "--match-ticks",
+             "60",
+             "--brain-trace",
+             "log.txt",
+             "--brain-record",
+             "records.txt"}
+        );
+        expect(
+            logged.brain_trace == "log.txt" && logged.brain_record == "records.txt",
+            "the brain log and the record file are stored"
+        );
+    }
+    expect(
+        rejection({"--brain-match", "x,y"}) == "--brain-match needs --headless-check",
+        "--brain-match needs --headless-check"
+    );
+    expect(
+        rejection({"--headless-check", "--brain-match", "x,y", "--brain-map", "Ashap Plateau"}) ==
+            "--brain-match needs --match-ticks",
+        "--brain-match needs --match-ticks"
+    );
+    expect(
+        rejection({"--headless-check", "--match-ticks", "60", "--brain-match", "x,y"}) ==
+            "--brain-match needs --brain-map",
+        "--brain-match needs --brain-map"
+    );
+    expect(
+        rejection(
+            {"--headless-check",
+             "--match-ticks",
+             "60",
+             "--brain-map",
+             "Ashap Plateau",
+             "--brain-match",
+             "builtin"}
+        ) == "--brain-match expects two seats",
+        "--brain-match expects two seats"
+    );
+    expect(
+        rejection(
+            {"--headless-check",
+             "--match-ticks",
+             "60",
+             "--brain-map",
+             "Ashap Plateau",
+             "--brain-match",
+             "builtin,builtin",
+             "--brain-levels",
+             "silly,hard"}
+        ) == "--brain-levels: a built-in level is easy, medium or hard",
+        "a built-in level is easy, medium or hard"
+    );
+    expect(
+        rejection(
+            {"--headless-check",
+             "--match-ticks",
+             "60",
+             "--stage",
+             "s.stage",
+             "--brain-map",
+             "Ashap Plateau",
+             "--brain-match",
+             "builtin,builtin"}
+        ) == "--brain-match cannot be used with --stage",
+        "--brain-match cannot be used with --stage"
+    );
+    expect(
+        rejection(
+            {"--headless-check",
+             "--match-ticks",
+             "60",
+             "--combat",
+             "4",
+             "--brain-map",
+             "Ashap Plateau",
+             "--brain-match",
+             "builtin,builtin"}
+        ) == "--brain-match cannot be used with --combat",
+        "--brain-match cannot be used with --combat"
+    );
+    expect(
+        rejection(
+            {"--headless-check",
+             "--match-ticks",
+             "60",
+             "--load",
+             "a.sav",
+             "--brain-map",
+             "Ashap Plateau",
+             "--brain-match",
+             "builtin,builtin"}
+        ) == "--brain-match cannot be used with --load",
+        "--brain-match cannot be used with --load"
+    );
+    expect(
+        rejection(
+            {"--headless-check",
+             "--match-ticks",
+             "60",
+             "--save-after",
+             "30",
+             "--brain-map",
+             "Ashap Plateau",
+             "--brain-match",
+             "builtin,builtin"}
+        ) == "--brain-match cannot be used with --save-after",
+        "--brain-match cannot be used with --save-after"
+    );
+    expect(
+        rejection(
+            {"--headless-check",
+             "--match-ticks",
+             "60",
+             "--campaign",
+             "Arm Campaign",
+             "--mission",
+             "0",
+             "--brain-map",
+             "Ashap Plateau",
+             "--brain-match",
+             "builtin,builtin"}
+        ) == "--brain-match cannot be used with --campaign",
+        "--brain-match cannot be used with --campaign"
+    );
+    expect(
+        rejection(
+            {"--headless-check",
+             "--match-ticks",
+             "60",
+             "--frame-rate",
+             "30",
+             "--brain-map",
+             "Ashap Plateau",
+             "--brain-match",
+             "builtin,builtin"}
+        ) == "--brain-match cannot be used with --frame-rate",
+        "--brain-match cannot be used with --frame-rate"
+    );
+    expect(
+        rejection(
+            {"--headless-check",
+             "--match-ticks",
+             "60",
+             "--benchmark",
+             "10",
+             "--brain-map",
+             "Ashap Plateau",
+             "--brain-match",
+             "builtin,builtin"}
+        ) == "--brain-match cannot be used with --benchmark",
+        "--brain-match cannot be used with --benchmark"
     );
 
     // Without an extension the engine knows none of an extension's options.

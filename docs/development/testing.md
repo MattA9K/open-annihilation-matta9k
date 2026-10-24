@@ -1026,7 +1026,14 @@ the engine, with their size class and scale.
   container and runs its tests under Wine. Use it when a change touches
   platform-specific code. The container keeps compiled objects in a Docker
   volume that every run and every checkout shares, so a rebuild compiles only
-  what changed.
+  what changed. A cross build cannot run the `oa-tool` it compiles.
+  `OA_HOST_OA_TOOL` is the absolute path of a host build's `oa-tool`. When
+  it names that executable, the cross build packs `classic.oabrain` in `brains/`
+  beside the game with it, the same command a host build runs. When it is
+  empty, the cross build leaves Classic unpacked and says so at configure
+  time. `tools/build_windows.sh` passes `build/oa-tool` when that file
+  exists. An empty `OA_HOST_OA_TOOL` in the environment leaves Classic
+  unpacked.
 - **Windows XP:** `OA_MINGW_TRIPLE=i686-w64-mingw32 tools/build_windows.sh
   --xp` builds the tree for 32-bit Windows XP SP3 into
   `build-windows-i686-xp`, and `tools/build_windows.sh --xp` for the 64-bit
@@ -1229,6 +1236,13 @@ reads `Checked with No Mod ✓`. It then opens that feed with a mutator
 whose check already stopped and an On mutator whose package cannot be
 resolved: the chip keeps the stopped verdict and does not read the
 checking words. The dry run is the Library worker's.
+`native-brain-picker` (`--check-brain-picker`) opens the brain picker over the
+main menu at four window sizes on a fixture feed of made-up brains, then
+on the runtime's own feed after two packages are written into the scratch
+Brains folder.
+`native-brain-seat-buttons` (`--check-brain-seat-buttons`) checks each computer
+row's brain button on the skirmish setup at 640x480 and 1280x720, in a scratch
+folder: the label, Tab, the picker, the hover card and the brains a start seats.
 `native-replay-loadout` starts the game with
 `--check-replay-loadout`
 and two installed mutators. It refuses a loadout that cannot be read or

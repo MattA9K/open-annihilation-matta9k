@@ -14,7 +14,9 @@
 
 #include "oa/core/world.h"
 
+#include <cstddef>
 #include <cstdint>
+#include <span>
 
 namespace oa::sim::detection {
 
@@ -25,6 +27,14 @@ inline constexpr uint32_t radar_contact = OA_UNIT_FLAG_RADAR_CONTACT;
 inline constexpr uint32_t sonar_contact = OA_UNIT_FLAG_VIEWPOINT_OWNED;
 inline constexpr uint32_t jammed = OA_UNIT_FLAG_JAMMED;
 inline constexpr uint32_t contact_bits = radar_contact | sonar_contact | jammed;
+
+/// Bits of one unit slot in a player's radar picture.
+///
+/// They are not `Unit.flags` values. `picture_radar` matches a radar contact,
+/// `picture_sonar` a sonar contact and `picture_jammed` a jammed unit.
+inline constexpr uint8_t picture_radar = 1;
+inline constexpr uint8_t picture_sonar = 2;
+inline constexpr uint8_t picture_jammed = 4;
 
 // Player-info role bit an owner sets to share its radar with allies.
 inline constexpr uint8_t share_radar_role = 0x40;
@@ -73,6 +83,54 @@ struct Sightings {
     uint8_t radar_fallback{};
 };
 
+/// One known unit in a list kept in unit slot order.
+struct SightedUnit {
+    uint16_t unit{};       ///< the unit's slot
+    uint32_t generation{}; ///< the generation that tells this unit from the next to take the slot
+};
+
+/// Compares two lists of known units and reports what entered and what left.
+///
+/// Both lists are in ascending slot order. An entry matches another only when
+/// its slot and its generation both match. Each entry only the earlier list
+/// holds is reported lost, and each only the later list holds is reported
+/// gained, in slot order. Where one slot is in both lists with different
+/// generations, the lost entry is reported before the gained one. Nothing is
+/// allocated.
+///
+/// @tparam Entry a type with unit and generation members
+/// @tparam Lost a callable taking one earlier-list entry
+/// @tparam Gained a callable taking one later-list entry
+/// @param before the earlier list
+/// @param after the later list
+/// @param lost called with each entry only before holds
+/// @param gained called with each entry only after holds
+template <class Entry, class Lost, class Gained>
+void diff_sighted(
+    std::span<const Entry> before, std::span<const Entry> after, Lost&& lost, Gained&& gained
+) {
+    std::size_t before_at = 0;
+    std::size_t after_at = 0;
+    while (before_at < before.size() || after_at < after.size()) {
+        const bool before_left = before_at < before.size();
+        const bool after_left = after_at < after.size();
+        if (before_left && after_left && before[before_at].unit == after[after_at].unit &&
+            before[before_at].generation == after[after_at].generation) {
+            ++before_at;
+            ++after_at;
+            continue;
+        }
+        // The same slot with a new generation is lost before it is gained.
+        if (before_left && (!after_left || before[before_at].unit <= after[after_at].unit)) {
+            lost(before[before_at]);
+            ++before_at;
+            continue;
+        }
+        gained(after[after_at]);
+        ++after_at;
+    }
+}
+
 /// Returns the squared horizontal distance between two points as the game sums it.
 ///
 /// @param a first point, 16.16 world coordinates
@@ -110,6 +168,57 @@ void jam_radar(Unit& unit) noexcept;
 ///
 /// @param[in,out] unit unit walked over
 void jam_sonar(Unit& unit) noexcept;
+
+/// Stamps one unit inside a scanner's walk into a picture byte.
+///
+/// The tests are stamp_contact's, with `viewer` in place of the viewpoint:
+/// a non-stealth unit of another player is a sonar contact at or below sea
+/// level inside the sonar reach, and a radar contact when its top is at or
+/// above sea level inside the radar reach. The unit's flags are not written.
+///
+/// @param scan scanning unit's reach and position
+/// @param viewer player whose picture is being built
+/// @param unit unit walked over
+/// @param world sea level and unit types
+/// @param[in,out] bits the unit's picture byte
+void stamp_picture(
+    const ScanRecord& scan, uint8_t viewer, const Unit& unit, const World& world, uint8_t& bits
+) noexcept;
+
+/// Marks a picture byte inside a radar jammer's walk: it leaves radar and is marked jammed.
+///
+/// @param[in,out] bits the unit's picture byte
+void jam_picture_radar(uint8_t& bits) noexcept;
+
+/// Marks a picture byte inside a sonar jammer's walk: it leaves sonar and is marked jammed.
+///
+/// @param[in,out] bits the unit's picture byte
+void jam_picture_sonar(uint8_t& bits) noexcept;
+
+/// Tells whether a jammer jams the viewing player's picture.
+///
+/// With allied jammers ignored, the viewer's own jammer and a jammer whose
+/// owner the viewer's alliance row names do not jam. Otherwise every jammer
+/// does. The row is read one way. A watcher and a slotless viewer are not
+/// special here.
+///
+/// @param allied_jammers_ignored intel.allied-jammers-ignored is on
+/// @param viewer the viewing player of this pass
+/// @param jammer the jamming unit
+/// @return true when it jams
+bool seat_jammer_jams(
+    bool allied_jammers_ignored, const Player& viewer, const Unit& jammer
+) noexcept;
+
+/// Returns the picture bits a new unit starts with.
+///
+/// Sonar when the unit's owner is the viewer, and neither radar nor jammed.
+/// That is how a new unit's flags start, with the viewpoint as the viewer.
+///
+/// @param unit the new unit
+/// @param viewer player whose picture is being built
+/// @return the unit's starting picture byte
+uint8_t created_picture_bits(const Unit& unit, uint8_t viewer) noexcept;
 
 /// Tests whether a player's sightings are due for a rebuild.
 ///

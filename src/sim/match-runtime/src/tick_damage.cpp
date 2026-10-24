@@ -124,15 +124,11 @@ void Match::apply_damage_event(
     auto& unit = *target.unit;
     if (!(unit.flags & live_unit_flag) || (unit.flags & death_pending_flag))
         return;
-    if (event_hooks.unit_damaged != nullptr)
-        event_hooks.unit_damaged(
-            event_hooks.context,
-            state(),
-            target.unit_index,
-            source != nullptr && source->unit != nullptr ? source->unit_index : uint16_t{},
-            amount,
-            kind
-        );
+    if (event_wanted<&EventHooks::unit_damaged>()) {
+        const auto attacker =
+            source != nullptr && source->unit != nullptr ? source->unit_index : uint16_t{};
+        emit_event<&EventHooks::unit_damaged>(state(), target.unit_index, attacker, amount, kind);
+    }
     if (kind == healing_kind) {
         if (unit.type)
             unit.health =
@@ -199,6 +195,8 @@ void Match::transfer_unit(uint16_t unit, uint8_t new_owner, const TransferredUni
     auto& original = slots_.at(unit);
     if (!original.unit || new_owner >= simulation_.players.size())
         return;
+    // Read before the captured event or the copy can change the record.
+    const uint8_t from = original.record.owner_index;
     auto& receiver = simulation_.players[new_owner];
     if (original.unit->owner == &receiver)
         return;
@@ -218,6 +216,7 @@ void Match::transfer_unit(uint16_t unit, uint8_t new_owner, const TransferredUni
         original.unit->capture_cooldown = handed_over_cooldown;
         if (multiplayer.unit_transferred != nullptr)
             multiplayer.unit_transferred(multiplayer.context, unit, new_owner);
+        emit_event<&EventHooks::unit_given>(state(), unit, uint16_t{0}, from, new_owner);
         TickHost(*this).scaled_damage(nullptr, original, lethal_damage, captured);
         return;
     }
@@ -238,6 +237,7 @@ void Match::transfer_unit(uint16_t unit, uint8_t new_owner, const TransferredUni
         return;
     // The copy drops the standing move and fire orders it was created with.
     copy->unit->flags &= ~(OA_UNIT_FLAG_MOVE_ORDER_MASK | OA_UNIT_FLAG_FIRE_ORDER_MASK);
+    emit_event<&EventHooks::unit_given>(state(), unit, copy->unit_index, from, new_owner);
     if (carried != nullptr) {
         // The unit's own machine kills the old unit and shares its death.
         copy->unit->health = carried->health;
@@ -299,6 +299,12 @@ void Match::spawn_corpse(sim::unit_spawn::Slot& slot, uint8_t wreck_level, bool 
         }
         smoke = false;
     }
+    // unit_died has already fired, and the dead unit's record still holds
+    // its position. A placement that returns no feature leaves no wreck.
+    if (placed != nullptr)
+        emit_event<&EventHooks::wreck_placed>(
+            world, slot.unit_index, corpse, static_cast<uint32_t>(index)
+        );
     if (world.plots[index].feature == corpse)
         wrecks_.push_back(
             {corpse,
@@ -490,10 +496,7 @@ void Match::teardown_dead_unit(
     auto& unit = *slot.unit;
     if (!(unit.flags & live_unit_flag))
         return;
-    if (event_hooks.unit_died != nullptr)
-        event_hooks.unit_died(
-            event_hooks.context, state(), slot.unit_index, outcome, settled_elsewhere
-        );
+    emit_event<&EventHooks::unit_died>(state(), slot.unit_index, outcome, settled_elsewhere);
     // The kill handler first leaves the viewer seeing where its own unit died.
     const auto* sight_def = oa::world_unit_def_of(&state(), &slot.record);
     const auto* sight_owner = oa::world_unit_owner(&state(), &slot.record);

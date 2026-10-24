@@ -13,6 +13,7 @@
 #include "oa/app/asset_files.hpp"
 
 #include "oa/sim/ai.hpp"
+#include "oa/sim/brains/seat.hpp"
 #include "oa/data/campaign/campaign_assets.hpp"
 #include "oa/data/campaign/campaign_file.hpp"
 #include "oa/core/unit_def.h"
@@ -974,20 +975,39 @@ void Runtime::place_mission_feature_draws() {
     }
 }
 
+Runtime::ComputerProfileFile Runtime::computer_profile_file() {
+    ComputerProfileFile file;
+    auto take = [&](const std::string& path) {
+        const std::optional<std::vector<uint8_t>> bytes = assets_.load_file_contents(path);
+        if (!bytes)
+            return false;
+        file.path = path;
+        file.text.assign(bytes->begin(), bytes->end());
+        return true;
+    };
+    if (const auto path = session_ai_profile_path(); !path.empty() && take(path))
+        return file;
+    take(oa::data::defs::data_path(oa::data::defs::DataDirectory::ai, kDefaultAiProfile));
+    return file;
+}
+
 std::string Runtime::read_computer_profile() {
-    std::optional<std::vector<uint8_t>> bytes;
-    if (const auto path = session_ai_profile_path(); !path.empty())
-        bytes = assets_.load_file_contents(path);
-    if (!bytes)
-        bytes = assets_.load_file_contents(
-            oa::data::defs::data_path(oa::data::defs::DataDirectory::ai, kDefaultAiProfile)
-        );
-    return bytes ? std::string(bytes->begin(), bytes->end()) : std::string();
+    return computer_profile_file().text;
 }
 
 void Runtime::configure_computer_players() {
     if (!match_)
         return;
+    brain_game_facts_stored_ = false;
+    // The facts read every AI profile and the map's mission file, so a match
+    // no brain can be seated in does without them.
+    bool brain_may_play = !options_.brain_shadow.empty() ||
+                          (pending_brain_seats_.has_value() && !pending_brain_seats_->empty());
+    for (const std::optional<BrainSeatChoice>& choice : brain_seat_choices_)
+        brain_may_play = brain_may_play || choice.has_value();
+    if (brain_may_play)
+        store_brain_game_facts();
+    install_brain_log_hooks();
     // Every type's build list as the game holds it, its CANBUILD entries then
     // the download menus': per type, a count then its ids.
     const auto& tables = unit_table_.tables;
@@ -1002,6 +1022,14 @@ void Runtime::configure_computer_players() {
     const auto profile = read_computer_profile();
     if (!oa::sim::ai::configure_match_computer_players(*match_, profile, lists, campaign_mission_))
         throw std::runtime_error("cannot store the computer players' profile and build lists");
+    take_pending_brain_seats();
+}
+
+void Runtime::store_brain_game_facts() {
+    if (!match_ || brain_game_facts_stored_)
+        return;
+    oa::sim::brains::set_match_game_facts(*match_, brain_game_facts());
+    brain_game_facts_stored_ = true;
 }
 
 void Runtime::reload_computer_profiles() {
@@ -1864,6 +1892,9 @@ void Runtime::start_campaign_mission() {
     }
     campaign_mission_ = true;
     bool campaign_seated = false;
+    // A hold this start armed and the match never took must not seat a later
+    // one. A hold already set, for a saved game, is left as it is.
+    bool armed_brains = false;
     try {
         if (!load_campaign_map(mission_file)) {
             campaign_mission_ = false;
@@ -1878,6 +1909,10 @@ void Runtime::start_campaign_mission() {
         // after this one start with.
         if (!mutators_held_for_next_match())
             hand_chosen_mutators(mutators_memory::Setup::campaign);
+        if (!brain_seats_held_for_next_match()) {
+            hand_setup_brain_seats(oa::data::brain_library::Setup::campaign);
+            armed_brains = true;
+        }
         bootstrap_match(
             {.units_per_player = static_cast<uint16_t>(state.file.units_per_player),
              .place_commanders = false}
@@ -1891,6 +1926,8 @@ void Runtime::start_campaign_mission() {
         if (match_ == nullptr)
             offer_mutator_start_question();
     }
+    if (armed_brains && brain_seats_held_for_next_match())
+        cancel_brain_seats_once();
     // A start that never builds a match puts the player's setup back. The
     // preferences then keep those slots, not the mission's two players.
     if (campaign_seated && !match_)

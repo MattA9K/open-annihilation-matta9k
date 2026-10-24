@@ -1068,6 +1068,7 @@ void Runtime::bootstrap_match(const MatchBootstrap& bootstrap) {
             ? kFixedRandomSeed
             : static_cast<uint32_t>(counter) + static_cast<uint32_t>(counter >> 32U)
     );
+    brain_match_seed_ = static_cast<uint32_t>(random_seed);
     // A campaign plays under the rules block its mission loader wrote, a
     // skirmish under its own settings; the session flags apply either.
     int32_t session_record[4] = {
@@ -1534,8 +1535,12 @@ void Runtime::bootstrap_match(const MatchBootstrap& bootstrap) {
     // A new skirmish or campaign mission has finished loading here; its
     // players' pass waits for the first tick. A saved game, a network game
     // and a recorded game load more after this and end theirs when they have.
-    if (!bootstrap.multiplayer && !bootstrap.replay && !resuming_saved_game())
+    if (!bootstrap.multiplayer && !bootstrap.replay && !resuming_saved_game()) {
+        open_brain_log_files();
+        seat_chosen_brains();
+        seat_shadow_brains();
         match_->finish_load();
+    }
     status_ = "Offline match world prepared for " + selected_map_name_runtime_ + " with " +
               std::to_string(unit_definitions_.size()) + " unit runtimes, " +
               std::to_string(feature_table_.defs.size()) + " feature definitions and " +

@@ -1027,6 +1027,10 @@ struct NetworkPlay::NetHost {
         nm::NetMatchHooks hooks{};
         hooks.context = &play;
         hooks.chat = chat;
+        hooks.seat_chat =
+            [](void* context, uint8_t sender, uint8_t addressee, bool broadcast, const char* line) {
+                hear_remote_seat_chat(self(context).runtime_, sender, addressee, broadcast, line);
+            };
         hooks.notice = notice;
         hooks.translate_game_text = translate_text;
         hooks.rand15 = rand15;
@@ -1116,8 +1120,13 @@ struct NetworkPlay::NetHost {
             return;
         }
         state.hosting = host_slot == local_slot;
-        if (state.hosting)
+        // A joiner that has already seen the start no longer treats a remote
+        // computer as a computer, so this machine's brains go out first. The
+        // joiner then still has them when it records the game.
+        if (state.hosting) {
+            play.runtime_.note_room_computers(lobby);
             nm::net_match_queue_game_start(&state.connection, *lobby.game);
+        }
         state.building_game = lobby.game;
         state.loading_pace = {};
         state.load_rows = {};
@@ -1257,6 +1266,27 @@ struct NetworkPlay::NetHost {
 
         runtime.release_room_mutators();
         runtime.choose_match_mutators(std::move(room_chosen));
+        // This machine's computers take their brains before the match's first
+        // tick. Another machine's computers are not in the list. The seats
+        // remembered afterwards are in the order this machine seated them.
+        runtime.note_room_computers(lobby);
+        const oa::data::brain_library::Seats room_seats = runtime.room_brain_seats();
+        std::vector<uint8_t> room_computers;
+        room_computers.reserve(room_seats.seats.size());
+        for (const oa::data::brain_library::Seat& room_seat : room_seats.seats) {
+            if (room_seat.place < 0 || room_seat.place > 9)
+                continue;
+            room_computers.push_back(static_cast<uint8_t>(room_seat.place));
+        }
+        runtime.seat_brains_once(runtime.resolve_brain_seats(
+            room_seats, room_computers, oa::data::brain_library::Difficulty::hard
+        ));
+        if (!room_seats.seats.empty()) {
+            oa::data::brain_library::Seats memory_seats = room_seats;
+            for (std::size_t seat_index = 0; seat_index < memory_seats.seats.size(); ++seat_index)
+                memory_seats.seats[seat_index].place = static_cast<int32_t>(seat_index);
+            runtime.remember_brain_seats(oa::data::brain_library::Setup::multiplayer, memory_seats);
+        }
         runtime.bootstrap_match(
             {.units_per_player = limit,
              .place_commanders = false,
@@ -1267,6 +1297,9 @@ struct NetworkPlay::NetHost {
              // at the host's.
              .run_unit_limit = state.hosting}
         );
+        // Other machines' computers, as the room showed them. This machine's
+        // own are the brains the match just seated.
+        runtime.keep_remote_played_brains(lobby);
         mp::unit_sync_destroy(lobby);
         if (!runtime.match_ || runtime.altitude_sight_blocked_)
             throw std::runtime_error(
@@ -1524,6 +1557,13 @@ struct NetworkPlay::NetHost {
                 << "demo mutators: the loadout is too long for the recording and is left out\n";
         } else {
             setup.loadout_text = loadout_text;
+        }
+        // Empty text writes no sector, so a game without brains is unchanged.
+        const std::string brains_text = runtime.played_brains_text();
+        if (brains_text.size() > oa::session::demo::recording_brains_most_bytes) {
+            std::cerr << "demo brains: the seats are too long for the recording and are left out\n";
+        } else {
+            setup.brains_text = brains_text;
         }
         const auto add_player = [&](uint8_t slot) {
             const auto& player = world.game.players[slot];
@@ -2665,6 +2705,14 @@ void NetworkPlay::net_send_chat(const char* line) {
     if (!net_ || !net_->active || net_->loading || line == nullptr || *line == '\0')
         return;
     nm::net_match_say(net_->net.get(), line);
+}
+
+void NetworkPlay::net_send_seat_chat(
+    uint8_t seat, const char* line, uint8_t mode, const uint8_t* targets
+) {
+    if (!net_ || !net_->active || net_->loading || line == nullptr || *line == '\0')
+        return;
+    nm::net_match_say_from(net_->net.get(), seat, line, mode, targets);
 }
 
 const char* NetworkPlay::shared_chat_line(const char* line, std::size_t index) const {

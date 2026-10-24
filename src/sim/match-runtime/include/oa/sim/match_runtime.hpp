@@ -6,6 +6,7 @@
 #include "oa/sim/match_runtime/attack_orders.hpp"
 #include "oa/sim/match_runtime/construction_orders.hpp"
 #include "oa/sim/match_runtime/event_hooks.hpp"
+#include "oa/sim/match_runtime/seat_hooks.hpp"
 #include "oa/sim/match_runtime/fault.hpp"
 #include "oa/sim/match_runtime/match_trace.hpp"
 #include "oa/sim/match_runtime/spawn_bridge.hpp"
@@ -612,8 +613,11 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     /// Creates a unit through the unit-spawn sequence (SpawnBridge::create).
     ///
     /// @param request Type, player, position, slot and state of the unit.
+    /// @param builder Slot of the unit whose work started this one, reported
+    ///     with it. 0 when no unit made it: a commander, a mission's unit, a
+    ///     hand-over's copy, or a copy of another machine's unit.
     /// @return The new unit's slot, or null for an ordinary refusal.
-    sim::unit_spawn::Slot* create(const sim::unit_spawn::Request& request);
+    sim::unit_spawn::Slot* create(const sim::unit_spawn::Request& request, uint16_t builder = 0);
     /// Places a player's commander at a start position, centring the
     /// viewpoint player's view on it (SpawnBridge::start_player).
     ///
@@ -645,6 +649,11 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     /// @param bound Exclusive upper limit (see SharedRandom::bounded).
     /// @return A value below `bound`, or 0 for a bound below 2.
     uint32_t random_bounded(uint32_t bound) noexcept { return random_.bounded(bound); }
+
+    /// Returns the match seed the shared stream was started from.
+    ///
+    /// @return `OfflineInputs::random_seed`
+    [[nodiscard]] uint32_t random_seed() const noexcept { return input_.random_seed; }
 
     /// Returns the shared stream's state.
     uint32_t random_state() const noexcept { return random_.state(); }
@@ -1155,6 +1164,42 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     /// sees lose the cloak, and units in its line of sight are radar
     /// contacts. Nothing happens with a single participant.
     void scan_contacts();
+    /// Starts or stops keeping one player's radar and sonar picture.
+    ///
+    /// Starting allocates the pictures on first use, one byte per unit slot
+    /// per player, sets each live unit's byte to the bits a new unit of that
+    /// player starts with, and sets the scan tick to 0. Keeping again resets
+    /// that player's bytes and tick without allocating. Stopping zeroes them.
+    /// A player outside 0..9 is noted as a fault and changes nothing.
+    ///
+    /// @param player Player index 0..9.
+    /// @param keep True to keep the picture, false to drop it.
+    void keep_player_contacts(uint8_t player, bool keep);
+    /// Tells whether a player's radar picture is kept.
+    ///
+    /// @param player Player index 0..9; another is not kept.
+    /// @return True while the picture is kept.
+    [[nodiscard]] bool player_contacts_kept(uint8_t player) const noexcept;
+    /// Returns a player's radar picture, one byte per unit slot.
+    ///
+    /// @param player Player index 0..9.
+    /// @return The picture, or empty when it is not kept or the index is
+    ///     outside 0..9.
+    [[nodiscard]] std::span<const uint8_t> player_contact_bits(uint8_t player) const noexcept;
+    /// Returns the tick of a player's last picture scan.
+    ///
+    /// @param player Player index 0..9.
+    /// @return That tick, or 0 before the first scan and for an index outside
+    ///     0..9.
+    [[nodiscard]] uint32_t player_contacts_tick(uint8_t player) const noexcept;
+    /// Runs one scan of a kept player's radar picture now.
+    ///
+    /// The player update calls it when that player's deadline comes due.
+    /// Nothing happens when the picture is not kept, or with a single
+    /// participant, and the scan tick stays where it was.
+    ///
+    /// @param player Player index 0..9.
+    void scan_player_contacts(uint8_t player);
     /// Rebuilds a player's knowledge once a period has passed since the
     /// last: its sightings and repair pads and, for a computer player, its
     /// own-unit counts and base position; then it rolls one in 30 for its
@@ -1413,7 +1458,11 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     /// the old unit dies as captured (lethal damage of the captured kind
     /// with no attacker). The copy then takes the old unit's state flags. A
     /// unit simulated elsewhere given to a player simulated elsewhere is
-    /// left alone after its captured event.
+    /// left alone after its captured event. A hand-over that creates the
+    /// copy here, or that leaves the copy to the receiver's machine, is
+    /// reported to event_hooks.unit_given while the old unit is still live
+    /// and before that unit dies. A transfer that changes nothing is not
+    /// reported.
     ///
     /// Nothing happens when the new owner already owns the unit, is outside
     /// the ten players or is not present, or the unit is not live or is
@@ -1938,11 +1987,83 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
 
     ObserverHook observer{};
 
-    /// Read-only reports of units created, finished, damaged and dying and
-    /// of shots placed and detonating, for units simulated here and those a
-    /// recording or another machine settles alike; each null entry reports
-    /// nothing, and setting them changes nothing the match computes.
+    /// The primary event table, which one owner may replace or clear at any
+    /// time. Read-only reports of units created, finished, damaged and dying
+    /// and of shots placed and detonating, for units simulated here and those
+    /// a recording or another machine settles alike; each null entry reports
+    /// nothing, and setting the table changes nothing the match computes.
+    /// Listeners are kept apart (add_event_listener) and are not affected.
     EventHooks event_hooks{};
+
+    /// Appends a listener, heard after the primary table and after every
+    /// listener added before it.
+    ///
+    /// The table is copied. The caller keeps its own.
+    ///
+    /// @param hooks the listener's table
+    /// @return the new id, or 0 when the match already holds max_event_listeners
+    [[nodiscard]] EventListenerId add_event_listener(const EventHooks& hooks) noexcept;
+
+    /// Removes the listener with this id and closes the gap, keeping the
+    /// others in the order they were added.
+    ///
+    /// @param id the listener's id
+    /// @return false for 0 or an id that is not in the list
+    bool remove_event_listener(EventListenerId id) noexcept;
+
+    /// Returns how many listeners the match holds.
+    ///
+    /// @return the count, at most max_event_listeners
+    [[nodiscard]] std::size_t event_listener_count() const noexcept;
+
+  private:
+
+    /// One listener and the id it was given. Entries at and after
+    /// event_listener_count_ are empty.
+    struct EventListener {
+        EventListenerId id{}; ///< 0 in an empty entry
+        EventHooks hooks{};
+    };
+
+    std::array<EventListener, max_event_listeners> event_listeners_{};
+    std::size_t event_listener_count_{};        ///< listeners held, in added order
+    EventListenerId next_event_listener_id_{1}; ///< next id to hand out; 0 is never an id
+
+    /// Tells whether the primary table or any listener reports this event.
+    ///
+    /// @tparam Member the EventHooks function pointer to look at
+    /// @return true when that member is set
+    template <auto Member>
+    [[nodiscard]] bool event_wanted() const noexcept {
+        if (event_hooks.*Member != nullptr)
+            return true;
+        for (std::size_t listener_index = 0; listener_index < event_listener_count_;
+             ++listener_index)
+            if (event_listeners_[listener_index].hooks.*Member != nullptr)
+                return true;
+        return false;
+    }
+
+    /// Reports one event to the primary table, then to each listener in the
+    /// order it was added, skipping a null member. Each table is called with
+    /// its own context first.
+    ///
+    /// @tparam Member the EventHooks function pointer to call
+    /// @tparam Args argument types, after the context
+    /// @param args the event's arguments, after the context
+    template <auto Member, class... Args>
+    void emit_event(const Args&... args) const {
+        if (event_hooks.*Member != nullptr)
+            (event_hooks.*Member)(event_hooks.context, args...);
+        for (std::size_t listener_index = 0; listener_index < event_listener_count_;
+             ++listener_index) {
+            const EventHooks& listener_hooks = event_listeners_[listener_index].hooks;
+            if (listener_hooks.*Member != nullptr)
+                (listener_hooks.*Member)(listener_hooks.context, args...);
+        }
+    }
+
+  public:
 
     // The order panel closed back to its root page, even while a modal state
     // holds it, as a commander's death under the commander rule does before
@@ -2266,9 +2387,9 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
         return project_spatial(slot);
     }
 
-    /// Runs a player's controller tick: a computer player's controller runs
-    /// its order-callback tick, then the weapon sweep runs with the computer
-    /// flag.
+    /// Runs a player's controller tick: a computer seat with hooks calls them
+    /// and runs the built-in order tick only when they did not play; the
+    /// weapon sweep then runs with the computer flag.
     ///
     /// @param player Player index 0..9.
     void run_player_controller(uint8_t player);
@@ -2277,11 +2398,55 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     /// decisions).
     std::shared_ptr<void>& computer_player_state() noexcept { return computer_player_state_; }
 
+    /// Replaces one seat's hooks. A player outside 0..9 does nothing.
+    ///
+    /// The hooks are not saved, hashed or shared with other machines.
+    ///
+    /// @param player player index, 0 to 9
+    /// @param hooks the seat's turn; a default value clears it
+    void set_seat_hooks(uint8_t player, SeatHooks hooks) noexcept {
+        if (player >= OA_PLAYER_COUNT)
+            return;
+        seat_hooks_[player] = hooks;
+    }
+
+    /// Returns one seat's hooks.
+    ///
+    /// @param player player index, 0 to 9
+    /// @return that seat's hooks, or a default value outside 0..9
+    [[nodiscard]] SeatHooks seat_hooks(uint8_t player) const noexcept {
+        if (player >= OA_PLAYER_COUNT)
+            return {};
+        return seat_hooks_[player];
+    }
+
+    /// Returns the brains' state. Whoever seats a brain owns what it points at.
+    ///
+    /// The state ends with the match. It is not saved, hashed or shared.
+    ///
+    /// @return the state, empty until a brain is seated
+    std::shared_ptr<void>& seat_state() noexcept { return seat_state_; }
+
+    /// Returns the brains' state. Whoever seats a brain owns what it points at.
+    ///
+    /// The state ends with the match. It is not saved, hashed or shared.
+    ///
+    /// @return the state, empty until a brain is seated
+    [[nodiscard]] const std::shared_ptr<void>& seat_state() const noexcept { return seat_state_; }
+
     /// Returns a type's typed fields, taken from its loaded UnitDef.
     ///
     /// @param type Type index.
     /// @return The definition, or null past the table or without one.
     const data::unit_definitions::UnitDefinition* unit_definition(uint16_t type) const noexcept;
+    /// Returns a weapon's combat definition, including its damage table.
+    ///
+    /// The pointer addresses the registry the match was given. An unused slot
+    /// still has a definition; its damage is the slot's default.
+    ///
+    /// @param id Weapon id, the registry index.
+    /// @return The definition. Never null.
+    const sim::combat_state::WeaponDefinition* weapon_definition(uint8_t id) const noexcept;
     /// Returns the unit slots of a player's squad.
     ///
     /// @param player Player index 0..9.
@@ -2924,6 +3089,14 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     /// @param viewer the viewing player
     /// @param scan_own_units whether its own radar and sonar units stamp
     void scan_contacts_for(const oa::Player& viewer, bool scan_own_units);
+    /// Runs one viewing player's pass over a kept picture: its radar and
+    /// sonar units stamp, other players' jammers clear bits, and units in
+    /// its line of sight become radar contacts. A picture has no cloaker step.
+    ///
+    /// @param picture Player index whose picture is written.
+    /// @param viewer The viewing player of this pass.
+    /// @param scan_own_units Whether its own radar and sonar units stamp.
+    void scan_picture_pass(uint8_t picture, const oa::Player& viewer, bool scan_own_units);
     /// Tells whether the contact scan lets a jammer jam the viewing player's
     /// radar picture: always in 3.1c; under intel.allied-jammers-ignored not
     /// when the viewer allies the jammer's owner, nor for a local watcher or
@@ -3123,6 +3296,8 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
         ConstructionOrderState construction;
         sim::simulation_state::Unit* unit{};
         RuntimeOrder* observer_next{};
+        /// Set once the order's unreachable goal was reported; not saved or hashed.
+        bool path_failure_reported{};
     };
 
     // What TickHost::owned gives for an order the match does not own, and
@@ -3258,6 +3433,22 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     // the seen, radar and pad lists of every player.
     std::array<sim::detection::Sightings, OA_PLAYER_COUNT> sightings_{};
     std::vector<uint16_t> sighting_slots_;
+    // Each player's seen list at its previous knowledge refresh, with room
+    // for the most units that player has seen at once. Kept up whether or
+    // not anyone is listening, and empty after a load, so the first refresh
+    // reports every seen enemy as gained.
+    std::array<std::unique_ptr<sim::detection::SightedUnit[]>, OA_PLAYER_COUNT> seen_before_;
+    // How many entries each player's previous seen list holds.
+    std::array<uint32_t, OA_PLAYER_COUNT> seen_before_count_{};
+    // How many entries each player's previous seen list has room for.
+    std::array<uint32_t, OA_PLAYER_COUNT> seen_before_room_{};
+    // Scratch for one refresh that reports seen_changed, in three parts of
+    // `seen_work_room_` entries: the list now, the units gained and the units
+    // lost. Empty until a refresh is reported; one nobody hears writes its
+    // list straight into `seen_before_`.
+    std::unique_ptr<sim::detection::SightedUnit[]> seen_work_;
+    // How many entries each part of the scratch has room for.
+    uint32_t seen_work_room_{};
     std::vector<sim::combat_state::TargetUnit> sighting_query_;
     std::array<sim::combat_state::StrategicRefreshState, 10> strategic_states_;
     std::optional<StrategicEnvironment> strategic_environment_;
@@ -3397,6 +3588,14 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     // reuse_ticks); none without a delay.
     std::unique_ptr<int32_t[]> slot_reuse_ticks_;
     size_t slot_reuse_tick_count_{};
+    // Radar, sonar and jammed bits per unit slot per player. Empty until the
+    // first keep_player_contacts; nothing is allocated for a player no one
+    // keeps after that, and the bytes are not saved or mixed into a digest.
+    std::unique_ptr<uint8_t[]> player_contacts_;
+    // 1 while that player's picture is kept.
+    std::array<uint8_t, OA_PLAYER_COUNT> player_contacts_kept_{};
+    // The tick of each picture's last scan; 0 before the first.
+    std::array<uint32_t, OA_PLAYER_COUNT> player_contacts_tick_{};
     // Where each unit type's yards turned to east, north and west start in
     // turned_yard_cells_, plus one, by type index; 0 for a type that faces
     // only south. None without units.build-rotation.
@@ -3586,6 +3785,11 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     std::array<std::map<uint32_t, std::vector<uint16_t>>, 10> groups_;
     SharedRandom random_;
     std::shared_ptr<void> computer_player_state_;
+    // One seat's turn, when something other than the built-in computer player
+    // plays it. Not saved, hashed or shared. Declared before the brains'
+    // state so that state is destroyed first.
+    std::array<SeatHooks, OA_PLAYER_COUNT> seat_hooks_{};
+    std::shared_ptr<void> seat_state_;
     uint32_t lcg_seed_{};
     std::unique_ptr<sim::effect_particles::EffectWorld> effects_;
     formats::gaf::Sequence flash_tiers_[sim::effect_particles::flash_tier_count];
@@ -3824,13 +4028,16 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     /// @param unit Finished unit; must be live.
     /// @param builder Unit whose work finished it, or the unit itself.
     void link_built_unit(sim::unit_spawn::Slot& unit, sim::unit_spawn::Slot& builder);
-    /// Reports a unit the spawn placed to event_hooks.unit_created, then, for
-    /// a building (bmcode 0) created finished, to unit_finished as finished
-    /// by itself, as the spawn shares it.
+    /// Reports a unit the spawn placed to event_hooks.unit_created, then to
+    /// unit_created_by with `builder`, then, for a building (bmcode 0) created
+    /// finished, to unit_finished as finished by itself, as the spawn shares
+    /// it.
     ///
     /// @param slot The new unit's slot; null reports nothing.
     /// @param finished Whether the request created the unit finished.
-    void report_created(const sim::unit_spawn::Slot* slot, bool finished);
+    /// @param builder Slot of the unit whose work started it, or 0 when no
+    ///     unit made it.
+    void report_created(const sim::unit_spawn::Slot* slot, bool finished, uint16_t builder);
     /// Reports a unit finished to event_hooks.unit_finished, once from its
     /// creation on, whichever path finishes it first.
     ///
@@ -3838,6 +4045,16 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     /// @param builder Slot of the unit whose work finished it; `unit` for a
     ///     building created finished.
     void report_finished(uint16_t unit, uint16_t builder);
+    /// Reports an order its handler ended, just before the scheduler removes
+    /// it, to event_hooks.order_ended.
+    ///
+    /// @param match the match, as OrderEnds::context
+    /// @param unit unit carrying the order
+    /// @param order order about to be removed
+    /// @param done true when the handler finished the order, false when it failed
+    static void report_order_end(
+        void* match, const oa::Unit& unit, const sim::simulation_state::Order& order, bool done
+    );
     /// Tests set_carry_link's checks: the child is a live unit, not a
     /// building, carrying nothing; a parent is another live unit, not
     /// carried itself.

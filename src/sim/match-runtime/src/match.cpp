@@ -12,7 +12,9 @@
 #include "oa/sim/world_environment/wind.hpp"
 #include <bit>
 #include <cmath>
+#include <cstddef>
 #include <cstdlib>
+#include <memory>
 
 namespace oa::sim::match_runtime {
 namespace {
@@ -566,9 +568,9 @@ const RuntimeTypeFields& Match::unresolved_fields() noexcept {
     return fields;
 }
 
-sim::unit_spawn::Slot* Match::create(const sim::unit_spawn::Request& request) {
+sim::unit_spawn::Slot* Match::create(const sim::unit_spawn::Request& request, uint16_t builder) {
     auto* slot = bridge_->create(request);
-    report_created(slot, request.finished);
+    report_created(slot, request.finished, builder);
     return slot;
 }
 
@@ -584,20 +586,67 @@ sim::unit_spawn::StartResult Match::start_player(
     const auto started = bridge_->start_player(
         player, setup, markers, index, input_.viewpoint_player, width, height, host
     );
-    // The commander is created finished.
+    // The commander is created finished, and no unit built it.
     if (started.unit != nullptr)
-        report_created(&slots_.at(oa::world_unit_slot(&state(), started.unit)), true);
+        report_created(&slots_.at(oa::world_unit_slot(&state(), started.unit)), true, 0);
     return started;
 }
 
-void Match::report_created(const sim::unit_spawn::Slot* slot, bool finished) {
+EventListenerId Match::add_event_listener(const EventHooks& hooks) noexcept {
+    if (event_listener_count_ >= max_event_listeners)
+        return 0;
+    if (next_event_listener_id_ == 0)
+        next_event_listener_id_ = 1;
+    const auto id = next_event_listener_id_;
+    ++next_event_listener_id_;
+    if (next_event_listener_id_ == 0)
+        next_event_listener_id_ = 1;
+    event_listeners_[event_listener_count_] = EventListener{id, hooks};
+    ++event_listener_count_;
+    return id;
+}
+
+bool Match::remove_event_listener(EventListenerId id) noexcept {
+    if (id == 0)
+        return false;
+    for (std::size_t listener_index = 0; listener_index < event_listener_count_; ++listener_index) {
+        if (event_listeners_[listener_index].id != id)
+            continue;
+        for (std::size_t later = listener_index + 1; later < event_listener_count_; ++later)
+            event_listeners_[later - 1] = event_listeners_[later];
+        --event_listener_count_;
+        event_listeners_[event_listener_count_] = {};
+        return true;
+    }
+    return false;
+}
+
+std::size_t Match::event_listener_count() const noexcept {
+    return event_listener_count_;
+}
+
+void Match::report_created(const sim::unit_spawn::Slot* slot, bool finished, uint16_t builder) {
     if (slot == nullptr || slot->unit == nullptr)
         return;
     const auto unit = slot->unit_index;
+    // A kept picture starts the new slot as a new unit's flags start, with
+    // that player as the viewer. This does not wait on an event hook.
+    if (player_contacts_ != nullptr) {
+        const auto stride = slots_.size();
+        if (unit < stride) {
+            const auto& created = state().units[unit];
+            for (uint8_t picture = 0; picture < OA_PLAYER_COUNT; ++picture) {
+                if (player_contacts_kept_[picture] == 0)
+                    continue;
+                player_contacts_[static_cast<std::size_t>(picture) * stride + unit] =
+                    sim::detection::created_picture_bits(created, picture);
+            }
+        }
+    }
     bridge_->runtime(slots_.at(unit)).finished_reported = false;
     const auto& world = state();
-    if (event_hooks.unit_created != nullptr)
-        event_hooks.unit_created(event_hooks.context, world, unit);
+    emit_event<&EventHooks::unit_created>(world, unit);
+    emit_event<&EventHooks::unit_created_by>(world, unit, builder);
     const auto type = world.units[unit].type_index;
     if (finished && type < world.unit_def_count && world.unit_defs[type].bm_code == 0)
         report_finished(unit, unit);
@@ -608,8 +657,7 @@ void Match::report_finished(uint16_t unit, uint16_t builder) {
     if (reported)
         return;
     reported = true;
-    if (event_hooks.unit_finished != nullptr)
-        event_hooks.unit_finished(event_hooks.context, state(), unit, builder);
+    emit_event<&EventHooks::unit_finished>(state(), unit, builder);
 }
 
 UnitInstance* Match::instance(uint16_t index) {

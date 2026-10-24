@@ -4,7 +4,9 @@
 # oa-tool's commands. The executable stays in the root CMakeLists.txt, where
 # the Windows DLL copy and the packaged notices attach to it.
 add_library(oa-tool-commands STATIC commands.cpp arguments.cpp files.cpp archive_commands.cpp
-  pack.cpp pack_map.cpp check.cpp check_map.cpp check_mutator.cpp mutator.cpp mutator_diff.cpp
+  pack.cpp pack_map.cpp check.cpp check_map.cpp check_brain.cpp check_mutator.cpp brain.cpp
+  brain_net.cpp onnx.cpp
+  mutator.cpp mutator_diff.cpp
   mutator_report.cpp catalogue.cpp passphrase.cpp registry.cpp expansion.cpp interface_words.cpp)
 add_library(oa::tool::commands ALIAS oa-tool-commands)
 target_include_directories(oa-tool-commands PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
@@ -23,15 +25,18 @@ target_include_directories(oa-tool-commands PRIVATE
   ${PROJECT_SOURCE_DIR}/src/ui/library/include
   ${PROJECT_SOURCE_DIR}/src/ui/map-browser/include
   ${PROJECT_SOURCE_DIR}/src/ui/mutator-picker/include
+  ${PROJECT_SOURCE_DIR}/src/ui/brain-picker/include
   ${PROJECT_SOURCE_DIR}/src/ui/touch-hud/include)
 target_include_directories(oa-tool-commands SYSTEM PRIVATE
   ${PROJECT_SOURCE_DIR}/third_party/monocypher)
 target_compile_features(oa-tool-commands PUBLIC cxx_std_20)
 target_link_libraries(oa-tool-commands
-  PRIVATE oa-options oa-app-package-install oa-app-game-directory oa-data-content-bundles oa-data-languages
+  PRIVATE oa-options oa-app-brain-check oa-app-package-install oa-app-game-directory
+    oa-data-content-bundles oa-data-languages
     oa-data-map-pack oa-data-map-fit oa-data-script-host oa-data-mutator-import
     oa-data-mutators oa-data-defs oa-data-defs-assets oa-formats-tdf
-    oa-formats-oamod oa-formats-oamut
+    oa-formats-oamod oa-formats-oamut oa-formats-oabrain oa-formats-oann
+    oa-data-neural
     oa-formats-soft-mutator oa-formats-json oa-formats-ota oa-formats-tnt
     oa-formats-zip oa-base-sha256 oa-base-text oa-platform-shims oa-base-signing oa-data-catalogue
     oa-data-registry oa-platform-random oa-app-content oa-netgame-http oa-formats-url
@@ -122,6 +127,33 @@ if(BUILD_TESTING)
     oa-platform-shims ZLIB::ZLIB oa-test-support oa-options)
   add_test(NAME tools-oa-tool-mutator COMMAND oa-tool-mutator-test)
   set_tests_properties(tools-oa-tool-mutator PROPERTIES TIMEOUT 60)
+
+  # brain: a made-up brain packs to a .oabrain, check reports its facts,
+  # and a broken manifest, script, layout, network or icon is refused.
+  add_executable(oa-tool-brain-test tests/brain_test.cpp)
+  target_link_libraries(oa-tool-brain-test PRIVATE oa-tool-commands oa-app-package-install
+    oa-formats-zip oa-formats-json oa-formats-png oa-formats-oabrain oa-base-sha256
+    oa-platform-shims ZLIB::ZLIB oa-test-support oa-options)
+  add_test(NAME tools-oa-tool-brain COMMAND oa-tool-brain-test)
+  set_tests_properties(tools-oa-tool-brain PROPERTIES TIMEOUT 60)
+
+  # brain net: models this test writes, quantised and checked against the
+  # integer network, and the refusals of a bad file or a bad invocation.
+  add_executable(oa-tool-brain-net-test tests/brain_net_test.cpp)
+  target_link_libraries(oa-tool-brain-net-test PRIVATE oa-tool-commands oa-formats-oann
+    oa-data-neural oa-formats-json oa-base-sha256 oa-test-support oa-options)
+  add_test(NAME tools-oa-tool-brain-net COMMAND oa-tool-brain-net-test)
+  set_tests_properties(tools-oa-tool-brain-net PROPERTIES TIMEOUT 120)
+
+  # brain check: usage without the game, and, with --data, seating made-up brains.
+  add_executable(oa-tool-brain-check-test tests/brain_check_test.cpp)
+  target_link_libraries(oa-tool-brain-check-test PRIVATE oa-tool-commands oa-app-package-install
+    oa-formats-zip oa-formats-json oa-formats-oabrain oa-base-sha256 oa-test-support
+    oa-test-game-data oa-options)
+  add_test(NAME tools-oa-tool-brain-check COMMAND oa-tool-brain-check-test)
+  set_tests_properties(tools-oa-tool-brain-check PROPERTIES TIMEOUT 60)
+  oa_add_game_data_test(tools-oa-tool-brain-check-data oa-tool-brain-check-test --data)
+  set_tests_properties(tools-oa-tool-brain-check-data PROPERTIES TIMEOUT 120)
 
   # mutator import: made-up .tam files and a zip become mutator folders.
   add_executable(oa-tool-mutator-import-test tests/mutator_import_test.cpp)

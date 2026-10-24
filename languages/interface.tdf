@@ -738,6 +738,14 @@
 	it=Dopo lo zoom;
 	}
 
+[Air]
+	{
+	de=Luft;
+	fr=Air;
+	es=Aire;
+	it=Aria;
+	}
+
 [Aircraft]
 	{
 	de=Luftfahrzeuge;
@@ -824,6 +832,14 @@
 	fr=Et {n} de plus. Le journal les a tous.;
 	es=Y {n} más. El registro los tiene todos.;
 	it=E altri {n}. Il registro li ha tutti.;
+	}
+
+[Another copy of Open Annihilation is changing your Brains folder. Try again once it has finished.]
+	{
+	de=Eine andere Kopie von Open Annihilation ändert deinen Gehirneordner. Versuche es erneut, wenn sie fertig ist.;
+	fr=Une autre copie d'Open Annihilation modifie ton dossier de cerveaux. Réessaie une fois qu'elle a fini.;
+	es=Otra copia de Open Annihilation está cambiando tu carpeta de cerebros. Inténtalo de nuevo cuando termine.;
+	it=Un'altra copia di Open Annihilation sta modificando la tua cartella dei cervelli. Riprova quando ha finito.;
 	}
 
 [Another copy of Open Annihilation is changing your Maps folder. Try again once it has finished.]
@@ -1032,6 +1048,30 @@
 	fr=EXPLOSER;
 	es=DETONAR;
 	it=ESPLODI;
+	}
+
+[BRAIN INSTALLED]
+	{
+	de=GEHIRN INSTALLIERT;
+	fr=CERVEAU INSTALLÉ;
+	es=CEREBRO INSTALADO;
+	it=CERVELLO INSTALLATO;
+	}
+
+[BRAIN NOT INSTALLED]
+	{
+	de=GEHIRN NICHT INSTALLIERT;
+	fr=CERVEAU NON INSTALLÉ;
+	es=CEREBRO NO INSTALADO;
+	it=CERVELLO NON INSTALLATO;
+	}
+
+[BRAIN UPDATED]
+	{
+	de=GEHIRN AKTUALISIERT;
+	fr=CERVEAU MIS À JOUR;
+	es=CEREBRO ACTUALIZADO;
+	it=CERVELLO AGGIORNATO;
 	}
 
 [BUILD]
@@ -1274,6 +1314,22 @@
 	it=Riquadro;
 	}
 
+[Brain packages (.oabrain)]
+	{
+	de=Gehirn-Pakete (.oabrain);
+	fr=Paquets de cerveau (.oabrain);
+	es=Paquetes de cerebro (.oabrain);
+	it=Pacchetti di cervello (.oabrain);
+	}
+
+[Brains]
+	{
+	de=Gehirne;
+	fr=Cerveaux;
+	es=Cerebros;
+	it=Cervelli;
+	}
+
 [Build Preview]
 	{
 	de=Bauvorschau;
@@ -1344,6 +1400,46 @@
 	fr=Intégré;
 	es=Integrado;
 	it=Integrato;
+	}
+
+[Built in · Default]
+	{
+	de=Integriert · Standard;
+	fr=Intégré · Par défaut;
+	es=Integrado · Predeterminado;
+	it=Integrato · Predefinito;
+	}
+
+[Built-in]
+	{
+	de=Eingebaut;
+	fr=Intégré;
+	es=Integrado;
+	it=Integrato;
+	}
+
+[Built-in computer player]
+	{
+	de=Eingebauter Computerspieler;
+	fr=Joueur ordinateur intégré;
+	es=Jugador de ordenador integrado;
+	it=Giocatore computer integrato;
+	}
+
+[Open Annihilation's own computer player. It plays as Total Annihilation's does.]
+	{
+	de=Open Annihilations eigener Computerspieler. Er spielt wie der von Total Annihilation.;
+	fr=Le joueur ordinateur d'Open Annihilation. Il joue comme celui de Total Annihilation.;
+	es=El jugador de ordenador de Open Annihilation. Juega como el de Total Annihilation.;
+	it=Il giocatore computer di Open Annihilation. Gioca come quello di Total Annihilation.;
+	}
+
+[Built into Open Annihilation]
+	{
+	de=In Open Annihilation eingebaut;
+	fr=Intégré à Open Annihilation;
+	es=Integrado en Open Annihilation;
+	it=Integrato in Open Annihilation;
 	}
 
 [Built into the game]
@@ -2138,6 +2234,14 @@
 	it=Comandanti;
 	}
 
+[Computer player]
+	{
+	de=Computerspieler;
+	fr=Joueur ordinateur;
+	es=Jugador de ordenador;
+	it=Giocatore computer;
+	}
+
 [Console]
 	{
 	de=Konsole;
@@ -2488,6 +2592,14 @@
 	fr=GLISSER POUR DÉPLACER · DOUBLE TOUCHE OU MAINTIEN POUR PLACER;
 	es=ARRASTRAR PARA MOVER · DOBLE TOQUE O MANTENER PARA COLOCAR;
 	it=TRASCINA PER MUOVERE · DOPPIO TOCCO O TIENI PREMUTO PER POSIZIONARE;
+	}
+
+[Default]
+	{
+	de=Standard;
+	fr=Par défaut;
+	es=Predeterminado;
+	it=Predefinito;
 	}
 
 [Demo]
@@ -2994,6 +3106,14 @@
 	it=Ogni parte delle schermate proprie di OA, in ciascuno dei suoi stati, a questa dimensione.;
 	}
 
+[Experimental]
+	{
+	de=Experimentell;
+	fr=Expérimental;
+	es=Experimental;
+	it=Sperimentale;
+	}
+
 [Expansions]
 	{
 	de=Erweiterungen;
@@ -3416,6 +3536,14 @@
 	fr=Depuis {pack};
 	es=De {pack};
 	it=Da {pack};
+	}
+
+[Full awareness]
+	{
+	de=Volle Sicht;
+	fr=Vue complète;
+	es=Visión total;
+	it=Vista completa;
 	}
 
 [Full]
@@ -4114,6 +4242,14 @@
 	it=INSTALLA A FIANCO;
 	}
 
+[INSTALL BRAIN]
+	{
+	de=GEHIRN INSTALLIEREN;
+	fr=INSTALLER LE CERVEAU;
+	es=INSTALAR CEREBRO;
+	it=INSTALLA CERVELLO;
+	}
+
 [INSTALL LANGUAGE]
 	{
 	de=SPRACHE INSTALLIEREN;
@@ -4144,6 +4280,14 @@
 	fr=INSTALLÉ;
 	es=INSTALADO;
 	it=INSTALLATO;
+	}
+
+[INSTALLING BRAIN]
+	{
+	de=GEHIRN WIRD INSTALLIERT;
+	fr=INSTALLATION DU CERVEAU;
+	es=INSTALANDO CEREBRO;
+	it=INSTALLAZIONE CERVELLO;
 	}
 
 [INSTALLING EXPANSION]
@@ -4354,6 +4498,14 @@
 	it=ID di installazione;
 	}
 
+[Install the brain {name} {version}?]
+	{
+	de=Das Gehirn {name} {version} installieren?;
+	fr=Installer le cerveau {name} {version} ?;
+	es=¿Instalar el cerebro {name} {version}?;
+	it=Installare il cervello {name} {version}?;
+	}
+
 [Install the expansion {name}?]
 	{
 	de=Die Expansion {name} installieren?;
@@ -4408,6 +4560,14 @@
 	fr={name} installé;
 	es={name} instalado;
 	it={name} installato;
+	}
+
+[Installed · Default]
+	{
+	de=Installiert · Standard;
+	fr=Installé · Par défaut;
+	es=Instalado · Predeterminado;
+	it=Installato · Predefinito;
 	}
 
 [Installing]
@@ -4514,6 +4674,14 @@
 	it=Contiene un file cifrato: {name}.;
 	}
 
+[It holds more than {limit} folders, more than a brain may take.]
+	{
+	de=Es enthält mehr als {limit} Ordner, mehr als ein Gehirn haben darf.;
+	fr=Il contient plus de {limit} dossiers, plus qu'un cerveau ne peut en avoir.;
+	es=Contiene más de {limit} carpetas, más de las que puede tener un cerebro.;
+	it=Contiene più di {limit} cartelle, più di quante ne possa avere un cervello.;
+	}
+
 [It holds more than {limit} folders, more than a map pack may take.]
 	{
 	de=Es enthält mehr als {limit} Ordner, mehr als ein Kartenpaket haben darf.;
@@ -4552,6 +4720,14 @@
 	fr=Il ne contient pas de language.yaml.;
 	es=No contiene language.yaml.;
 	it=Non contiene language.yaml.;
+	}
+
+[It holds no oabrain.yaml at its top, or in a single folder at its top.]
+	{
+	de=Es enthält kein oabrain.yaml ganz oben oder in einem einzelnen Ordner ganz oben.;
+	fr=Il ne contient pas d'oabrain.yaml à sa racine, ni dans un seul dossier à sa racine.;
+	es=No contiene oabrain.yaml en su nivel superior, ni en una sola carpeta en su nivel superior.;
+	it=Non contiene oabrain.yaml in cima, né in una sola cartella in cima.;
 	}
 
 [It holds no oaexp.yaml at its top, or in a single folder at its top.]
@@ -4658,6 +4834,14 @@
 	it=Resta copiato, così puoi ripararlo nel gestore di file. La scheda mod della Biblioteca avvia solo i mod che funzionano.;
 	}
 
+[It is your default computer player: new computer seats go back to the built-in player.]
+	{
+	de=Das ist dein Standard-Computergegner: neue Computerplätze nehmen wieder den integrierten Spieler.;
+	fr=C'est ton joueur ordinateur par défaut : les nouvelles places ordinateur reviennent au joueur intégré.;
+	es=Es tu jugador de ordenador predeterminado: las plazas de ordenador nuevas vuelven al jugador integrado.;
+	it=È il tuo giocatore computer predefinito: i nuovi posti computer tornano al giocatore integrato.;
+	}
+
 [It lists a font it does not hold: {name}.]
 	{
 	de=Es nennt eine Schrift, die es nicht enthält: {name}.;
@@ -4672,6 +4856,14 @@
 	fr=Il lui faut un autre Open Annihilation.;
 	es=Necesita otro Open Annihilation.;
 	it=Gli serve un altro Open Annihilation.;
+	}
+
+[It needs {size} free, and the disk holding your Brains folder has {free}.]
+	{
+	de=Es braucht {size} frei, und der Datenträger mit deinem Ordner Brains hat {free}.;
+	fr=Il lui faut {size} de libre, et le disque de ton dossier Brains a {free}.;
+	es=Necesita {size} libres, y el disco de tu carpeta Brains tiene {free}.;
+	it=Servono {size} liberi, e il disco della tua cartella Brains ha {free}.;
 	}
 
 [It needs {size} free, and the disk holding your Maps folder has {free}.]
@@ -4730,6 +4922,14 @@
 	it=Smussa la vista allontanata.;
 	}
 
+[It unpacks to {size} from {packed}, far more than a brain's files take.]
+	{
+	de=Es entpackt sich auf {size} aus {packed}, weit mehr, als die Dateien eines Gehirns brauchen.;
+	fr=Il se décompresse en {size} depuis {packed}, bien plus que les fichiers d'un cerveau.;
+	es=Se descomprime a {size} desde {packed}, mucho más de lo que ocupan los archivos de un cerebro.;
+	it=Si estrae in {size} da {packed}, molto più di quanto occupino i file di un cervello.;
+	}
+
 [It unpacks to {size} from {packed}, far more than a map pack's files take.]
 	{
 	de=Es entpackt sich auf {size} aus {packed}, weit mehr, als die Dateien eines Kartenpakets brauchen.;
@@ -4752,6 +4952,14 @@
 	fr=Il se décompresse en {size} depuis {packed}, bien plus que les fichiers d'un mutateur.;
 	es=Se descomprime a {size} desde {packed}, mucho más de lo que ocupan los archivos de un mutador.;
 	it=Si estrae in {size} da {packed}, molto più di quanto occupino i file di un mutatore.;
+	}
+
+[It unpacks to {size}, more than the {limit} a brain may take.]
+	{
+	de=Es entpackt sich auf {size}, mehr als die {limit}, die ein Gehirn haben darf.;
+	fr=Il se décompresse en {size}, plus que les {limit} qu'un cerveau peut prendre.;
+	es=Se descomprime a {size}, más del {limit} que puede ocupar un cerebro.;
+	it=Si estrae in {size}, più del {limit} che un cervello può occupare.;
 	}
 
 [It unpacks to {size}, more than the {limit} a map pack may take.]
@@ -4898,6 +5106,46 @@
 	it=Il suo profilo di mod non si può usare:;
 	}
 
+[Its network {name} does not match the SHA-256 its oabrain.yaml gives.]
+	{
+	de=Sein Netzwerk {name} entspricht nicht dem SHA-256, den sein oabrain.yaml angibt.;
+	fr=Son réseau {name} ne correspond pas au SHA-256 que son oabrain.yaml donne.;
+	es=Su red {name} no coincide con el SHA-256 que da su oabrain.yaml.;
+	it=La sua rete {name} non corrisponde allo SHA-256 che dà il suo oabrain.yaml.;
+	}
+
+[Its network {name} is missing.]
+	{
+	de=Sein Netzwerk {name} fehlt.;
+	fr=Son réseau {name} est absent.;
+	es=Falta su red {name}.;
+	it=Manca la sua rete {name}.;
+	}
+
+[Its networks take {size}, more than the {limit} a brain may hold.]
+	{
+	de=Seine Netzwerke brauchen {size}, mehr als die {limit}, die ein Gehirn haben darf.;
+	fr=Ses réseaux prennent {size}, plus que les {limit} qu'un cerveau peut contenir.;
+	es=Sus redes ocupan {size}, más del {limit} que puede tener un cerebro.;
+	it=Le sue reti occupano {size}, più del {limit} che un cervello può avere.;
+	}
+
+[Its oabrain.yaml has errors:]
+	{
+	de=Sein oabrain.yaml hat Fehler:;
+	fr=Son oabrain.yaml a des erreurs :;
+	es=Su oabrain.yaml tiene errores:;
+	it=Il suo oabrain.yaml ha errori:;
+	}
+
+[Its oabrain.yaml is larger than 256 KiB.]
+	{
+	de=Sein oabrain.yaml ist größer als 256 KiB.;
+	fr=Son oabrain.yaml dépasse 256 KiB.;
+	es=Su oabrain.yaml supera los 256 KiB.;
+	it=Il suo oabrain.yaml supera i 256 KiB.;
+	}
+
 [Its oaexp.yaml has errors.]
 	{
 	de=Sein oaexp.yaml hat Fehler.;
@@ -4984,6 +5232,14 @@
 	fr=Son script {name} est absent.;
 	es=Falta su script {name}.;
 	it=Manca il suo script {name}.;
+	}
+
+[Its table {name} is larger than 4 MiB.]
+	{
+	de=Seine Tabelle {name} ist größer als 4 MiB.;
+	fr=Sa table {name} dépasse 4 MiB.;
+	es=Su tabla {name} supera los 4 MiB.;
+	it=La sua tabella {name} supera i 4 MiB.;
 	}
 
 [Its warm-up text cannot be read.]
@@ -5138,6 +5394,14 @@
 	it=CARICA;
 	}
 
+[LOAD WITH THE BUILT-IN PLAYER]
+	{
+	de=MIT DEM EINGEBAUTEN SPIELER LADEN;
+	fr=CHARGER AVEC LE JOUEUR INTÉGRÉ;
+	es=CARGAR CON EL JUGADOR INTEGRADO;
+	it=CARICA CON IL GIOCATORE INTEGRATO;
+	}
+
 [LOAD: tap to arm it, then tap the unit to load.]
 	{
 	de=VERLADEN: tippe, um ihn zu wählen, dann tippe die Einheit zum Verladen.;
@@ -5250,6 +5514,14 @@
 	it=File di avvio (.oalaunch);
 	}
 
+[Learned]
+	{
+	de=Gelernt;
+	fr=Appris;
+	es=Aprendido;
+	it=Appreso;
+	}
+
 [Left out]
 	{
 	de=Ausgelassen;
@@ -5282,6 +5554,22 @@
 	it=Disposizione per mancini;
 	}
 
+[Level]
+	{
+	de=Stufe;
+	fr=Niveau;
+	es=Nivel;
+	it=Livello;
+	}
+
+[Levels]
+	{
+	de=Stufen;
+	fr=Niveaux;
+	es=Niveles;
+	it=Livelli;
+	}
+
 [Library]
 	{
 	de=Bibliothek;
@@ -5312,6 +5600,14 @@
 	fr=Les listes des nouveautés sont vérifiées au démarrage du jeu et à l'ouverture de la Bibliothèque.;
 	es=Las listas de lo nuevo se comprueban al iniciar el juego y al abrir la Biblioteca.;
 	it=Gli elenchi delle novità si controllano all'avvio del gioco e all'apertura della Biblioteca.;
+	}
+
+[Load with the built-in player?]
+	{
+	de=Mit dem eingebauten Spieler laden?;
+	fr=Charger avec le joueur intégré ?;
+	es=¿Cargar con el jugador integrado?;
+	it=Caricare con il giocatore integrato?;
 	}
 
 [Loading preview]
@@ -5616,6 +5912,14 @@
 	fr=MUTATEUR MIS À JOUR;
 	es=MUTADOR ACTUALIZADO;
 	it=MUTATORE AGGIORNATO;
+	}
+
+[Made for {names}]
+	{
+	de=Für {names} gemacht;
+	fr=Fait pour {names};
+	es=Hecho para {names};
+	it=Fatto per {names};
 	}
 
 [Made at your first download]
@@ -5978,6 +6282,14 @@
 	it=ORA;
 	}
 
+[Naval]
+	{
+	de=See;
+	fr=Naval;
+	es=Naval;
+	it=Navale;
+	}
+
 [Native pixel density]
 	{
 	de=Native Pixeldichte;
@@ -6264,6 +6576,14 @@
 	fr=Aucun mutateur ne correspond à ces filtres;
 	es=Ningún mutador coincide con estos filtros;
 	it=Nessun mutatore corrisponde a questi filtri;
+	}
+
+[No brains here yet. The Library on the main menu gets them.]
+	{
+	de=Hier sind noch keine Gehirne. Die Bibliothek im Hauptmenü holt sie.;
+	fr=Pas encore de cerveaux ici. La Bibliothèque du menu principal les récupère.;
+	es=Aquí todavía no hay cerebros. La Biblioteca del menú principal los trae.;
+	it=Qui non ci sono ancora cervelli. La Biblioteca del menu principale li scarica.;
 	}
 
 [No mutators here yet. The Library on the main menu gets them.]
@@ -7458,6 +7778,14 @@
 	it=REINSTALLA;
 	}
 
+[REINSTALL BRAIN]
+	{
+	de=GEHIRN NEU INSTALLIEREN;
+	fr=RÉINSTALLER LE CERVEAU;
+	es=REINSTALAR CEREBRO;
+	it=REINSTALLA CERVELLO;
+	}
+
 [REINSTALL LANGUAGE]
 	{
 	de=SPRACHE NEU INSTALLIEREN;
@@ -7552,6 +7880,14 @@
 	fr=REMPLACER;
 	es=REEMPLAZAR;
 	it=SOSTITUISCI;
+	}
+
+[REPLACE BRAIN]
+	{
+	de=GEHIRN ERSETZEN;
+	fr=REMPLACER LE CERVEAU;
+	es=REEMPLAZAR CEREBRO;
+	it=SOSTITUISCI CERVELLO;
 	}
 
 [REPLACE GAME FILES]
@@ -8018,6 +8354,14 @@
 	it=Tasto di rotazione della costruzione;
 	}
 
+[Rush]
+	{
+	de=Ansturm;
+	fr=Ruée;
+	es=Ataque;
+	it=Assalto;
+	}
+
 [Rules]
 	{
 	de=Regeln;
@@ -8346,6 +8690,14 @@
 	it=Cerca lingue;
 	}
 
+[Search brains, authors, tags]
+	{
+	de=Gehirne, Autoren, Stichworte suchen;
+	fr=Chercher des cerveaux, des auteurs, des mots-clés;
+	es=Buscar cerebros, autores, etiquetas;
+	it=Cerca cervelli, autori, etichette;
+	}
+
 [Search maps]
 	{
 	de=Karten suchen;
@@ -8394,6 +8746,30 @@
 	it=Cerca aggiornamenti;
 	}
 
+[Seat {n}]
+	{
+	de=Platz {n};
+	fr=Place {n};
+	es=Puesto {n};
+	it=Posto {n};
+	}
+
+[Sees every unit on the map]
+	{
+	de=Sieht jede Einheit auf der Karte;
+	fr=Voit chaque unité sur la carte;
+	es=Ve todas las unidades del mapa;
+	it=Vede ogni unità sulla mappa;
+	}
+
+[Sees every unit on the map, as Total Annihilation's own computer player does]
+	{
+	de=Sieht jede Einheit auf der Karte, so wie der Computerspieler von Total Annihilation.;
+	fr=Voit chaque unité sur la carte, comme le joueur ordinateur de Total Annihilation.;
+	es=Ve todas las unidades del mapa, como el jugador de ordenador de Total Annihilation.;
+	it=Vede ogni unità sulla mappa, come il giocatore computer di Total Annihilation.;
+	}
+
 [Select]
 	{
 	de=Auswählen;
@@ -8440,6 +8816,14 @@
 	fr=Autoréparation selon le temps de soin;
 	es=Autorreparación según el tiempo de cura;
 	it=Autoriparazione secondo il tempo di cura;
+	}
+
+[Set by the Difficulty button: {level}]
+	{
+	de=Vom Schwierigkeitsknopf gesetzt: {level};
+	fr=Fixé par le bouton Difficulté : {level};
+	es=Fijado por el botón Dificultad: {level};
+	it=Impostato dal pulsante Difficoltà: {level};
 	}
 
 [Set by the host]
@@ -9138,6 +9522,14 @@
 	it=Ha effetto dal prossimo avvio.;
 	}
 
+[Teaching]
+	{
+	de=Lehrt;
+	fr=Enseigne;
+	es=Enseña;
+	it=Insegna;
+	}
+
 [Team Number Alliances]
 	{
 	de=Bündnisse nach Teamnummer;
@@ -9258,6 +9650,14 @@
 	it=La cartella di Total Annihilation su questo {device} non si può giocare: {problem};
 	}
 
+[The built-in player takes those seats from the units as they stand. GET the brain in the Library to load the game as it was saved.]
+	{
+	de=Der eingebaute Spieler übernimmt diese Plätze so, wie die Einheiten stehen. HOL das Gehirn in der Bibliothek, um das Spiel so zu laden, wie es gespeichert wurde.;
+	fr=Le joueur intégré prend ces sièges avec les unités telles qu'elles sont. PRENDS le cerveau dans la Bibliothèque pour charger la partie comme elle a été sauvegardée.;
+	es=El jugador integrado toma esos asientos con las unidades como están. CONSIGUE el cerebro en la Biblioteca para cargar la partida como se guardó.;
+	it=Il giocatore integrato prende quei posti con le unità come stanno. PRENDI il cervello nella Biblioteca per caricare la partita come è stata salvata.;
+	}
+
 [The button pictures the controls and rings show.]
 	{
 	de=Die Taste zeigt, was Steuerung und Ringe anzeigen.;
@@ -9296,6 +9696,14 @@
 	fr=La ligne de commande a choisi le mod de cette exécution.;
 	es=La línea de órdenes eligió el mod de esta ejecución.;
 	it=La riga di comando ha scelto il mod di questa esecuzione.;
+	}
+
+[The computer players this game was saved with cannot be read.]
+	{
+	de=Die Computerspieler, mit denen dieses Spiel gespeichert wurde, lassen sich nicht lesen.;
+	fr=Les joueurs ordinateur avec lesquels cette partie a été sauvegardée ne se lisent pas.;
+	es=Los jugadores del ordenador con los que se guardó esta partida no se pueden leer.;
+	it=I giocatori del computer con cui è stata salvata questa partita non si leggono.;
 	}
 
 [The copy could not start]
@@ -9496,6 +9904,14 @@
 	fr=Le dossier qui était là avant est gardé comme Total Annihilation (ancien), {size}.;
 	es=La carpeta que estaba antes se conserva como Total Annihilation (antigua), {size}.;
 	it=La cartella che c'era prima resta come Total Annihilation (vecchia), {size}.;
+	}
+
+[The folder {name} does not hold this brain. It is left as it is.]
+	{
+	de=Der Ordner {name} enthält dieses Gehirn nicht. Er bleibt, wie er ist.;
+	fr=Le dossier {name} ne contient pas ce cerveau. Il est laissé tel quel.;
+	es=La carpeta {name} no contiene este cerebro. Se deja como está.;
+	it=La cartella {name} non contiene questo cervello. Resta com'è.;
 	}
 
 [The folder {name} does not hold this map pack. It is left as it is.]
@@ -9776,6 +10192,14 @@
 	fr=Le pack n'a pas été installé : {reason};
 	es=El paquete no se instaló: {reason};
 	it=Il pacchetto non è stato installato: {reason};
+	}
+
+[The package holds {name}, outside the files a brain may hold.]
+	{
+	de=Das Paket enthält {name}, außerhalb der Dateien, die ein Gehirn haben darf.;
+	fr=Le paquet contient {name}, en dehors des fichiers qu'un cerveau peut contenir.;
+	es=El paquete contiene {name}, fuera de los archivos que puede tener un cerebro.;
+	it=Il pacchetto contiene {name}, fuori dai file che un cervello può avere.;
 	}
 
 [The package holds {name}, outside the folders a mutator may hold.]
@@ -10154,6 +10578,14 @@
 	it=Questo gioco non include mappe di schermaglia, quindi la schermaglia non è disponibile.;
 	}
 
+[This game was saved with {name} {version} playing seat {n}, which is not installed here.]
+	{
+	de=Dieses Spiel wurde mit {name} {version} auf Platz {n} gespeichert, und der ist hier nicht installiert.;
+	fr=Cette partie a été sauvegardée avec {name} {version} au siège {n}, qui n'est pas installé ici.;
+	es=Esta partida se guardó con {name} {version} en el asiento {n}, que no está instalado aquí.;
+	it=Questa partita è stata salvata con {name} {version} al posto {n}, che non è installato qui.;
+	}
+
 [This is already the game folder.]
 	{
 	de=Das ist schon der Spielordner.;
@@ -10232,6 +10664,14 @@
 	fr=Cette sauvegarde a besoin d'un autre contenu;
 	es=Esta partida guardada necesita otro contenido;
 	it=Questo salvataggio ha bisogno di altri contenuti;
+	}
+
+[This saved game needs {name} {version}, which is not installed.]
+	{
+	de=Dieses gespeicherte Spiel braucht {name} {version}, und der ist nicht installiert.;
+	fr=Cette sauvegarde a besoin de {name} {version}, qui n'est pas installé.;
+	es=Esta partida guardada necesita {name} {version}, que no está instalado.;
+	it=Questa partita salvata ha bisogno di {name} {version}, che non è installato.;
 	}
 
 [This system reads HTTPS registries over HTTP.]
@@ -10360,6 +10800,14 @@
 	fr=Réessayer;
 	es=Reintentar;
 	it=Riprova;
+	}
+
+[Turtle]
+	{
+	de=Bunker;
+	fr=Tortue;
+	es=Tortuga;
+	it=Tartaruga;
 	}
 
 [Turn it on in the Library.]
@@ -10546,6 +10994,14 @@
 	it=AGGIORNA TUTTO;
 	}
 
+[UPDATE BRAIN]
+	{
+	de=GEHIRN AKTUALISIEREN;
+	fr=METTRE À JOUR LE CERVEAU;
+	es=ACTUALIZAR CEREBRO;
+	it=AGGIORNA CERVELLO;
+	}
+
 [UPDATE LANGUAGE]
 	{
 	de=SPRACHE AKTUALISIEREN;
@@ -10578,6 +11034,14 @@
 	it=AGGIORNA MUTATORE;
 	}
 
+[USE BY DEFAULT]
+	{
+	de=ALS STANDARD NUTZEN;
+	fr=UTILISER PAR DÉFAUT;
+	es=USAR POR DEFECTO;
+	it=USA COME PREDEFINITO;
+	}
+
 [USE IT]
 	{
 	de=NUTZEN;
@@ -10608,6 +11072,14 @@
 	fr=VALIDER;
 	es=USAR ESTOS;
 	it=USA QUESTI;
+	}
+
+[USE THIS]
+	{
+	de=DIESES ÜBERNEHMEN;
+	fr=UTILISER CELUI-CI;
+	es=USAR ESTE;
+	it=USA QUESTO;
 	}
 
 [USE THIS GAME]
@@ -10866,6 +11338,14 @@
 	it=Usa l'inglese;
 	}
 
+[Use for every computer seat]
+	{
+	de=Für jeden Computersitz verwenden;
+	fr=Utiliser pour chaque siège ordinateur;
+	es=Usar para cada asiento de ordenador;
+	it=Usa per ogni posto computer;
+	}
+
 [Use modern fonts for game text]
 	{
 	de=Moderne Schriften für den Spieltext;
@@ -10904,6 +11384,14 @@
 	fr=Interface utilisateur;
 	es=Interfaz de usuario;
 	it=Interfaccia utente;
+	}
+
+[Uses a learned network ({size})]
+	{
+	de=Nutzt ein gelerntes Netz ({size});
+	fr=Utilise un réseau appris ({size});
+	es=Usa una red aprendida ({size});
+	it=Usa una rete appresa ({size});
 	}
 
 [Uses {size} on this {device} · {free} free.]
@@ -10952,6 +11440,14 @@
 	fr=Vérification de {name};
 	es=Comprobando {name};
 	it=Verifica di {name};
+	}
+
+[Version]
+	{
+	de=Version;
+	fr=Version;
+	es=Versión;
+	it=Versione;
 	}
 
 [Version Check]
@@ -11442,6 +11938,22 @@
 	it=Ti serve la cartella di una copia installata di Total Annihilation, quella che contiene totala1.hpi: circa 1.1 GB con entrambe le espansioni e la musica. Gli installer del gioco completo sono programmi Windows e non si possono usare qui. Installa il gioco su un computer e porta la sua cartella.;
 	}
 
+[Your Brains folder changed while this brain was being installed; nothing was changed. Open the file again.]
+	{
+	de=Dein Ordner Brains hat sich geändert, während dieses Gehirn installiert wurde. Es wurde nichts geändert. Öffne die Datei erneut.;
+	fr=Ton dossier Brains a changé pendant l'installation de ce cerveau. Rien n'a été changé. Ouvre le fichier à nouveau.;
+	es=Tu carpeta Brains cambió mientras se instalaba este cerebro. No se cambió nada. Abre el archivo de nuevo.;
+	it=La tua cartella Brains è cambiata mentre questo cervello veniva installato. Non è stato cambiato nulla. Apri di nuovo il file.;
+	}
+
+[Your Brains folder has no free folder name for it.]
+	{
+	de=Dein Ordner Brains hat keinen freien Ordnernamen dafür.;
+	fr=Ton dossier Brains n'a aucun nom de dossier libre pour lui.;
+	es=Tu carpeta Brains no tiene un nombre de carpeta libre para él.;
+	it=La tua cartella Brains non ha un nome di cartella libero per esso.;
+	}
+
 [Your Maps folder changed while this map pack was being installed; nothing was changed. Open the file again.]
 	{
 	de=Dein Ordner Maps hat sich geändert, während dieses Kartenpaket installiert wurde. Es wurde nichts geändert. Öffne die Datei erneut.;
@@ -11784,6 +12296,14 @@
 	fr=avant {version};
 	es=antes de {version};
 	it=prima di {version};
+	}
+
+[brains]
+	{
+	de=Gehirne;
+	fr=cerveaux;
+	es=cerebros;
+	it=cervelli;
 	}
 
 [built in]
@@ -12136,6 +12656,14 @@
 	fr=intro et fins · facultatif;
 	es=introducción y finales · opcional;
 	it=intro e finali · facoltativo;
+	}
+
+[it fits this game]
+	{
+	de=es passt zu diesem Spiel;
+	fr=il convient à cette partie;
+	es=encaja en esta partida;
+	it=va bene per questa partita;
 	}
 
 [it works with {names}]
@@ -12882,6 +13410,46 @@
 	it={a}, {b};
 	}
 
+[{brain} {version} · {level}]
+	{
+	de={brain} {version} · {level};
+	fr={brain} {version} · {level};
+	es={brain} {version} · {level};
+	it={brain} {version} · {level};
+	}
+
+[{brain} · {level}]
+	{
+	de={brain} · {level};
+	fr={brain} · {level};
+	es={brain} · {level};
+	it={brain} · {level};
+	}
+
+[{brain} could not start ({reason}); the engine plays this seat]
+	{
+	de={brain} konnte nicht starten ({reason}). Die Engine spielt diesen Platz.;
+	fr={brain} n'a pas pu démarrer ({reason}). Le jeu joue cette place.;
+	es={brain} no pudo empezar ({reason}). El juego juega este puesto.;
+	it={brain} non è riuscito a partire ({reason}). Il gioco gioca questo posto.;
+	}
+
+[{brain} does not fit this game ({reason}); the engine plays this seat]
+	{
+	de={brain} passt nicht zu diesem Spiel ({reason}). Die Engine spielt diesen Platz.;
+	fr={brain} ne convient pas à cette partie ({reason}). Le jeu joue cette place.;
+	es={brain} no encaja en esta partida ({reason}). El juego juega este puesto.;
+	it={brain} non è adatto a questa partita ({reason}). Il gioco gioca questo posto.;
+	}
+
+[{brain} stopped ({reason}); the engine plays this seat on]
+	{
+	de={brain} hat aufgehört ({reason}). Die Engine spielt diesen Platz weiter.;
+	fr={brain} s'est arrêté ({reason}). Le jeu joue cette place.;
+	es={brain} se ha parado ({reason}). El juego juega este puesto.;
+	it={brain} si è fermato ({reason}). Il gioco gioca questo posto.;
+	}
+
 [{changes} Waiting to be removed: {names}.]
 	{
 	de={changes} Wartet auf das Entfernen: {names}.;
@@ -13290,6 +13858,14 @@
 	it={kinds} · {n} file;
 	}
 
+[{label} · every computer seat]
+	{
+	de={label} · jeder Computersitz;
+	fr={label} · chaque siège ordinateur;
+	es={label} · cada asiento de ordenador;
+	it={label} · ogni posto computer;
+	}
+
 [{label}: {values}]
 	{
 	de={label}: {values};
@@ -13450,12 +14026,28 @@
 	it={name} aggiunto per {dependant};
 	}
 
+[{name} cannot play this seat now, so it starts on the built-in player.]
+	{
+	de={name} kann diesen Sitz jetzt nicht spielen, also startet er mit dem eingebauten Spieler.;
+	fr={name} ne peut pas jouer ce siège maintenant, donc il commence avec le joueur intégré.;
+	es={name} no puede jugar este asiento ahora, así que empieza con el jugador integrado.;
+	it={name} non può giocare questo posto adesso, quindi parte con il giocatore integrato.;
+	}
+
 [{name} from {installed} is installed. Replace it with {name} from {new}? The one from {installed} is kept, and ROLL BACK brings it back.]
 	{
 	de={name} von {installed} ist installiert. Durch {name} von {new} ersetzen? Das von {installed} bleibt erhalten, und ZURÜCKROLLEN holt es zurück.;
 	fr={name} de {installed} est installé. Le remplacer par {name} de {new} ? Celui de {installed} est gardé, et RESTAURER le ramène.;
 	es={name} de {installed} está instalado. ¿Reemplazarlo por {name} de {new}? El de {installed} se conserva, y REVERTIR lo trae de vuelta.;
 	it={name} da {installed} è installato. Sostituirlo con {name} da {new}? Quello da {installed} viene tenuto, e RIPRISTINA lo riporta.;
+	}
+
+[{name} is installed. Choose it for a computer player when you set up a game.]
+	{
+	de={name} ist installiert. Wähle es für einen Computerspieler, wenn du ein Spiel einrichtest.;
+	fr={name} est installé. Choisis-le pour un joueur ordinateur quand tu prépares une partie.;
+	es={name} está instalado. Elígelo para un jugador de ordenador cuando prepares una partida.;
+	it={name} è installato. Sceglilo per un giocatore del computer quando prepari una partita.;
 	}
 
 [{name} is installed. Turn it on in the Library.]
@@ -13480,6 +14072,14 @@
 	fr={name} n'est pas copié, donc cette sauvegarde ne peut pas se charger avec.;
 	es={name} no está copiado, así que esta partida no se puede cargar con eso.;
 	it={name} non è stato copiato, quindi questo salvataggio non si può caricare con quello.;
+	}
+
+[{name} is precompiled Lua. A brain holds Lua source only.]
+	{
+	de={name} ist vorkompiliertes Lua. Ein Gehirn enthält nur Lua-Quelltext.;
+	fr={name} est du Lua précompilé. Un cerveau ne contient que du source Lua.;
+	es={name} es Lua precompilado. Un cerebro solo contiene código fuente Lua.;
+	it={name} è Lua precompilato. Un cervello contiene solo sorgente Lua.;
 	}
 
 [{name} is precompiled Lua. A mutator holds Lua source only.]
@@ -14074,6 +14674,14 @@
 	it={save_heading} / {now_heading};
 	}
 
+[{seat} · {mod}]
+	{
+	de={seat} · {mod};
+	fr={seat} · {mod};
+	es={seat} · {mod};
+	it={seat} · {mod};
+	}
+
 [{setup} · {mod}]
 	{
 	de={setup} · {mod};
@@ -14480,6 +15088,14 @@
 	fr=· nécessite {name};
 	es=· requiere {name};
 	it=· richiede {name};
+	}
+
+[· {reason}]
+	{
+	de=· {reason};
+	fr=· {reason};
+	es=· {reason};
+	it=· {reason};
 	}
 
 [· not compatible with this mod]

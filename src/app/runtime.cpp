@@ -491,8 +491,10 @@ Runtime::Runtime(
             prepare_registries_check();
         if (options_.check_map_browser)
             prepare_map_browser_check();
-        if (options_.check_mutator_picker || options_.check_mutator_button ||
-            options_.check_mutator_room || options_.check_mutator_prompts)
+        if (options_.check_mutator_picker || options_.check_brain_picker ||
+            options_.check_brain_seat_buttons || options_.check_brain_campaign ||
+            options_.check_mutator_button || options_.check_mutator_room ||
+            options_.check_mutator_prompts)
             prepare_mutator_picker_check();
         if (options_.check_map_pack_lists)
             prepare_map_pack_lists_check();
@@ -648,6 +650,11 @@ int Runtime::run() {
             flush_preferences();
             return result;
         }
+        if (!options_.brain_match.empty()) {
+            const int status = run_headless_brain_match(options_.match_ticks.value_or(0));
+            flush_preferences();
+            return status;
+        }
         if (options_.match_ticks) {
             if (options_.frame_rate)
                 run_headless_frames(*options_.match_ticks, *options_.frame_rate);
@@ -740,8 +747,28 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (options_.check_brain_picker) {
+            check_brain_picker();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_brain_seat_buttons) {
+            check_brain_seat_buttons();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_brain_campaign) {
+            check_brain_campaign();
+            flush_preferences();
+            return 0;
+        }
         if (options_.check_mutator_prompts) {
             check_mutator_prompts();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_saved_brains) {
+            check_saved_brains();
             flush_preferences();
             return 0;
         }
@@ -752,6 +779,11 @@ int Runtime::run() {
         }
         if (options_.check_mutator_room) {
             check_mutator_room();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_brain_room) {
+            check_brain_room();
             flush_preferences();
             return 0;
         }
@@ -1487,6 +1519,9 @@ void Runtime::advance_match_clock(uint32_t now_ms) {
     } catch (const std::exception& error) {
         report_match_tick_error(error.what());
     }
+    // A computer seat's chat is posted and sent here, after the ticks, so
+    // the log and the network do not run inside a tick.
+    flush_seat_chat();
     if (match_timing_.pending_steps != 0)
         oa::sim::messages::expire_oldest_message(match_->state().game);
     // The map's timed units are placed once a frame, as they come due.
@@ -1636,13 +1671,29 @@ void Runtime::load(Screen screen) {
     // it is entered from anywhere else. NEWGAME and Any
     // Mission drop theirs when Single Player or the main menu opens them.
     if (screen == Screen::skirmish && screen_ != Screen::map_selection &&
-        screen_ != Screen::skirmish && screen_ != Screen::loading)
+        screen_ != Screen::skirmish && screen_ != Screen::loading) {
         skirmish_mutators_.clear();
+        const oa::data::brain_library::Setup skirmish_setup =
+            oa::data::brain_library::Setup::skirmish;
+        if (const std::optional<oa::data::brain_library::Seats> remembered =
+                remembered_brain_seats(skirmish_setup))
+            setup_brain_seats(skirmish_setup) = *remembered;
+        else
+            setup_brain_seats(skirmish_setup) = {};
+        reload_installed_brains();
+    }
     if ((screen == Screen::new_campaign || screen == Screen::any_mission) &&
         (screen_ == Screen::single_player || screen_ == Screen::main_menu)) {
         campaign_mutators_.clear();
         if (mutators_held_for_next_match())
             cancel_loadout_once();
+        const oa::data::brain_library::Setup campaign_setup =
+            oa::data::brain_library::Setup::campaign;
+        if (const std::optional<oa::data::brain_library::Seats> remembered =
+                remembered_brain_seats(campaign_setup))
+            setup_brain_seats(campaign_setup) = *remembered;
+        else
+            setup_brain_seats(campaign_setup) = {};
     }
     if (const auto* previous = screen_find(&screens_, screen_id(screen_));
         previous != nullptr && previous->leave != nullptr) {

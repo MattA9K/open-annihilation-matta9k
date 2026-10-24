@@ -196,6 +196,9 @@ inline constexpr std::string_view file_type_oareg = "open-annihilation.file-type
 /// "on" or "off" (EngineSettings::file_type_oamut). Absent, or any text
 /// other than off, the game opens mutator packages.
 inline constexpr std::string_view file_type_oamut = "open-annihilation.file-types.oamut";
+/// "on" or "off" (EngineSettings::file_type_oabrain). Absent, or any text
+/// other than off, the game opens brain packages.
+inline constexpr std::string_view file_type_oabrain = "open-annihilation.file-types.oabrain";
 /// "on" or "off" (EngineSettings::file_type_oalaunch). Absent, or any text
 /// other than off, the game opens launch files.
 inline constexpr std::string_view file_type_oalaunch = "open-annihilation.file-types.oalaunch";
@@ -214,6 +217,25 @@ inline constexpr std::string_view mutators_multiplayer = "open-annihilation.muta
 /// options. Absent, or text that cannot be read as that loadout, means no
 /// set. Restore defaults does not erase it.
 inline constexpr std::string_view mutators_campaign = "open-annihilation.mutators.campaign";
+/// The default brain's id. Absent, empty, or an id no installed brain has,
+/// the built-in computer player is the default. Restore defaults does not
+/// erase it. USE BY DEFAULT writes it.
+inline constexpr std::string_view brain_default = "open-annihilation.brain.default";
+/// The computer seats a skirmish last started with, as the seat text.
+/// Absent, or text that cannot be read as seats, means no seats. START
+/// writes it when a seat names a brain, or when it is already there.
+/// Restore defaults does not erase it.
+inline constexpr std::string_view brains_skirmish = "open-annihilation.brains.skirmish";
+/// The computer seats the battle room last started with, as the seat text.
+/// Absent, or text that cannot be read as seats, means no seats. That
+/// setup writes it when a seat names a brain, or when it is already there.
+/// Restore defaults does not erase it.
+inline constexpr std::string_view brains_multiplayer = "open-annihilation.brains.multiplayer";
+/// The computer seats a campaign last started with, as the seat text.
+/// Absent, or text that cannot be read as seats, means no seats. A
+/// mission's start writes it when a seat names a brain, or when it is
+/// already there. Restore defaults does not erase it.
+inline constexpr std::string_view brains_campaign = "open-annihilation.brains.campaign";
 static_assert(base_game.find('|') == std::string_view::npos);
 static_assert(base_game.find('\\') == std::string_view::npos);
 static_assert(expansions_prefix.find('|') == std::string_view::npos);
@@ -222,6 +244,10 @@ static_assert(content_note.find('|') == std::string_view::npos);
 static_assert(mutators_skirmish.find('|') == std::string_view::npos);
 static_assert(mutators_multiplayer.find('|') == std::string_view::npos);
 static_assert(mutators_campaign.find('|') == std::string_view::npos);
+static_assert(brain_default.find('|') == std::string_view::npos);
+static_assert(brains_skirmish.find('|') == std::string_view::npos);
+static_assert(brains_multiplayer.find('|') == std::string_view::npos);
+static_assert(brains_campaign.find('|') == std::string_view::npos);
 } // namespace key
 
 /// Tells whether two tags are the same, ignoring ASCII case and reading '_' as '-'.
@@ -1112,10 +1138,11 @@ struct EngineSettings {
     /// the switch shows whether this copy is the default opener, and OK
     /// changes that only when the switch moved. iOS takes the type from the app.
     bool file_type_oamod{true};
-    bool file_type_oamap{true};  ///< the game opens map packs (.oamap)
-    bool file_type_oalang{true}; ///< the game opens language packs (.oalang)
-    bool file_type_oareg{true};  ///< the game opens registry files (.oareg)
-    bool file_type_oamut{true};  ///< the game opens mutator packages (.oamut)
+    bool file_type_oamap{true};   ///< the game opens map packs (.oamap)
+    bool file_type_oalang{true};  ///< the game opens language packs (.oalang)
+    bool file_type_oareg{true};   ///< the game opens registry files (.oareg)
+    bool file_type_oamut{true};   ///< the game opens mutator packages (.oamut)
+    bool file_type_oabrain{true}; ///< the game opens brain packages (.oabrain)
     /// The game opens launch files (.oalaunch), which start it in their
     /// battle room, as -c does.
     bool file_type_oalaunch{true};

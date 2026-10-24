@@ -54,7 +54,11 @@ add_library(oa-data-script-host
   src/require.cpp
   src/math_library.cpp
   src/fixed_library.cpp
-  src/sorted.cpp)
+  src/f32_library.cpp
+  src/geometry_library.cpp
+  src/sorted.cpp
+  src/memory_sources.cpp
+  src/plain_data.cpp)
 add_library(oa::data::script_host ALIAS oa-data-script-host)
 target_include_directories(oa-data-script-host PUBLIC include)
 target_compile_features(oa-data-script-host PUBLIC cxx_std_20)
@@ -134,10 +138,45 @@ if(BUILD_TESTING)
   add_test(NAME data-script-host-text COMMAND oa-data-script-host-text-test)
   set_tests_properties(data-script-host-text PROPERTIES TIMEOUT 30)
 
+  # A per-tick instruction bank, its real-time backstop, and print lines handed out.
+  add_executable(oa-data-script-host-bank-test tests/bank_test.cpp)
+  target_link_libraries(oa-data-script-host-bank-test PRIVATE
+    oa-data-script-host oa-test-support oa-options)
+  add_test(NAME data-script-host-bank COMMAND oa-data-script-host-bank-test)
+  set_tests_properties(data-script-host-bank PROPERTIES TIMEOUT 120)
+
+  # Package files served from memory, matched byte for byte.
+  add_executable(oa-data-script-host-memory-sources-test tests/memory_sources_test.cpp)
+  target_link_libraries(oa-data-script-host-memory-sources-test PRIVATE
+    oa-data-script-host oa-test-support oa-options)
+  add_test(NAME data-script-host-memory-sources COMMAND oa-data-script-host-memory-sources-test)
+  set_tests_properties(data-script-host-memory-sources PROPERTIES TIMEOUT 30)
+
   # Fixed counts against an independent table, through C++ and through a sandbox.
   add_executable(oa-data-script-host-fixed-test tests/fixed_test.cpp)
   target_link_libraries(oa-data-script-host-fixed-test PRIVATE
     oa-data-script-host oa-formats-tdf oa-test-support oa-options)
   add_test(NAME data-script-host-fixed COMMAND oa-data-script-host-fixed-test)
   set_tests_properties(data-script-host-fixed PROPERTIES TIMEOUT 60)
+
+  # Single-precision values against an independent table, through C++ and a sandbox.
+  add_executable(oa-data-script-host-f32-test tests/f32_test.cpp)
+  target_link_libraries(oa-data-script-host-f32-test PRIVATE
+    oa-data-script-host oa-test-support oa-options)
+  add_test(NAME data-script-host-f32 COMMAND oa-data-script-host-f32-test)
+  set_tests_properties(data-script-host-f32 PROPERTIES TIMEOUT 60)
+
+  # Heading and length against the engine's own geometry, through a sandbox.
+  add_executable(oa-data-script-host-geometry-test tests/geometry_test.cpp)
+  target_link_libraries(oa-data-script-host-geometry-test PRIVATE
+    oa-data-script-host oa-base-game-math oa-test-support oa-options)
+  add_test(NAME data-script-host-geometry COMMAND oa-data-script-host-geometry-test)
+  set_tests_properties(data-script-host-geometry PROPERTIES TIMEOUT 30)
+
+  # Canonical plain-data bytes, the refusals, and the charge.
+  add_executable(oa-data-script-host-plain-data-test tests/plain_data_test.cpp)
+  target_link_libraries(oa-data-script-host-plain-data-test PRIVATE
+    oa-data-script-host oa-test-support oa-options)
+  add_test(NAME data-script-host-plain-values COMMAND oa-data-script-host-plain-data-test)
+  set_tests_properties(data-script-host-plain-values PROPERTIES TIMEOUT 60)
 endif()

@@ -203,6 +203,73 @@ const Command mutator_commands[] = {
     },
 };
 
+const Command brain_commands[] = {
+    {
+        "pack",
+        "FOLDER [--out FILE] [--force]",
+        "Pack a brain folder as a .oabrain.",
+        "Reads FOLDER, whose top holds oabrain.yaml, and writes a .oabrain. The manifest is "
+        "written "
+        "first, then every other file in byte order of its path, with fixed times. A .png is "
+        "stored and a .lua file is deflated, by the same rule as pack. Without --out the name "
+        "is <id>-<version>.oabrain in the current folder. --force replaces an existing file. "
+        "--game-dir is a usage error. A manifest problem, a file outside the layout, a Lua source "
+        "that does not compile, a network whose SHA-256 is not the one oabrain.yaml gives and an "
+        "icon that is not a square PNG within the limits are listed, each with its file, and "
+        "nothing is written. Lua is compiled and not run. A .oann file is hashed and not "
+        "interpreted. A folder the installer would refuse is not packed. A folder without "
+        "oabrain.yaml is a usage error. oa-tool check reports the brain's facts.",
+        1,
+        any_count,
+        run_brain_pack,
+        {},
+    },
+    {
+        "check",
+        "FILE --game-dir DIR [--mod FOLDER] [--level LEVEL] [--side N] [--json]",
+        "Load a brain against a game and report how it started.",
+        "FILE is a .oabrain or a folder whose top holds oabrain.yaml. The folder's name is the "
+        "brain's id. --game-dir is the game, mounted the way the game mounts it, and is required. "
+        "--mod is a mod folder layered over that game. --level selects a level; the first level "
+        "is used when it is omitted. --side is the side whose commander the brain's seat holds, "
+        "from 0 to 255, and it is 0 when omitted. The check builds a match from the game's own "
+        "unit, weapon and feature definitions and its computer-player profile, on a flat "
+        "stand-in map, seats the brain, and never ticks the match. It reports whether the brain "
+        "loaded, whether it fits, whether it started, the instructions each phase used, and the "
+        "memory its Lua and its networks hold. A unit file that does not load is a warning. "
+        "--json prints one object. Exit 0 when the brain was seated, 1 when it was not, and 2 "
+        "when the arguments are not the command's. A file of another kind, or a folder without "
+        "oabrain.yaml, is a usage error.",
+        1,
+        any_count,
+        run_brain_check,
+        {},
+    },
+    {
+        "net",
+        "MODEL.onnx --calibrate DATA [--out FILE] [--weights int8|int16] "
+        "[--max-difference X] [--force] [--json]",
+        "Convert an ONNX model to a .oann.",
+        "Reads MODEL.onnx, a model of the default domain at opset 11 to 21, and writes a .oann. "
+        "The layers are Gemm and MatMul (a following Add of a constant is the bias), Conv, "
+        "MaxPool, Relu, LeakyRelu, Tanh, Sigmoid, Softmax, Add, Concat, Flatten, Reshape, ArgMax "
+        "and Gather. Identity and Dropout are skipped. The first dimension of every input is the "
+        "batch and is removed. --calibrate is a file of JSON lines; a line whose kind is sample "
+        "holds features as whole numbers in 65536ths. Weights are int8 unless --weights int16 is "
+        "set. The integer network is run on the same samples, and the report gives each output's "
+        "largest difference, or the share of samples an argmax agrees on. --max-difference "
+        "refuses a larger difference and writes nothing. Without --out the file is the model's "
+        "path with .oann. An existing file needs --force. --json prints one object. Exit 0 when "
+        "the file was written and every difference is within the limit. Exit 1 when the model "
+        "cannot be converted or a difference passes the limit. Exit 2 when the arguments are not "
+        "the command's.",
+        1,
+        any_count,
+        run_brain_net,
+        {},
+    },
+};
+
 const Command command_table[] = {
     {
         "list",
@@ -263,20 +330,27 @@ const Command command_table[] = {
     {
         "pack",
         "FOLDER [--out FILE] [--force] [--game-dir DIR]",
-        "Pack a folder as a mod, a language package, a map pack, an expansion or a mutator.",
-        "Reads FOLDER and writes a .oamod, a .oalang, a .oamap, a .oaexp or a .oamut. The folder's "
-        "top holds one manifest, oamod.yaml, language.yaml, oamap.yaml, oaexp.yaml or oamut.yaml. "
-        "The manifest is written first, then every other file in byte order of its path, with "
-        "fixed times. A file whose extension, without case, is png, jpg, jpeg, gif, ogg, mp3, "
-        "zip, gz, bz2, xz, 7z, oamod, oalang or oamap, and an empty file, is stored; every other "
-        "file is deflated. An expansion's files are all stored. The same files give the same "
-        "bytes on any machine with the same zlib. --out names the package file; without it the "
-        "name comes from the manifest and is written in the current folder. A mutator's default "
-        "name is <id>-<version>.oamut. --force replaces an existing file. A folder the installer "
-        "would refuse is not packed. A mutator whose manifest, Lua source or rule file is broken "
-        "is not packed, and every problem is listed. A map pack reads the game's palette from "
-        "--game-dir: map packs need the game's palette for previews. --game-dir on a mod, a "
-        "language pack, an expansion or a mutator is a usage error.",
+        "Pack a folder as a mod, a language package, a map pack, an expansion, a mutator or a "
+        "brain.",
+        "Reads FOLDER and writes a .oamod, a .oalang, a .oamap, a .oaexp, a .oamut or a .oabrain. "
+        "The folder's top holds one manifest, oamod.yaml, language.yaml, oamap.yaml, oaexp.yaml, "
+        "oamut.yaml or oabrain.yaml. The manifest is written first, then every other file in byte "
+        "order of its path, with fixed times. A file whose extension, without case, is png, jpg, "
+        "jpeg, gif, ogg, mp3, zip, gz, bz2, xz, 7z, oamod, oalang or oamap, and an empty file, is "
+        "stored; every other file is deflated. An expansion's files are all stored. The same files "
+        "give the same bytes on any machine with the same zlib. --out names the package file; "
+        "without it the name comes from the manifest and is written in the current folder. A "
+        "mutator's default name is <id>-<version>.oamut. A brain's default name is "
+        "<id>-<version>.oabrain. --force replaces an existing file. A folder the installer would "
+        "refuse is not packed. A mutator whose manifest, Lua source or rule file is broken is not "
+        "packed, and every problem is listed. A brain whose manifest, layout, Lua source, network "
+        "SHA-256 or icon is broken is not packed, and every problem is listed. Lua is compiled and "
+        "not run. check reports a brain's summary, description, homepage, tags, author, requires, "
+        "works_with, levels, full_awareness, networks, network_bytes, options, icon, entry, "
+        "scripts "
+        "and data. A map pack reads the game's palette from --game-dir: map packs need the game's "
+        "palette for previews. --game-dir on a mod, a language pack, an expansion, a mutator or a "
+        "brain is a usage error.",
         1,
         any_count,
         run_pack,
@@ -295,14 +369,20 @@ const Command command_table[] = {
         "place of those; for a map pack, summary, author, homepage, tags, supportedGames, "
         "requiredExpansions, requires and packaging, then maps; for an expansion, extends, needs "
         "and author; for a mutator, summary, description, homepage, tags, author, requires, "
-        "works_with, conflicts_with, layers, options, icon, entry, scripts, rules and legacy. "
-        "A mutator's Lua is compiled and its rule files are parsed, and neither is run. "
-        "Warnings may suggest writing "
+        "works_with, conflicts_with, layers, options, icon, entry, scripts, rules and legacy; "
+        "for a brain, summary, description, homepage, tags, author, requires, works_with, levels, "
+        "full_awareness, networks, network_bytes, options, icon, entry, scripts and data. "
+        "A mutator's Lua is compiled and its rule files are parsed, and neither is run. A brain's "
+        "Lua is compiled and not run, and a .oann file is hashed and not interpreted. "
+        "full_awareness is a boolean and network_bytes is a whole number, and both are always "
+        "written for a brain. levels lists id, name and difficulty. networks lists id, file, "
+        "sha256 and size. requires.expansions is the expansion ids. data lists the table paths in "
+        "byte order. Warnings may suggest writing "
         "supportedGames instead of requires.base, or requiredExpansions instead of an expansion "
         "archive named in layout.installation-archives. A key the package does not have is left "
-        "out, and revision is null when a language pack has no packaging revision and for every "
-        "mutator. An expansion does not take "
-        "--game-dir. A map pack needs --game-dir, "
+        "out, and revision is null when a language pack has no packaging revision, for every "
+        "mutator and for every brain. An expansion does not take "
+        "--game-dir. A brain does not take --game-dir. A map pack needs --game-dir, "
         "the game folder. The check builds each target the way the game would. Each --mod "
         "FOLDER[=KEY] is one more target, after the base game ta-3.1c. The key is the text "
         "after the last =, or the folder's catalogue origin as id@release, or the profile's id "
@@ -333,6 +413,25 @@ const Command command_table[] = {
         0,
         nullptr,
         mutator_commands,
+    },
+    {
+        "brain",
+        "COMMAND",
+        "Pack brains, check one against a game, and convert a network.",
+        "Packs a brain folder into a .oabrain, checks a brain against a game, and converts an "
+        "ONNX model into a .oann. brain pack reads a folder whose top holds oabrain.yaml. "
+        "oa-tool check reports a brain's facts: summary, description, homepage, tags, author, "
+        "requires, works_with, levels, full_awareness, networks, network_bytes, options, icon, "
+        "entry, scripts and data. A folder without oabrain.yaml is a usage error. brain check "
+        "loads a .oabrain, or a folder whose top holds oabrain.yaml, against a game. It seats "
+        "the brain in a match of the game's definitions on a flat stand-in map and never ticks "
+        "that match. It reports whether the brain loaded, fitted and started. brain net reads "
+        "an ONNX model of opset 11 to 21, quantises it with a calibration file and reports how "
+        "far the integer network is from the floating-point one.",
+        0,
+        0,
+        nullptr,
+        brain_commands,
     },
     {
         "catalogue",
