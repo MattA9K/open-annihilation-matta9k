@@ -90,8 +90,9 @@ void Runtime::prepare_brain_report(
     hooks.stopped = &Runtime::brain_stopped;
     oa::sim::brains::set_report_hooks(*match_, hooks);
     try {
+        // The data folder --data-dir names, else the player's own.
         brain_logs_[player].begin(
-            oa::platform::preferences::data_directory(),
+            options_.data_dir ? *options_.data_dir : oa::platform::preferences::data_directory(),
             player,
             name,
             version,

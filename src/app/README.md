@@ -3280,7 +3280,7 @@ player plays the seat from the units as they stand. The machine that
 seated the brain posts one notice in the match message log, in the
 player's language: the brain stopped, it could not start, or it does not
 fit this game. The same machine writes `logs/brains/seat-<n>.log` under
-the data directory, where n is the player index plus one. The log starts
+the data directory (`--data-dir`'s folder when it is given), where n is the player index plus one. The log starts
 with the brain's name, version, id, level, seat and match seed, then each
 printed line and the error, and it stops at 1 MiB with the line `the log
 is full`. A log that cannot be written is reported once on standard error,

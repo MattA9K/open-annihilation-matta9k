@@ -836,7 +836,8 @@ report.
 ### The seat log
 
 The app writes `<data>/logs/brains/seat-<n>.log`, where n is the player
-index plus one. The file starts anew for each brain seated there. The
+index plus one and `<data>` is the folder `--data-dir` names (above,
+`/tmp/brain-scratch/data`), or the account's data folder without it. The file starts anew for each brain seated there. The
 first line of seat 1 after the built-in match is:
 
 ```text

@@ -539,8 +539,9 @@ stops the seat the way a hook error does.
 `print` follows
 [10.1 Libraries](../mutators/oamut-standard.md#101-libraries). The app
 also writes each kept line to the seat's log. The file is
-`<data>/logs/brains/seat-<n>.log`, where n is the player index plus one.
-It is begun anew for each brain seated there. The first line is the
+`<data>/logs/brains/seat-<n>.log`, where n is the player index plus one
+and `<data>` is the folder `--data-dir` names, or the account's data folder
+without it. It is begun anew for each brain seated there. The first line is the
 manifest name, a space, the version, the id in parentheses, `, level `,
 the level, `, seat `, that same n, `, match seed `, and the seed. Each
 printed line is the word tick, the tick, `: `, and the text. The file
