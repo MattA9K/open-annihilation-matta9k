@@ -104,54 +104,11 @@ def install_classic(preferences, package):
     shutil.copytree(package, folder)
 
 
-def seat_log_dirs():
-    """Folders that can hold logs/brains from the data directory."""
-    home = Path.home()
-    found = []
-    support = home / "Library" / "Application Support"
-    for older in ("net.coreprime.open-annihilation", "com.coreprime.open-annihilation"):
-        found.append(support / older / "logs" / "brains")
-    xdg = os.environ.get("XDG_DATA_HOME")
-    if xdg:
-        found.append(Path(xdg) / "open-annihilation" / "logs" / "brains")
-    found.append(home / ".local" / "share" / "open-annihilation" / "logs" / "brains")
-    local = os.environ.get("LOCALAPPDATA")
-    if local:
-        found.append(Path(local) / "CorePrime" / "Open Annihilation" / "logs" / "brains")
-    return found
-
-
-def snapshot_logs(folders):
-    """Modification times of seat logs, so an older log is not this run."""
-    seen = {}
-    for folder in folders:
-        if not folder.is_dir():
-            continue
-        for path in folder.glob("seat-*.log"):
-            try:
-                seen[path] = path.stat().st_mtime_ns
-            except OSError:
-                continue
-    return seen
-
-
-def changed_logs(before, folders, work):
-    """Seat logs written or replaced since `before`, plus any under `work`."""
-    changed = []
-    for folder in folders:
-        if not folder.is_dir():
-            continue
-        for path in folder.glob("seat-*.log"):
-            try:
-                stamped = path.stat().st_mtime_ns
-            except OSError:
-                continue
-            if before.get(path) != stamped:
-                changed.append(path)
-    if work.is_dir():
-        for path in work.rglob("seat-*.log"):
-            changed.append(path)
-    return changed
+def seat_logs(work):
+    """The seat logs of one run: each run keeps its data directory in its work folder."""
+    if not work.is_dir():
+        return []
+    return sorted(work.rglob("seat-*.log"))
 
 
 def log_stopped(paths):
@@ -186,6 +143,8 @@ def launch(native, game_dir, work, preferences, args, timeout):
         *args,
         "--preferences-file",
         str(preferences),
+        "--data-dir",
+        str(work / "data"),
     ]
     return subprocess.run(
         command,
@@ -206,17 +165,15 @@ def run_once(native, game_dir, scratch, package, label, args, classic, timeout):
     write_preferences(preferences, classic)
     if classic:
         install_classic(preferences, package)
-    before = snapshot_logs(seat_log_dirs())
     try:
         result = launch(native, game_dir, work, preferences, args, timeout)
     except subprocess.TimeoutExpired as expired:
         raise SwapFailure(f"{label}: the game timed out") from expired
-    stopped = log_stopped(changed_logs(before, seat_log_dirs(), work))
-    return result, stopped
+    return result, seat_logs(work)
 
 
-def require_classic(result, stopped, label, computers):
-    """The Classic run seated classic 1.0 and did not hand the seat back."""
+def require_classic(result, logs, label, computers):
+    """The Classic run seated classic 1.0, wrote its seat logs and did not hand the seat back."""
     text = output_of(result)
     if result.returncode != 0:
         print(text, end="" if text.endswith("\n") or text == "" else "\n")
@@ -224,6 +181,9 @@ def require_classic(result, stopped, label, computers):
     if STOP_NOTICE in text:
         print(text, end="" if text.endswith("\n") or text == "" else "\n")
         raise SwapFailure(f"{label}: Classic stopped and the built-in player took the seat")
+    if not logs:
+        raise SwapFailure(f"{label}: Classic wrote no seat log under its data folder")
+    stopped = log_stopped(logs)
     if stopped is not None:
         raise SwapFailure(f"{label}: {stopped} records a stop")
     seated = PLAYS.findall(text)
@@ -251,11 +211,11 @@ def pair(native, game_dir, scratch, package, label, args, computers, timeout=RUN
     builtin, _ = run_once(
         native, game_dir, scratch, package, label + "-builtin", args, False, timeout
     )
-    classic, stopped = run_once(
+    classic, logs = run_once(
         native, game_dir, scratch, package, label + "-classic", args, True, timeout
     )
     builtin_text = require_builtin(builtin, label)
-    classic_text = require_classic(classic, stopped, label, computers)
+    classic_text = require_classic(classic, logs, label, computers)
     return builtin_text, classic_text
 
 
@@ -340,15 +300,13 @@ def check_trace(native, game_dir, scratch, package):
             builtin = launch(
                 native, game_dir, builtin_work, builtin_prefs, builtin_args, RUN_TIMEOUT_SECONDS
             )
-            before = snapshot_logs(seat_log_dirs())
             classic = launch(
                 native, game_dir, classic_work, classic_prefs, classic_args, RUN_TIMEOUT_SECONDS
             )
         except subprocess.TimeoutExpired as expired:
             raise SwapFailure(f"{label}: the game timed out") from expired
         require_builtin(builtin, label)
-        stopped = log_stopped(changed_logs(before, seat_log_dirs(), classic_work))
-        require_classic(classic, stopped, label, 1)
+        require_classic(classic, seat_logs(classic_work), label, 1)
         for stem, folder in (("builtin", builtin_work), ("classic", classic_work)):
             check_trace_layout(folder / f"{stem}.trace", ticks)
         compare_files(builtin_work / "builtin.trace", classic_work / "classic.trace", label + " stream")
@@ -450,7 +408,6 @@ def check_stage(native, game_dir, scratch, package):
                 stage_args(builtin_work, ticks, "builtin"),
                 RUN_TIMEOUT_SECONDS,
             )
-            before = snapshot_logs(seat_log_dirs())
             classic = launch(
                 native,
                 game_dir,
@@ -462,8 +419,7 @@ def check_stage(native, game_dir, scratch, package):
         except subprocess.TimeoutExpired as expired:
             raise SwapFailure(f"{label}: the game timed out") from expired
         builtin_text = require_builtin(builtin, label)
-        stopped = log_stopped(changed_logs(before, seat_log_dirs(), classic_work))
-        classic_text = require_classic(classic, stopped, label, 1)
+        classic_text = require_classic(classic, seat_logs(classic_work), label, 1)
         require_stage_setup(builtin_text, label + " built-in")
         require_stage_setup(classic_text, label + " classic")
         if ticks == STAGE_TICKS[0]:
