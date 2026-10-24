@@ -144,12 +144,12 @@ constexpr std::array<WindowLayout, 5> kWindowLayouts{{
 }};
 static_assert(kWindowLayouts.size() == kWindowSizes.size(), "one layout for each window size");
 
-/// Graphics' scroll limit at Compact: its eleven rows, Smooth motion and
+/// Graphics' scroll limit at Compact: its twenty-one rows, Smooth motion and
 /// Fog of War among them, after Menu scaling, Window frame, HUD scaling and
 /// Interface size left for User Interface.
-constexpr int32_t kGraphicsScrollLimit = 454;
-/// Graphics' scroll limit at Large, whose taller view all but holds its rows.
-constexpr int32_t kGraphicsLargeScrollLimit = 82;
+constexpr int32_t kGraphicsScrollLimit = 972;
+/// Graphics' scroll limit at Large, whose taller view holds more of its rows.
+constexpr int32_t kGraphicsLargeScrollLimit = 600;
 /// Interface size's place on User Interface, from the section's first row.
 constexpr int32_t kInterfaceSizeRow = 3;
 
@@ -426,6 +426,26 @@ std::string_view label_of(settings::Setting setting) {
         return "File types";
     case settings::Setting::skirmish_players:
         return "Skirmish players";
+    case settings::Setting::weapon_lighting:
+        return "Coloured weapon lighting";
+    case settings::Setting::nanolathe_lighting:
+        return "Nanolathe glow";
+    case settings::Setting::wreck_glow:
+        return "Wreck glow";
+    case settings::Setting::water_ripples:
+        return "Water ripples";
+    case settings::Setting::coastal_waves:
+        return "Coastal waves";
+    case settings::Setting::underwater_shimmer:
+        return "Underwater shimmer";
+    case settings::Setting::naval_reflections:
+        return "Naval reflections";
+    case settings::Setting::heat_distortion:
+        return "Heat distortion";
+    case settings::Setting::allow_full_3d:
+        return "Allow Full 3D Mode";
+    case settings::Setting::unlocked_camera:
+        return "Unlocked Camera";
     case settings::Setting::welcome_setup:
         return "Welcome setup";
     case settings::Setting::fog_of_war:

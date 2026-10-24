@@ -278,9 +278,9 @@ int main(int argc, char** argv) {
         if (!draw_section(dialog, fonts, icon.picture, directory / picture_name(page)))
             ok = false;
         // Controls, Graphics, Downloads and System scrolled to their ends:
-        // Window edge and Edge stickiness, Explosion flash down to After
-        // zoom, the downloads' last rows, and the file-type switches down to
-        // Launch files.
+        // Window edge and Edge stickiness, the water sliders down to Naval
+        // reflections, the downloads' last rows, and the file-type switches
+        // down to Launch files.
         if (page == Page::controls || page == Page::graphics || page == Page::downloads ||
             page == Page::system) {
             dialog.scroll[static_cast<std::size_t>(page)] = settings::scroll_limit(dialog);

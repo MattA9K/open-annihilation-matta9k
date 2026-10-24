@@ -267,6 +267,8 @@ void Runtime::teardown_match() {
     offline_services_.clear_match();
     offline_services_.set_on_screen_test(nullptr, nullptr);
     effect_boundary_.clock = nullptr;
+    live_renderer_.reset();
+    reset_match_effect_sources();
     match_.reset();
     // The brains this match seated go with it. A list held for the next
     // start stays: a new start tears the previous match down before it

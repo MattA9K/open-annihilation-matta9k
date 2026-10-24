@@ -106,6 +106,26 @@ Value clamped(int64_t number, Value lowest, Value highest) noexcept {
     );
 }
 
+/// Returns the intensity an effect's keys hold: its percent key, clamped to
+/// 0 to 200 and rounded to the nearest stop of 10, or else the On and Off
+/// switch the effect had before, as 100 or 0.
+///
+/// @param values the preferences
+/// @param intensity_key the key of the effect's percent
+/// @param switch_key the key of the effect's earlier switch; empty for none
+/// @return the intensity in percent; nothing when neither key holds a number
+std::optional<uint32_t> stored_intensity(
+    const Values& values, std::string_view intensity_key, std::string_view switch_key = {}
+) {
+    if (const auto number = stored_number(values, intensity_key))
+        return static_cast<uint32_t>((clamped(*number, 0, 200) + 5) / 10 * 10);
+    if (switch_key.empty())
+        return std::nullopt;
+    if (const auto number = stored_number(values, switch_key))
+        return *number > 0 ? 100U : 0U;
+    return std::nullopt;
+}
+
 /// Returns the anti-aliasing level a stored number reads as.
 ///
 /// @param number the stored number
@@ -625,8 +645,32 @@ EngineSettings read_settings(
             stored_acceleration(found->second).value_or(settings.hardware_acceleration);
     if (const auto number = stored_number(values, key::vertical_sync))
         settings.vertical_sync = *number > 0;
+    if (const auto number = stored_number(values, key::allow_full_3d))
+        settings.allow_full_3d = *number > 0;
+    if (const auto number = stored_number(values, key::unlocked_camera))
+        settings.unlocked_camera = *number > 0;
     if (const auto number = stored_number(values, key::smooth_motion))
         settings.smooth_motion = *number > 0;
+    settings.weapon_lighting =
+        stored_intensity(values, key::weapon_lighting_intensity, key::weapon_lighting)
+            .value_or(settings.weapon_lighting);
+    settings.nanolathe_lighting =
+        stored_intensity(values, key::nanolathe_lighting_intensity, key::nanolathe_lighting)
+            .value_or(settings.nanolathe_lighting);
+    settings.wreck_glow = stored_intensity(values, key::wreck_glow_intensity, key::wreck_glow)
+                              .value_or(settings.wreck_glow);
+    settings.water_ripples =
+        stored_intensity(values, key::water_ripples_intensity).value_or(settings.water_ripples);
+    settings.coastal_waves =
+        stored_intensity(values, key::coastal_waves_intensity).value_or(settings.coastal_waves);
+    settings.underwater_shimmer = stored_intensity(values, key::underwater_shimmer_intensity)
+                                      .value_or(settings.underwater_shimmer);
+    settings.naval_reflections = stored_intensity(values, key::naval_reflections_intensity)
+                                     .value_or(settings.naval_reflections);
+    settings.heat_distortion =
+        stored_intensity(values, key::heat_distortion_intensity, key::heat_distortion)
+            .value_or(settings.heat_distortion);
+
     if (const auto found = values.find(std::string{key::menu_scaling}); found != values.end())
         settings.menu_scaling =
             menu_scaling_from_text(found->second).value_or(settings.menu_scaling);
@@ -854,10 +898,105 @@ void write_settings(
     );
     store(
         values,
+        key::allow_full_3d,
+        switch_text(chosen.allow_full_3d),
+        chosen.allow_full_3d != opened.allow_full_3d,
+        chosen.allow_full_3d == defaults.allow_full_3d,
+        restored
+    );
+    store(
+        values,
+        key::unlocked_camera,
+        switch_text(chosen.unlocked_camera),
+        chosen.unlocked_camera != opened.unlocked_camera,
+        chosen.unlocked_camera == defaults.unlocked_camera,
+        restored
+    );
+    store(
+        values,
         key::smooth_motion,
         switch_text(chosen.smooth_motion),
         chosen.smooth_motion != opened.smooth_motion,
         chosen.smooth_motion == defaults.smooth_motion,
+        restored
+    );
+    // An effect's earlier On and Off key goes when its percent key is written
+    // or erased, never alone, so that a Restore defaults followed by the
+    // value read from it keeps that value.
+    if ((restored && chosen.weapon_lighting == defaults.weapon_lighting) ||
+        chosen.weapon_lighting != opened.weapon_lighting)
+        values.erase(std::string{key::weapon_lighting});
+    store(
+        values,
+        key::weapon_lighting_intensity,
+        std::to_string(chosen.weapon_lighting),
+        chosen.weapon_lighting != opened.weapon_lighting,
+        chosen.weapon_lighting == defaults.weapon_lighting,
+        restored
+    );
+    if ((restored && chosen.nanolathe_lighting == defaults.nanolathe_lighting) ||
+        chosen.nanolathe_lighting != opened.nanolathe_lighting)
+        values.erase(std::string{key::nanolathe_lighting});
+    store(
+        values,
+        key::nanolathe_lighting_intensity,
+        std::to_string(chosen.nanolathe_lighting),
+        chosen.nanolathe_lighting != opened.nanolathe_lighting,
+        chosen.nanolathe_lighting == defaults.nanolathe_lighting,
+        restored
+    );
+    if ((restored && chosen.wreck_glow == defaults.wreck_glow) ||
+        chosen.wreck_glow != opened.wreck_glow)
+        values.erase(std::string{key::wreck_glow});
+    store(
+        values,
+        key::wreck_glow_intensity,
+        std::to_string(chosen.wreck_glow),
+        chosen.wreck_glow != opened.wreck_glow,
+        chosen.wreck_glow == defaults.wreck_glow,
+        restored
+    );
+    store(
+        values,
+        key::water_ripples_intensity,
+        std::to_string(chosen.water_ripples),
+        chosen.water_ripples != opened.water_ripples,
+        chosen.water_ripples == defaults.water_ripples,
+        restored
+    );
+    store(
+        values,
+        key::coastal_waves_intensity,
+        std::to_string(chosen.coastal_waves),
+        chosen.coastal_waves != opened.coastal_waves,
+        chosen.coastal_waves == defaults.coastal_waves,
+        restored
+    );
+    store(
+        values,
+        key::underwater_shimmer_intensity,
+        std::to_string(chosen.underwater_shimmer),
+        chosen.underwater_shimmer != opened.underwater_shimmer,
+        chosen.underwater_shimmer == defaults.underwater_shimmer,
+        restored
+    );
+    store(
+        values,
+        key::naval_reflections_intensity,
+        std::to_string(chosen.naval_reflections),
+        chosen.naval_reflections != opened.naval_reflections,
+        chosen.naval_reflections == defaults.naval_reflections,
+        restored
+    );
+    if ((restored && chosen.heat_distortion == defaults.heat_distortion) ||
+        chosen.heat_distortion != opened.heat_distortion)
+        values.erase(std::string{key::heat_distortion});
+    store(
+        values,
+        key::heat_distortion_intensity,
+        std::to_string(chosen.heat_distortion),
+        chosen.heat_distortion != opened.heat_distortion,
+        chosen.heat_distortion == defaults.heat_distortion,
         restored
     );
     store(

@@ -213,7 +213,9 @@ setting writes the setting's key into its file first
 `native-engine-settings-determinism` holds this in place: with every key at
 its default, the seeded skirmish writes the same trace stream and draws the
 same frame as with no file, and the director render keeps its pinned frames
-and sound. With a named file Hardware acceleration and Vertical sync are
+and sound with the weapon lighting, nanolathe glow, wreck glow and heat
+distortion at 0%, and its pinned sound with them at their defaults. With a
+named file Hardware acceleration and Vertical sync are
 Off, and the windowed checks' `SDL_RENDER_DRIVER=software` locks both, so no
 check draws through the graphics card or waits for the display; game text
 keeps the game's own fonts there too, as modern fonts are Off. Five

@@ -794,6 +794,22 @@
 	it=Visualizzazione delle unità alleate;
 	}
 
+[Allow angles outside the ideal range for TA art.]
+	{
+	de=Erlaubt Winkel außerhalb des idealen Bereichs für TA-Grafiken.;
+	fr=Autorise des angles hors de la plage idéale pour les graphismes de TA.;
+	es=Permite ángulos fuera del rango ideal para los gráficos de TA.;
+	it=Consente angoli fuori dall'intervallo ideale per la grafica di TA.;
+	}
+
+[Allow Full 3D Mode]
+	{
+	de=Vollen 3D-Modus erlauben;
+	fr=Autoriser le mode 3D complet;
+	es=Permitir el modo 3D completo;
+	it=Consenti la modalità 3D completa;
+	}
+
 [Alongside, {incoming} goes in a folder of its own:]
 	{
 	de=Daneben kommt {incoming} in einen eigenen Ordner:;
@@ -2184,6 +2200,22 @@
 	fr=Ferme le menu ouvert.;
 	es=Cierra el menú abierto.;
 	it=Chiude il menu aperto.;
+	}
+
+[Coastal waves]
+	{
+	de=Küstenwellen;
+	fr=Vagues côtières;
+	es=Olas costeras;
+	it=Onde costiere;
+	}
+
+[Coloured weapon lighting]
+	{
+	de=Farbige Waffenbeleuchtung;
+	fr=Éclairage coloré des armes;
+	es=Iluminación coloreada de las armas;
+	it=Illuminazione colorata delle armi;
 	}
 
 [Commander Builder Limit]
@@ -4056,6 +4088,14 @@
 	fr=Accélération matérielle;
 	es=Aceleración por hardware;
 	it=Accelerazione hardware;
+	}
+
+[Heat distortion]
+	{
+	de=Hitzeflimmern;
+	fr=Distorsion thermique;
+	es=Distorsión térmica;
+	it=Distorsione termica;
 	}
 
 [Held, a build click lays a line or a ring.]
@@ -6282,12 +6322,28 @@
 	it=ORA;
 	}
 
+[Nanolathe glow]
+	{
+	de=Nanolathe-Leuchten;
+	fr=Lueur du nanolathe;
+	es=Brillo del nanoconstructor;
+	it=Bagliore del nanocostruttore;
+	}
+
 [Naval]
 	{
 	de=See;
 	fr=Naval;
 	es=Naval;
 	it=Navale;
+	}
+
+[Naval reflections]
+	{
+	de=Schiffsspiegelungen;
+	fr=Reflets des navires;
+	es=Reflejos de los barcos;
+	it=Riflessi delle navi;
 	}
 
 [Native pixel density]
@@ -6314,12 +6370,28 @@
 	it=Richiede;
 	}
 
+[Needs Allow Full 3D Mode]
+	{
+	de=Braucht vollen 3D-Modus;
+	fr=Requiert le mode 3D complet;
+	es=Necesita el modo 3D completo;
+	it=Richiede la modalità 3D completa;
+	}
+
 [Needs Dots]
 	{
 	de=Braucht Punkte;
 	fr=Requiert les points;
 	es=Necesita puntos;
 	it=Richiede i punti;
+	}
+
+[Needs Full acceleration]
+	{
+	de=Braucht volle Beschleunigung;
+	fr=Requiert l'accélération complète;
+	es=Necesita aceleración completa;
+	it=Richiede l'accelerazione completa;
 	}
 
 [Needs Open Annihilation {range}]
@@ -8240,6 +8312,14 @@
 	fr=Le remplacement garde {installed}, et RESTAURER dans la Bibliothèque le ramène.;
 	es=El reemplazo conserva {installed}, y REVERTIR en la Biblioteca lo trae de vuelta.;
 	it=La sostituzione tiene {installed}, e RIPRISTINA nella Biblioteca lo riporta.;
+	}
+
+[Requires Full hardware acceleration.]
+	{
+	de=Erfordert volle Hardwarebeschleunigung.;
+	fr=Nécessite l'accélération matérielle complète.;
+	es=Requiere aceleración por hardware completa.;
+	it=Richiede l'accelerazione hardware completa.;
 	}
 
 [Resource Panel]
@@ -11098,6 +11178,14 @@
 	it=INTERFACCIA UTENTE;
 	}
 
+[Underwater shimmer]
+	{
+	de=Unterwasserflimmern;
+	fr=Scintillement sous-marin;
+	es=Destellos submarinos;
+	it=Scintillio subacqueo;
+	}
+
 [Unfiltered]
 	{
 	de=Ungefiltert;
@@ -11224,6 +11312,14 @@
 	fr=Les unités, les tirs et les pièces qui tournent bougent de façon fluide entre les ticks du jeu.;
 	es=Las unidades, los disparos y las piezas que giran se mueven con fluidez entre los ticks del juego.;
 	it=Unità, colpi e parti rotanti si muovono in modo fluido tra i tick del gioco.;
+	}
+
+[Unlocked Camera]
+	{
+	de=Freie Kamera;
+	fr=Caméra déverrouillée;
+	es=Cámara desbloqueada;
+	it=Camera sbloccata;
 	}
 
 [Unpacking the demo's game data ({size})…]
@@ -11618,6 +11714,14 @@
 	it=Rivedi la lingua, le funzioni in linea e i pulsanti di OA.;
 	}
 
+[Water ripples]
+	{
+	de=Wasserkräuselung;
+	fr=Ondulations de l'eau;
+	es=Ondulaciones del agua;
+	it=Increspature dell'acqua;
+	}
+
 [Water State Rules]
 	{
 	de=Regeln des Wasserzustands;
@@ -11872,6 +11976,14 @@
 	fr=Fonctionne avec;
 	es=Funciona con;
 	it=Funziona con;
+	}
+
+[Wreck glow]
+	{
+	de=Wrackglühen;
+	fr=Lueur des épaves;
+	es=Resplandor de los restos;
+	it=Bagliore dei relitti;
 	}
 
 [Wreck snap radius]

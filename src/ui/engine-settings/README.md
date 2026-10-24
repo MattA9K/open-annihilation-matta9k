@@ -47,6 +47,16 @@ the locks a running game puts on them (`settings_locks`).
 | | Fog of War: how the graphics card draws the fog's edges (Hardware acceleration Full); the processor always draws them Classic | Classic, Smooth | Smooth | `open-annihilation.fog-of-war` (`classic` or `smooth`; any other word reads as Smooth) |
 | | Zoomed out units: how units are drawn farther out than After zoom | Rendered, Dots; Icons shown faded, not offered | Rendered | `open-annihilation.zoomed-out-units` (`rendered` or `dots`; any other word, `icons` among them, reads as Rendered) |
 | | After zoom, a drop-down, locked "Needs Dots" while Zoomed out units is Rendered | 1/2, 1/3, 1/4, 1/6, 1/8, 1/12, 1/16 of normal size | 1/6 | `open-annihilation.zoomed-out-after` (`1/2`, `1/3`, `1/4`, `1/6`, `1/8`, `1/12` or `1/16`) |
+| | Allow Full 3D Mode: whether the camera may turn away from the classic view, with Full hardware acceleration | Off, On | On | `open-annihilation.allow-full-3d` |
+| | Unlocked Camera, locked "Needs Allow Full 3D Mode" while Allow Full 3D Mode is Off | Off, On | Off | `open-annihilation.unlocked-camera` |
+| | Coloured weapon lighting, in the classic and the rotated view | 0–200%, steps of 10% | 100% | `open-annihilation.weapon-lighting.intensity`; without it, an earlier `open-annihilation.weapon-lighting` switch reads as 0% or 100% |
+| | Nanolathe glow, in the classic and the rotated view | 0–200%, steps of 10% | 100% | `open-annihilation.nanolathe-lighting.intensity`; without it, an earlier `open-annihilation.nanolathe-lighting` switch reads as 0% or 100% |
+| | Wreck glow, in the classic and the rotated view | 0–200%, steps of 10% | 100% | `open-annihilation.wreck-glow.intensity`; without it, an earlier `open-annihilation.wreck-glow` switch reads as 0% or 100% |
+| | Heat distortion, in the classic and the rotated view | 0–200%, steps of 10% | 100% | `open-annihilation.heat-distortion.intensity`; without it, an earlier `open-annihilation.heat-distortion` switch reads as 0% or 100% |
+| | Water ripples, locked "Needs Full acceleration" while Hardware acceleration is not Full | 0–200%, steps of 10% | 100% | `open-annihilation.water-ripples.intensity` |
+| | Coastal waves, locked as Water ripples is | 0–200%, steps of 10% | 100% | `open-annihilation.coastal-waves.intensity` |
+| | Underwater shimmer, locked as Water ripples is | 0–200%, steps of 10% | 100% | `open-annihilation.underwater-shimmer.intensity` |
+| | Naval reflections, locked as Water ripples is | 0–200%, steps of 10% | 100% | `open-annihilation.naval-reflections.intensity` |
 | User Interface | Menu scaling | Sharp, Whole steps, Unfiltered | Sharp | `open-annihilation.menu-scaling` (`sharp`, `whole-steps` or `unfiltered`) |
 | | Window frame: whether a window shows its title bar and borders while a game is played; the game menu, a panel it opens and every other screen show them | Hidden in play, Always shown | Hidden in play | `open-annihilation.window-frame` (`hidden-in-play` or `always-shown`) |
 | | HUD scaling: whether a game's side column and bars grow with the window, up to twice the original game's size, or keep its size | Off, On | On | `open-annihilation.hud-scaling` |
@@ -467,8 +477,8 @@ and the footer never move. A section whose rows, with 8 clear pixels under
 the last row's line, are taller than the view scrolls by whole source
 pixels, and shows a scroll bar in the margin right of its rows: a well like
 a switch's, its thumb as tall as the view's share of the section and never
-under 16 pixels. Graphics, with ten rows, is taller than its view by
-395 pixels, Language & Text, with the Language drop-down, four switches and
+under 16 pixels. Graphics, with twenty-one rows, is taller than its view by
+972 pixels, Language & Text, with the Language drop-down, four switches and
 the Text size slider, by 129, User Interface, with its three switches, Menu
 scaling's strip and Interface size's drop-down, by 88, Touch, with its
 three strips, the Hold delay slider and two switches, by 121, and Controls,
@@ -1229,8 +1239,10 @@ scale 2) were recorded again when UI kit gallery joined Developer's rows,
 which moved its list down; no other scene changed. The Graphics scenes
 (at its top, locked, and at its end) were recorded again when Fog of War
 joined Graphics' rows, which shortened the scroll bar's thumb and put the
-row between Explosion flash and Zoomed out units at the end; no other
-scene changed.
+row between Explosion flash and Zoomed out units, and again when the
+camera's switches and the effect sliders joined them, which shortened the
+thumb further and put the water sliders at the end; no other scene
+changed.
 
 `ui-engine-settings-dialog` also holds UI kit gallery's row: its label,
 its hint in two lines at Compact and one at Regular and Large, and SHOW,
@@ -1321,7 +1333,7 @@ while the modern fonts are Off, lifted as they turn On; the Language
 drop-down's choices, each language named in itself, its field and list,
 the pointer and the keys on them, a press off the list, the command line's
 lock, and lists that scroll or open over their field;
-the Graphics section's ten rows, After zoom last, their places at every offset
+the Graphics section's twenty-one rows, Naval reflections last, their places at every offset
 and under every lock, the focus scrolling them into view, both forms of a
 locked row, Smooth motion's switch and its two hints, Zoomed out units' faded Icons and After zoom's lock, every status of Hardware acceleration, Full's included, and
 the requests to try the graphics card afresh; User Interface's five rows, Menu scaling, Window frame, HUD scaling, Interface size and Escape opens the game menu, Window frame's two ways and HUD scaling's two hints; Interface size's drop-down

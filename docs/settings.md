@@ -502,8 +502,56 @@ the game draws its text and how the modern fonts draw it.
   zoom out at Automatic the view never goes farther out than 1/2, or 1/6
   with Full hardware acceleration, so choose a farther Maximum zoom out to
   see the dots.
+- **Allow Full 3D Mode**, On by default. With Full hardware acceleration,
+  Alt+drag on the battlefield (Option+drag on a Mac) turns the camera
+  about the point under the pointer, and Alt+Shift+drag pans it; Alt or
+  Option with the middle button turns it too. Alt+R (Option+R) puts the
+  classic view back. A match always starts in the classic top-down view,
+  and Off keeps it there. While an order or a building is armed, Alt+click
+  still places it unsnapped (the click snap's override key) and leaves the
+  camera alone. With Hardware acceleration Off or Basic the gesture only
+  says that it needs Full. The rotated view is drawn by the graphics card
+  through Metal, so for now it turns only on a Mac; elsewhere the view stays
+  classic.
+- **Unlocked Camera**, Off by default, locked ("Needs Allow Full 3D Mode")
+  while Allow Full 3D Mode is Off. On lets the camera turn beyond the
+  angles at which the game's flat art still looks right. Alt+U (Option+U)
+  turns it On or Off during a match and keeps the choice.
+- **Coloured weapon lighting**, **Nanolathe glow**, **Wreck glow** and
+  **Heat distortion**, each from 0% to 200% in steps of 10%, 100% by
+  default. Zero leaves the effect out and 100% draws it at its standard
+  strength. The lighting sliders change how bright a light is, never how
+  far it reaches or how long it lasts; Heat distortion changes how far the
+  shimmer moves the picture. They apply in the classic and the rotated
+  view and take effect at once, in a match too. A saved Off or On from an
+  earlier build reads as 0% or 100%.
+- **Water ripples**, **Coastal waves**, **Underwater shimmer** and
+  **Naval reflections**, each from 0% to 200% in steps of 10%, 100% by
+  default, locked ("Needs Full acceleration") while Hardware acceleration
+  is not Full. They apply in the classic and the rotated view, and zero
+  leaves the effect out.
+  - **Water ripples** move the map's own water art gently in one direction
+    the map keeps, the same after a saved game is loaded: broad swells and
+    fine ripples at different speeds, the finer ones shown only up close.
+    Visible naval shots and hits stir the water around them, and shells
+    that strike the water splash. Torpedoes and their hits stay at their
+    depth and make no splash.
+  - **Coastal waves** run toward the shore, gentler on small, sheltered
+    water.
+  - **Underwater shimmer** tints and lights only the parts of scenery and
+    units that are under the water, more the deeper they lie; what stands
+    above the water keeps its colours.
+  - **Naval reflections** draw a faint, soft picture of each visible
+    surface ship on the water, fading as the view turns flat.
 
-![The end of the Graphics section: the end of Explosion flash's line, Fog of War at Smooth, Zoomed out units at Rendered, and After zoom greyed at 1/6, Needs Dots.](images/settings/graphics-2.png)
+  Fine detail fades as the view zooms out, and the reflections of distant
+  fleets are kept few. These effects change only what your screen shows,
+  never the water's depth, movement or what any player can see. With
+  shadows on and Full hardware acceleration, an aircraft's shadow also
+  grows wider, softer and fainter the higher it flies above the ground or
+  water under it.
+
+![The end of the Graphics section: the Water ripples, Coastal waves, Underwater shimmer and Naval reflections sliders, each at 100%.](images/settings/graphics-2.png)
 
 Some computers start with other defaults, which Restore defaults puts back
 and which a value you choose always replaces:

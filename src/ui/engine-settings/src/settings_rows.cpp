@@ -74,19 +74,20 @@ constexpr std::array<Setting, 3> kEngineLimitsRows{
 /// Graphics' rows: how the frames are drawn, Smooth motion right under
 /// Vertical sync, the fog's edges under the explosions' flash, then how
 /// units look zoomed out, and the zoom they look so from right under the
-/// way.
-constexpr std::array<Setting, 11> kGraphicsRows{
-    Setting::max_frame_rate,
-    Setting::anti_aliasing,
-    Setting::screen_size,
-    Setting::hardware_acceleration,
-    Setting::vertical_sync,
-    Setting::smooth_motion,
-    Setting::native_density,
-    Setting::explosion_flash,
-    Setting::fog_of_war,
-    Setting::zoomed_out_units,
-    Setting::zoomed_out_after,
+/// way. The camera's rotation, then the lighting, glow, heat and water
+/// effects follow.
+constexpr std::array<Setting, 21> kGraphicsRows{
+    Setting::max_frame_rate,     Setting::anti_aliasing,
+    Setting::screen_size,        Setting::hardware_acceleration,
+    Setting::vertical_sync,      Setting::smooth_motion,
+    Setting::native_density,     Setting::explosion_flash,
+    Setting::fog_of_war,         Setting::zoomed_out_units,
+    Setting::zoomed_out_after,   Setting::allow_full_3d,
+    Setting::unlocked_camera,    Setting::weapon_lighting,
+    Setting::nanolathe_lighting, Setting::wreck_glow,
+    Setting::heat_distortion,    Setting::water_ripples,
+    Setting::coastal_waves,      Setting::underwater_shimmer,
+    Setting::naval_reflections,
 };
 /// User Interface's rows: how the menus scale, the window's frame, the
 /// HUD's scaling, the size Open Annihilation's own screens are drawn at,
@@ -1898,6 +1899,18 @@ constexpr Spec linear(std::string_view id, std::string_view label, Hint hint) no
     );
 }
 
+/// Returns an effect intensity as a percentage, including its Off endpoint.
+template <uint32_t EngineSettings::* Field>
+std::string intensity_text(const SettingsModel& model) {
+    return std::to_string(model.settings->*Field) + "%";
+}
+
+/// Creates an effect slider with ten-percent steps and an Off endpoint.
+template <uint32_t EngineSettings::* Field>
+constexpr Spec effect_slider(std::string_view id, std::string_view label) noexcept {
+    return linear<Linear<uint32_t, Field, 0, 200, 10>, &intensity_text<Field>>(id, label, {});
+}
+
 /// The Game files summary row: what is installed, and MANAGE….
 constexpr Spec game_files_summary_row() noexcept {
     Spec spec = kit::value_and_button<SettingsModel>(
@@ -2476,6 +2489,31 @@ constexpr std::array<SettingRow, kSettingCount> kDeclared{{
     {.setting = S::smooth_motion,
      .spec = changing(engine_switch<&E::smooth_motion>("smooth-motion", "Smooth motion", {}),
                       &smooth_motion_hint, &lines<1>)},
+    {.setting = S::weapon_lighting,
+     .spec = effect_slider<&E::weapon_lighting>("weapon-lighting", "Coloured weapon lighting")},
+    {.setting = S::nanolathe_lighting,
+     .spec = effect_slider<&E::nanolathe_lighting>("nanolathe-lighting", "Nanolathe glow")},
+    {.setting = S::wreck_glow,
+     .spec = effect_slider<&E::wreck_glow>("wreck-glow", "Wreck glow")},
+    {.setting = S::heat_distortion,
+     .spec = effect_slider<&E::heat_distortion>("heat-distortion", "Heat distortion")},
+    {.setting = S::water_ripples,
+     .spec = effect_slider<&E::water_ripples>("water-ripples", "Water ripples"),
+     .lock = &Locks::water_effects},
+    {.setting = S::coastal_waves,
+     .spec = effect_slider<&E::coastal_waves>("coastal-waves", "Coastal waves"),
+     .lock = &Locks::water_effects},
+    {.setting = S::underwater_shimmer,
+     .spec = effect_slider<&E::underwater_shimmer>("underwater-shimmer", "Underwater shimmer"),
+     .lock = &Locks::water_effects},
+    {.setting = S::naval_reflections,
+     .spec = effect_slider<&E::naval_reflections>("naval-reflections", "Naval reflections"),
+     .lock = &Locks::water_effects},
+    {.setting = S::allow_full_3d,
+     .spec = engine_switch<&E::allow_full_3d>("allow-full-3d", "Allow Full 3D Mode", {"Requires Full hardware acceleration."})},
+    {.setting = S::unlocked_camera,
+     .spec = engine_switch<&E::unlocked_camera>("unlocked-camera", "Unlocked Camera", {"Allow angles outside the ideal range for TA art."}),
+     .lock = &Locks::unlocked_camera},
     {.setting = S::welcome_setup,
      .spec = welcome_setup_row(),
      .lock = &Locks::welcome_setup},
@@ -2574,6 +2612,17 @@ constexpr std::array<std::string_view, kSettingCount> kSettingNames{
     "file-types",
     "skirmish-players",
     "smooth-motion",
+    "weapon-lighting",
+    "nanolathe-lighting",
+    "wreck-glow",
+    "heat-distortion",
+    "water-ripples",
+    "coastal-waves",
+    "underwater-shimmer",
+    "naval-reflections",
+
+    "allow-full-3d",
+    "unlocked-camera",
     "first-run",
     "fog-of-war",
 };

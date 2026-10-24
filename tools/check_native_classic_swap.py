@@ -47,6 +47,12 @@ DIRECTOR_HASH = (
     "sound 148e026257cb31ce5afc3f1665856ef483a3983ad74a1fcb50be78d82ec3992b"
 )
 DIRECTOR_FAIL = "director render check:"
+# The pinned frames are drawn with the local lighting and heat effects off,
+# as native-director-render's preferences file draws them.
+DIRECTOR_PREFERENCES = tuple(
+    (f"open-annihilation.{effect}.intensity", "0")
+    for effect in ("weapon-lighting", "nanolathe-lighting", "wreck-glow", "heat-distortion")
+)
 # Replaced by --director-hash so the ctest pin stays the one source.
 
 STAGE = """# The local player's base and the computer player's raid.
@@ -87,9 +93,10 @@ def quote_preference(text):
     return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def write_preferences(path, classic):
+def write_preferences(path, classic, settings=()):
     """A preferences file. Classic runs name classic as the default brain."""
     lines = [PREFERENCES_HEADER]
+    lines += [quote_preference(key) + " " + quote_preference(value) for key, value in settings]
     if classic:
         lines.append(quote_preference(BRAIN_KEY) + " " + quote_preference("classic"))
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -158,11 +165,11 @@ def launch(native, game_dir, work, preferences, args, timeout):
     )
 
 
-def run_once(native, game_dir, scratch, package, label, args, classic, timeout):
+def run_once(native, game_dir, scratch, package, label, args, classic, timeout, settings=()):
     """One built-in run, or one Classic run in its own folder."""
     work = Path(tempfile.mkdtemp(prefix=f"native-classic-{label}-", dir=scratch))
     preferences = work / "preferences.conf"
-    write_preferences(preferences, classic)
+    write_preferences(preferences, classic, settings)
     if classic:
         install_classic(preferences, package)
     try:
@@ -206,13 +213,16 @@ def require_builtin(result, label):
     return text
 
 
-def pair(native, game_dir, scratch, package, label, args, computers, timeout=RUN_TIMEOUT_SECONDS):
+def pair(
+    native, game_dir, scratch, package, label, args, computers, timeout=RUN_TIMEOUT_SECONDS,
+    settings=(),
+):
     """The pinned command, then the same command with Classic."""
     builtin, _ = run_once(
-        native, game_dir, scratch, package, label + "-builtin", args, False, timeout
+        native, game_dir, scratch, package, label + "-builtin", args, False, timeout, settings
     )
     classic, logs = run_once(
-        native, game_dir, scratch, package, label + "-classic", args, True, timeout
+        native, game_dir, scratch, package, label + "-classic", args, True, timeout, settings
     )
     builtin_text = require_builtin(builtin, label)
     classic_text = require_classic(classic, logs, label, computers)
@@ -439,7 +449,7 @@ def check_director(native, game_dir, scratch, package, expect):
     """The director render's command, then the same command with Classic."""
     args = ["--mute", "--check-director-render"]
     builtin_text, classic_text = pair(
-        native, game_dir, scratch, package, "director", args, 1
+        native, game_dir, scratch, package, "director", args, 1, settings=DIRECTOR_PREFERENCES
     )
     print(classic_text, end="" if classic_text.endswith("\n") or classic_text == "" else "\n")
     for label, text in (("built-in", builtin_text), ("classic", classic_text)):

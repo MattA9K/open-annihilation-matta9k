@@ -29,12 +29,16 @@
 #include "oa/app/runtime.hpp"
 
 #include "full_fog.hpp"
+#include "full_effects.hpp"
+#include "renderer_effect_sources.hpp"
 #include "full_presentation.hpp"
 #include "graphics_report.hpp"
 #include "match_models.hpp"
 #include "render_host.hpp"
 #include "render_run.hpp"
 #include "runtime_full.hpp"
+#include "renderer_water_classic.hpp"
+#include "oa/sim/visibility_state.hpp"
 #include "xrgb_conversion.hpp"
 
 #include "oa/app/renderer_records.hpp"
@@ -1045,6 +1049,7 @@ void Runtime::free_full_match_textures() noexcept {
     full.atlas_source = {};
     full.frame = {};
     full.overlay_texture.reset();
+    full.effects_upload.reset();
     full.overlay = {};
     full.opaque_bands = {};
     full.uploaded_bands = {};
@@ -1808,6 +1813,47 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                 scene.camera_y = static_cast<int32_t>(full.frame_camera_y);
                 scene.target = target;
                 sprite_inputs.view = scene;
+                renderer_water_classic::Inputs water;
+                water.map = &*selected_tnt_;
+                water.view = scene;
+                water.seconds = double(match_->simulation().tick) / 30.0;
+                const auto& water_settings = engine_settings();
+                water.ripples = water_settings.water_ripples / 100.0F;
+                water.coast = water_settings.coastal_waves / 100.0F;
+                water.shimmer = water_settings.underwater_shimmer / 100.0F;
+                water.reflections = water_settings.naval_reflections / 100.0F;
+                water.water_surface = water_surface();
+                water.disturbances = water_disturbances();
+                water.wind = water_wind();
+                model_inputs.water_shimmer =
+                    selected_tnt_->sea_level > 0
+                        ? water.shimmer * std::clamp((zoom - 0.25F) / 0.25F, 0.0F, 1.0F)
+                        : 0;
+                model_inputs.water_sea_level = selected_tnt_->sea_level;
+                model_inputs.water_seconds = water.seconds;
+                const auto water_coverage = match_->player_coverage(match_view_player());
+                const auto& water_sight = match_->sight();
+                const auto water_bit = uint16_t(1U << (match_view_player() & 0x1fU));
+                const bool water_mapping = match_mapping_on();
+                const bool water_los = match_line_of_sight_on();
+                water.visible = [&](float x, float y) {
+                    constexpr float edge = present::world_renderer::fog_cell_pixels;
+                    const int column = int(std::floor(x / edge));
+                    const int row = int(std::floor(y / edge));
+                    if (column < 0 || row < 0 || column >= water_sight.width ||
+                        row >= water_sight.height)
+                        return false;
+                    const auto index = std::size_t(row) * water_sight.width + column;
+                    if (water_mapping && (index >= water_sight.player_bits.size() ||
+                                          (water_sight.player_bits[index] & water_bit) == 0))
+                        return false;
+                    return !water_los ||
+                           (index < water_coverage.size() &&
+                            sim::visibility_state::count_in_sight(
+                                water_coverage[index], sim::visibility_state::SightReading::player
+                            ));
+                };
+                renderer_water_classic::surface(frame, water);
                 {
                     full::SpriteFrame sprites(sprite_inputs, full.sprite_pages, hooks, frame);
                     std::size_t before = frame.vertices.size();
@@ -1815,6 +1861,7 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                     full.frame_vertices.shadows += frame.vertices.size() - before;
                     for (const WorldDraw& draw : models.draws.draws) {
                         before = frame.vertices.size();
+                        const auto first_water_index = frame.indices.size();
                         if (full::sprite_kind(draw.kind)) {
                             sprites.emit(draw);
                             full.frame_vertices.sprites += frame.vertices.size() - before;
@@ -1822,6 +1869,9 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                             full.models.emit_draw(model_inputs, scene, draw, full.executor, frame);
                             full.frame_vertices.models += frame.vertices.size() - before;
                         }
+                        renderer_water_classic::objects(
+                            frame, water, models.draws, draw, before, first_water_index
+                        );
                     }
                     full.sprites = sprites.finish();
                 }
@@ -2279,6 +2329,66 @@ bool Runtime::present_full_match_layers(bool dialogs) {
             throw_frame_failure(full.executor, "the frame");
         oa::base::float_precision::restore_program_float_control();
         full.execute_ns = nanoseconds_since(execute_start);
+        // Process the actual GPU world before interface and order overlays.
+        // The moved target keeps its extra border and density, so distortion
+        // and lighting follow the same fractional camera move as the scene.
+        if (match_effects_enabled()) {
+            const auto place = match_view_place();
+            const float effect_zoom = match_zoom();
+            float left = static_cast<float>(battlefield.width);
+            float top = static_cast<float>(battlefield.height);
+            float right = 0;
+            float bottom = 0;
+            // Include the heat sampler and fractional camera resolve around each source.
+            constexpr float sampling_margin = 6;
+            for (const auto& source : match_effect_sources()) {
+                const float x = (source.x - static_cast<float>(place[0])) * effect_zoom;
+                const float y =
+                    (source.z - source.height * 0.5F - static_cast<float>(place[1])) * effect_zoom;
+                const float radius = source.radius * effect_zoom + sampling_margin;
+                if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(radius) || radius <= 0)
+                    continue;
+                if (x + radius < 0 || y + radius < 0 || x - radius >= battlefield.width ||
+                    y - radius >= battlefield.height)
+                    continue;
+                left = std::min(left, x - radius);
+                top = std::min(top, y - radius);
+                right = std::max(right, x + radius);
+                bottom = std::max(bottom, y + radius);
+            }
+            const SDL_FRect effect_bounds{
+                left, top, std::max(0.0F, right - left), std::max(0.0F, bottom - top)
+            };
+            const std::string failure = full_effects::compose(
+                sdl_.renderer,
+                full.effects_upload,
+                {battlefield.x, battlefield.y, battlefield.width, battlefield.height},
+                moved ? full.executor.target_texture(full.moved_target) : nullptr,
+                moved ? full.moved_target_factor : 1U,
+                [&](const full_effects::Pixels& image) {
+                    compose_match_effect_pixels(
+                        image.bytes,
+                        image.width,
+                        image.height,
+                        image.pitch,
+                        4,
+                        // The target is drawn at the rounded view; its resolver
+                        // adds this shift later. Sources use the exact view.
+                        image.origin_x +
+                            (moved ? static_cast<float>(accelerated_.frame_shift[0]) : 0.0F),
+                        image.origin_y +
+                            (moved ? static_cast<float>(accelerated_.frame_shift[1]) : 0.0F),
+                        image.scale_x,
+                        image.scale_y,
+                        false,
+                        static_cast<float>(image.row_offset)
+                    );
+                },
+                &effect_bounds
+            );
+            if (!failure.empty())
+                throw FullCardError(failure);
+        }
         // The frame counts towards the stage of Full's first frames.
         if (render_run_)
             render_run_->paths_drawn = static_cast<PathSet>(
