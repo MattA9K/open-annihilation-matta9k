@@ -671,6 +671,39 @@ class Runtime final : public menu::Host,
         std::array<int32_t, 10>& positions, int32_t& placing, bool fixed_positions
     );
 
+    // Brains read where the match placed its players (runtime_campaign.cpp).
+    // Network play notes its own placement through the same three calls.
+
+    /// Copies the selected schema's kind-1 start markers, in stored order.
+    void note_brain_map_starts();
+
+    /// Records the start index this match gave one player.
+    ///
+    /// `start_index` is the index passed to the placement, after a neutral
+    /// map has moved the computer player. `map_placed` is true when the map's
+    /// own units took the commander's place. `placed_here` is true when this
+    /// machine placed that player. A later note of a player this machine did
+    /// not place does not replace an index already recorded here.
+    ///
+    /// @param player player index, 0 to 9
+    /// @param start_index zero-based start, or negative when none
+    /// @param map_placed true when the map's units were placed
+    /// @param placed_here true when this machine placed the player
+    void remember_brain_player_start(
+        uint8_t player, int32_t start_index, bool map_placed, bool placed_here
+    );
+
+    /// Publishes the start rule into the note, and into brains state when a
+    /// brain is already seated.
+    ///
+    /// A campaign mission is fixed. So is a match in which every player this
+    /// machine had to place was placed by the map's own units and none took a
+    /// commander. Otherwise `fixed_by_setup` is the skirmish StartLocation or
+    /// the battle room's fixed-starts option. Does not create brains state.
+    ///
+    /// @param fixed_by_setup true when the setup itself asked for fixed starts
+    void publish_brain_starts(bool fixed_by_setup);
+
     /// Tells whether the match's map places units for the neutral player,
     /// which the team start positions read.
     ///
@@ -7403,38 +7436,8 @@ class Runtime final : public menu::Host,
     /// placed, so a previous match cannot leak into this one.
     void clear_brain_start_notes();
 
-    /// Copies the selected schema's kind-1 start markers, in stored order.
-    void note_brain_map_starts();
-
     /// Copies the playing campaign schema's start-position rules, in rule order.
     void note_campaign_map_starts();
-
-    /// Records the start index this match gave one player.
-    ///
-    /// `start_index` is the index passed to the placement, after a neutral
-    /// map has moved the computer player. `map_placed` is true when the map's
-    /// own units took the commander's place. `placed_here` is true when this
-    /// machine placed that player. A later note of a player this machine did
-    /// not place does not replace an index already recorded here.
-    ///
-    /// @param player player index, 0 to 9
-    /// @param start_index zero-based start, or negative when none
-    /// @param map_placed true when the map's units were placed
-    /// @param placed_here true when this machine placed the player
-    void remember_brain_player_start(
-        uint8_t player, int32_t start_index, bool map_placed, bool placed_here
-    );
-
-    /// Publishes the start rule into the note, and into brains state when a
-    /// brain is already seated.
-    ///
-    /// A campaign mission is fixed. So is a match in which every player this
-    /// machine had to place was placed by the map's own units and none took a
-    /// commander. Otherwise `fixed_by_setup` is the skirmish StartLocation or
-    /// the battle room's fixed-starts option. Does not create brains state.
-    ///
-    /// @param fixed_by_setup true when the setup itself asked for fixed starts
-    void publish_brain_starts(bool fixed_by_setup);
 
     /// Installs the brain log and record hooks when the command asked for a file.
     ///
