@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // The `game` table. install_game fills the empty table B01 created.
-// set_game_field is how a later ticket adds one field of its own.
+// set_game_field stores one field after that, including `game.starts` once
+// the match has placed its players.
 #pragma once
 
 #include "internal.hpp"

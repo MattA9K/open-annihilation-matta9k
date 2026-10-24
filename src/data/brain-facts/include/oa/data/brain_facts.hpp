@@ -8,6 +8,7 @@
 #include "oa/core/game_state.h"
 #include "oa/data/mod_profile.hpp"
 
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -73,6 +74,26 @@ struct ProfileFile {
     std::string text{}; ///< the file's bytes
 };
 
+/// Whether the match placed players on fixed starts or shuffled them.
+///
+/// `unknown` is a match that has not placed its players, including one
+/// resumed from a save. A brain reads that as nil.
+enum class StartRule : uint8_t {
+    unknown, ///< the match has not placed its players
+    fixed,   ///< every player's start is known
+    random,  ///< only a seat's own start is known
+};
+
+/// One start position of the schema the match plays, in StartPos order.
+///
+/// `index` is the map's zero-based StartPos number. `x` and `z` are integer
+/// world coordinates, the same numbers a start marker stores.
+struct MapStart {
+    int32_t index{}; ///< StartPos1 is zero
+    int16_t x{};     ///< integer world coordinate across
+    int16_t z{};     ///< integer world coordinate down
+};
+
 /// The facts a brain reads as `game`. A default value is the base game with
 /// nothing switched on.
 struct GameFacts {
@@ -103,6 +124,15 @@ struct GameFacts {
     /// Every `ai/*.txt` profile that could be read, in the listed order.
     /// At most 256. The rest are left out.
     std::vector<ProfileFile> ai_profiles{};
+    /// The match's start rule. Unknown until the match places its players.
+    StartRule starts{StartRule::unknown};
+    /// Start positions of the schema in play, in StartPos order. Empty when
+    /// the map defines none, or the match has not noted them.
+    std::vector<MapStart> map_starts{};
+    /// Each player's zero-based start index, or -1 when that player was not
+    /// given one. A brain still hides another player's index while the rule
+    /// is random.
+    std::array<int16_t, OA_PLAYER_COUNT> player_start{-1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
 };
 
 /// Names the mod a profile plays, and keeps a copy of that profile.

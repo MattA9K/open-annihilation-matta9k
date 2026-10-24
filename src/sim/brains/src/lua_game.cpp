@@ -475,6 +475,13 @@ void fill_hidden(
     lua_pushcfunction(state, game_hack);
     lua_setfield(state, hidden, "hack");
     *units += script_host::element_charge + script_host::units_for_bytes(std::strlen("hack"));
+    // Absent until the match has placed its players, and absent outside a
+    // match, so a load check does not learn a rule the seat has not joined.
+    if (seat.match != nullptr && facts.starts != oa::data::brain_facts::StartRule::unknown) {
+        const char* starts =
+            facts.starts == oa::data::brain_facts::StartRule::fixed ? "fixed" : "random";
+        set_text(state, hidden, "starts", starts, std::strlen(starts), units);
+    }
     lua_settop(state, hidden);
 }
 

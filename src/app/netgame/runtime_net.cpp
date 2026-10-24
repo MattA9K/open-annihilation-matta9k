@@ -1453,13 +1453,16 @@ struct NetworkPlay::NetHost {
         for (const auto& [slot, start] : starts)
             start_positions[slot] = start;
         const bool fixed_positions = (host->options & OA_SETUP_OPTION_FIXED_LOCATIONS) != 0;
+        runtime.note_brain_map_starts();
         for (const auto& placed : starts) {
             const uint8_t slot = placed.first;
             // A position an earlier move swapped is read from the table.
             int32_t start = start_positions[slot];
             runtime.move_map_unit_computer_last(start_positions, start, fixed_positions);
-            if (runtime.place_map_units(slot, start))
+            if (runtime.place_map_units(slot, start)) {
+                runtime.remember_brain_player_start(slot, start, true, true);
                 continue;
+            }
             const auto& info = world.player_info[slot];
             const oa::sim::unit_spawn::PlayerSetup setup{
                 info.side, info.color, host->metal_hundreds * 100, host->energy_hundreds * 100
@@ -1475,7 +1478,18 @@ struct NetworkPlay::NetHost {
             );
             if (!started.position_found || started.unit == nullptr)
                 throw std::runtime_error("a local commander could not be placed");
+            runtime.remember_brain_player_start(slot, start, false, true);
         }
+        for (uint8_t slot = 0; slot < OA_PLAYER_COUNT; ++slot) {
+            const auto& player = world.game.players[slot];
+            if (player.in_use == 0 || nm::match_slot_watcher(&world, slot))
+                continue;
+            const auto remote = nm::net_match_start_position(state.net.get(), slot);
+            if (remote == nm::no_start_position)
+                continue;
+            runtime.remember_brain_player_start(slot, static_cast<int32_t>(remote), false, false);
+        }
+        runtime.publish_brain_starts(fixed_positions);
         // Every store starts at the host's resources.
         oa::ui::hud::set_starting_resources(
             world, oa::data::campaign::SessionKind::multiplayer, nullptr, nullptr

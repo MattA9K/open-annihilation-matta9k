@@ -16,7 +16,9 @@
 #include "oa/sim/brains/seat.hpp"
 #include "oa/data/campaign/campaign_assets.hpp"
 #include "oa/data/campaign/campaign_file.hpp"
+#include "oa/core/player_setup.h"
 #include "oa/core/unit_def.h"
+#include "oa/core/world.h"
 #include "oa/sim/match_runtime.hpp"
 #include "oa/sim/match_runtime/mission_unit_binding.hpp"
 #include "oa/present/world_renderer/world_camera.hpp"
@@ -995,10 +997,104 @@ std::string Runtime::read_computer_profile() {
     return computer_profile_file().text;
 }
 
+void Runtime::clear_brain_start_notes() {
+    brain_starts_noted_ = false;
+    brain_start_rule_ = oa::data::brain_facts::StartRule::unknown;
+    brain_map_starts_.clear();
+    brain_player_start_.fill(-1);
+    brain_player_placed_.fill(false);
+    brain_start_from_map_ = false;
+    brain_start_from_commander_ = false;
+}
+
+void Runtime::note_brain_map_starts() {
+    brain_map_starts_.clear();
+    for (const oa::sim::unit_spawn::StartMarker& marker : selected_start_markers_) {
+        if (marker.kind != 1)
+            continue;
+        oa::data::brain_facts::MapStart stored;
+        stored.index = marker.index;
+        stored.x = marker.x;
+        stored.z = marker.z;
+        brain_map_starts_.push_back(stored);
+    }
+}
+
+void Runtime::note_campaign_map_starts() {
+    brain_map_starts_.clear();
+    const auto& file = campaign_runtime().file;
+    if (file.rules == nullptr)
+        return;
+    for (int32_t rule_index = 0; rule_index < file.rule_count; ++rule_index) {
+        const missions::MissionRule& rule = file.rules[rule_index];
+        if (rule.type != missions::MissionRuleType::start_position)
+            continue;
+        oa::data::brain_facts::MapStart stored;
+        stored.index = rule.index;
+        stored.x = rule.x;
+        stored.z = rule.z;
+        brain_map_starts_.push_back(stored);
+    }
+}
+
+void Runtime::remember_brain_player_start(
+    uint8_t player, int32_t start_index, bool map_placed, bool placed_here
+) {
+    if (player >= OA_PLAYER_COUNT)
+        return;
+    if (!placed_here && brain_player_placed_[player])
+        return;
+    if (start_index < 0 || start_index > 32767)
+        brain_player_start_[player] = -1;
+    else
+        brain_player_start_[player] = static_cast<int16_t>(start_index);
+    if (!placed_here)
+        return;
+    brain_player_placed_[player] = true;
+    if (map_placed)
+        brain_start_from_map_ = true;
+    else
+        brain_start_from_commander_ = true;
+}
+
+void Runtime::publish_brain_starts(bool fixed_by_setup) {
+    bool every_here = true;
+    bool any_player = false;
+    if (match_ != nullptr) {
+        oa::World& world = match_->state();
+        for (uint8_t player = 0; player < OA_PLAYER_COUNT; ++player) {
+            oa::Player& record = world.game.players[player];
+            if (record.in_use == 0)
+                continue;
+            const oa::PlayerSetupInfo* info = oa::world_player_info(&world, &record);
+            if (info != nullptr && (info->options & OA_SETUP_OPTION_WATCHER) != 0)
+                continue;
+            any_player = true;
+            if (!brain_player_placed_[player])
+                every_here = false;
+        }
+    }
+    const bool map_only =
+        any_player && every_here && brain_start_from_map_ && !brain_start_from_commander_;
+    if (campaign_mission_ || map_only)
+        brain_start_rule_ = oa::data::brain_facts::StartRule::fixed;
+    else if (fixed_by_setup)
+        brain_start_rule_ = oa::data::brain_facts::StartRule::fixed;
+    else
+        brain_start_rule_ = oa::data::brain_facts::StartRule::random;
+    brain_starts_noted_ = true;
+    if (match_ == nullptr || !match_->seat_state())
+        return;
+    oa::sim::brains::publish_match_starts(
+        *match_, brain_start_rule_, brain_map_starts_, brain_player_start_
+    );
+}
+
 void Runtime::configure_computer_players() {
     if (!match_)
         return;
     brain_game_facts_stored_ = false;
+    clear_brain_start_notes();
     // The facts read every AI profile and the map's mission file, so a match
     // no brain can be seated in does without them.
     bool brain_may_play = !options_.brain_shadow.empty() ||

@@ -70,6 +70,10 @@ void test_default_game_is_the_base_game() {
     OA_CHECK(facts.ai_profile.text.empty());
     OA_CHECK(facts.ai_profile_report_path.empty());
     OA_CHECK(facts.ai_profiles.empty());
+    OA_CHECK(facts.starts == StartRule::unknown);
+    OA_CHECK(facts.map_starts.empty());
+    for (const int16_t start : facts.player_start)
+        OA_CHECK(start == -1);
 }
 
 } // namespace

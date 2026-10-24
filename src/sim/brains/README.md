@@ -150,18 +150,30 @@ moving through that class's open cells, including a diagonal step. The
 regions are the ones the movement map holds for the seat. They are built
 the first time that class is asked in a tick, and kept for later questions
 in the same tick. Four classes are kept. A fifth frees the oldest tick, and
-a tie frees the smaller handle. A question does not search for a path and
-does not change the movement map, its projection or its occupancy. Building
-the regions costs one charge per sixteen cells, rounded up. Each question
-costs 16 more. A question that fails its arguments costs nothing.
+a tie frees the smaller handle. Building the regions does not search for
+a path and does not change the movement map, its projection or its
+occupancy. Building the regions costs one charge per sixteen cells,
+rounded up. Each question costs 16 more. A question that fails its
+arguments costs nothing.
+
+`map:route(a, b, class [, options])` estimates the route a unit of that
+class would take over the same open cells. A clear side step costs 16, a
+clear diagonal step costs 22, and a slow cell adds 30. The result is
+`length` and `cells`, and `points` when `options.points` is true. The
+search runs on the calling thread and does not prepare the movement map,
+change a unit, or use the match's path-search worker. It charges one
+instruction per cell it expands, plus 16, and stops after 1,048,576
+expanded cells. Asking for points runs that search again and charges it
+again. The numbers are in the standard.
 
 A class is a class name, ignoring ASCII case, a unit type's record, a unit
 type's name, or an integer. An integer that is a class handle is that
 class. Any other integer in range is a unit type. A type with no movement
 class can reach any two positions, including off the map. `passable` and
 `anchor` refuse that type with `unknown movement class`. A unit handle is
-not a class. A position the seat may not read makes `reachable` return nil
-and still costs 16. It is not an error, and the class is not checked.
+not a class. A position the seat may not read makes `reachable` and
+`route` return nil and still costs 16. It is not an error, and the class
+is not checked.
 
 ## Tests
 

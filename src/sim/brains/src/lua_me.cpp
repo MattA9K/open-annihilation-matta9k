@@ -3,13 +3,15 @@
 
 // The read-only `me` object: the seat's player, economy, units, squads and
 // the built-in player's knowledge snapshot. Nothing here walks the seat's
-// units to count them, and nothing reads the match when the seat has none.
+// units to count them. A start is nil, and an alliance list is empty, when
+// the seat has no match.
 
 #include "handles_internal.hpp"
 
 #include "internal.hpp"
 
 #include "oa/base/game_math.hpp"
+#include "oa/core/player_setup.h"
 #include "oa/core/world.h"
 #include "oa/data/limits.hpp"
 #include "oa/data/script_host/f32.hpp"
@@ -195,6 +197,52 @@ bool copy_members(
         return false;
     }
     return true;
+}
+
+bool watching_player(const oa::World& world, const oa::Player& record) {
+    const oa::PlayerSetupInfo* info = oa::world_player_info(&world, &record);
+    return info != nullptr && (info->options & OA_SETUP_OPTION_WATCHER) != 0;
+}
+
+const oa::data::brain_facts::MapStart*
+mapped_start(const oa::data::brain_facts::GameFacts& facts, int16_t index) {
+    for (const oa::data::brain_facts::MapStart& marker : facts.map_starts) {
+        if (marker.index == index)
+            return &marker;
+    }
+    return nullptr;
+}
+
+void push_player_start(lua_State* lua, const Seat& seat, const oa::World& world, uint8_t which) {
+    lua_pushnil(lua);
+    lua_setfield(lua, -2, "start");
+    lua_pushnil(lua);
+    lua_setfield(lua, -2, "start_x");
+    lua_pushnil(lua);
+    lua_setfield(lua, -2, "start_z");
+    if (seat.facts == nullptr || seat.match == nullptr || which >= OA_PLAYER_COUNT)
+        return;
+    if (seat.facts->starts == oa::data::brain_facts::StartRule::unknown)
+        return;
+    const bool own_row = which == seat.player;
+    const bool fixed = seat.facts->starts == oa::data::brain_facts::StartRule::fixed;
+    if (!fixed && !own_row)
+        return;
+    const oa::Player& record = world.game.players[which];
+    if (watching_player(world, record))
+        return;
+    const int16_t start_index = seat.facts->player_start[which];
+    if (start_index < 0)
+        return;
+    lua_pushinteger(lua, static_cast<lua_Integer>(start_index) + 1);
+    lua_setfield(lua, -2, "start");
+    const oa::data::brain_facts::MapStart* marker = mapped_start(*seat.facts, start_index);
+    if (marker == nullptr)
+        return;
+    script_host::push_fixed(lua, static_cast<int64_t>(marker->x) << 16);
+    lua_setfield(lua, -2, "start_x");
+    script_host::push_fixed(lua, static_cast<int64_t>(marker->z) << 16);
+    lua_setfield(lua, -2, "start_z");
 }
 
 bool players_allied(const Seat& seat, uint8_t other) {
@@ -714,7 +762,37 @@ int method_players(lua_State* lua) {
             ++found;
         }
     }
+
+    // Each row's allies, excluding that player, in index order. The bits are
+    // the match's table as it is held now. No match means an empty list.
+    struct RowAllies {
+        std::array<uint8_t, OA_PLAYER_COUNT> allies{};
+        uint8_t count{};
+    };
+
+    std::array<RowAllies, OA_PLAYER_COUNT> row_allies{};
+    uint64_t ally_units = 0;
+    if (found > 0) {
+        for (std::size_t row = 0; row < found; ++row) {
+            const uint8_t owner = listed[row];
+            uint8_t count = 0;
+            if (seat != nullptr && seat->match != nullptr) {
+                for (uint8_t other = 0; other < OA_PLAYER_COUNT; ++other) {
+                    if (other == owner)
+                        continue;
+                    if (!seat->match->allied(owner, other))
+                        continue;
+                    row_allies[row].allies[count] = other;
+                    ++count;
+                }
+            }
+            row_allies[row].count = count;
+            ally_units += static_cast<uint64_t>(count) + 1;
+        }
+    }
     charge_sequence(lua, found);
+    if (ally_units != 0)
+        script_host::charge_work(lua, script_host::element_charge * ally_units);
     lua_createtable(lua, static_cast<int>(found), 0);
     const int sequence = lua_gettop(lua);
     if (seat == nullptr || world == nullptr)
@@ -722,7 +800,7 @@ int method_players(lua_State* lua) {
     for (std::size_t row = 0; row < found; ++row) {
         const uint8_t which = listed[row];
         const oa::Player& record = world->game.players[which];
-        lua_createtable(lua, 0, 7);
+        lua_createtable(lua, 0, 11);
         lua_pushinteger(lua, static_cast<lua_Integer>(which));
         lua_setfield(lua, -2, "player");
         push_text(lua, record.name, sizeof record.name);
@@ -743,6 +821,13 @@ int method_players(lua_State* lua) {
         lua_setfield(lua, -2, "computer");
         push_bool(lua, record.unit_count > 0);
         lua_setfield(lua, -2, "alive");
+        push_player_start(lua, *seat, *world, which);
+        lua_createtable(lua, static_cast<int>(row_allies[row].count), 0);
+        for (uint8_t ally = 0; ally < row_allies[row].count; ++ally) {
+            lua_pushinteger(lua, static_cast<lua_Integer>(row_allies[row].allies[ally]));
+            lua_rawseti(lua, -2, static_cast<lua_Integer>(ally + 1));
+        }
+        lua_setfield(lua, -2, "allies");
         lua_rawseti(lua, sequence, static_cast<lua_Integer>(row + 1));
     }
     return 1;

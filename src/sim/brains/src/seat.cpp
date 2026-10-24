@@ -7,6 +7,7 @@
 
 #include "internal.hpp"
 
+#include "lua_game.hpp"
 #include "orders.hpp"
 
 #include "oa/sim/brains/shadow.hpp"
@@ -27,10 +28,12 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <exception>
 #include <memory>
 #include <new>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -744,6 +747,35 @@ void set_match_game_facts(match_runtime::Match& match, oa::data::brain_facts::Ga
     if (brains == nullptr)
         return;
     brains->facts = std::move(facts);
+}
+
+void publish_match_starts(
+    match_runtime::Match& match,
+    oa::data::brain_facts::StartRule rule,
+    std::span<const oa::data::brain_facts::MapStart> starts,
+    const std::array<int16_t, OA_PLAYER_COUNT>& player_start
+) {
+    const auto& held = match.seat_state();
+    if (!held)
+        return;
+    auto* brains = static_cast<Brains*>(held.get());
+    if (brains == nullptr)
+        return;
+    brains->facts.starts = rule;
+    brains->facts.map_starts.assign(starts.begin(), starts.end());
+    brains->facts.player_start = player_start;
+    if (rule == oa::data::brain_facts::StartRule::unknown)
+        return;
+    const char* text = rule == oa::data::brain_facts::StartRule::fixed ? "fixed" : "random";
+    for (const std::unique_ptr<Seat>& seat : brains->seats) {
+        if (seat == nullptr || !seat->sandbox.has_value())
+            continue;
+        lua_State* state = seat->sandbox->state();
+        if (state == nullptr)
+            continue;
+        lua_pushlstring(state, text, std::strlen(text));
+        set_game_field(state, *seat, "starts");
+    }
 }
 
 struct ToolSeat::Body {

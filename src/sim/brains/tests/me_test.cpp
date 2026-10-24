@@ -18,6 +18,8 @@
 #include "oa/core/world.h"
 #include "oa/data/mission_types.hpp"
 #include "oa/sim/ai.hpp"
+#include "oa/data/brain_facts.hpp"
+#include "oa/sim/brains/check.hpp"
 #include "oa/sim/brains/handles.hpp"
 #include "oa/sim/state_hash.hpp"
 #include "oa/sim/weapon_execution/retaliation.hpp"
@@ -1471,6 +1473,332 @@ void two_seated_runs(const std::string& script) {
     CHECK(quiet_hash == reading_hash);
 }
 
+namespace facts = oa::data::brain_facts;
+
+uint64_t spent(host::Sandbox& sandbox, const char* source) {
+    run_chunk(sandbox, source);
+    return sandbox.instructions_used();
+}
+
+void require_seated(const brains::SeatOutcome& outcome) {
+    if (outcome.result == brains::SeatResult::seated)
+        return;
+    throw std::runtime_error(
+        std::string("seat failed: ") + outcome.reason.data() + " " + outcome.error.message
+    );
+}
+
+facts::GameFacts placed_starts(facts::StartRule rule) {
+    facts::GameFacts game;
+    game.starts = rule;
+    game.map_starts.push_back({0, static_cast<int16_t>(160), static_cast<int16_t>(320)});
+    game.map_starts.push_back({2, static_cast<int16_t>(48), static_cast<int16_t>(64)});
+    game.player_start[0] = 0;
+    game.player_start[computer] = 2;
+    game.player_start[2] = 0;
+    return game;
+}
+
+void enable_watcher(Fixture& fixture) {
+    oa::World& world = fixture.match->state();
+    bool used[OA_PLAYER_RECORD_COUNT]{};
+    for (uint8_t player = 0; player < OA_PLAYER_COUNT; ++player) {
+        const oa_ref32 info = world.game.players[player].info;
+        if (info >= 1 && info <= OA_PLAYER_RECORD_COUNT)
+            used[info - 1] = true;
+    }
+    oa_ref32 free_info = 0;
+    for (uint32_t slot = 0; slot < OA_PLAYER_RECORD_COUNT; ++slot) {
+        if (used[slot])
+            continue;
+        free_info = static_cast<oa_ref32>(slot + 1);
+        break;
+    }
+    CHECK(free_info != 0);
+    oa::Player& watch = world.game.players[2];
+    watch.in_use = 1;
+    watch.status = OA_PLAYER_STATUS_LOCAL;
+    watch.unit_count = 0;
+    watch.info = free_info;
+    oa::PlayerSetupInfo* info = oa::world_player_info(&world, &watch);
+    CHECK(info != nullptr);
+    info->options = static_cast<uint16_t>(info->options | OA_SETUP_OPTION_WATCHER);
+}
+
+void ally_computer_with_local(Fixture& fixture) {
+    std::array<uint8_t, 10> own{};
+    own[0] = 1;
+    fixture.match->configure_player_alliances(0, own);
+    std::array<uint8_t, 10> with_local{};
+    with_local[computer] = 1;
+    with_local[0] = 1;
+    fixture.match->configure_player_alliances(computer, with_local);
+}
+
+const char* read_fixed_starts = R"lua(
+if game.starts ~= "fixed" then
+    error("rule " .. tostring(game.starts))
+end
+local starts = game.map:starts()
+if #starts ~= 2 then
+    error("map count")
+end
+if starts[1].index ~= 1 or starts[1].cx ~= 10 or starts[1].cz ~= 20 then
+    error("map 1")
+end
+if starts[1].x:raw() ~= 160 * 65536 or starts[1].z:raw() ~= 320 * 65536 then
+    error("map 1 position")
+end
+if starts[2].index ~= 3 or starts[2].cx ~= 3 or starts[2].cz ~= 4 then
+    error("map 2")
+end
+if starts[2].x:raw() ~= 48 * 65536 or starts[2].z:raw() ~= 64 * 65536 then
+    error("map 2 position")
+end
+local rows = me:players()
+if #rows ~= 3 then
+    error("players " .. #rows)
+end
+if rows[1].player ~= 0 or rows[2].player ~= 1 or rows[3].player ~= 2 then
+    error("order")
+end
+if rows[1].start ~= 1 or rows[2].start ~= 3 then
+    error("start index")
+end
+if rows[1].start_x:raw() ~= starts[1].x:raw() or rows[1].start_z:raw() ~= starts[1].z:raw() then
+    error("player 0 position")
+end
+if rows[2].start_x:raw() ~= starts[2].x:raw() or rows[2].start_z:raw() ~= starts[2].z:raw() then
+    error("player 1 position")
+end
+if rows[3].start ~= nil or rows[3].start_x ~= nil or rows[3].start_z ~= nil then
+    error("watcher")
+end
+if #rows[1].allies ~= 0 or #rows[3].allies ~= 0 then
+    error("empty allies")
+end
+if #rows[2].allies ~= 1 or rows[2].allies[1] ~= 0 then
+    error("computer allies")
+end
+)lua";
+
+const char* read_allies_cleared = R"lua(
+local rows = me:players()
+if #rows[2].allies ~= 0 then
+    error("alliance held")
+end
+if rows[2].start ~= 3 then
+    error("start moved")
+end
+)lua";
+
+const char* read_no_start = R"lua(
+local rows = me:players()
+if rows[1].start ~= nil or rows[1].start_x ~= nil or rows[1].start_z ~= nil then
+    error("player 0 start")
+end
+if rows[2].start ~= 3 then
+    error("player 1 start")
+end
+)lua";
+
+const char* read_random_starts = R"lua(
+if game.starts ~= "random" then
+    error("rule " .. tostring(game.starts))
+end
+local starts = game.map:starts()
+if #starts ~= 2 or starts[2].index ~= 3 then
+    error("map")
+end
+local rows = me:players()
+if #rows ~= 3 then
+    error("players")
+end
+if rows[1].start ~= nil or rows[1].start_x ~= nil or rows[1].start_z ~= nil then
+    error("other start")
+end
+if rows[2].start ~= 3 or rows[2].start_x:raw() ~= starts[2].x:raw() then
+    error("own start")
+end
+if rows[2].start_z:raw() ~= starts[2].z:raw() then
+    error("own z")
+end
+if rows[3].start ~= nil or rows[3].start_x ~= nil then
+    error("watcher")
+end
+)lua";
+
+const char* read_before_placement = R"lua(
+if game.starts ~= nil then
+    error("rule")
+end
+local starts = game.map:starts()
+if starts == nil or #starts ~= 0 then
+    error("map")
+end
+local rows = me:players()
+if #rows ~= 2 then
+    error("players")
+end
+if rows[1].start ~= nil or rows[2].start ~= nil then
+    error("start")
+end
+if #rows[1].allies ~= 0 or #rows[2].allies ~= 0 then
+    error("allies")
+end
+)lua";
+
+void starts_are_nil_on_a_load_check() {
+    const char* text = "return { fits = function()\n"
+                       "  if game.starts ~= nil then return \"starts\" end\n"
+                       "  if game.map ~= nil then return \"map\" end\n"
+                       "  if #me:players() ~= 0 then return \"players\" end\n"
+                       "  return true\n"
+                       "end }\n";
+    const auto bytes =
+        std::span<const uint8_t>{reinterpret_cast<const uint8_t*>(text), std::strlen(text)};
+    brains::PackageFile file{"brain.lua", bytes};
+    brains::SeatSpec spec;
+    spec.player = computer;
+    spec.id = "side-reader";
+    spec.name = "Side Reader";
+    spec.version = "1";
+    spec.entry = "brain.lua";
+    spec.level = "medium";
+    spec.difficulty = OA_DIFFICULTY_MEDIUM;
+    spec.files = std::span<const brains::PackageFile>{&file, 1};
+    facts::GameFacts game = placed_starts(facts::StartRule::fixed);
+    const brains::SeatOutcome outcome = brains::check_brain(spec, game);
+    require_seated(outcome);
+    CHECK(std::string_view(outcome.reason.data()).empty());
+}
+
+void starts_are_nil_outside_a_match() {
+    Fixture fixture;
+    brains::Seat seat;
+    seat.player = computer;
+    seat.match = nullptr;
+    seat.calls.host.world = &fixture.match->state();
+    facts::GameFacts game = placed_starts(facts::StartRule::fixed);
+    seat.facts = &game;
+    const host::Bank bank{
+        host::default_tick_allowance, host::default_bank_ticks, host::default_call_time_limit
+    };
+    host::OpenOptions options;
+    options.package_id = "side-reader";
+    options.profile = brains::brain_profile(seat, bank);
+    options.sources = seat.sources.hooks();
+    options.random_seed = 0;
+    host::ScriptError error;
+    auto opened = host::Sandbox::open(options, error);
+    if (!opened.has_value())
+        throw std::runtime_error(error.message.empty() ? "open failed" : error.message);
+    host::Sandbox sandbox(std::move(*opened));
+    run_chunk(
+        sandbox,
+        "if game.starts ~= nil then error(\"starts\") end\n"
+        "if game.map == nil then error(\"map\") end\n"
+        "if game.map:starts() ~= nil then error(\"map starts\") end\n"
+        "local rows = me:players()\n"
+        "if #rows ~= 2 then error(\"players\") end\n"
+        "for _, row in ipairs(rows) do\n"
+        "  if row.start ~= nil or row.start_x ~= nil or row.start_z ~= nil then error(\"start\") "
+        "end\n"
+        "  if type(row.allies) ~= \"table\" or #row.allies ~= 0 then error(\"allies\") end\n"
+        "end\n"
+    );
+    const uint64_t denied = spent(sandbox, "local s = game.map:starts()\n");
+    const uint64_t field = spent(sandbox, "local s = game.map.world\n");
+    CHECK(denied == field);
+    const uint64_t players = spent(sandbox, "local rows = me:players()\n");
+    const uint64_t quiet = spent(sandbox, "local rows = 0\n");
+    // Two players, and an empty allies list on each row: (2 + 1) + 2.
+    CHECK(players > quiet);
+    CHECK(players - quiet == 5);
+}
+
+void fixed_starts_and_alliances() {
+    Fixture fixture;
+    enable_watcher(fixture);
+    ally_computer_with_local(fixture);
+    brains::set_match_game_facts(*fixture.match, placed_starts(facts::StartRule::fixed));
+    seat_reader(fixture, "return {}\n", computer);
+    host::Sandbox* sandbox = brains::seat_sandbox(*fixture.match, computer);
+    CHECK(sandbox != nullptr);
+    run_chunk(*sandbox, read_fixed_starts);
+    const uint64_t players = spent(*sandbox, "local rows = me:players()\n");
+    const uint64_t quiet = spent(*sandbox, "local rows = 0\n");
+    // Three players. Ally lists are 0, 1 and 0: (3 + 1) + 1 + 2 + 1.
+    CHECK(players > quiet);
+    CHECK(players - quiet == 8);
+    const uint64_t starts = spent(*sandbox, "local rows = game.map:starts()\n");
+    const uint64_t world = spent(*sandbox, "local rows = game.map.world\n");
+    CHECK(starts > world);
+    CHECK(starts - world == 3);
+
+    std::array<uint8_t, 10> own{};
+    own[computer] = 1;
+    fixture.match->configure_player_alliances(computer, own);
+    run_chunk(*sandbox, read_allies_cleared);
+    const uint64_t after = spent(*sandbox, "local rows = me:players()\n");
+    CHECK(after > quiet);
+    CHECK(after - quiet == 7);
+
+    facts::GameFacts hidden = placed_starts(facts::StartRule::fixed);
+    hidden.player_start[0] = -1;
+    brains::publish_match_starts(
+        *fixture.match, hidden.starts, hidden.map_starts, hidden.player_start
+    );
+    run_chunk(*sandbox, read_no_start);
+}
+
+void random_starts_hide_the_other_rows() {
+    Fixture fixture;
+    enable_watcher(fixture);
+    brains::set_match_game_facts(*fixture.match, placed_starts(facts::StartRule::random));
+    seat_reader(fixture, "return {}\n", computer);
+    host::Sandbox* sandbox = brains::seat_sandbox(*fixture.match, computer);
+    CHECK(sandbox != nullptr);
+    run_chunk(*sandbox, read_random_starts);
+}
+
+void starts_appear_when_the_match_places_players() {
+    Fixture fixture;
+    seat_reader(fixture, "return {}\n", computer);
+    host::Sandbox* sandbox = brains::seat_sandbox(*fixture.match, computer);
+    CHECK(sandbox != nullptr);
+    run_chunk(*sandbox, read_before_placement);
+    const uint64_t empty = spent(*sandbox, "local rows = game.map:starts()\n");
+    const uint64_t world = spent(*sandbox, "local rows = game.map.world\n");
+    CHECK(empty > world);
+    CHECK(empty - world == 1);
+    facts::GameFacts game = placed_starts(facts::StartRule::fixed);
+    game.player_start[2] = -1;
+    brains::publish_match_starts(*fixture.match, game.starts, game.map_starts, game.player_start);
+    run_chunk(
+        *sandbox,
+        "if game.starts ~= \"fixed\" then error(\"rule\") end\n"
+        "local rows = me:players()\n"
+        "if #rows ~= 2 then error(\"players\") end\n"
+        "if rows[1].start ~= 1 or rows[2].start ~= 3 then error(\"start\") end\n"
+        "local starts = game.map:starts()\n"
+        "if rows[1].start_x:raw() ~= starts[1].x:raw() then error(\"position\") end\n"
+        "if #starts ~= 2 then error(\"map\") end\n"
+    );
+}
+
+void publish_does_not_create_brains_state() {
+    Fixture fixture;
+    CHECK(!fixture.match->seat_state());
+    std::array<int16_t, OA_PLAYER_COUNT> player_start{};
+    player_start.fill(-1);
+    const std::array<facts::MapStart, 1> starts{
+        facts::MapStart{0, static_cast<int16_t>(160), static_cast<int16_t>(320)}
+    };
+    brains::publish_match_starts(*fixture.match, facts::StartRule::fixed, starts, player_start);
+    CHECK(!fixture.match->seat_state());
+}
+
 } // namespace
 
 int main() {
@@ -1480,6 +1808,12 @@ int main() {
         handed_over_after_the_start(script);
         outside_a_match();
         two_seated_runs(script);
+        publish_does_not_create_brains_state();
+        starts_are_nil_on_a_load_check();
+        starts_are_nil_outside_a_match();
+        fixed_starts_and_alliances();
+        random_starts_hide_the_other_rows();
+        starts_appear_when_the_match_places_players();
     } catch (const std::exception& ex) {
         std::fprintf(stderr, "sim-brains-me: %s\n", ex.what());
         return 1;

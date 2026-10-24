@@ -121,6 +121,11 @@ oa::data::brain_facts::GameFacts Runtime::brain_game_facts() const {
         if (slot != nullptr)
             facts.ai_profile_report_path = slot;
     }
+    if (brain_starts_noted_) {
+        facts.starts = brain_start_rule_;
+        facts.map_starts = brain_map_starts_;
+        facts.player_start = brain_player_start_;
+    }
     const char* folder = oa::data::defs::directory_name(oa::data::defs::DataDirectory::ai);
     if (folder == nullptr)
         return facts;

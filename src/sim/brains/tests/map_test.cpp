@@ -7,6 +7,7 @@
 
 #include "internal.hpp"
 #include "reach.hpp"
+#include "route.hpp"
 
 #include "oa/base/game_loop.hpp"
 #include "oa/core/map_plot.h"
@@ -354,7 +355,9 @@ void open_gap(Fixture& fixture) {
     );
 }
 
-host::Sandbox& seat_reader(Fixture& fixture, const std::string& script, bool aware) {
+host::Sandbox& seat_reader(
+    Fixture& fixture, const std::string& script, bool aware, const host::Bank* bank = nullptr
+) {
     const auto bytes =
         std::span<const uint8_t>{reinterpret_cast<const uint8_t*>(script.data()), script.size()};
     brains::PackageFile file{"brain.lua", bytes};
@@ -367,6 +370,8 @@ host::Sandbox& seat_reader(Fixture& fixture, const std::string& script, bool awa
     spec.level = "steady";
     spec.difficulty = OA_DIFFICULTY_MEDIUM;
     spec.full_awareness = aware;
+    if (bank != nullptr)
+        spec.bank = *bank;
     spec.files = std::span<const brains::PackageFile>{&file, 1};
     const brains::SeatOutcome outcome = brains::seat_brain(*fixture.match, spec);
     if (outcome.result != brains::SeatResult::seated) {
@@ -884,6 +889,419 @@ return hooks
     ));
 }
 
+constexpr uint32_t route_room = 4096;
+
+bool same_route(
+    const brains::RouteResult& first,
+    const brains::RouteCell* first_path,
+    const brains::RouteResult& second,
+    const brains::RouteCell* second_path
+) {
+    if (first.found != second.found || first.length != second.length ||
+        first.cells != second.cells || first.capped != second.capped)
+        return false;
+    if (!first.found)
+        return true;
+    if (first_path == nullptr || second_path == nullptr || first.cells > route_room)
+        return false;
+    for (uint32_t index = 0; index < first.cells; ++index) {
+        if (first_path[index].column != second_path[index].column ||
+            first_path[index].row != second_path[index].row)
+            return false;
+    }
+    return true;
+}
+
+void open_rows(Fixture& fixture, int32_t row) {
+    auto& spatial = fixture.match->spatial();
+    for (uint32_t line = static_cast<uint32_t>(row); line < static_cast<uint32_t>(row) + 2u;
+         ++line) {
+        auto& plot =
+            spatial.plots[line * spatial.terrain_width + static_cast<uint32_t>(wall_column)];
+        plot.low_height = 40;
+        plot.high_height = 40;
+    }
+    fixture.match->refresh_movement_maps(
+        {static_cast<int16_t>(wall_column), static_cast<int16_t>(row)}, {1, 2}
+    );
+}
+
+void slow_column(Fixture& fixture, int32_t column) {
+    auto& spatial = fixture.match->spatial();
+    for (uint32_t row = 0; row < spatial.terrain_height; ++row) {
+        auto& plot = spatial.plots[row * spatial.terrain_width + static_cast<uint32_t>(column)];
+        plot.low_height = 40;
+        plot.high_height = 55;
+    }
+    fixture.match->refresh_movement_maps({0, 0}, {map_cells, map_cells});
+}
+
+const char* route_straight = R"(
+local route = game.map:route({x = 168, z = 168}, {x = 424, z = 168}, "KBOT", {points = true})
+local plain = game.map:route({x = 168, z = 168}, {x = 424, z = 168}, "KBOT")
+local quiet = game.map:route({x = 168, z = 168}, {x = 424, z = 168}, "KBOT", {points = false})
+local same = game.map:route({x = 168, z = 168}, {x = 168, z = 168}, "KBOT")
+local n = route.points and #route.points or 0
+got = {
+    length = route.length,
+    cells = route.cells,
+    n = n,
+    ax = route.points[1].x,
+    az = route.points[1].z,
+    bx = route.points[n].x,
+    bz = route.points[n].z,
+    plain_nil = plain.points == nil,
+    quiet_nil = quiet.points == nil,
+    same_length = same.length,
+    same_cells = same.cells,
+}
+)";
+
+const char* route_shut = R"(
+local route = game.map:route({x = 168, z = 168}, {x = 648, z = 168}, "KBOT")
+got = {
+    route_nil = route == nil,
+    reach = game.map:reachable({x = 168, z = 168}, {x = 648, z = 168}, "KBOT"),
+}
+)";
+
+const char* route_detour = R"(
+local a = {x = 168, z = 168}
+local b = {x = 648, z = 168}
+local route = game.map:route(a, b, "KBOT", {points = true})
+local n = route and route.points and #route.points or 0
+got = {
+    nil_route = route == nil,
+    length = route and route.length or -1,
+    cells = route and route.cells or -1,
+    n = n,
+    ax = n > 0 and route.points[1].x or -1,
+    az = n > 0 and route.points[1].z or -1,
+    bx = n > 0 and route.points[n].x or -1,
+    bz = n > 0 and route.points[n].z or -1,
+    reach = game.map:reachable(a, b, "KBOT"),
+}
+)";
+
+const char* route_charge_open = R"(game.map:route({x = 168, z = 168}, {x = 424, z = 168}, "KBOT")
+)";
+
+const char* route_charge_shut = R"(game.map:route({x = 168, z = 168}, {x = 648, z = 168}, "KBOT")
+)";
+
+const char* route_charge_air = R"(game.map:route({x = 0, z = 0}, {x = 30, z = 40}, "ARMSOLAR")
+)";
+
+const char* route_air = R"(
+local route = game.map:route({x = 0, z = 0}, {x = 30, z = 40}, "ARMSOLAR", {points = true})
+local back = game.map:route({x = 0, z = 0}, {x = 5, z = 12}, units.ARMSOLAR)
+local n = route.points and #route.points or 0
+got = {
+    length = route.length,
+    cells = route.cells,
+    n = n,
+    ax = route.points[1].x,
+    az = route.points[1].z,
+    bx = route.points[n].x,
+    bz = route.points[n].z,
+    back = back.length,
+    back_cells = back.cells,
+}
+)";
+
+const char* route_errors = R"(
+local function text_of(fn)
+    local ok, err = pcall(fn)
+    if ok then
+        return ""
+    end
+    return tostring(err)
+end
+got = {
+    err_boat = text_of(function() game.map:route({x = 1, z = 1}, {x = 2, z = 2}, "boat") end),
+    err_unit = text_of(function() game.map:route(1, {x = 1, z = 1}, "KBOT") end),
+    err_options = text_of(function()
+        game.map:route({x = 168, z = 168}, {x = 184, z = 168}, "KBOT", 1)
+    end),
+}
+)";
+
+const char* route_hidden = R"(game.map:route(enemy, {x = 168, z = 168}, "boat")
+)";
+
+const char* route_hidden_got = R"(
+got = { hidden_nil = game.map:route(enemy, {x = 168, z = 168}, "boat") == nil }
+)";
+
+void expect_straight(const brains::RouteResult& route, const brains::RouteCell* path) {
+    CHECK(route.found);
+    CHECK(!route.capped);
+    CHECK(route.length == 256);
+    CHECK(route.cells == 17);
+    CHECK(route.expanded == 17);
+    CHECK(path != nullptr);
+    for (int32_t step = 0; step < 17; ++step) {
+        CHECK(path[static_cast<uint32_t>(step)].column == 10 + step);
+        CHECK(path[static_cast<uint32_t>(step)].row == 10);
+    }
+}
+
+void read_routes(const std::string& script) {
+    CHECK(brains::route_charge(0) == 16);
+    CHECK(brains::route_charge(1) == 17);
+    CHECK(brains::route_charge(16) == 32);
+    CHECK(brains::route_charge(17) == 33);
+    CHECK(brains::route_cell_cap == (1u << 20));
+
+    Fixture first(0, true, {}, 1, 1, {}, 3);
+    Fixture second(0, true, {}, 1, 1, {}, 3);
+    name_class(first);
+    name_class(second);
+    shape_land(first);
+    shape_land(second);
+    const orders::MovementMap* grid = first.match->movement_map(1);
+    const orders::MovementMap* other = second.match->movement_map(1);
+    CHECK(grid != nullptr && other != nullptr);
+    for (int32_t column = 10; column <= 26; ++column) {
+        CHECK(grid->cell(static_cast<uint32_t>(column), 10) == 3);
+        CHECK(other->cell(static_cast<uint32_t>(column), 10) == 3);
+    }
+
+    brains::RouteCell open_path[route_room];
+    brains::RouteCell again_path[route_room];
+    brains::RouteCell mirrored_path[route_room];
+    const brains::RouteResult open =
+        brains::find_route(*grid, 10, 10, 26, 10, brains::route_cell_cap, open_path, route_room);
+    const brains::RouteResult again =
+        brains::find_route(*grid, 10, 10, 26, 10, brains::route_cell_cap, again_path, route_room);
+    const brains::RouteResult mirrored = brains::find_route(
+        *other, 10, 10, 26, 10, brains::route_cell_cap, mirrored_path, route_room
+    );
+    expect_straight(open, open_path);
+    CHECK(same_route(open, open_path, again, again_path));
+    CHECK(same_route(open, open_path, mirrored, mirrored_path));
+
+    const brains::RouteResult stayed =
+        brains::find_route(*grid, 10, 10, 10, 10, brains::route_cell_cap, nullptr, 0);
+    CHECK(stayed.found);
+    CHECK(stayed.length == 0);
+    CHECK(stayed.cells == 1);
+    CHECK(stayed.expanded == 1);
+
+    const brains::RouteResult shut =
+        brains::find_route(*grid, 10, 10, 40, 10, brains::route_cell_cap, nullptr, 0);
+    CHECK(!shut.found);
+    CHECK(!shut.capped);
+    CHECK(shut.expanded > 0);
+
+    const brains::RouteResult capped = brains::find_route(*grid, 10, 10, 26, 10, 1, nullptr, 0);
+    CHECK(!capped.found);
+    CHECK(capped.capped);
+    CHECK(capped.expanded == 1);
+    const brains::RouteResult uncapped = brains::find_route(*grid, 10, 10, 26, 10, 0, nullptr, 0);
+    CHECK(!uncapped.found);
+    CHECK(uncapped.capped);
+    CHECK(uncapped.expanded == 0);
+
+    const uint32_t before_tick = grid->projection_tick();
+    const uint8_t before_cell = grid->cell(10, 10);
+    const WorkerView worker_was = worker_view(first.match->path_search_worker());
+    host::Sandbox& sandbox = seat_reader(first, script, true);
+    const Bag straight = probe(sandbox, route_straight);
+    expect_int(straight, "length", 256);
+    expect_int(straight, "cells", 17);
+    expect_int(straight, "n", 2);
+    expect_int(straight, "ax", 168);
+    expect_int(straight, "az", 168);
+    expect_int(straight, "bx", 424);
+    expect_int(straight, "bz", 168);
+    expect_flag(straight, "plain_nil", true);
+    expect_flag(straight, "quiet_nil", true);
+    expect_int(straight, "same_length", 0);
+    expect_int(straight, "same_cells", 1);
+
+    const Bag blocked = probe(sandbox, route_shut);
+    expect_flag(blocked, "route_nil", true);
+    expect_flag(blocked, "reach", false);
+
+    const uint64_t open_cost = spent(sandbox, route_charge_open);
+    const uint64_t open_again = spent(sandbox, route_charge_open);
+    CHECK(open_cost == open_again);
+    const uint64_t shut_cost = spent(sandbox, route_charge_shut);
+    const uint64_t shut_again = spent(sandbox, route_charge_shut);
+    CHECK(shut_cost == shut_again);
+    const int64_t spent_gap = static_cast<int64_t>(open_cost) - static_cast<int64_t>(shut_cost);
+    const int64_t charge_gap = static_cast<int64_t>(brains::route_charge(open.expanded)) -
+                               static_cast<int64_t>(brains::route_charge(shut.expanded));
+    CHECK(spent_gap == charge_gap);
+    const uint64_t air_cost = spent(sandbox, route_charge_air);
+    CHECK(air_cost == open_cost - brains::route_charge(open.expanded) + brains::route_call_charge);
+
+    const Bag air = probe(sandbox, route_air);
+    expect_int(air, "length", 50);
+    expect_int(air, "cells", 0);
+    expect_int(air, "n", 2);
+    expect_int(air, "ax", 0);
+    expect_int(air, "az", 0);
+    expect_int(air, "bx", 30);
+    expect_int(air, "bz", 40);
+    expect_int(air, "back", 13);
+    expect_int(air, "back_cells", 0);
+
+    const Bag errors = probe(sandbox, route_errors);
+    expect_text(errors, "err_boat", "unknown movement class: boat");
+    expect_text(errors, "err_unit", "route expects a position or a unit");
+    expect_text(errors, "err_options", "route expects options or nothing");
+
+    brains::Seat* seat = seat_for(first);
+    auto* held = seat->match;
+    seat->match = nullptr;
+    try {
+        const Bag outside = probe(
+            sandbox,
+            "got = { outside = game.map:route({x = 168, z = 168}, {x = 184, z = 168}, \"KBOT\") "
+            "== nil }\n"
+        );
+        seat->match = held;
+        expect_flag(outside, "outside", true);
+    } catch (...) {
+        seat->match = held;
+        throw;
+    }
+    CHECK(seat->match == held);
+    CHECK(grid->projection_tick() == before_tick);
+    CHECK(grid->cell(10, 10) == before_cell);
+    CHECK(same_worker(worker_was, worker_view(first.match->path_search_worker())));
+
+    host::Sandbox& other_sandbox = seat_reader(second, script, true);
+    const Bag other_straight = probe(other_sandbox, route_straight);
+    expect_int(other_straight, "length", 256);
+    expect_int(other_straight, "cells", 17);
+
+    open_rows(first, 40);
+    open_rows(second, 40);
+    brains::RouteCell around_path[route_room];
+    brains::RouteCell around_again_path[route_room];
+    const brains::RouteResult around =
+        brains::find_route(*grid, 10, 10, 40, 10, brains::route_cell_cap, around_path, route_room);
+    const brains::RouteResult around_again = brains::find_route(
+        *other, 10, 10, 40, 10, brains::route_cell_cap, around_again_path, route_room
+    );
+    CHECK(around.found);
+    CHECK(around.length > 480);
+    CHECK(around.length < 4096);
+    CHECK(around.cells > 31);
+    CHECK(same_route(around, around_path, around_again, around_again_path));
+    // route_shut filled this tick's region cache before the gap opened.
+    first.match->state().game.tick += 1;
+    second.match->state().game.tick += 1;
+    const Bag detour = probe(sandbox, route_detour);
+    expect_flag(detour, "nil_route", false);
+    expect_flag(detour, "reach", true);
+    expect_int(detour, "length", around.length);
+    expect_int(detour, "cells", static_cast<lua_Integer>(around.cells));
+    const Value& turns = find(detour, "n");
+    CHECK(turns.kind == Value::kind_whole && turns.whole > 2);
+    expect_int(detour, "ax", 168);
+    expect_int(detour, "az", 168);
+    expect_int(detour, "bx", 648);
+    expect_int(detour, "bz", 168);
+    const Bag detour_other = probe(other_sandbox, route_detour);
+    expect_int(detour_other, "length", around.length);
+    expect_int(detour_other, "cells", static_cast<lua_Integer>(around.cells));
+
+    Fixture slowed(0, true, {}, 1, 1, {}, 3);
+    name_class(slowed);
+    shape_land(slowed);
+    slow_column(slowed, 12);
+    const orders::MovementMap* slow_grid = slowed.match->movement_map(1);
+    CHECK(slow_grid != nullptr);
+    CHECK(slow_grid->cell(10, 10) >= 1);
+    CHECK(slow_grid->cell(26, 10) >= 1);
+    bool slowed_a_cell = false;
+    for (uint32_t column = 10; column <= 26; ++column) {
+        CHECK(slow_grid->cell(column, 10) >= 1);
+        if (slow_grid->cell(column, 10) == 1)
+            slowed_a_cell = true;
+    }
+    CHECK(slowed_a_cell);
+    brains::RouteCell slow_path[route_room];
+    const brains::RouteResult slow = brains::find_route(
+        *slow_grid, 10, 10, 26, 10, brains::route_cell_cap, slow_path, route_room
+    );
+    CHECK(slow.found);
+    CHECK(slow.cells == 17);
+    CHECK(slow.length > 256);
+    for (int32_t step = 0; step < 17; ++step) {
+        CHECK(slow_path[static_cast<uint32_t>(step)].column == 10 + step);
+        CHECK(slow_path[static_cast<uint32_t>(step)].row == 10);
+    }
+    host::Sandbox& slow_sandbox = seat_reader(slowed, script, true);
+    const Bag slow_got = probe(slow_sandbox, route_straight);
+    expect_int(slow_got, "length", slow.length);
+    expect_int(slow_got, "cells", 17);
+
+    Fixture hidden(0, true, {}, 1, 1, {}, 3);
+    name_class(hidden);
+    shape_land(hidden);
+    host::Sandbox& hidden_sandbox = seat_reader(hidden, script, false);
+    brains::Seat* hidden_seat = seat_for(hidden);
+    auto& enemy = hidden.spawn(0, vehicle, 60, 60);
+    push_global(
+        hidden_sandbox, *hidden_seat, brains::unit_ref(*hidden.match, enemy.unit_index), "enemy"
+    );
+    CHECK(!hidden.match->unit_visible(computer, enemy.unit_index));
+    hidden_seat->full_awareness = false;
+    const Bag hidden_got = probe(hidden_sandbox, route_hidden_got);
+    expect_flag(hidden_got, "hidden_nil", true);
+    const uint64_t hidden_cost = spent(hidden_sandbox, route_hidden);
+    const uint64_t hidden_again = spent(hidden_sandbox, route_hidden);
+    CHECK(hidden_cost == hidden_again);
+    CHECK(hidden_cost == air_cost);
+    CHECK(hidden.match->movement_map(1)->cell(10, 10) == 3);
+}
+
+bool banked_probe(host::Sandbox& sandbox, const char* source, host::ScriptError& error) {
+    Probe probe{source};
+    host::CallHooks hooks;
+    hooks.context = &probe;
+    hooks.push = push_chunk;
+    return sandbox.call_banked("route", hooks, error);
+}
+
+void route_past_the_allowance(const std::string& script) {
+    // A straight route expands 17 cells, so one search costs 33 and the
+    // points request searches again. 65 is spent on that second charge,
+    // while the path is already Lua memory.
+    const uint64_t one_search = brains::route_charge(17);
+    const host::Bank tight{one_search * 2 - 1, 1, host::default_call_time_limit};
+    Fixture spent_fixture(0, true, {}, 1, 1, {}, 3);
+    name_class(spent_fixture);
+    shape_land(spent_fixture);
+    host::Sandbox& sandbox = seat_reader(spent_fixture, script, true, &tight);
+    host::ScriptError error;
+    const char* source =
+        "game.map:route({x = 168, z = 168}, {x = 424, z = 168}, \"KBOT\", {points = true})\n";
+    CHECK(!banked_probe(sandbox, source, error));
+    CHECK(error.kind == host::ErrorKind::instruction_budget);
+    CHECK(error.message.find("allowance") != std::string::npos);
+    CHECK(sandbox.failed());
+
+    // The host keeps a sandbox stopped after the allowance is spent. The
+    // next call returns that error instead of crashing.
+    host::ScriptError stopped;
+    CHECK(!banked_probe(sandbox, "again = 1\n", stopped));
+    CHECK(stopped.kind == error.kind);
+    CHECK(stopped.message == error.message);
+
+    Fixture later(0, true, {}, 1, 1, {}, 3);
+    name_class(later);
+    shape_land(later);
+    host::Sandbox& alive = seat_reader(later, script, true);
+    const Bag got = probe(alive, "got = { again = 1 }\n");
+    expect_int(got, "again", 1);
+}
+
 void outside_a_match(const std::string& script) {
     const auto bytes =
         std::span<const uint8_t>{reinterpret_cast<const uint8_t*>(script.data()), script.size()};
@@ -947,6 +1365,8 @@ int main() {
         int32_t anchor_z = 0;
         brains::anchor_cell(fixed_of(248), fixed_of(248), 2, 2, &anchor_x, &anchor_z);
         CHECK(anchor_x == 15 && anchor_z == 15);
+        read_routes(script);
+        route_past_the_allowance(script);
         return 0;
     } catch (const std::exception& error) {
         std::fprintf(stderr, "sim-brains-map: %s\n", error.what());

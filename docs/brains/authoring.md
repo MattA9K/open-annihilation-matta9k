@@ -361,17 +361,17 @@ Pack from outside the package folder. An existing `--out` without
 `oa-tool brain pack: the output already exists: ` and the path.
 
 ```sh
-build/oa-tool brain pack brains/examples/steady-commander --out /tmp/O02-scratch/O02-steady-commander.oabrain
+build/oa-tool brain pack brains/examples/steady-commander --out /tmp/brain-scratch/steady-commander.oabrain
 ```
 
 ```text
-packed /tmp/O02-scratch/O02-steady-commander.oabrain: 2 files, 2822 bytes, sha256 e691879fd12193d72b01d2465948da5698980fca37804dcb1bf5272570856969
+packed /tmp/brain-scratch/steady-commander.oabrain: 2 files, 2822 bytes, sha256 e691879fd12193d72b01d2465948da5698980fca37804dcb1bf5272570856969
 ```
 
 Check the package against the base game:
 
 ```sh
-build/oa-tool brain check /tmp/O02-scratch/O02-steady-commander.oabrain --game-dir "$OA_GAME_DIR"
+build/oa-tool brain check /tmp/brain-scratch/steady-commander.oabrain --game-dir "$OA_GAME_DIR"
 ```
 
 ```text
@@ -396,11 +396,11 @@ The first match seats the folder against Classic on Painted Desert:
 
 ```sh
 open-annihilation --skip-intro --mute --headless-check --game-dir "$OA_GAME_DIR" \
-  --user-folder /tmp/O02-user --data-dir /tmp/O02-scratch/O02-data \
+  --user-folder /tmp/brain-user --data-dir /tmp/brain-scratch/data \
   --brain-match brains/examples/steady-commander,brains/classic \
   --brain-levels medium,medium \
   --brain-map "Painted Desert" --seed 4242 --match-ticks 1800 \
-  --brain-record /tmp/O02-scratch/O02-record.txt
+  --brain-record /tmp/brain-scratch/record.txt
 ```
 
 It exits 0:
@@ -429,12 +429,12 @@ the `seat 0 brain` blocks.
 
 ```sh
 open-annihilation --skip-intro --mute --headless-check --game-dir "$OA_GAME_DIR" \
-  --user-folder /tmp/O02-user --data-dir /tmp/O02-scratch/O02-data \
+  --user-folder /tmp/brain-user --data-dir /tmp/brain-scratch/data \
   --brain-match brains/examples/steady-commander,builtin \
   --brain-levels medium,hard \
   --brain-map "Painted Desert" --seed 4242 --match-ticks 2400 \
-  --brain-trace /tmp/O02-scratch/O02-trace-play.txt \
-  --brain-record /tmp/O02-scratch/O02-record-play.txt
+  --brain-trace /tmp/brain-scratch/trace-play.txt \
+  --brain-record /tmp/brain-scratch/record-play.txt
 ```
 
 It exits 0:
@@ -511,10 +511,34 @@ booleans. `bmcode` is 0 for a structure. `minwaterdepth` is an `f32`.
 
 `me.player` is the seat. `me:each_unit` walks the seat's own units.
 `me:allied` answers another player. `me.seen` is the units the seat can
-know about. During `start`, before the first tick, `each_unit` can still
+know about. `game.starts` is `fixed` or `random`, the rule the match
+placed with. A campaign mission is fixed, and so is a match whose players
+were placed by the map's own units. `game.map:starts()` lists every start
+position of the schema in play, in StartPos order: `index` from 1, `x` and
+`z` in world units, and the cell as `cx` and `cz`. `#me:players()` is how
+many players are in the game. A row's `start`, `start_x` and `start_z`
+are that player's start. With fixed starts every player who has one is
+listed. With random starts only this seat's row has them. A watcher, or a
+player with no start, has nil. A row's `allies` is who that player counts
+as allies now, and it changes when an alliance does. The fields are in
+[7.1 game](oabrain-standard.md#71-game),
+[7.2 the map](oabrain-standard.md#72-the-map) and
+[7.5 the seat](oabrain-standard.md#75-the-seat).
+
+During `start`, before the first tick, `each_unit` can still
 be empty: the commander arrives as `onUnitIdle` on tick 1. Classify then,
 or from the timer, and remember the records so later ticks do not draw
 again.
+
+A brain can ask `map:route(a, b, class)` how far a unit of that class
+would travel before it orders the unit. The result's `length` is that
+distance in world units. Pass `{points = true}` when the turning points
+matter: the list starts at `a` and ends at `b`, and the search runs a
+second time. Slow ground costs more than clear ground. Each search
+charges one instruction per cell it expands, plus 16. A search that
+expands more than 1,048,576 cells returns nil. Whether two places meet
+is cheaper to ask with `map:reachable`. The arguments, the charge and
+the cap are [7.2 The map](oabrain-standard.md#72-the-map).
 
 ## 3. Giving orders
 

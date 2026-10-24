@@ -648,6 +648,7 @@ name raises and `pairs(game)` yields both.
 | `game:has_expansion(id)` | True when that expansion is on. |
 | `game.engine` | The engine's version. |
 | `game.mode` | `skirmish`, `campaign` or `network`. |
+| `game.starts` | `fixed` or `random`, the start rule the match used. Nil outside a match, and nil until the match has placed its players. |
 | `game.difficulty` | `easy`, `medium` or `hard`. |
 | `game.in_match` | True for a seated brain. False for a load check. |
 | `game.mod` | `id`, `name`, `version`, `sides`, `hacks` and `limits`. |
@@ -665,6 +666,12 @@ name raises and `pairs(game)` yields both.
 Each side is `name`, `prefix` and `commander`. Each simulation hack is
 `on` plus its parameters, listed whether the hack is on or off. A view
 hack is left out. Each limit is its parameters, with no `on`.
+
+`game.starts` is the rule the match placed with. A campaign mission is
+`fixed`. So is a match whose players were placed by the map's own units.
+Otherwise it is the skirmish StartLocation, or the battle room's starts
+setting. The word is charged when `game` is built, like the other text
+fields. A seat opened before the players are placed reads it once they are.
 
 ### 7.2 The map
 
@@ -690,10 +697,12 @@ hack is left out. Each limit is its parameters, with no `on`.
 | `map:metal_feature(cx, cz)` | Whether the cell is a metal deposit. False off the map. |
 | `map:metal_spots()` | Deposits in scan order, rows then columns. Each entry is `cx` and `cz`. One charge per cell. |
 | `map:geo_spots()` | The same for geothermal spots. Nil outside a match. |
+| `map:starts()` | Every start position of the schema in play, in StartPos order. Each entry is `index` (the StartPos number, from 1), `x` and `z` (world units) and `cx`, `cz` (the cell). An empty list when the map defines none. Nil outside a match. The charge is one unit per start, plus one. |
 | `map:classes()` | Movement classes the match's unit types use, in handle order. Each entry is `name`, `handle`, `footprint_x` and `footprint_z`. One charge per type. |
 | `map:passable(class, cx, cz)` | 0 blocked, 1 slow or not clear, 3 clear, and 0 off the map. It does not look at what the seat has seen. |
 | `map:anchor(class, position)` | The cell a unit of that class would stand on. |
 | `map:reachable(a, b, class)` | True when the two positions can meet through that class's open cells, including a diagonal step. |
+| `map:route(a, b, class [, options])` | The route a unit of that class would take. Nil when the two cannot meet, when a position is one the seat may not read, when the search passes its cap, or outside a match. Otherwise `length`, `cells` and, when `options.points` is true, `points`. |
 
 A class is a class name, ignoring ASCII case, a unit type's record, a unit
 type's name, or an integer. A unit handle is not a class. A type with no
@@ -702,6 +711,37 @@ that type with `unknown movement class: `. Four classes are cached in a
 tick. Building the regions costs one charge per sixteen cells, rounded up.
 Each question costs 16 more. A position the seat may not read makes
 `reachable` return nil and still costs 16.
+
+`map:route(a, b, class [, options])` estimates that route. `a` and `b`
+are positions or unit handles, as `reachable` takes them. `class` is the
+same argument `passable` takes. The route uses the class's movement map
+as the game knows it, the same open cells `passable` reads, not what the
+seat has seen. A diagonal step is allowed, as `reachable` allows it. A
+clear cell costs 16 world units for a step to the side and 22 for a
+diagonal step. A slow cell (`passable` 1) adds 30. The costs are
+integers, and when two steps cost the same the earlier one in that fixed
+neighbour order is kept, so every machine agrees. `length` is that cost.
+On clear ground a straight side-to-side route's length is the straight
+distance. `cells` counts the cells the route crosses, including both
+ends. `points`, when `options.points` is true, starts at `a` and ends at
+`b`. The entries between are the turns, each an `x` and a `z`. A whole
+world unit is an integer. A fraction is a fixed value.
+
+A position the seat may not read returns nil and still costs 16, and the
+class is not checked. Two ends that cannot meet return nil, the same
+answer `reachable` gives. A brain that only needs to know whether two
+places meet should ask `map:reachable` first, which is far cheaper, and
+only then ask `route` for the length. A type with no movement class has
+no map to search: `length` is the straight distance in whole world units
+and `cells` is 0. One search charges one instruction per cell it expands,
+plus 16. The search stops after 1,048,576 expanded cells, the cells of a
+1024 by 1024 map, and then returns nil. That call still costs its charge.
+A search that reaches the cap costs 1,048,592, inside one tick's
+allowance. When `options.points` is true the search runs again and that
+second search is charged the same way. The call does not change the
+movement map, its projection, its occupancy, or any unit, and it does not
+wait on the path-search worker. A call that fails its arguments costs
+nothing. Outside a match, `route` returns nil.
 
 ### 7.3 Definitions
 
@@ -786,7 +826,7 @@ is 2. It returns nil when the seat's table does not reach the type.
 | `me.builds_held_until` | The tick a capturing builder waits for. Nil when the seat was not given that call. 0 is a real tick. |
 | `me:allied(player)` | Whether that player is an ally. |
 | `me:allies()` | The allied players. |
-| `me:players()` | The players. Each row has `player`, `name`, `side`, `team`, `allied`, `computer` and `alive`. |
+| `me:players()` | The players in the game. `#me:players()` is how many. Each row has `player`, `name`, `side`, `team`, `allied`, `computer`, `alive`, `start`, `start_x`, `start_z` and `allies`. |
 | `me:units()`, `me:each_unit(fn)` | The seat's occupied slots, in slot order. `each_unit` takes the list before the first call. |
 | `me:unit_count()` | How many of those units. |
 | `me:squad(n)`, `me:squad_size(n)`, `me:squad_member(n, i)` | Squads in the engine's member order. Squads 1 to 9 are the lists the engine holds. |
@@ -796,6 +836,18 @@ is 2. It returns nil when the seat's table does not reach the type.
 | `me:sees_unit(u)` | Whether a live handle is visible. False for a dead one. |
 | `me.sight`, `me.explored` | Grids of 32-unit cells: `width`, `height`, `cell_size`, `at(cx, cz)`, `cell_of(x, z)`. Nil when the match keeps no sight grid. |
 | `me.radar`, `me.radar_tick` | Live enemy contacts in the seat's own picture, in slot order, and the tick of that picture. |
+
+`start` is that player's StartPos number, from 1. `start_x` and `start_z`
+are that position in world units, the same units `brain.distance` and the
+order calls take. When `game.starts` is `fixed`, every player who was
+given a start has these three. When it is `random`, only this seat's row
+has them. A watcher, or a player with no start, has nil for all three.
+`allies` is the other players that row counts as allies, in index order,
+from the alliance table as the match holds it now. It changes when an
+alliance changes. The player itself is not in the list. Outside a match
+the start fields are nil and each `allies` list is empty. The charge is
+one unit per player, plus one, and one more unit per ally in each list,
+plus one per list.
 
 A contact gives `x`, `y`, `z` and `position` while it is still a contact
 of the latest picture with the same generation. `sonar` and `radar` stay
@@ -946,8 +998,14 @@ With no seat the call raises `place has no seat`. Outside a match,
 
 ### 8.4 Reachability
 
-`map:reachable` is [7.2 The map](#72-the-map). It does not search for a
-path and does not change the movement map.
+`map:reachable` and `map:route` are [7.2 The map](#72-the-map).
+`reachable` answers whether the two positions can meet. It does not
+search for a path and does not change the movement map. `route` estimates
+the path a unit of that class would take, on the calling thread, and does
+not change the movement map or any unit. It charges one instruction per
+expanded cell, plus 16, and stops after 1,048,576 expanded cells. Asking
+for the turning points searches and charges a second time. A brain that
+only needs to know whether two places meet should ask `reachable` first.
 
 ## 9. Neural networks
 

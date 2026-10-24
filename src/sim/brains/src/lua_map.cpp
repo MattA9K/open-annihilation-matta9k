@@ -1,11 +1,12 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// game.map: the match map a brain can read, and whether two points lie in
-// one movement region. A question does not search for a path and does not
-// change the movement map.
+// game.map: the match map a brain can read, whether two points lie in one
+// movement region, and an estimate of the route between them. The estimate
+// does not change the movement map or any unit.
 #include "internal.hpp"
 #include "reach.hpp"
+#include "route.hpp"
 
 #include "handles_internal.hpp"
 #include "lua_game.hpp"
@@ -454,7 +455,7 @@ bool sight_pass(void* context, uint32_t x, uint32_t z) {
     return sight->grid->cell(x, z) >= 1;
 }
 
-bool read_endpoint(lua_State* lua, Seat& seat, int index, Endpoint* out) {
+bool read_endpoint(lua_State* lua, Seat& seat, int index, const char* method, Endpoint* out) {
     UnitRef ref{};
     if (to_unit(lua, index, &ref)) {
         if (unit_access(seat, ref, Access::seen) != Read::allow) {
@@ -472,14 +473,123 @@ bool read_endpoint(lua_State* lua, Seat& seat, int index, Endpoint* out) {
     }
     if (lua_type(lua, index) == LUA_TTABLE) {
         oa::FixedVec3 point{};
-        if (!read_position(lua, index, "reachable", &point))
+        if (!read_position(lua, index, method, &point))
             return false;
         out->x = point.x;
         out->z = point.z;
         return true;
     }
-    luaL_error(lua, "reachable expects a position or a unit");
+    luaL_error(lua, "%s expects a position or a unit", method);
     return false;
+}
+
+bool want_route_points(lua_State* lua, bool* points) {
+    *points = false;
+    if (lua_gettop(lua) < 5 || lua_type(lua, 5) == LUA_TNIL || lua_type(lua, 5) == LUA_TNONE)
+        return true;
+    if (lua_type(lua, 5) != LUA_TTABLE) {
+        luaL_error(lua, "route expects options or nothing");
+        return false;
+    }
+    lua_getfield(lua, 5, "points");
+    *points = lua_toboolean(lua, -1) != 0;
+    lua_pop(lua, 1);
+    return true;
+}
+
+void push_axis(lua_State* lua, int32_t fixed_count) {
+    if ((static_cast<uint32_t>(fixed_count) & 65535u) == 0u) {
+        lua_pushinteger(lua, static_cast<lua_Integer>(fixed_count / 65536));
+        return;
+    }
+    script_host::push_fixed(lua, fixed_count);
+}
+
+void push_fixed_point(lua_State* lua, int32_t fixed_x, int32_t fixed_z) {
+    lua_createtable(lua, 0, 2);
+    push_axis(lua, fixed_x);
+    lua_setfield(lua, -2, "x");
+    push_axis(lua, fixed_z);
+    lua_setfield(lua, -2, "z");
+}
+
+void push_world_point(lua_State* lua, int32_t world_x, int32_t world_z) {
+    lua_createtable(lua, 0, 2);
+    lua_pushinteger(lua, static_cast<lua_Integer>(world_x));
+    lua_setfield(lua, -2, "x");
+    lua_pushinteger(lua, static_cast<lua_Integer>(world_z));
+    lua_setfield(lua, -2, "z");
+}
+
+int32_t cell_centre(int32_t cell, int16_t footprint) noexcept {
+    return (cell * 2 + static_cast<int32_t>(footprint)) * 8;
+}
+
+uint32_t whole_distance(int32_t from_x, int32_t from_z, int32_t to_x, int32_t to_z) noexcept {
+    const int64_t delta_x =
+        static_cast<int64_t>(to_x / 65536) - static_cast<int64_t>(from_x / 65536);
+    const int64_t delta_z =
+        static_cast<int64_t>(to_z / 65536) - static_cast<int64_t>(from_z / 65536);
+    const uint64_t magnitude_x =
+        delta_x < 0 ? static_cast<uint64_t>(-delta_x) : static_cast<uint64_t>(delta_x);
+    const uint64_t magnitude_z =
+        delta_z < 0 ? static_cast<uint64_t>(-delta_z) : static_cast<uint64_t>(delta_z);
+    uint64_t rest = magnitude_x * magnitude_x + magnitude_z * magnitude_z;
+    uint64_t estimate = 0;
+    uint64_t bit = uint64_t{1} << 62;
+    while (bit > rest)
+        bit >>= 2;
+    while (bit != 0) {
+        const uint64_t trial = estimate + bit;
+        if (rest >= trial) {
+            rest -= trial;
+            estimate = (estimate >> 1) + bit;
+        } else
+            estimate >>= 1;
+        bit >>= 2;
+    }
+    return static_cast<uint32_t>(estimate);
+}
+
+void push_route_points(
+    lua_State* lua,
+    const RouteCell* path,
+    uint32_t cells,
+    int32_t from_x,
+    int32_t from_z,
+    int32_t to_x,
+    int32_t to_z,
+    int16_t footprint_x,
+    int16_t footprint_z
+) {
+    const uint32_t counted = path == nullptr ? 0 : route_turns(path, cells, nullptr, 0);
+    RouteCell* turn_cells = nullptr;
+    uint32_t turns = counted;
+    if (counted > 0) {
+        void* memory =
+            lua_newuserdatauv(lua, sizeof(RouteCell) * static_cast<std::size_t>(counted), 0);
+        turn_cells = static_cast<RouteCell*>(memory);
+        turns = route_turns(path, cells, turn_cells, counted);
+    }
+    lua_createtable(lua, static_cast<int>(turns + 2), 0);
+    const int list = lua_gettop(lua);
+    lua_Integer row = 1;
+    push_fixed_point(lua, from_x, from_z);
+    lua_rawseti(lua, list, row);
+    ++row;
+    for (uint32_t index = 0; index < turns; ++index) {
+        push_world_point(
+            lua,
+            cell_centre(turn_cells[index].column, footprint_x),
+            cell_centre(turn_cells[index].row, footprint_z)
+        );
+        lua_rawseti(lua, list, row);
+        ++row;
+    }
+    push_fixed_point(lua, to_x, to_z);
+    lua_rawseti(lua, list, row);
+    if (counted > 0)
+        lua_remove(lua, list - 1);
 }
 
 const char* field_text(lua_State* lua, int index, std::size_t* length) {
@@ -701,6 +811,36 @@ static int method_geo_spots(lua_State* lua) {
     return push_spots(lua, *seat->match, geo_spot);
 }
 
+static int method_starts(lua_State* lua) {
+    if (!map_self(lua, "starts"))
+        return 0;
+    Seat* seat = live_seat(lua);
+    if (seat == nullptr)
+        return 0;
+    const std::size_t count = seat->facts != nullptr ? seat->facts->map_starts.size() : 0;
+    lua_createtable(lua, static_cast<int>(count), 0);
+    const int list = lua_gettop(lua);
+    for (std::size_t row = 0; row < count; ++row) {
+        const oa::data::brain_facts::MapStart& marker = seat->facts->map_starts[row];
+        lua_createtable(lua, 0, 5);
+        lua_pushinteger(lua, static_cast<lua_Integer>(marker.index) + 1);
+        lua_setfield(lua, -2, "index");
+        const int64_t world_x = static_cast<int64_t>(marker.x) << 16;
+        const int64_t world_z = static_cast<int64_t>(marker.z) << 16;
+        script_host::push_fixed(lua, world_x);
+        lua_setfield(lua, -2, "x");
+        script_host::push_fixed(lua, world_z);
+        lua_setfield(lua, -2, "z");
+        lua_pushinteger(lua, static_cast<lua_Integer>(static_cast<int32_t>(marker.x) >> 4));
+        lua_setfield(lua, -2, "cx");
+        lua_pushinteger(lua, static_cast<lua_Integer>(static_cast<int32_t>(marker.z) >> 4));
+        lua_setfield(lua, -2, "cz");
+        lua_rawseti(lua, list, static_cast<lua_Integer>(row + 1));
+    }
+    script_host::charge_work(lua, script_host::element_charge * (static_cast<uint64_t>(count) + 1));
+    return 1;
+}
+
 static int method_classes(lua_State* lua) {
     if (!map_self(lua, "classes"))
         return 0;
@@ -798,7 +938,8 @@ static int method_reachable(lua_State* lua) {
         return 0;
     Endpoint from{};
     Endpoint to{};
-    if (!read_endpoint(lua, *seat, 2, &from) || !read_endpoint(lua, *seat, 3, &to))
+    if (!read_endpoint(lua, *seat, 2, "reachable", &from) ||
+        !read_endpoint(lua, *seat, 3, "reachable", &to))
         return 0;
     if (from.hidden || to.hidden) {
         script_host::charge_work(lua, reach_charge);
@@ -846,6 +987,96 @@ static int method_reachable(lua_State* lua) {
     return 1;
 }
 
+static int method_route(lua_State* lua) {
+    if (!map_self(lua, "route"))
+        return 0;
+    Seat* seat = live_seat(lua);
+    if (seat == nullptr)
+        return 0;
+    Endpoint from{};
+    Endpoint to{};
+    if (!read_endpoint(lua, *seat, 2, "route", &from) ||
+        !read_endpoint(lua, *seat, 3, "route", &to))
+        return 0;
+    bool points = false;
+    if (!want_route_points(lua, &points))
+        return 0;
+    if (from.hidden || to.hidden) {
+        script_host::charge_work(lua, route_call_charge);
+        lua_pushnil(lua);
+        return 1;
+    }
+    char name[name_room];
+    ClassUse used{};
+    if (!resolve_class(lua, *seat, 4, name, sizeof name, &used))
+        return 0;
+    if (used.kind == ClassKind::aircraft) {
+        script_host::charge_work(lua, route_call_charge);
+        lua_createtable(lua, 0, points ? 3 : 2);
+        lua_pushinteger(lua, static_cast<lua_Integer>(whole_distance(from.x, from.z, to.x, to.z)));
+        lua_setfield(lua, -2, "length");
+        lua_pushinteger(lua, 0);
+        lua_setfield(lua, -2, "cells");
+        if (points) {
+            push_route_points(lua, nullptr, 0, from.x, from.z, to.x, to.z, 0, 0);
+            lua_setfield(lua, -2, "points");
+        }
+        return 1;
+    }
+    int32_t from_column = 0;
+    int32_t from_row = 0;
+    int32_t to_column = 0;
+    int32_t to_row = 0;
+    RouteResult route;
+    if (used.grid != nullptr) {
+        anchor_cell(from.x, from.z, used.footprint_x, used.footprint_z, &from_column, &from_row);
+        anchor_cell(to.x, to.z, used.footprint_x, used.footprint_z, &to_column, &to_row);
+        route = find_route(
+            *used.grid, from_column, from_row, to_column, to_row, route_cell_cap, nullptr, 0
+        );
+    }
+    // The search has returned, so nothing here owns memory a raise would skip.
+    script_host::charge_work(lua, route_charge(route.expanded));
+    if (!route.found) {
+        lua_pushnil(lua);
+        return 1;
+    }
+    RouteCell* path = nullptr;
+    if (points) {
+        if (used.grid == nullptr || route.cells == 0 ||
+            static_cast<uint64_t>(route.cells) >
+                static_cast<uint64_t>(SIZE_MAX) / sizeof(RouteCell)) {
+            lua_pushnil(lua);
+            return 1;
+        }
+        void* memory =
+            lua_newuserdatauv(lua, sizeof(RouteCell) * static_cast<std::size_t>(route.cells), 0);
+        path = static_cast<RouteCell*>(memory);
+        const RouteResult again = find_route(
+            *used.grid, from_column, from_row, to_column, to_row, route_cell_cap, path, route.cells
+        );
+        script_host::charge_work(lua, route_charge(again.expanded));
+        if (!again.found || again.cells != route.cells || again.length != route.length) {
+            lua_pop(lua, 1);
+            lua_pushnil(lua);
+            return 1;
+        }
+    }
+    lua_createtable(lua, 0, points ? 3 : 2);
+    lua_pushinteger(lua, static_cast<lua_Integer>(route.length));
+    lua_setfield(lua, -2, "length");
+    lua_pushinteger(lua, static_cast<lua_Integer>(route.cells));
+    lua_setfield(lua, -2, "cells");
+    if (points) {
+        push_route_points(
+            lua, path, route.cells, from.x, from.z, to.x, to.z, used.footprint_x, used.footprint_z
+        );
+        lua_setfield(lua, -2, "points");
+        lua_remove(lua, -2);
+    }
+    return 1;
+}
+
 static int map_index(lua_State* lua) {
     if (!map_self(lua, "index"))
         return 0;
@@ -887,6 +1118,10 @@ static int map_index(lua_State* lua) {
         lua_pushcfunction(lua, method_geo_spots);
         return 1;
     }
+    if (same_text(key, length, "starts")) {
+        lua_pushcfunction(lua, method_starts);
+        return 1;
+    }
     if (same_text(key, length, "classes")) {
         lua_pushcfunction(lua, method_classes);
         return 1;
@@ -901,6 +1136,10 @@ static int map_index(lua_State* lua) {
     }
     if (same_text(key, length, "reachable")) {
         lua_pushcfunction(lua, method_reachable);
+        return 1;
+    }
+    if (same_text(key, length, "route")) {
+        lua_pushcfunction(lua, method_route);
         return 1;
     }
     Seat* seat = seat_of(lua);

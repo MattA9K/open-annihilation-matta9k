@@ -314,6 +314,25 @@ seat_instructions(const match_runtime::Match& match, uint8_t player) noexcept;
 /// @param facts the facts, owned by the caller until this returns
 void set_match_game_facts(match_runtime::Match& match, oa::data::brain_facts::GameFacts facts);
 
+/// Writes the match's start rule, map starts and player indices into facts
+/// the match already stores, and fills `game.starts` on seats already open.
+///
+/// Does nothing when the match has no brains state, and does not create
+/// one. A seat opened later reads the updated facts as `game` is built.
+/// `player_start` is each player's zero-based index, or -1 when that player
+/// was not given a start.
+///
+/// @param match the match
+/// @param rule fixed, random, or unknown when the players are not placed
+/// @param starts the schema's start positions, in StartPos order
+/// @param player_start one index per player, -1 when none was given
+void publish_match_starts(
+    match_runtime::Match& match,
+    oa::data::brain_facts::StartRule rule,
+    std::span<const oa::data::brain_facts::MapStart> starts,
+    const std::array<int16_t, OA_PLAYER_COUNT>& player_start
+);
+
 /// Where a seat reports printed lines and a stop.
 ///
 /// The simulation calls these during a turn. It writes no file and posts no

@@ -5324,7 +5324,10 @@ class Runtime final : public menu::Host,
     /// The AI profile is the file `computer_profile_file` reads, and the
     /// report path is the map's profile slot, empty when that slot is null.
     /// `ai_profiles` is every readable profile under the AI directory, at
-    /// most 256, in the order they are listed.
+    /// most 256, in the order they are listed. The start rule, the map's
+    /// starts and each player's start index are the note
+    /// `publish_brain_starts` last wrote, or unknown with no starts when
+    /// this match has not placed its players.
     ///
     /// @return the facts, owned outright
     [[nodiscard]] oa::data::brain_facts::GameFacts brain_game_facts() const;
@@ -7393,6 +7396,45 @@ class Runtime final : public menu::Host,
     /// it, once per match. Does nothing when they are already stored or no
     /// match is running.
     void store_brain_game_facts();
+
+    /// Forgets the start rule, the map's starts and each player's start.
+    ///
+    /// Called as a match configures its computer players, before anyone is
+    /// placed, so a previous match cannot leak into this one.
+    void clear_brain_start_notes();
+
+    /// Copies the selected schema's kind-1 start markers, in stored order.
+    void note_brain_map_starts();
+
+    /// Copies the playing campaign schema's start-position rules, in rule order.
+    void note_campaign_map_starts();
+
+    /// Records the start index this match gave one player.
+    ///
+    /// `start_index` is the index passed to the placement, after a neutral
+    /// map has moved the computer player. `map_placed` is true when the map's
+    /// own units took the commander's place. `placed_here` is true when this
+    /// machine placed that player. A later note of a player this machine did
+    /// not place does not replace an index already recorded here.
+    ///
+    /// @param player player index, 0 to 9
+    /// @param start_index zero-based start, or negative when none
+    /// @param map_placed true when the map's units were placed
+    /// @param placed_here true when this machine placed the player
+    void remember_brain_player_start(
+        uint8_t player, int32_t start_index, bool map_placed, bool placed_here
+    );
+
+    /// Publishes the start rule into the note, and into brains state when a
+    /// brain is already seated.
+    ///
+    /// A campaign mission is fixed. So is a match in which every player this
+    /// machine had to place was placed by the map's own units and none took a
+    /// commander. Otherwise `fixed_by_setup` is the skirmish StartLocation or
+    /// the battle room's fixed-starts option. Does not create brains state.
+    ///
+    /// @param fixed_by_setup true when the setup itself asked for fixed starts
+    void publish_brain_starts(bool fixed_by_setup);
 
     /// Installs the brain log and record hooks when the command asked for a file.
     ///
@@ -19010,6 +19052,22 @@ class Runtime final : public menu::Host,
     /// True once this match's facts are stored for its brains. Cleared as
     /// each match configures its computer players.
     bool brain_game_facts_stored_{};
+    /// True once this match has published a start rule. Cleared with the notes.
+    bool brain_starts_noted_{false};
+    /// The rule `publish_brain_starts` last chose. Unknown until then.
+    oa::data::brain_facts::StartRule brain_start_rule_{oa::data::brain_facts::StartRule::unknown};
+    /// Start positions of the schema in play. Empty until they are noted.
+    std::vector<oa::data::brain_facts::MapStart> brain_map_starts_{};
+    /// Each player's zero-based start, or -1. Cleared as the notes are.
+    std::array<int16_t, OA_PLAYER_COUNT> brain_player_start_{
+        -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
+    };
+    /// True when this machine placed that player.
+    std::array<bool, OA_PLAYER_COUNT> brain_player_placed_{};
+    /// True when a map-unit placement was recorded for this match.
+    bool brain_start_from_map_{false};
+    /// True when a commander placement was recorded for this match.
+    bool brain_start_from_commander_{false};
     /// One log per seat for the latest brain seated there.
     std::array<BrainLog, OA_PLAYER_COUNT> brain_logs_{};
     /// The id a seat's brain was not seated under. Empty when it was seated
