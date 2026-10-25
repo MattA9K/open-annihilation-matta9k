@@ -144,6 +144,13 @@ In both interface types:
   added to the selection while Shift is held;
 - left double-click on a unit of the viewer's: select every unit of its type.
 
+A panel or dialog over the megamap takes its own clicks and taps, as it does
+over the battlefield, among them the exit menu and its questions, the unit
+info panel and the save page. While the in-game menu or another panel holds
+the match, a left click on the megamap does nothing and a right press beside
+the menu acts as on the battlefield; in the left-click interface it drops the
+selection and closes the menu, which lets the match run again.
+
 #### Enhanced minimap
 
 With `enhanced-minimap`, the minimap's picture is redrawn at the minimap's
@@ -211,8 +218,13 @@ match hash and every machine's simulation stay as they are.
   interface types and checks that each leaves the same selection, armed
   command and orders: moves, an attack, a guard, selecting, deselecting,
   and an armed command given and dropped. With `--snapshot` it writes each
-  surface's frame just before and just after each click beside the
-  snapshot.
+  surface's frame just before and just after each of those clicks beside the
+  snapshot. Over the open megamap it then presses the exit menu's CANCEL,
+  EXITGAME and MAINMENU and their questions' CHOICE2, by mouse and by the
+  touch controls' taps in both interface types, and checks that each acts;
+  that the save page and the unit info panel take their own presses; that a
+  left click beside the in-game menu does nothing; and that a right press
+  beside it leaves what the battlefield's does.
 - Test: `native-render-tiers-visual-rules`
   (`src/app/runtime_visual_rules_check.cpp`) checks that with Mouse wheel
   zoom on, Tab and the wheel open no megamap; that with it off, Tab opens

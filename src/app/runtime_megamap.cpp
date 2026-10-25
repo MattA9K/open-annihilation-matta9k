@@ -576,7 +576,9 @@ void Runtime::draw_megamap_ring(int32_t x, int32_t y, int32_t radius, uint8_t co
 }
 
 bool Runtime::megamap_pointer(const SDL_Event& event, float x, float y) {
-    if (!megamap_open_ || !megamap_on())
+    // A page opened over the match, such as the save page, takes the pointer
+    // in its own pixels.
+    if (screen_ != Screen::match || !megamap_open_ || !megamap_on())
         return false;
     auto& state = megamap_;
     const int32_t px = static_cast<int32_t>(x) - match_layout_.left;
@@ -586,14 +588,22 @@ bool Runtime::megamap_pointer(const SDL_Event& event, float x, float y) {
         state.pointer_y = py;
         return state.pressed;
     }
-    // Presses are taken in the overlays' area, where the map is drawn, and
-    // not on a touch control or a placed part of the HUD; the release of a
-    // press taken is taken wherever it lands.
+    // Presses are taken in the overlays' area, where the map is drawn, as
+    // the battlefield would take them: not on a touch control, a placed part
+    // of the HUD or a button of a panel over the battlefield, such as the
+    // exit menu's, and while the in-game menu or another panel holds the
+    // match, only a right press beside the menu. The release of a press
+    // taken is taken wherever it lands, and any other in the area off a
+    // button.
     const auto area = overlay_area();
     const bool in_area = x >= static_cast<float>(area.x) && y >= static_cast<float>(area.y) &&
                          x < static_cast<float>(area.x + area.width) &&
-                         y < static_cast<float>(area.y + area.height) && !placed_hud_covers(x, y);
-    if (!in_area && !(state.pressed && event.type == SDL_EVENT_MOUSE_BUTTON_UP))
+                         y < static_cast<float>(area.y + area.height) && !placed_hud_covers(x, y) &&
+                         !hovered_;
+    const bool held_by_panel =
+        event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && match_paused_ &&
+        !(event.button.button == SDL_BUTTON_RIGHT && right_press_beside_menu(x, y));
+    if ((!in_area || held_by_panel) && !(state.pressed && event.type == SDL_EVENT_MOUSE_BUTTON_UP))
         return false;
     auto& world = match_->state();
     world.game.local_player_index = match_local_player_;
@@ -744,9 +754,14 @@ void Runtime::megamap_right_press(
         return;
     case input::RightPress::mouse_look:
     case input::RightPress::clear_selection:
-        // The megamap has no view to look round: Control drops the selection too.
+        // The megamap has no view to look round: Control drops the selection
+        // too. Beside the in-game menu the menu closes with it and the match
+        // it held runs again, as on the battlefield.
         clear_local_selection();
-        apply_match_hud_for_selection();
+        if (match_paused_)
+            resume_match_pause();
+        else
+            apply_match_hud_for_selection();
         return;
     case input::RightPress::default_order:
         break;

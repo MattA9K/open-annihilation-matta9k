@@ -4539,8 +4539,9 @@ makes and applies its batches (`take_whiteboard_batch`,
 `receive_whiteboard_batch`); `runtime_megamap.cpp` opens, draws and clicks
 the megamap and redraws the enhanced minimap, while the Mouse wheel zoom
 setting is off (`megamap_on`, `megamap_wheel_zoom_changed`), its clicks
-acting as the battlefield's do in the chosen interface type, which
-`native-megamap-clicks` checks (`check_megamap_clicks`) after what it draws
+acting as the battlefield's do in the chosen interface type and a panel over
+it, such as the exit menu, taking its own, which `native-megamap-clicks`
+checks (`check_megamap_clicks`) after what it draws
 (`check_megamap_picture`);
 `runtime_selection_shortcuts.cpp` takes the double-click, Ctrl+S/B/F and
 the drag filters. What other machines report about their players' views

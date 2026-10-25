@@ -13214,10 +13214,15 @@ class Runtime final : public menu::Host,
     /// (megamap_click) and a right press (megamap_right_press). A left drag
     /// selects a box of the viewer's units, and a left double-click on one
     /// of them every unit of its type, in either interface type.
-    /// Presses are taken in the overlays' area and not where placed_hud_covers
-    /// claims; the release of a press taken is taken anywhere. The presses'
-    /// buttons and modifiers go to the pointer's key word
-    /// (record_pointer_event), as the battlefield's do.
+    /// Presses are taken in the overlays' area where the battlefield would
+    /// take them: not where placed_hud_covers claims or on a HUD button under
+    /// the pointer, such as a button of the exit menu over the megamap, and
+    /// while the in-game menu or another panel holds the match only a right
+    /// press beside the menu (right_press_beside_menu). The release of a press
+    /// taken is taken anywhere, and any other in the area off a HUD button.
+    /// Nothing is taken on a page opened over the match. The presses' buttons
+    /// and modifiers go to the pointer's key word (record_pointer_event), as
+    /// the battlefield's do.
     ///
     /// @param event the pointer event
     /// @param x pointer column on the canvas
@@ -13246,8 +13251,9 @@ class Runtime final : public menu::Host,
     /// Acts on a right press on the megamap as one on the battlefield does
     /// (handle_match_right_press), at a map point and on a unit: an armed
     /// command drops back to the default order; otherwise the left-click
-    /// interface drops the selection, Control held or not, and the
-    /// right-click interface gives the selection the default order there.
+    /// interface drops the selection, Control held or not, closing the
+    /// in-game menu beside which it was pressed, and the right-click interface
+    /// gives the selection the default order there.
     ///
     /// @param target the unit whose icon is under the pointer, or 0
     /// @param ground the ground point under the pointer, or none

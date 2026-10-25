@@ -2,10 +2,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // The megamap's picture (ui.megamap), then its clicks against the
-// battlefield's, in both interface types, through synthetic SDL input on a
-// skirmish.
+// battlefield's, in both interface types, and the clicks of the panels over
+// it, through synthetic SDL input on a skirmish.
 #include "engine_settings_state.hpp"
 #include "oa/app/runtime.hpp"
+#include "oa/data/defs/layout.hpp"
 #include "oa/sim/match_runtime/attack_orders.hpp"
 #include "oa/sim/match_runtime/construction_orders.hpp"
 #include "oa/ui/hud/megamap.hpp"
@@ -24,6 +25,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -528,6 +530,275 @@ void Runtime::check_megamap_clicks() {
         if (!megamap.same_as(battlefield) || !one.expected(megamap) || !megamap_point)
             failures.push_back(std::string(one.name) + " (megamap: " + describe(megamap) + ")");
     }
+
+    // The panels over the open megamap take their own clicks, as they do over
+    // the battlefield at every zoom, in both interface types, from the mouse
+    // and from the touch controls, whose taps come as the left button's
+    // events in the canvas's own pixels, from no window.
+    std::vector<std::string> panel_failures;
+    const auto showing = [&](const char* layout) {
+        return screen_ == Screen::match && match_paused_ && match_hud_ &&
+               match_hud_panel_ == oa::data::defs::gui_path(layout);
+    };
+    const auto over_megamap = [&](float x, float y) {
+        return hud::megamap_map_point(
+                   megamap_.layout,
+                   static_cast<int32_t>(x) - match_layout_.left,
+                   static_cast<int32_t>(y) - match_layout_.top
+        )
+            .has_value();
+    };
+    const auto pointer_event = [&](SDL_EventType type, float x, float y, bool finger) {
+        if (!finger) {
+            send(type, SDL_BUTTON_LEFT, x, y);
+            return;
+        }
+        SDL_Event event{};
+        event.type = type;
+        if (type == SDL_EVENT_MOUSE_MOTION) {
+            event.motion.which = SDL_TOUCH_MOUSEID;
+            event.motion.x = x;
+            event.motion.y = y;
+        } else {
+            event.button.which = SDL_TOUCH_MOUSEID;
+            event.button.button = SDL_BUTTON_LEFT;
+            event.button.down = type == SDL_EVENT_MOUSE_BUTTON_DOWN;
+            event.button.clicks = 1;
+            event.button.x = x;
+            event.button.y = y;
+        }
+        dispatch_event(event, running);
+    };
+    // A left click on the shown panel's button where it is drawn, with the
+    // pointer brought onto it first; `on_megamap` asks for one drawn over
+    // the megamap's picture.
+    const auto press_button = [&](std::string_view name, bool finger, bool on_megamap) {
+        const auto& gadgets = match_hud_->layout.gadgets;
+        std::size_t index = 1;
+        while (index < gadgets.size() &&
+               (gadgets[index].common.name != name || gadgets[index].common.active == 0))
+            ++index;
+        require(index < gadgets.size(), match_hud_panel_ + " has no " + std::string(name));
+        // A dialog placed over the match shows its root's pixels in its area.
+        auto centre = hud_gadget_centre(index);
+        if (const auto area = placed_panel_area()) {
+            const auto& root = gadgets.front().common;
+            const auto& record = gadgets[index].common;
+            centre = {
+                area->x + (2 * (record.x - root.x) + record.width) * area->width / (2 * root.width),
+                area->y +
+                    (2 * (record.y - root.y) + record.height) * area->height / (2 * root.height)
+            };
+        }
+        const auto x = static_cast<float>(centre.x);
+        const auto y = static_cast<float>(centre.y);
+        require(
+            !on_megamap || over_megamap(x, y),
+            std::string(name) + " of " + match_hud_panel_ + " is not over the megamap"
+        );
+        pointer_event(SDL_EVENT_MOUSE_MOTION, x, y, finger);
+        require(
+            hovered_ == index,
+            "the pointer did not find " + std::string(name) + " of " + match_hud_panel_
+        );
+        pointer_event(SDL_EVENT_MOUSE_BUTTON_DOWN, x, y, finger);
+        pointer_event(SDL_EVENT_MOUSE_BUTTON_UP, x, y, finger);
+        render_match_surface();
+    };
+    const auto mover_alone = [&](int32_t interface_type) {
+        Case start{};
+        start.interface_type = interface_type;
+        start.mover_selected = true;
+        prepare(start);
+    };
+    const auto back_to_menu = [&] {
+        if (!showing("ARMOPT.GUI"))
+            show_match_pause_menu();
+        render_match_surface();
+    };
+
+    struct PanelPass {
+        const char* name{};
+        int32_t interface_type{};
+        bool finger{}; ///< taps as the touch controls send them, else the mouse's clicks
+    };
+
+    const std::array<PanelPass, 4> panel_passes{{
+        {"left-click interface, mouse", input::interface_left_click, false},
+        {"right-click interface, mouse", input::interface_right_click, false},
+        {"left-click interface, touch", input::interface_left_click, true},
+        {"right-click interface, touch", input::interface_right_click, true},
+    }};
+    for (const auto& pass : panel_passes) {
+        const auto fault = [&](const std::string& what) {
+            panel_failures.push_back(std::string(pass.name) + ": " + what);
+        };
+        mover_alone(pass.interface_type);
+        set_megamap_open(true);
+        show_match_pause_menu();
+        render_match_surface();
+        require(
+            megamap_shown() && showing("ARMOPT.GUI"),
+            "the in-game menu did not open over the megamap"
+        );
+        // EXIT, in the side column, opens the exit menu over the megamap;
+        // its CANCEL goes back to the menu, and EXITGAME and MAINMENU ask,
+        // where CHOICE2 goes back too.
+        press_button("EXIT", pass.finger, false);
+        require(showing("EXITMENU.GUI"), "EXIT did not open the exit menu");
+        press_button("CANCEL", pass.finger, true);
+        if (!showing("ARMOPT.GUI"))
+            fault("the exit menu's CANCEL over the megamap did not go back to the menu");
+        for (const std::string_view asks : {"EXITGAME", "MAINMENU"}) {
+            back_to_menu();
+            press_button("EXIT", pass.finger, false);
+            require(showing("EXITMENU.GUI"), "EXIT did not open the exit menu");
+            press_button(asks, pass.finger, true);
+            if (!showing("YESORNO.GUI")) {
+                fault("the exit menu's " + std::string(asks) + " over the megamap did not ask");
+                continue;
+            }
+            press_button("CHOICE2", pass.finger, true);
+            if (!showing("ARMOPT.GUI"))
+                fault(
+                    "CHOICE2 over the megamap did not answer " + std::string(asks) +
+                    "'s question and go back to the menu"
+                );
+        }
+        // While the menu holds the match a left click beside it on the
+        // megamap, on the friend's icon, selects nothing and gives no order,
+        // as on the battlefield.
+        back_to_menu();
+        if (!pass.finger) {
+            const auto beside = megamap_at(friend_unit);
+            click(SDL_BUTTON_LEFT, beside);
+            const auto after = result();
+            if (!after.mover_selected || after.friend_selected || !after.kinds.empty() ||
+                !showing("ARMOPT.GUI"))
+                fault("a left click on the megamap beside the menu acted: " + describe(after));
+        }
+        // The save page over the match takes the pointer in its own pixels:
+        // a press where the megamap lies on the match's screen is not the
+        // megamap's, and its CANCEL goes back to the menu.
+        back_to_menu();
+        press_button("SAVEGAME", pass.finger, false);
+        require(screen_ == Screen::load_game, "SAVEGAME did not open the save page");
+        const auto area = overlay_area();
+        const auto middle_x = static_cast<float>(area.x + area.width / 2);
+        const auto middle_y = static_cast<float>(area.y + area.height / 2);
+        pointer_event(SDL_EVENT_MOUSE_MOTION, middle_x, middle_y, pass.finger);
+        pointer_event(SDL_EVENT_MOUSE_BUTTON_DOWN, middle_x, middle_y, pass.finger);
+        if (std::exchange(megamap_.pressed, false))
+            fault("the megamap took a press on the save page");
+        pointer_event(SDL_EVENT_MOUSE_BUTTON_UP, middle_x, middle_y, pass.finger);
+        require(screen_ == Screen::load_game, "a press on the save page closed it");
+        const auto* cancel = widget("CANCEL");
+        require(cancel != nullptr, "the save page has no CANCEL");
+        const auto origin = panel_origin();
+        const auto cancel_x =
+            static_cast<float>(origin.x + cancel->common.x + cancel->common.width / 2);
+        const auto cancel_y =
+            static_cast<float>(origin.y + cancel->common.y + cancel->common.height / 2);
+        pointer_event(SDL_EVENT_MOUSE_MOTION, cancel_x, cancel_y, pass.finger);
+        pointer_event(SDL_EVENT_MOUSE_BUTTON_DOWN, cancel_x, cancel_y, pass.finger);
+        tick_screen_packages();
+        pointer_event(SDL_EVENT_MOUSE_BUTTON_UP, cancel_x, cancel_y, pass.finger);
+        if (!showing("ARMOPT.GUI")) {
+            fault("the save page's CANCEL did not go back to the menu");
+            if (screen_ == Screen::load_game)
+                leave_load_dialog();
+        }
+        if (match_paused_)
+            resume_match_pause();
+        set_megamap_open(false);
+    }
+    // A right press beside the menu is the battlefield's, as in 3.1c, and
+    // the megamap's leaves what the battlefield's does: the selection, the
+    // orders and whether the menu stays.
+    for (const auto interface_type : {input::interface_left_click, input::interface_right_click}) {
+        const std::string name = interface_type == input::interface_left_click
+                                     ? "left-click interface"
+                                     : "right-click interface";
+        mover_alone(interface_type);
+        show_match_pause_menu();
+        click(SDL_BUTTON_RIGHT, battlefield_at(0));
+        const auto battlefield = result();
+        const bool battlefield_menu = showing("ARMOPT.GUI");
+        if (match_paused_)
+            resume_match_pause();
+        mover_alone(interface_type);
+        set_megamap_open(true);
+        show_match_pause_menu();
+        render_match_surface();
+        click(SDL_BUTTON_RIGHT, megamap_at(0));
+        const auto megamap = result();
+        const bool megamap_menu = showing("ARMOPT.GUI");
+        if (match_paused_)
+            resume_match_pause();
+        set_megamap_open(false);
+        std::cout << "megamap click check: " << name
+                  << ": a right press beside the in-game menu\n  battlefield: "
+                  << describe(battlefield) << (battlefield_menu ? ", menu open" : ", menu closed")
+                  << "\n  megamap:     " << describe(megamap)
+                  << (megamap_menu ? ", menu open" : ", menu closed") << '\n';
+        if (!megamap.same_as(battlefield) || megamap_menu != battlefield_menu)
+            panel_failures.push_back(
+                name + ": a right press beside the in-game menu on the megamap left " +
+                describe(megamap) + (megamap_menu ? ", menu open" : ", menu closed") +
+                ", the battlefield's " + describe(battlefield) +
+                (battlefield_menu ? ", menu open" : ", menu closed")
+            );
+    }
+    // The unit info panel over the open megamap takes its own clicks: a left
+    // click on its face does nothing, and one on its DONE closes it.
+    mover_alone(input::interface_left_click);
+    std::ignore = battlefield_at(mover);
+    require(open_unit_info(), "the unit info panel did not open for the mover");
+    set_megamap_open(true);
+    render_match_surface();
+    const auto info_area = unit_info_area();
+    const oa::ui::gui_layout::Gadget* done = nullptr;
+    for (const auto& gadget : unit_info_panel_->screen->layout.gadgets)
+        if (gadget.common.name == "DONE")
+            done = &gadget;
+    require(info_area.has_value() && done != nullptr, "the unit info panel shows no DONE");
+    const auto& info_root = unit_info_panel_->root;
+    const std::pair<float, float> info_face{
+        static_cast<float>(info_area->x + 2),
+        static_cast<float>(info_area->y + info_area->height / 2)
+    };
+    const std::pair<float, float> info_done{
+        static_cast<float>(
+            info_area->x + (2 * (done->common.x - info_root.x) + done->common.width) *
+                               info_area->width / (2 * info_root.width)
+        ),
+        static_cast<float>(
+            info_area->y + (2 * (done->common.y - info_root.y) + done->common.height) *
+                               info_area->height / (2 * info_root.height)
+        )
+    };
+    require(
+        over_megamap(info_face.first, info_face.second) &&
+            over_megamap(info_done.first, info_done.second),
+        "the unit info panel is not over the megamap"
+    );
+    send(SDL_EVENT_MOUSE_MOTION, 0, info_face.first, info_face.second);
+    click(SDL_BUTTON_LEFT, info_face);
+    const auto on_face = result();
+    if (!unit_info_panel_ || !on_face.mover_selected || on_face.friend_selected ||
+        !on_face.kinds.empty())
+        panel_failures.push_back(
+            "a left click on the unit info panel's face over the megamap acted: " +
+            describe(on_face) + (unit_info_panel_ ? "" : ", the panel closed")
+        );
+    send(SDL_EVENT_MOUSE_MOTION, 0, info_done.first, info_done.second);
+    click(SDL_BUTTON_LEFT, info_done);
+    if (unit_info_panel_) {
+        panel_failures.push_back("the unit info panel's DONE over the megamap did not close it");
+        close_unit_info();
+    }
+    set_megamap_open(false);
+
     match_->stop_orders(mover);
     match_->stop_orders(collector);
     clear_local_selection();
@@ -539,9 +810,19 @@ void Runtime::check_megamap_clicks() {
             text += "\n  " + failure;
         fail("the megamap's clicks differ from the battlefield's:" + text);
     }
+    if (!panel_failures.empty()) {
+        std::string text;
+        for (const auto& failure : panel_failures)
+            text += "\n  " + failure;
+        fail("the panels over the megamap do not take their own clicks:" + text);
+    }
     std::cout << "megamap click check: the megamap's clicks give the battlefield's results in "
                  "both interface types: orders, selection, deselection, guard, the armed "
                  "command's order and cancel, and no patrol for a solar collector\n";
+    std::cout << "megamap click check: over the megamap the exit menu, its questions and the "
+                 "save page take their own clicks and taps in both interface types; beside the "
+                 "in-game menu a left click does nothing and a right press acts as the "
+                 "battlefield's\n";
 }
 
 void Runtime::check_megamap_picture() {
