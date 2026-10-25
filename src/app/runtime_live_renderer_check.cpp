@@ -1833,6 +1833,11 @@ int Runtime::check_live_renderer() {
                             diagnostic_scene.vertices.begin() + i,
                             diagnostic_scene.vertices.begin() + i + 3
                         );
+                // Ground at most a step above the sea may leave no triangle
+                // dry: the picture is then the empty frame, which one
+                // triangle of no area draws, as the card draws no empty list.
+                if (dry.empty() && !diagnostic_scene.vertices.empty())
+                    dry.assign(3, diagnostic_scene.vertices.front());
                 diagnostic_scene.vertices = std::move(dry);
             }
             std::vector<uint8_t> rgba;

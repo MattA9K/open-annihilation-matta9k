@@ -581,6 +581,8 @@ if(OA_BUILD_PLATFORM)
       set_tests_properties(app-renderer-live-${oa_live_part} PROPERTIES TIMEOUT 60)
     endforeach()
     set_tests_properties(app-renderer-live-gpu PROPERTIES SKIP_RETURN_CODE 77)
+    # The scene's terrain is held to the simulation's own ground.
+    target_link_libraries(oa-app-renderer-live-scene-test PRIVATE oa-sim-unit-movement)
   endif()
 endif()
 if(OA_BUILD_PLATFORM AND OA_SELF_CHECKS)

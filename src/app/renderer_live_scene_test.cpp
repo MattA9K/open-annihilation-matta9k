@@ -7,6 +7,7 @@
 #include "renderer_water_appearance.hpp"
 #include "oa/test/check.hpp"
 #include "oa/present/rle.hpp"
+#include "oa/sim/unit_movement/terrain.hpp"
 
 #include <array>
 #include <algorithm>
@@ -14,6 +15,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 
 namespace {
@@ -202,6 +204,102 @@ void canonical_terrain_grid() {
         }
     }
     OA_CHECK(plateau_decal);
+}
+
+/// Returns the drawn terrain's height at a world point: the terrain triangle
+/// under it, interpolated, or nothing where none is.
+std::optional<float> drawn_ground(const live::Scene& scene, float x, float z) {
+    for (std::size_t first = 0; first + 2 < scene.terrain_vertex_count; first += 3) {
+        const auto& a = scene.vertices[first];
+        const auto& b = scene.vertices[first + 1];
+        const auto& c = scene.vertices[first + 2];
+        const float area = (b.x - a.x) * (c.z - a.z) - (c.x - a.x) * (b.z - a.z);
+        if (std::abs(area) < tolerance)
+            continue;
+        const float wb = ((x - a.x) * (c.z - a.z) - (c.x - a.x) * (z - a.z)) / area;
+        const float wc = ((b.x - a.x) * (z - a.z) - (x - a.x) * (b.z - a.z)) / area;
+        const float wa = 1 - wb - wc;
+        if (wa < -tolerance || wb < -tolerance || wc < -tolerance)
+            continue;
+        return wa * a.height + wb * b.height + wc * c.height;
+    }
+    return std::nullopt;
+}
+
+/// A height cell whose corners lie off one plane is drawn about its middle at
+/// the simulation's height there, so that the ground drawn stays within a
+/// sixteenth of the cell's twist of the ground units stand on; across one
+/// diagonal it was a quarter of it away at the middle. Decals drape over the
+/// same triangles, and a cell in one plane keeps its two.
+void twisted_terrain_follows_simulation() {
+    Fixture fixture;
+    fixture.map.attribute_width = 4;
+    fixture.map.attribute_height = 4;
+    fixture.map.tile_width = 2;
+    fixture.map.tile_height = 2;
+    fixture.map.tile_indices.assign(4, 0);
+    fixture.inputs.right = fixture.inputs.bottom = 2 * tile_edge;
+    // The first cell of the second row is a saddle, high at its top left and
+    // bottom right; the one right of it lies in one plane, rising south.
+    constexpr std::array<uint8_t, 16> heights{
+        0, 0, 0, 0, 20, 0, 0, 0, 0, 20, 20, 20, 0, 20, 20, 20
+    };
+    fixture.map.attributes.assign(heights.size(), {});
+    for (std::size_t i = 0; i < heights.size(); ++i)
+        fixture.map.attributes[i].height = heights[i];
+    fixture.inputs.sight.mapping = fixture.inputs.sight.line_of_sight = false;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    const oa::sim::unit_movement::Terrain terrain(fixture.map);
+    constexpr float twist = 40;
+    float worst = 0;
+    for (int32_t z = cell_edge; z <= 2 * cell_edge; z += 2)
+        for (int32_t x = 0; x <= cell_edge; x += 2) {
+            const auto drawn = drawn_ground(fixture.scene, float(x), float(z));
+            OA_CHECK(drawn.has_value());
+            if (!drawn)
+                continue;
+            const float ground = float(terrain.height(x * 65536, z * 65536));
+            worst = std::max(worst, std::abs(*drawn - ground));
+        }
+    // A sixteenth of the twist, and the simulation's whole steps.
+    OA_CHECK(worst <= twist / 16 + 1);
+    const auto middle = drawn_ground(fixture.scene, 8, 24);
+    OA_CHECK(
+        middle && std::abs(*middle - float(terrain.height(8 * 65536, 24 * 65536))) < tolerance
+    );
+    // The cell right of it lies in one plane: two triangles; the saddle four.
+    const auto triangles_in = [&](float left, float top) {
+        std::size_t count = 0;
+        for (std::size_t first = 0; first < fixture.scene.terrain_vertex_count; first += 3) {
+            bool inside = true;
+            for (std::size_t k = 0; k < 3; ++k) {
+                const auto& vertex = fixture.scene.vertices[first + k];
+                inside = inside && vertex.x >= left - tolerance &&
+                         vertex.x <= left + cell_edge + tolerance && vertex.z >= top - tolerance &&
+                         vertex.z <= top + cell_edge + tolerance;
+            }
+            count += inside ? 1 : 0;
+        }
+        return count;
+    };
+    OA_CHECK(triangles_in(0, cell_edge) == 4);
+    OA_CHECK(triangles_in(cell_edge, cell_edge) == 2);
+    // A decal over the saddle lies on the ground drawn under it.
+    oa::formats::gaf::RenderedFrame frame{};
+    frame.width = frame.height = 12;
+    frame.pixels.assign(144, ground_index);
+    frame.coverage.assign(144, 1);
+    fixture.draws.sprites.push_back({&frame, {2, 13}, false, true, true});
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    std::size_t decal_points = 0;
+    for (std::size_t i = fixture.scene.terrain_vertex_count; i < fixture.scene.vertices.size();
+         ++i) {
+        const auto& vertex = fixture.scene.vertices[i];
+        const auto under = drawn_ground(fixture.scene, vertex.x, vertex.z);
+        OA_CHECK(under && std::abs(vertex.height - *under - 0.05F) < 0.01F);
+        ++decal_points;
+    }
+    OA_CHECK(decal_points > 0);
 }
 
 /// Animated textures show the frames the classic tiers draw: the first on a
@@ -1904,6 +2002,7 @@ int main() {
     underwater_effect_altitude();
     painted_projection();
     canonical_terrain_grid();
+    twisted_terrain_follows_simulation();
     clipped_texture_bounds();
     fog_materials();
     terrain_mip_colours();

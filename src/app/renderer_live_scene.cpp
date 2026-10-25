@@ -18,6 +18,7 @@
 #include <cstring>
 #include <limits>
 #include <cmath>
+#include <optional>
 #include <span>
 #include <stdexcept>
 
@@ -127,6 +128,41 @@ float height_at(const formats::tnt::Map& map, int32_t x, int32_t y) {
     const auto column = std::clamp(x / cell_edge, 0, static_cast<int32_t>(map.attribute_width) - 1);
     const auto row = std::clamp(y / cell_edge, 0, static_cast<int32_t>(map.attribute_height) - 1);
     return map.attributes[static_cast<std::size_t>(row) * map.attribute_width + column].height;
+}
+
+/// Returns the height the simulation gives the middle of a height cell, as
+/// unit_movement::Terrain::height interpolates between the cell's corners,
+/// in whole steps.
+///
+/// @param map the map
+/// @param x the cell's left edge, in map pixels
+/// @param y the cell's top edge
+/// @return the height
+float cell_middle_height(const formats::tnt::Map& map, int32_t x, int32_t y) {
+    constexpr int32_t half = cell_edge / 2;
+    const auto corner = [&](int32_t dx, int32_t dy) {
+        return static_cast<int32_t>(height_at(map, x + dx, y + dy));
+    };
+    const int32_t top = corner(0, 0) + (corner(cell_edge, 0) - corner(0, 0)) * half / cell_edge;
+    const int32_t bottom = corner(0, cell_edge) +
+                           (corner(cell_edge, cell_edge) - corner(0, cell_edge)) * half / cell_edge;
+    return static_cast<float>(top + (bottom - top) * half / cell_edge);
+}
+
+/// Tells whether a height cell's corners lie off one plane, so that two
+/// triangles across one diagonal would leave the ground the simulation
+/// interpolates between them: up to a quarter of the twist away at the
+/// middle. Such a cell is drawn as four triangles about its middle, at the
+/// simulation's height there, which leaves it a sixteenth of the twist away
+/// at most.
+///
+/// @param top_left the cell's top left corner's height
+/// @param top_right its top right corner's
+/// @param bottom_right its bottom right corner's
+/// @param bottom_left its bottom left corner's
+/// @return true when the corners do not lie in one plane
+bool twisted_cell(float top_left, float top_right, float bottom_right, float bottom_left) {
+    return top_left - top_right + bottom_right - bottom_left != 0.0F;
 }
 
 /// Adds a triangle fan after checking the frame's memory budget.
@@ -577,7 +613,7 @@ void terrain(const Inputs& in, Scene& scene) {
                 y + tile_edge <= bottom) {
                 const auto a = sample(x, y), b = sample(x + tile_edge, y);
                 const auto c = sample(x + tile_edge, y + tile_edge), d = sample(x, y + tile_edge);
-                bool planar = true;
+                bool planar = !twisted_cell(a[0], b[0], c[0], d[0]);
                 for (int32_t row = 0; row <= 2; ++row)
                     for (int32_t column = 0; column <= 2; ++column) {
                         const auto point = sample(x + column * cell_edge, y + row * cell_edge);
@@ -607,13 +643,44 @@ void terrain(const Inputs& in, Scene& scene) {
                 vertex(cell_edge, cell_edge),
                 vertex(0, cell_edge)
             };
+            // A twisted cell is four triangles about its middle at the
+            // simulation's height, so that the ground drawn stays where units
+            // stand on it (twisted_cell).
+            std::optional<Vertex> middle;
+            if (twisted_cell(
+                    corners[0].height, corners[1].height, corners[2].height, corners[3].height
+                )) {
+                const float h = cell_middle_height(map, x, y);
+                const float middle_x = static_cast<float>(x + cell_edge / 2);
+                const float middle_y = static_cast<float>(y + cell_edge / 2);
+                middle = Vertex{
+                    middle_x,
+                    h,
+                    middle_y,
+                    0,
+                    0,
+                    brightness_at(in.sight, middle_x, middle_y - h * height_lift)
+                };
+            }
             const auto [minimum, maximum] = std::minmax_element(
                 corners.begin(), corners.end(), [](const Vertex& a, const Vertex& b) {
                     return a.brightness < b.brightness;
                 }
             );
-            if (maximum->brightness - minimum->brightness < 0.001F) {
+            const bool even_fog =
+                maximum->brightness - minimum->brightness < 0.001F &&
+                (!middle || std::abs(middle->brightness - minimum->brightness) < 0.001F);
+            if (even_fog && !middle) {
                 emit(corners);
+                continue;
+            }
+            if (even_fog) {
+                for (std::size_t corner = 0; corner < corners.size(); ++corner) {
+                    const std::array fan{
+                        *middle, corners[corner], corners[(corner + 1) % corners.size()]
+                    };
+                    emit(fan);
+                }
                 continue;
             }
             // Refine only sight transitions, retaining each original terrain plane.
@@ -663,8 +730,13 @@ void terrain(const Inputs& in, Scene& scene) {
                         }
                     }
             };
-            triangle(corners[0], corners[1], corners[2]);
-            triangle(corners[0], corners[2], corners[3]);
+            if (middle) {
+                for (std::size_t corner = 0; corner < corners.size(); ++corner)
+                    triangle(*middle, corners[corner], corners[(corner + 1) % corners.size()]);
+            } else {
+                triangle(corners[0], corners[1], corners[2]);
+                triangle(corners[0], corners[2], corners[3]);
+            }
         }
     }
     scene.terrain_vertex_count = scene.vertices.size();
@@ -723,25 +795,37 @@ void decal(
     );
     for (int32_t y = first_y; y < last_y; y += cell_edge)
         for (int32_t x = first_x; x < last_x; x += cell_edge) {
-            const auto point = [&](int32_t dx, int32_t dy) {
-                const float ground_height = height_at(map, x + dx, y + dy);
+            const auto placed = [&](float dx, float dy, float ground_height) {
                 const float height =
                     water_receiver ? std::max(ground_height, float(in.sea_level)) : ground_height;
                 return GroundPoint{
-                    static_cast<float>(x + dx),
-                    y + dy - (anchor ? anchor_lift : height * height_lift),
+                    static_cast<float>(x) + dx,
+                    static_cast<float>(y) + dy - (anchor ? anchor_lift : height * height_lift),
                     height
                 };
             };
-            const std::array<GroundPoint, 6> triangles{
-                point(0, 0),
-                point(cell_edge, 0),
-                point(cell_edge, cell_edge),
-                point(0, 0),
-                point(cell_edge, cell_edge),
-                point(0, cell_edge)
+            const auto point = [&](int32_t dx, int32_t dy) {
+                return placed(float(dx), float(dy), height_at(map, x + dx, y + dy));
             };
-            for (std::size_t first = 0; first < triangles.size(); first += 3) {
+            // The terrain's own triangles: about the middle of a twisted cell.
+            const std::array cell{
+                point(0, 0), point(cell_edge, 0), point(cell_edge, cell_edge), point(0, cell_edge)
+            };
+            std::array<GroundPoint, 12> triangles{};
+            std::size_t triangle_points = 6;
+            if (twisted_cell(cell[0].height, cell[1].height, cell[2].height, cell[3].height)) {
+                constexpr float half = cell_edge / 2;
+                const GroundPoint middle = placed(half, half, cell_middle_height(map, x, y));
+                for (std::size_t corner = 0; corner < cell.size(); ++corner) {
+                    triangles[corner * 3] = middle;
+                    triangles[corner * 3 + 1] = cell[corner];
+                    triangles[corner * 3 + 2] = cell[(corner + 1) % cell.size()];
+                }
+                triangle_points = triangles.size();
+            } else {
+                triangles = {cell[0], cell[1], cell[2], cell[0], cell[2], cell[3]};
+            }
+            for (std::size_t first = 0; first < triangle_points; first += 3) {
                 GroundPolygon clipped{};
                 clipped.count = 3;
                 std::copy_n(triangles.begin() + first, 3, clipped.points.begin());
