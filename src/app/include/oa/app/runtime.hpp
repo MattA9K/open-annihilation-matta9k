@@ -13212,8 +13212,11 @@ class Runtime final : public menu::Host,
     /// battlefield's do in the chosen interface type, at the map point under
     /// the pointer and on the unit whose icon is under it: a left click
     /// (megamap_click) and a right press (megamap_right_press). A left drag
-    /// selects a box of the viewer's units, and a left double-click on one
-    /// of them every unit of its type, in either interface type.
+    /// selects a box of the viewer's units, one that takes in none closing
+    /// the unit info panel, and a left double-click on one of them every
+    /// unit of its type, in either interface type. A press acts on the icon
+    /// last drawn under it (MegamapState::unit_at), as a finger's tap does
+    /// with no frame drawn since it landed.
     /// Presses are taken in the overlays' area where the battlefield would
     /// take them: not where placed_hud_covers claims or on a HUD button under
     /// the pointer, such as a button of the exit menu over the megamap, and
@@ -13240,7 +13243,8 @@ class Runtime final : public menu::Host,
     /// cursor gives the selection the armed command, or the default order,
     /// there (issue_selection_orders), a click that gives none leaving the
     /// command armed, except an armed MOVE, which the click ends; in the
-    /// right-click interface a highlight cursor drops the selection. An armed
+    /// right-click interface a highlight cursor drops the selection and
+    /// closes the unit info panel. An armed
     /// MOVE on a unit whose cursor takes no click moves the selection to the
     /// ground there.
     ///
@@ -13251,15 +13255,40 @@ class Runtime final : public menu::Host,
     /// Acts on a right press on the megamap as one on the battlefield does
     /// (handle_match_right_press), at a map point and on a unit: an armed
     /// command drops back to the default order; otherwise the left-click
-    /// interface drops the selection, Control held or not, closing the
-    /// in-game menu beside which it was pressed, and the right-click interface
-    /// gives the selection the default order there.
+    /// interface drops the selection, Control held or not, closing the unit
+    /// info panel and the in-game menu beside which it was pressed, and the
+    /// right-click interface gives the selection the default order there.
     ///
     /// @param target the unit whose icon is under the pointer, or 0
     /// @param ground the ground point under the pointer, or none
     void megamap_right_press(
         uint16_t target, const std::optional<oa::sim::ground_orders::Point>& ground
     );
+
+    /// Returns the ground point the open megamap shows under a canvas point,
+    /// or none off its map.
+    ///
+    /// @param x canvas column
+    /// @param y canvas row
+    /// @return the point on the terrain, or none
+    std::optional<oa::sim::ground_orders::Point> megamap_ground(float x, float y);
+
+    /// Returns the unit whose icon the open megamap drew under a canvas
+    /// point, or 0, as a press there takes it (MegamapState::unit_at).
+    ///
+    /// @param x canvas column
+    /// @param y canvas row
+    /// @return the unit, or 0
+    [[nodiscard]] uint16_t megamap_unit_at(float x, float y) const;
+
+    /// Picks the cursor a press on the open megamap at a canvas point acts
+    /// by (pick_map_cursor), for the icon and the ground under it; the touch
+    /// controls read it as they read the battlefield's.
+    ///
+    /// @param x canvas column
+    /// @param y canvas row
+    /// @return a cursor table index
+    uint8_t megamap_cursor_at(float x, float y);
 
     /// Redraws the radar's terrain picture at its own size from the map's
     /// minimap (ui.megamap enhanced-minimap) while the hack acts

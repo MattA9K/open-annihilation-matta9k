@@ -336,6 +336,8 @@ void Runtime::set_megamap_open(bool open) {
         return;
     megamap_open_ = open;
     megamap_.pressed = false;
+    // The icons drawn while it was last open have moved since.
+    megamap_.marks.clear();
     play_match_interface_sound(open ? kOpenSound : kCloseSound);
 }
 
@@ -449,6 +451,7 @@ void Runtime::draw_megamap() {
     const auto pointer_x = state.pointer_x;
     const auto pointer_y = state.pointer_y;
     state.hovered = 0;
+    state.marks.clear();
     std::vector<const oa::data::defs::CategoryMask*> masks;
     masks.reserve(state.entries.size());
     for (const auto& entry : state.entries)
@@ -503,6 +506,9 @@ void Runtime::draw_megamap() {
                                   : choice == hud::IconChoice::unknown ? state.unknown
                                                                        : state.nothing;
         const int32_t half_w = std::max(2, icon.width / 2), half_h = std::max(2, icon.height / 2);
+        state.marks.push_back(
+            {unit.id, at[0] - half_w, at[1] - half_h, at[0] + half_w, at[1] + half_h}
+        );
         const bool hovered = pointer_x >= at[0] - half_w && pointer_x < at[0] + half_w &&
                              pointer_y >= at[1] - half_h && pointer_y < at[1] + half_h;
         if (hovered)
@@ -609,13 +615,13 @@ bool Runtime::megamap_pointer(const SDL_Event& event, float x, float y) {
     world.game.local_player_index = match_local_player_;
     state.pointer_x = px;
     state.pointer_y = py;
+    // The icon under the button is the one drawn there, though no frame has
+    // drawn the pointer there yet, as for a finger's tap.
+    state.hovered = state.unit_at(px, py);
     // The press's buttons and modifiers, which queueing() reads, as the
     // battlefield's.
     record_pointer_event(event);
-    const auto ground = [&]() -> std::optional<oa::sim::ground_orders::Point> {
-        const auto point = hud::megamap_map_point(state.layout, px, py);
-        return point ? map_world_point((*point)[0], (*point)[1]) : std::nullopt;
-    };
+    const auto ground = [&] { return megamap_ground(x, y); };
     if (event.button.button == SDL_BUTTON_RIGHT) {
         if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN)
             megamap_right_press(state.hovered, ground());
@@ -668,7 +674,30 @@ bool Runtime::megamap_pointer(const SDL_Event& event, float x, float y) {
     }
     selected_match_unit_ = 0;
     adopt_selected_units();
+    // A box that leaves nothing selected drops the selection, and the unit
+    // info panel closes with it, as on the battlefield.
+    if (!has_local_selection())
+        close_unit_info();
     return true;
+}
+
+std::optional<oa::sim::ground_orders::Point> Runtime::megamap_ground(float x, float y) {
+    const auto point = hud::megamap_map_point(
+        megamap_.layout,
+        static_cast<int32_t>(x) - match_layout_.left,
+        static_cast<int32_t>(y) - match_layout_.top
+    );
+    return point ? map_world_point((*point)[0], (*point)[1]) : std::nullopt;
+}
+
+uint16_t Runtime::megamap_unit_at(float x, float y) const {
+    return megamap_.unit_at(
+        static_cast<int32_t>(x) - match_layout_.left, static_cast<int32_t>(y) - match_layout_.top
+    );
+}
+
+uint8_t Runtime::megamap_cursor_at(float x, float y) {
+    return pick_map_cursor(megamap_unit_at(x, y), megamap_ground(x, y));
 }
 
 void Runtime::megamap_click(
@@ -723,7 +752,10 @@ void Runtime::megamap_click(
         return;
     }
     case input::ClickAction::clear_selection:
+        // The unit info panel closes with the selection, as on the
+        // battlefield.
         clear_local_selection();
+        close_unit_info();
         apply_match_hud_for_selection();
         return;
     case input::ClickAction::issue_command:
@@ -755,9 +787,11 @@ void Runtime::megamap_right_press(
     case input::RightPress::mouse_look:
     case input::RightPress::clear_selection:
         // The megamap has no view to look round: Control drops the selection
-        // too. Beside the in-game menu the menu closes with it and the match
-        // it held runs again, as on the battlefield.
+        // too. The unit info panel closes with it, and beside the in-game
+        // menu the menu closes and the match it held runs again, as on the
+        // battlefield.
         clear_local_selection();
+        close_unit_info();
         if (match_paused_)
             resume_match_pause();
         else

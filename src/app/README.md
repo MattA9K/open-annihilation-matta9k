@@ -3468,7 +3468,10 @@ saves, recordings and network games are unaffected.
   (selection text, the tap's action, the rail, the lit and paused looks) and
   lays out the controls' frame with `oa::ui::touch_hud::lay_out`.
 - `runtime_touch_actions.cpp` holds what each control, sheet item and
-  wheel item does; `runtime_touch_camera.cpp` the camera a finger moves:
+  wheel item does. On the open megamap a battlefield finger's tap, wheel
+  order and drag go to the megamap as the mouse's clicks (a right press
+  where the right-click interface gives one), never to the battlefield
+  under it. `runtime_touch_camera.cpp` holds the camera a finger moves:
   `pan_match_camera_by` (the map follows the finger, past the map's edges
   as far as a scroll goes) and `zoom_match_about` (a pinch's zoom applied
   at once about the fingers, so the map stays under them, or about the
@@ -4539,10 +4542,13 @@ makes and applies its batches (`take_whiteboard_batch`,
 `receive_whiteboard_batch`); `runtime_megamap.cpp` opens, draws and clicks
 the megamap and redraws the enhanced minimap, while the Mouse wheel zoom
 setting is off (`megamap_on`, `megamap_wheel_zoom_changed`), its clicks
-acting as the battlefield's do in the chosen interface type and a panel over
-it, such as the exit menu, taking its own, which `native-megamap-clicks`
-checks (`check_megamap_clicks`) after what it draws
-(`check_megamap_picture`);
+acting as the battlefield's do in the chosen interface type, a drop of the
+selection closing the unit info panel, and a panel over it, such as the exit
+menu, taking its own; a press takes the icon last drawn under it
+(`MegamapState::unit_at`), so a finger's tap needs no frame between. The
+touch controls' taps, order wheel and drags on it are its clicks too. That
+is what `native-megamap-clicks` checks (`check_megamap_clicks`) after what
+it draws (`check_megamap_picture`);
 `runtime_selection_shortcuts.cpp` takes the double-click, Ctrl+S/B/F and
 the drag filters. What other machines report about their players' views
 (`shared_views_`) is left to network play to carry; a game played alone

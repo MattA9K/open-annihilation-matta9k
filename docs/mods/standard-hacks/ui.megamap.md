@@ -144,12 +144,26 @@ In both interface types:
   added to the selection while Shift is held;
 - left double-click on a unit of the viewer's: select every unit of its type.
 
+A click that drops the selection closes the unit info panel too, as on the
+battlefield, and so does a box that takes in none of the viewer's units.
+
+With the touch controls, a finger on the megamap acts as the mouse there,
+on the icon under the finger and at the map point under it, never on the
+battlefield hidden under the megamap. A tap is a left click; in the
+right-click interface it is the right press an order needs, except on a
+unit of the viewer's or with a command armed. A double tap on a unit of the
+viewer's selects every unit of its type. A drag draws a box. A hold opens
+the order wheel for the icon and the ground under the finger, and the order
+picked is given there. A tap or a hold with a building armed places it
+where the finger is, and a double tap places it once.
+
 A panel or dialog over the megamap takes its own clicks and taps, as it does
 over the battlefield, among them the exit menu and its questions, the unit
 info panel and the save page. While the in-game menu or another panel holds
 the match, a left click on the megamap does nothing and a right press beside
 the menu acts as on the battlefield; in the left-click interface it drops the
-selection and closes the menu, which lets the match run again.
+selection and closes the menu, which lets the match run again. A tap acts as
+the click or right press it stands for, and a hold opens no order wheel.
 
 #### Enhanced minimap
 
@@ -224,7 +238,14 @@ match hash and every machine's simulation stay as they are.
   touch controls' taps in both interface types, and checks that each acts;
   that the save page and the unit info panel take their own presses; that a
   left click beside the in-game menu does nothing; and that a right press
-  beside it leaves what the battlefield's does.
+  beside it leaves what the battlefield's does. It checks that a right press
+  and a left click on open ground that drop the selection, and an empty box,
+  close the unit info panel. Last it turns the touch controls on and, with
+  fingers through their dispatcher, checks taps on open ground, an enemy and
+  an own unit in both interface types, a double tap, MOVE from the order
+  wheel, a box, a building placed by a tap and by a double tap, a tap and a
+  hold beside the in-game menu, and an empty box closing the unit info
+  panel, each acting on the megamap as the mouse does there.
 - Test: `native-render-tiers-visual-rules`
   (`src/app/runtime_visual_rules_check.cpp`) checks that with Mouse wheel
   zoom on, Tab and the wheel open no megamap; that with it off, Tab opens

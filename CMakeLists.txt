@@ -3547,8 +3547,14 @@ endforeach()
       # view and dark grey bars; then its clicks against the battlefield's in
       # both interface types: orders, selection, deselection, guard, an
       # armed command given and cancelled, and a patrol that gives a solar
-      # collector selected beside the mover no order, under a profile that
-      # turns the megamap on.
+      # collector selected beside the mover no order; the panels over it
+      # (the exit menu and its questions, the save page, the unit info
+      # panel) taking their own clicks and taps, and beside the in-game menu
+      # a left click doing nothing and a right press acting as the
+      # battlefield's; a drop of the selection on it closing the unit info
+      # panel; and the touch controls' taps, double tap, order wheel, box and
+      # building placement on it acting as the mouse's clicks there, never on
+      # the battlefield under it; under a profile that turns the megamap on.
       set(oa_megamap_check_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/megamap-clicks")
       file(MAKE_DIRECTORY "${oa_megamap_check_dir}")
       file(WRITE "${oa_megamap_check_dir}/megamap-clicks.oamod.yaml"
