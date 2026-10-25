@@ -56,7 +56,7 @@ struct ScaledFill {
 bool fill_scaled_rows(const ScaledFill& fill, uint32_t first_row, uint32_t end_row) noexcept {
     constexpr uint32_t tile_edge = formats::tnt::layout::tile_edge_pixels;
     const formats::tnt::Map& map = *fill.map;
-    const uint16_t* const grid = map.tile_indices.data();
+    const uint32_t* const grid = map.tile_indices.data();
     const uint8_t* const tiles = map.tile_palette_indices.data();
     const uint32_t scale_fp = fill.scale_fp;
     const uint64_t advanced = static_cast<uint64_t>(first_row) * fixed_one + fill.phase_y;

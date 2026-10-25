@@ -282,13 +282,14 @@ Result prepare(
     };
     // Features are placed in row-major order: successful placement,
     // replacement, backlinks, and the explicit 0xFFFC plot marker.
-    if (map.version == formats::tnt::Version::total_annihilation)
+    const bool current = formats::tnt::current_cell_layout(map.version);
+    if (current)
         for (std::size_t at = 0; at < cells; ++at)
             if (map.attributes[at].feature == 0xfffcU)
                 runtime_features[at].feature = 0xfffcU;
     for (std::size_t origin = 0; origin < cells; ++origin) {
         const auto requested = map.attributes[origin].feature;
-        if (map.version == formats::tnt::Version::total_annihilation && requested == 0xfffcU)
+        if (current && requested == 0xfffcU)
             continue;
         if (requested >= features.size())
             continue;
@@ -379,13 +380,11 @@ Result prepare(
             out.collision_plots[at].indestructible_feature = features[feature].metal_overlay;
         }
     }
-    // The configured map metal (scenario SurfaceMetal) applies only to the
-    // current 0x2000 format and only when nonnegative. A legacy map starts each
-    // plot's metal at its attribute's extra byte instead.
-    const auto base =
-        map.version == formats::tnt::Version::total_annihilation && configured_map_metal >= 0
-            ? static_cast<uint8_t>(configured_map_metal)
-            : uint8_t{};
+    // SurfaceMetal applies to 0x2000 and 0x2001, and only when nonnegative.
+    // A legacy map starts each plot's metal at its attribute's extra byte.
+    const auto base = current && configured_map_metal >= 0
+                          ? static_cast<uint8_t>(configured_map_metal)
+                          : uint8_t{};
     for (std::size_t index = 0; index < cells; ++index) {
         out.terrain_values[index].movement_cost = map.version == formats::tnt::Version::legacy_1020
                                                       ? map.attributes[index].legacy_metal

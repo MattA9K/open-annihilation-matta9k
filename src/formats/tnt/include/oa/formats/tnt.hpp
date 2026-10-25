@@ -16,13 +16,15 @@ namespace oa::formats::tnt {
 enum class Version : uint32_t {
     legacy_1020 = 0x00001020U,
     total_annihilation = 0x00002000U,
+    // 0x2000 cells and minimap words, with a 32-bit tile-map index.
+    wide_tile_index = 0x00002001U,
 };
 
-// 64-byte on-disk header. Version 0x2000 keeps the minimap in minimap_offset
-// and minimap_presence_flags, version 0x1020 in the last two words. The two
-// words between them are zero in every shipped map; they are kept in Header
-// but not used. TA: Kingdoms maps (version 0x4000) use minimap_presence_flags
-// as an offset; the game does not accept them.
+// 64-byte on-disk header. Versions 0x2000 and 0x2001 keep the minimap in
+// minimap_offset and minimap_presence_flags, version 0x1020 in the last two
+// words. The two words between them are zero in every shipped 0x2000 map;
+// they are kept in Header but not used. TA: Kingdoms maps (version 0x4000)
+// use minimap_presence_flags as an offset; the game does not accept them.
 struct Header {
     uint32_t id_version = 0;
     uint32_t width = 0;
@@ -78,8 +80,8 @@ struct LegacyTileAttr {
     uint8_t feature = 0;
     uint8_t reserved_after_feature = 0;
     uint16_t reserved_before_metal = 0;
-    // The cell's starting metal in its map plot, which version 0x2000 maps
-    // take from the SurfaceMetal setting instead.
+    // The cell's starting metal in its map plot, which versions 0x2000 and
+    // 0x2001 take from the SurfaceMetal setting instead.
     uint8_t metal = 0;
     uint8_t reserved_after_metal = 0;
 };
@@ -122,6 +124,8 @@ static_assert(sizeof(FeatureDiskRecord::name) == 0x80);
 namespace layout {
 inline constexpr std::size_t header_words = sizeof(Header) / sizeof(uint32_t);
 inline constexpr std::size_t header_bytes = sizeof(Header);
+inline constexpr std::size_t narrow_tile_index_bytes = sizeof(uint16_t);
+inline constexpr std::size_t wide_tile_index_bytes = sizeof(uint32_t);
 inline constexpr std::size_t attribute_cell_pixels = 16;
 inline constexpr std::size_t tile_edge_pixels = 32;
 inline constexpr uint32_t attribute_cells_per_tile_edge =
@@ -139,6 +143,25 @@ inline constexpr uint32_t minimap_present_flag = 1U;
 static_assert(layout::header_words == 16);
 static_assert(layout::tile_bytes == 1024);
 static_assert(layout::attribute_cells_per_tile_edge == 2U);
+static_assert(layout::narrow_tile_index_bytes == 2);
+static_assert(layout::wide_tile_index_bytes == 4);
+
+/// Reports whether a version uses the four-byte cell and the 0x2000 minimap words.
+///
+/// @param version TNT version word
+/// @return true for 0x2000 and 0x2001
+[[nodiscard]] constexpr bool current_cell_layout(Version version) noexcept {
+    return version == Version::total_annihilation || version == Version::wide_tile_index;
+}
+
+/// Reports how many bytes one tile-map entry occupies.
+///
+/// @param version TNT version word
+/// @return 4 for 0x2001, otherwise 2
+[[nodiscard]] constexpr std::size_t tile_index_bytes(Version version) noexcept {
+    return version == Version::wide_tile_index ? layout::wide_tile_index_bytes
+                                               : layout::narrow_tile_index_bytes;
+}
 
 namespace value {
 inline constexpr uint16_t current_feature_sentinel_floor = 0xfffbU;
@@ -150,6 +173,9 @@ inline constexpr std::size_t input_bytes = 256U * 1024U * 1024U;
 inline constexpr uint32_t attribute_dimension = 4096;
 inline constexpr std::size_t attribute_cells = 16U * 1024U * 1024U;
 inline constexpr std::size_t tiles = 65536;
+// Most tiles version 0x2001 may name. A tile is layout::tile_bytes, so this
+// is one input_bytes of tile pixels.
+inline constexpr std::size_t wide_tiles = input_bytes / layout::tile_bytes;
 inline constexpr std::size_t features = 65536;
 inline constexpr uint32_t minimap_dimension = 1024;
 inline constexpr std::size_t rendered_pixels = 512U * 1024U * 1024U;
@@ -173,11 +199,14 @@ inline constexpr int32_t upper_mask = static_cast<int32_t>(0xffffffc0);
 inline constexpr int32_t upper_bias = 0x80;
 } // namespace file_memory
 
+static_assert(limit::wide_tiles == 262144);
+static_assert(limit::wide_tiles > limit::tiles);
+
 struct Attribute {
     uint8_t height = 0;
     uint16_t feature = 0xffffU;
     uint8_t padding = 0;
-    // LegacyTileAttr::metal of a version 0x1020 map; zero for version 0x2000.
+    // LegacyTileAttr::metal of a version 0x1020 map; zero for 0x2000 and 0x2001.
     uint8_t legacy_metal = 0;
 };
 
@@ -213,7 +242,9 @@ struct Map {
     uint32_t tile_height = 0;
     uint32_t sea_level = 0;
     uint32_t minimap_presence_flags = 0;
-    std::vector<uint16_t> tile_indices;
+    // One index per tile cell. 0x1020 and 0x2000 store 16 bits on disk;
+    // 0x2001 stores 32. Either width is kept in 32 bits.
+    std::vector<uint32_t> tile_indices;
     std::vector<Attribute> attributes;
     uint32_t tile_count = 0;
     // Contiguous tile_count*1024 row-major palette indices.
@@ -264,9 +295,12 @@ struct RenderResult {
 
 /// Decodes a TNT map file.
 ///
-/// The version picks the 0x2000 or 0x1020 header layout (the minimap offset
-/// and presence words differ); then the tile map, cell attributes, tile
-/// pixels, features and minimap are read with bounds and limit checks.
+/// The version picks the cell and minimap layout. 0x2000 and 0x2001 share
+/// the four-byte cell and the minimap words; 0x1020 uses the eight-byte cell
+/// and the legacy minimap words. 0x2001 stores each tile-map entry in 32
+/// bits, and the other versions store 16. The tile map, cell attributes,
+/// tile pixels, features and minimap are then read with bounds and limit
+/// checks.
 ///
 /// @param bytes the whole file
 /// @return the map, or the first error and its offset; any other version is

@@ -14,6 +14,8 @@ namespace oa::netgame::sync {
 
 // TNT header fields the content hash reads.
 inline constexpr uint32_t kTntHashVersion = 0x2000;
+// 0x2001 keeps the 0x2000 attribute and feature records and widens the tile index.
+inline constexpr uint32_t kTntWideTileIndexVersion = 0x2001;
 inline constexpr uint32_t kTntHeaderBytes = 0x40;
 inline constexpr uint32_t kTntAttributeBytes = 4; // per 16-pixel cell
 inline constexpr uint32_t kTntFeatureRecordBytes = 0x84;
@@ -48,7 +50,8 @@ struct MapHashCache {
 /// @param files File access used to read the TNT. When `files.source` is null
 ///        or answers -1, the cache keys by path alone.
 /// @param[in,out] cache Hashes computed this run, keyed by TNT path and provider; grows as needed.
-/// @return header hash ^ content hash; 0 when the TNT cannot be read or is not version 0x2000.
+/// @return header hash ^ content hash; 0 when the TNT cannot be read or is not
+///         version 0x2000 or 0x2001.
 uint32_t map_compute_content_hash(
     data::campaign::CampaignFile& map_context,
     const data::campaign::CampaignFiles& files,

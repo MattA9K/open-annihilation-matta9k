@@ -19,7 +19,7 @@ inline constexpr int32_t terrain_tile_bytes = terrain_tile_pixels * terrain_tile
 // The tile mosaic, resolved by the caller from Game.tile_map and the map's
 // tile set.
 struct TerrainTiles {
-    const uint16_t* tile_map =
+    const uint32_t* tile_map =
         nullptr; // one tile index per mosaic cell, Game.map_width / 2 per row
     const uint8_t* tile_pixels = nullptr; // the tile set's pixels, terrain_tile_bytes per tile
 };

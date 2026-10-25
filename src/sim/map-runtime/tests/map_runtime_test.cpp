@@ -66,6 +66,19 @@ class FeatureAssets final : public oa::sim::map_runtime::FeatureAssetReader {
 };
 } // namespace
 
+void wide_tile_index_uses_surface_metal() {
+    auto map = current_map();
+    map.version = oa::formats::tnt::Version::wide_tile_index;
+    map.features.clear();
+    const auto result = oa::sim::map_runtime::prepare(map, 7, {}, masks());
+    require(result.ok(), "wide tile index map preparation");
+    require(
+        result.value->terrain_values[0].movement_cost == 7 &&
+            result.value->collision_plots[0].metal == 7,
+        "version 0x2001 takes SurfaceMetal like version 0x2000"
+    );
+}
+
 int main() {
     using namespace oa;
     auto map = current_map();
@@ -611,4 +624,5 @@ int main() {
         "feature_center int16 extremes still use a 32-bit shift"
     );
     require(probe.calls == 5, "feature_center calls sample_height once per point");
+    wide_tile_index_uses_surface_metal();
 }

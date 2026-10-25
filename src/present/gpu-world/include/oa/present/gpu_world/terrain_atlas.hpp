@@ -134,7 +134,7 @@ struct TerrainAtlas {
     uint32_t page_edge{};       ///< the largest edge a page was planned within
     uint32_t slots_per_page{};  ///< slots a full page holds: full_page_slots of page_edge
     std::vector<uint16_t> grid; ///< the slot each cell shows, row-major
-    std::vector<uint16_t>
+    std::vector<uint32_t>
         slot_tiles; ///< the map's tile each slot was filled from, the first cell's
     std::vector<AtlasPage> pages;
 };

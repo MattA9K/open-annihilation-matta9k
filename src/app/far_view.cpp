@@ -110,7 +110,7 @@ bool fill_far_rows(
     const auto& map = *fill.map;
     const auto& columns = *fill.columns;
     const auto& rows = *fill.rows;
-    const uint16_t* const grid = map.tile_indices.data();
+    const uint32_t* const grid = map.tile_indices.data();
     const uint32_t edge = fill.texel_edge;
     const uint32_t texel_shift = static_cast<uint32_t>(std::countr_zero(edge));
     const uint32_t column_end = std::min(columns[fill.dest_width], fill.texels_wide);
@@ -130,7 +130,7 @@ bool fill_far_rows(
                     sum += 3;
                     next_column = columns[column + 1U];
                 }
-                const uint16_t tile = grid[row_tiles + (tx >> texel_shift)];
+                const uint32_t tile = grid[row_tiles + (tx >> texel_shift)];
                 if (tile >= map.tile_count)
                     return false;
                 const uint8_t* rgb = fill.level_texels +

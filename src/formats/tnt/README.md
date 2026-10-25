@@ -1,27 +1,29 @@
 # Total Annihilation TNT map format
 
-This C++20 component reads Total Annihilation 3.1c TNT maps: the 0x2000 format
-the game ships and the legacy 0x1020 layout it also accepts, preserving map
-cells, 32x32 palette tiles, raw feature records and the optional embedded
-minimap. It also expands the tile mosaic to palette indices and exposes the
-bounded feature names and attribute-grid placements consumed by later gameplay
-code; palette selection and simulation stay at their separate boundaries.
+This C++20 component reads TNT maps: the 0x2000 format Total Annihilation 3.1c
+ships, the legacy 0x1020 layout it also accepts, and the 0x2001 layout whose
+tile map stores a 32-bit index. It preserves map cells, 32x32 palette tiles,
+raw feature records and the optional embedded minimap. It also expands the
+tile mosaic to palette indices and exposes the bounded feature names and
+attribute-grid placements consumed by later gameplay code; palette selection
+and simulation stay at their separate boundaries.
 
 ## Layout
 
-- Only 0x1020 and 0x2000 are accepted; both are read into one view. The
-  current layout uses words 3/4/5 for tile map, attributes and tile pixels;
-  words 6/7/8 for tile and feature counts/table; word 9 for sea level; and
-  words 10/11 for minimap pointer/presence flags. Words 12/13 are zero in
-  every shipped map and are decoded but not used; the legacy layout keeps its
-  minimap pointer and presence flags in words 14/15.
-- Loading copies `(width/2)*(height/2)` uint16 tile indices, `width*height`
-  attributes and `tile_count*0x400` tile bytes. Current attributes are four
-  bytes `{height:u8, feature:u16, padding:u8}`. Legacy attributes have stride
-  eight, with height at byte 0, an 8-bit feature at byte 2 and the cell's
-  metal at byte 6; the other bytes are not read. Bit zero of the selected
-  presence word gates a minimap containing uint32 width/height followed by
-  palette indices.
+- 0x1020, 0x2000 and 0x2001 are accepted and read into one view. 0x2000 and
+  0x2001 use words 3/4/5 for tile map, attributes and tile pixels; words 6/7/8
+  for tile and feature counts/table; word 9 for sea level; and words 10/11 for
+  minimap pointer/presence flags. Words 12/13 are zero in every shipped 0x2000
+  map and are decoded but not used. 0x1020 keeps its minimap pointer and
+  presence flags in words 14/15.
+- Loading copies `(width/2)*(height/2)` tile indices, `width*height`
+  attributes and `tile_count*0x400` tile bytes. 0x1020 and 0x2000 store each
+  index in 16 bits. 0x2001 stores each index in 32 bits. 0x2000 and 0x2001
+  attributes are four bytes `{height:u8, feature:u16, padding:u8}`. Legacy
+  attributes have stride eight, with height at byte 0, an 8-bit feature at
+  byte 2 and the cell's metal at byte 6; the other bytes are not read. Bit
+  zero of the selected presence word gates a minimap containing uint32
+  width/height followed by palette indices.
 - Feature records are 0x84 bytes apart, and the name at record offset 4
   names the feature definition. This component keeps the entire record raw.
 - Terrain drawing indexes the tile map at width/2 and selects a tile as
@@ -30,10 +32,10 @@ code; palette selection and simulation stay at their separate boundaries.
 TA: Kingdoms 0x4000 maps are not accepted by 3.1c and are rejected here.
 
 Input is capped at 256 MiB, dimensions at 4096 attribute cells per axis,
-attribute cells at 16 million, tile and feature counts at 65,536, minimaps at
-1024 per axis, and expanded terrain at 512 MiB. Every offset and product is
-checked before allocation. Tile references outside the loaded tile set are
-rejected.
+attribute cells at 16 million, 0x1020 and 0x2000 tile counts at 65,536, 0x2001
+tile counts at 262,144, feature counts at 65,536, minimaps at 1024 per axis,
+and expanded terrain at 512 MiB. Every offset and product is checked before
+allocation. Tile references outside the loaded tile set are rejected.
 
 ```sh
 cmake -S src/formats/tnt -B local/build-map-format

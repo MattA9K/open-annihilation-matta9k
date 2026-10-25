@@ -110,7 +110,10 @@ bool slice_hash(
 // the feature name records ("Raw Feature Data"). Offsets and sizes past the
 // end of the file are rejected rather than hashed.
 bool terrain_hash(const uint8_t* bytes, uint32_t size, uint32_t* hash) noexcept {
-    if (size < kTntHeaderBytes || load_le32(bytes) != kTntHashVersion)
+    if (size < kTntHeaderBytes)
+        return false;
+    const uint32_t version = load_le32(bytes);
+    if (version != kTntHashVersion && version != kTntWideTileIndexVersion)
         return false;
     const uint32_t width = load_le32(bytes + 0x04);
     const uint32_t height = load_le32(bytes + 0x08);

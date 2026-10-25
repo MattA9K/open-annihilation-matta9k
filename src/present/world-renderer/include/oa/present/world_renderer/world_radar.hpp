@@ -52,7 +52,7 @@ inline constexpr int32_t interceptor_ring_segments = 0x20;
 // Map data the radar picture samples. `minimap` is the TNT minimap picture
 // (Game.minimap); when it is null the picture is rebuilt from the tile map.
 struct RadarPictureSource {
-    const uint16_t* tile_map = nullptr;   // Game.tile_map, stride map_width / 2
+    const uint32_t* tile_map = nullptr;   // one tile index per mosaic cell, stride map_width / 2
     int32_t tile_count = 0;               // tiles in the map's tile set
     const uint8_t* tile_pixels = nullptr; // the tile set's pixels, 32x32 bytes per tile
     const uint8_t* minimap = nullptr;

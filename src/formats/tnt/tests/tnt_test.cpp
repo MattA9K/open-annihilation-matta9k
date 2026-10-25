@@ -160,6 +160,129 @@ void legacy_attribute_layout() {
     );
 }
 
+std::vector<uint8_t> wide_small_fixture() {
+    constexpr std::size_t tile_map_at = 64;
+    constexpr std::size_t attributes_at = tile_map_at + 4 * sizeof(uint32_t);
+    constexpr std::size_t tiles_at = attributes_at + 16 * tnt::layout::current_attribute_bytes;
+    constexpr std::size_t features_at = tiles_at + 2 * tnt::layout::tile_bytes;
+    constexpr std::size_t minimap_at = features_at + tnt::layout::feature_record_bytes;
+    std::vector<uint8_t> bytes(minimap_at + 10);
+    put32(bytes, 0, static_cast<uint32_t>(tnt::Version::wide_tile_index));
+    put32(bytes, 4, 4);
+    put32(bytes, 8, 4);
+    put32(bytes, 12, static_cast<uint32_t>(tile_map_at));
+    put32(bytes, 16, static_cast<uint32_t>(attributes_at));
+    put32(bytes, 20, static_cast<uint32_t>(tiles_at));
+    put32(bytes, 24, 2);
+    put32(bytes, 28, 1);
+    put32(bytes, 32, static_cast<uint32_t>(features_at));
+    put32(bytes, 36, 17);
+    put32(bytes, 40, static_cast<uint32_t>(minimap_at));
+    put32(bytes, 44, 1);
+    put32(bytes, tile_map_at, 0);
+    put32(bytes, tile_map_at + 4, 1);
+    put32(bytes, tile_map_at + 8, 1);
+    put32(bytes, tile_map_at + 12, 0);
+    for (std::size_t index = 0; index < 16; ++index) {
+        const auto at = attributes_at + index * 4;
+        bytes[at] = static_cast<uint8_t>(index);
+        put16(bytes, at + 1, index == 3 ? 0U : 0xffffU);
+        bytes[at + 3] = 0xaa;
+    }
+    std::fill_n(
+        bytes.begin() + static_cast<std::ptrdiff_t>(tiles_at),
+        static_cast<std::ptrdiff_t>(tnt::layout::tile_bytes),
+        uint8_t{5}
+    );
+    std::fill_n(
+        bytes.begin() + static_cast<std::ptrdiff_t>(tiles_at + tnt::layout::tile_bytes),
+        static_cast<std::ptrdiff_t>(tnt::layout::tile_bytes),
+        uint8_t{9}
+    );
+    bytes[features_at + 4] = 0x42;
+    bytes[features_at + 5] = 0x43;
+    put32(bytes, minimap_at, 2);
+    put32(bytes, minimap_at + 4, 2);
+    bytes[minimap_at + 8] = 1;
+    bytes[minimap_at + 9] = 2;
+    bytes.push_back(3);
+    bytes.push_back(4);
+    return bytes;
+}
+
+void wide_tile_index_layout() {
+    const auto result = tnt::parse(wide_small_fixture());
+    require(result.ok(), result.error ? result.error->message : "wide TNT did not parse");
+    const auto& map = *result.map;
+    require(
+        map.version == tnt::Version::wide_tile_index &&
+            map.tile_indices == std::vector<uint32_t>({0, 1, 1, 0}) && map.sea_level == 17 &&
+            map.attributes[3].height == 3 && map.attributes[3].feature == 0 &&
+            map.attributes[3].padding == 0xaa && map.features.size() == 1 &&
+            map.features[0].name == "BC",
+        "0x2001 four-byte tile index and four-byte cells disagreed"
+    );
+    require(
+        map.minimap && map.minimap->palette_indices == std::vector<uint8_t>({1, 2, 3, 4}),
+        "0x2001 minimap did not parse"
+    );
+    const auto rendered = tnt::render_palette_indices(map);
+    require(
+        rendered.ok() && rendered.terrain->palette_indices[0] == 5 &&
+            rendered.terrain->palette_indices[32] == 9 &&
+            rendered.terrain->palette_indices.back() == 5,
+        "0x2001 tile mosaic disagreed"
+    );
+}
+
+// An index above 65535 needs a tile set of at least that many 32x32 tiles.
+void wide_index_past_16_bits() {
+    constexpr uint32_t tile_count = 65537;
+    constexpr uint32_t high_tile = 65536;
+    constexpr std::size_t tile_map_at = 64;
+    constexpr std::size_t attributes_at = tile_map_at + 4 * sizeof(uint32_t);
+    constexpr std::size_t tiles_at = attributes_at + 16 * tnt::layout::current_attribute_bytes;
+    std::vector<uint8_t> bytes(
+        tiles_at + static_cast<std::size_t>(tile_count) * tnt::layout::tile_bytes
+    );
+    put32(bytes, 0, static_cast<uint32_t>(tnt::Version::wide_tile_index));
+    put32(bytes, 4, 4);
+    put32(bytes, 8, 4);
+    put32(bytes, 12, static_cast<uint32_t>(tile_map_at));
+    put32(bytes, 16, static_cast<uint32_t>(attributes_at));
+    put32(bytes, 20, static_cast<uint32_t>(tiles_at));
+    put32(bytes, 24, tile_count);
+    put32(bytes, tile_map_at, 0);
+    put32(bytes, tile_map_at + 4, high_tile);
+    put32(bytes, tile_map_at + 8, 1);
+    put32(bytes, tile_map_at + 12, 0);
+    bytes[tiles_at] = 7;
+    bytes[tiles_at + tnt::layout::tile_bytes] = 3;
+    bytes[tiles_at + static_cast<std::size_t>(high_tile) * tnt::layout::tile_bytes] = 42;
+    const auto result = tnt::parse(bytes);
+    require(result.ok(), result.error ? result.error->message : "high tile index did not parse");
+    require(
+        result.map->tile_indices == std::vector<uint32_t>({0, high_tile, 1, 0}),
+        "tile index 65536 was not kept"
+    );
+    const auto rendered = tnt::render_palette_indices(*result.map);
+    require(
+        rendered.ok(), rendered.error ? rendered.error->message : "high tile index did not render"
+    );
+    require(
+        rendered.terrain->width == 64 && rendered.terrain->palette_indices[0] == 7 &&
+            rendered.terrain->palette_indices[32] == 42 &&
+            rendered.terrain->palette_indices[32U * 64U] == 3,
+        "tile index 65536 did not select its tile"
+    );
+    put32(bytes, tile_map_at + 4, tile_count);
+    const auto rejected = tnt::parse(bytes);
+    require(
+        !rejected.ok() && rejected.error->code == tnt::ErrorCode::invalid_tile_index,
+        "a 32-bit index past the tile set was accepted"
+    );
+}
+
 void malformed_and_bounded() {
     auto unsupported = current_fixture();
     put32(unsupported, 0, 0x4000);
@@ -193,6 +316,22 @@ void malformed_and_bounded() {
     require(
         !huge_result.ok() && huge_result.error->code == tnt::ErrorCode::dimension_limit,
         "pathological dimensions were not rejected before allocation"
+    );
+
+    auto narrow_count = current_fixture();
+    put32(narrow_count, 24, static_cast<uint32_t>(tnt::limit::tiles) + 1U);
+    const auto narrow_count_result = tnt::parse(narrow_count);
+    require(
+        !narrow_count_result.ok() && narrow_count_result.error->code == tnt::ErrorCode::count_limit,
+        "a 16-bit map above 65536 tiles was accepted"
+    );
+
+    auto wide_count = wide_small_fixture();
+    put32(wide_count, 24, static_cast<uint32_t>(tnt::limit::wide_tiles) + 1U);
+    const auto wide_count_result = tnt::parse(wide_count);
+    require(
+        !wide_count_result.ok() && wide_count_result.error->code == tnt::ErrorCode::count_limit,
+        "a 32-bit map above the tile cap was accepted"
     );
 }
 
@@ -365,6 +504,8 @@ int main() {
         current_layout_and_render();
         radar_picture_from_header();
         legacy_attribute_layout();
+        wide_tile_index_layout();
+        wide_index_past_16_bits();
         malformed_and_bounded();
         map_file_memory_class_thresholds();
         ota_metadata_and_starts();

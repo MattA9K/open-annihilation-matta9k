@@ -304,6 +304,15 @@ void content_hash_tests() {
     expect(map_compute_content_hash(*legacy.file, files, cache) == 0, "0x1020 terrain hashes to 0");
     expect(legacy.file->content_hash == 0 && cache.count == 1, "failed hash is not cached");
 
+    memory.files["maps/wide.ota"] = ota("Network 1\0");
+    memory.files["maps/wide.tnt"] = terrain(0x2001);
+    SelectedMap wide;
+    expect(campaign_select_mission(wide.file, &env, "Wide"), "wide selects");
+    const auto wide_hash = map_compute_content_hash(*wide.file, files, cache);
+    expect(wide_hash != 0 && wide.file->content_hash != 0, "0x2001 terrain hashes");
+    expect(wide.file->content_hash != kTerrainHash, "0x2001 hash differs from 0x2000");
+    expect(cache.count == 2, "wide hash cached");
+
     memory.files["maps/short.ota"] = ota("Network 1\0");
     auto truncated = terrain(0x2000);
     truncated.resize(0x48);

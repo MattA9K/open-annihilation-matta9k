@@ -102,10 +102,10 @@ void test_tile_phases() {
     constexpr int32_t tiles_wide = 5;
     constexpr int32_t tiles_high = 4;
     constexpr int32_t tile_count = 7;
-    std::vector<uint16_t> tile_map(tiles_wide * tiles_high);
+    std::vector<uint32_t> tile_map(tiles_wide * tiles_high);
     std::vector<uint8_t> pixels(tile_count * wr::terrain_tile_bytes);
     for (size_t i = 0; i < tile_map.size(); ++i) {
-        tile_map[i] = static_cast<uint16_t>((i * 3) % tile_count);
+        tile_map[i] = static_cast<uint32_t>((i * 3) % tile_count);
     }
     for (size_t i = 0; i < pixels.size(); ++i) {
         pixels[i] = static_cast<uint8_t>(1 + (i * 7 + i / 32) % 255);
@@ -142,7 +142,7 @@ void test_tile_phases() {
 
 // Cut tiles are clipped to the target; whole tiles are not.
 void test_clip_applies_to_cut_tiles_only() {
-    std::vector<uint16_t> tile_map(4 * 4, 0);
+    std::vector<uint32_t> tile_map(4 * 4, 0);
     std::vector<uint8_t> pixels(wr::terrain_tile_bytes, 9);
     const wr::TerrainTiles tiles{tile_map.data(), pixels.data()};
     View view = make_view(8, 8, 20, 9, 70, 70);

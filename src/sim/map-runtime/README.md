@@ -6,10 +6,10 @@ movement or metal value.
 
 `prepare` builds `MapPlot.metal` as follows:
 
-- Current-format (`0x2000`) plots start at the low byte of the configured map
-  metal value when that value is nonnegative. Negative settings use zero. The
-  legacy format copies each attribute's extra byte into `MapPlot.metal` before
-  feature overlays.
+- Current-format (`0x2000` and `0x2001`) plots start at the low byte of the
+  configured map metal value when that value is nonnegative. Negative settings
+  use zero. The legacy format copies each attribute's extra byte into
+  `MapPlot.metal` before feature overlays.
 - Feature-bearing plots are then visited. A feature whose `FeatureDef.metal`
   is nonzero and ordered (not NaN), and whose flags hold
   `OA_FEATURE_FLAG_INDESTRUCTIBLE` (the metal-overlay bit), paints the low byte
@@ -33,11 +33,11 @@ result the movement tests read. Before projecting those fields, features are pla
 order: out-of-map footprints are rejected, removable overlaps are cleared
 across the old footprint, indestructible overlaps reject the new placement,
 and non-origin cells receive `0xFFFE` backlinks. `prepare` installs every
-current-format `0xFFFC` marker in its first pass, before placing ordinary
+0x2000 and 0x2001 `0xFFFC` marker in its first pass, before placing ordinary
 features. Features with a nonempty `object` field consume one of the 2,048
 model-instance slots; removal releases the slot and capacity exhaustion
-rejects the placement before origin/backlink writes. Current-format `0xFFFC`
-markers remain blocking. A missing definition is an explicit load error, as
+rejects the placement before origin/backlink writes. Those `0xFFFC` markers
+remain blocking. A missing definition is an explicit load error, as
 3.1c stops with an error there, rather than empty feature data.
 
 `feature_word_at` reads `MapPlot.feature`. A word above `0xFFFA` becomes

@@ -88,11 +88,14 @@ ParseResult parse(std::span<const uint8_t> bytes) {
     const auto raw_version = map.header.id_version;
     if (raw_version == static_cast<uint32_t>(Version::total_annihilation)) {
         map.version = Version::total_annihilation;
+    } else if (raw_version == static_cast<uint32_t>(Version::wide_tile_index)) {
+        map.version = Version::wide_tile_index;
     } else if (raw_version == static_cast<uint32_t>(Version::legacy_1020)) {
         map.version = Version::legacy_1020;
     } else {
         return failure(ErrorCode::unsupported_version, 0, "unsupported TNT version");
     }
+    const bool current = current_cell_layout(map.version);
     map.attribute_width = map.header.width;
     map.attribute_height = map.header.height;
     if (map.attribute_width > limit::attribute_dimension ||
@@ -123,7 +126,9 @@ ParseResult parse(std::span<const uint8_t> bytes) {
     map.sea_level = map.header.sea_level;
     map.tile_count = map.header.tile_count;
     const auto feature_count = static_cast<std::size_t>(map.header.feature_count);
-    if (map.tile_count > limit::tiles || feature_count > limit::features) {
+    const auto tile_limit =
+        map.version == Version::wide_tile_index ? limit::wide_tiles : limit::tiles;
+    if (map.tile_count > tile_limit || feature_count > limit::features) {
         return failure(
             ErrorCode::count_limit,
             offsetof(Header, tile_count),
@@ -132,29 +137,30 @@ ParseResult parse(std::span<const uint8_t> bytes) {
     }
 
     const auto tile_map_at = static_cast<std::size_t>(map.header.tile_map_offset);
+    const auto index_bytes = tile_index_bytes(map.version);
     std::size_t tile_map_bytes = 0;
-    if (!multiply(tile_map_count, sizeof(uint16_t), tile_map_bytes) ||
+    if (!multiply(tile_map_count, index_bytes, tile_map_bytes) ||
         !fits(tile_map_at, tile_map_bytes, bytes.size())) {
         return failure(
             ErrorCode::offset_out_of_range, tile_map_at, "TNT tile map is outside input"
         );
     }
     map.tile_indices.resize(tile_map_count);
+    const bool wide_index = map.version == Version::wide_tile_index;
     for (std::size_t index = 0; index < tile_map_count; ++index) {
-        map.tile_indices[index] = load_le16(bytes.data() + tile_map_at + index * sizeof(uint16_t));
+        const auto at = tile_map_at + index * index_bytes;
+        map.tile_indices[index] =
+            wide_index ? load_le32(bytes.data() + at) : load_le16(bytes.data() + at);
         if (map.tile_indices[index] >= map.tile_count) {
             return failure(
-                ErrorCode::invalid_tile_index,
-                tile_map_at + index * sizeof(uint16_t),
-                "TNT tile map references a missing tile"
+                ErrorCode::invalid_tile_index, at, "TNT tile map references a missing tile"
             );
         }
     }
 
     const auto attribute_at = static_cast<std::size_t>(map.header.attribute_offset);
-    const auto attribute_stride = map.version == Version::total_annihilation
-                                      ? layout::current_attribute_bytes
-                                      : layout::legacy_attribute_bytes;
+    const auto attribute_stride =
+        current ? layout::current_attribute_bytes : layout::legacy_attribute_bytes;
     std::size_t attribute_bytes = 0;
     if (!multiply(attribute_count, attribute_stride, attribute_bytes) ||
         !fits(attribute_at, attribute_bytes, bytes.size())) {
@@ -166,7 +172,7 @@ ParseResult parse(std::span<const uint8_t> bytes) {
     for (std::size_t index = 0; index < attribute_count; ++index) {
         const auto record_at = attribute_at + index * attribute_stride;
         auto& attribute = map.attributes[index];
-        if (map.version == Version::total_annihilation) {
+        if (current) {
             const auto record = read_tile_attr(bytes, record_at);
             attribute.height = record.height;
             attribute.feature = record.feature;
@@ -220,7 +226,6 @@ ParseResult parse(std::span<const uint8_t> bytes) {
         feature.name.assign(bytes.begin() + static_cast<std::ptrdiff_t>(name_at), name_end);
     }
 
-    const auto current = map.version == Version::total_annihilation;
     map.minimap_presence_flags =
         current ? map.header.minimap_presence_flags : map.header.legacy_presence_flags;
     if ((map.minimap_presence_flags & layout::minimap_present_flag) != 0) {
@@ -318,7 +323,7 @@ std::vector<FeaturePlacement> feature_placements(const Map& map) {
     }
     for (std::size_t index = 0; index < map.attributes.size(); ++index) {
         const auto feature = map.attributes[index].feature;
-        const auto sentinel_floor = map.version == Version::total_annihilation
+        const auto sentinel_floor = current_cell_layout(map.version)
                                         ? value::current_feature_sentinel_floor
                                         : value::legacy_feature_sentinel_floor;
         if (feature >= sentinel_floor || feature >= map.features.size())

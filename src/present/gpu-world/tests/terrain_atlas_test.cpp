@@ -215,7 +215,7 @@ std::vector<uint8_t> box_filter_view(
         std::memcpy(&lut[index * 3U], &palette[index * oa::palette_entry_bytes], 3U);
     std::vector<uint8_t> out(static_cast<std::size_t>(dest_w) * dest_h * 3U);
     std::vector<uint32_t> sums(static_cast<std::size_t>(dest_w) * 3U);
-    const uint16_t* const grid = map.tile_indices.data();
+    const uint32_t* const grid = map.tile_indices.data();
     const uint8_t* const tiles = map.tile_palette_indices.data();
     const auto column_end = static_cast<uint32_t>(std::min<uint64_t>(columns[dest_w], terrain_w));
     for (uint32_t dy = 0; dy < dest_h; ++dy) {
@@ -230,7 +230,7 @@ std::vector<uint8_t> box_filter_view(
             uint32_t* sum = sums.data();
             uint32_t sx = columns[0];
             while (sx < column_end) {
-                const uint16_t tile = grid[row_tiles + sx / tile_edge];
+                const uint32_t tile = grid[row_tiles + sx / tile_edge];
                 const uint32_t within_x = sx % tile_edge;
                 const uint32_t run_end = std::min(column_end, sx - within_x + tile_edge);
                 const uint8_t* source =
@@ -562,7 +562,7 @@ void check_packing(
         OA_CHECK(atlas.slot_tiles[slot] == slot);
     bool grid_right = atlas.grid.size() == map.tile_indices.size();
     for (std::size_t cell = 0; grid_right && cell < atlas.grid.size(); ++cell) {
-        const uint16_t tile = map.tile_indices[cell];
+        const uint32_t tile = map.tile_indices[cell];
         grid_right = atlas.grid[cell] == (tile < map_distinct ? tile : tile - map_distinct);
     }
     OA_CHECK(grid_right);
@@ -1006,8 +1006,8 @@ void test_shown_grid() {
             const std::size_t map_cell = static_cast<std::size_t>(row) * map_tiles_wide + column;
             if (part.grid[cell] >= part.slot_tiles.size())
                 continue;
-            const uint16_t named = map.tile_indices[map_cell];
-            const uint16_t held = part.slot_tiles[part.grid[cell]];
+            const uint32_t named = map.tile_indices[map_cell];
+            const uint32_t held = part.slot_tiles[part.grid[cell]];
             if (std::memcmp(
                     &map.tile_palette_indices[static_cast<std::size_t>(named) * tile_bytes],
                     &map.tile_palette_indices[static_cast<std::size_t>(held) * tile_bytes],
@@ -1147,6 +1147,29 @@ void test_read_refusals() {
     OA_CHECK(spare_untouched);
 }
 
+/// A cell that names tile 65536 draws that tile, not the low 16 bits of the index.
+void test_wide_tile_index() {
+    constexpr uint32_t tile = 65536;
+    Map map;
+    map.tile_width = 1;
+    map.tile_height = 1;
+    map.tile_count = tile + 1U;
+    map.tile_indices = {tile};
+    map.tile_palette_indices.assign(static_cast<std::size_t>(map.tile_count) * tile_bytes, 0);
+    map.tile_palette_indices[static_cast<std::size_t>(tile) * tile_bytes] = 40;
+    const gw::TerrainAtlas atlas = build(map, test_palette(), nullptr, gw::page_edge_minimum);
+    OA_CHECK(atlas.slot_tiles.size() == 1 && atlas.slot_tiles[0] == tile);
+    const auto rect = gw::tile_rect(atlas, atlas.grid[0], 0);
+    OA_CHECK(rect.has_value() && !atlas.pages.empty());
+    if (!rect || atlas.pages.empty())
+        return;
+    const uint8_t* texel = texel_at(atlas.pages[rect->page], 0, rect->x, rect->y);
+    OA_CHECK(texel[0] == 40);
+    OA_CHECK(texel[1] == static_cast<uint8_t>(40U * 7U + 3U));
+    OA_CHECK(texel[2] == static_cast<uint8_t>(255U - 40U));
+    OA_CHECK(texel[3] == gw::texel_alpha);
+}
+
 /// The memory figures: the footprint of an atlas before it is built matches
 /// the atlas built, within either page edge, and the figures of the bounds
 /// are printed at both.
@@ -1157,7 +1180,10 @@ void test_footprint() {
     const gw::TerrainAtlas atlas = build(map, palette, nullptr, limit);
     const auto shared = gw::terrain_atlas_footprint(map_distinct, map.tile_indices.size(), limit);
     OA_CHECK(shared.pages == 1 && shared.texel_bytes == atlas_texel_bytes(atlas));
-    OA_CHECK(shared.table_bytes == (map.tile_indices.size() + map_distinct) * sizeof(uint16_t));
+    OA_CHECK(
+        shared.table_bytes == map.tile_indices.size() * sizeof(uint16_t) +
+                                  static_cast<uint64_t>(map_distinct) * sizeof(uint32_t)
+    );
     const auto one = gw::terrain_atlas_footprint(1, 6, limit);
     OA_CHECK(one.pages == 1 && one.texel_bytes == 5461U * gw::texel_bytes);
     const auto none = gw::terrain_atlas_footprint(0, 6, limit);
@@ -1404,7 +1430,9 @@ void test_installed_maps(const oa::AssetStore& assets, MapPart part) {
             map, map.tile_width, map.tile_height, palette, nullptr, gw::page_edge_limit, atlas
         );
         if (error != gw::TerrainAtlasError::none) {
-            // A map the atlas refuses is one the fill refuses too.
+            // A cell names its slot in 16 bits, so a map with more distinct
+            // tiles than that is drawn by the processor fill instead. Any
+            // other refusal is a map the fill refuses too.
             std::vector<uint8_t> rgb(static_cast<std::size_t>(map.tile_width) * tile_edge * 3U);
             const auto fill_error = wr::fill_scaled_viewport(
                 map,
@@ -1420,7 +1448,10 @@ void test_installed_maps(const oa::AssetStore& assets, MapPart part) {
                 map.tile_width * tile_edge
             );
             std::printf("%s refused: %s\n", maps[m].c_str(), gw::terrain_atlas_error_text(error));
-            OA_CHECK(fill_error.has_value());
+            if (error == gw::TerrainAtlasError::too_many_slots)
+                OA_CHECK(!fill_error.has_value());
+            else
+                OA_CHECK(fill_error.has_value());
             ++refused;
             continue;
         }
@@ -1533,6 +1564,7 @@ int main(int argc, char** argv) {
         test_shown_grid();
         test_malformed_maps();
         test_read_refusals();
+        test_wide_tile_index();
         test_footprint();
     }
     const int status = oa::test::check_exit_status();

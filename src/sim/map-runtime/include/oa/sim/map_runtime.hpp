@@ -196,10 +196,10 @@ load_feature_catalog(std::span<const formats::tdf::OwnedDocument> documents);
 /// removable overlaps are cleared, indestructible overlaps reject the new
 /// placement, non-origin cells receive 0xfffe backlinks and model-backed
 /// features take one of 2,048 instance slots.
-/// Current-format 0xfffc markers are installed first and stay blocking. A plot's
-/// metal starts at the configured map metal (current format, when nonnegative)
-/// or at its attribute's extra byte (legacy format), then metal-overlay features
-/// paint theirs.
+/// 0x2000 and 0x2001 0xfffc markers are installed first and stay blocking. A
+/// plot's metal starts at the configured map metal (those versions, when
+/// nonnegative) or at its attribute's extra byte (legacy format), then
+/// metal-overlay features paint theirs.
 /// The normal line-of-sight grid is half the attribute size and its masks come
 /// from the vismask sequence.
 ///

@@ -47,9 +47,11 @@ evicted while a match runs.
   edge, the smallest area whose rows of whole slots hold the count, then
   the squarer page, then the wider of two the same shape. A cell names its
   slot in 16 bits, so an atlas holds at most `slot_limit` (65,536) slots on
-  `page_limit` of the edge pages (7 at 4096, 26 at 2048). The atlas records
-  its `page_edge` and `slots_per_page`, and the same map gives the same
-  tiles and views within every edge, on more pages as the edge falls.
+  `page_limit` of the edge pages (7 at 4096, 26 at 2048). A map with more
+  distinct tiles than that is not built; the match draws it on the processor
+  path. The atlas records its `page_edge` and `slots_per_page`, and the same
+  map gives the same tiles and views within every edge, on more pages as the
+  edge falls.
 - **Levels.** Level L of a page is the exact box reduction of level 0:
   each texel the average of the 2^L by 2^L level-0 texels under it,
   rounded once, halves up, in palette colour before the gamma table, the
@@ -71,8 +73,8 @@ evicted while a match runs.
   within 2048, 96.0 MiB of texels with their chains either way against
   11.2 MiB of 8-bit tiles, built with 15.0 MiB of working storage within
   4096 and 3.8 MiB within 2048. A map of 3,466 distinct tiles takes one
-  4096x2048 page, 42.7 MiB, or two pages within 2048, 32.0 MiB; the
-  format's bound of 65,536 slots takes seven pages, 554.7 MiB, or 26 pages,
+  4096x2048 page, 42.7 MiB, or two pages within 2048, 32.0 MiB; an
+  atlas of `slot_limit` slots takes seven pages, 554.7 MiB, or 26 pages,
   538.7 MiB. The game's zoom never goes below one half, so the levels the
   card draws from are 0 and 1, and the chain beyond the tile levels is
   under two per cent of the whole.

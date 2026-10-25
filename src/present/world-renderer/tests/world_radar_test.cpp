@@ -76,7 +76,7 @@ void wide_map_from_tiles() {
     game->map_pixel_height = 32;
     game->map_width = 4; // 16-pixel cells: two 32-pixel tiles per row
     game->map_height = 2;
-    const uint16_t tile_map[2] = {0, 1};
+    const uint32_t tile_map[2] = {0, 1};
     std::vector<uint8_t> tiles(2 * 32 * 32);
     for (std::size_t i = 0; i < tiles.size(); ++i)
         tiles[i] = i < 32 * 32 ? 5 : 9;

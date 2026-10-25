@@ -64,8 +64,15 @@ int main(int argc, char** argv) {
             continue;
         }
         uint64_t hash = 14695981039346656037ULL;
-        for (const auto tile : result.map->tile_indices)
-            hash_word(hash, tile);
+        const bool wide = result.map->version == oa::formats::tnt::Version::wide_tile_index;
+        for (const auto tile : result.map->tile_indices) {
+            hash_byte(hash, static_cast<uint8_t>(tile));
+            hash_byte(hash, static_cast<uint8_t>(tile >> 8U));
+            if (!wide)
+                continue;
+            hash_byte(hash, static_cast<uint8_t>(tile >> 16U));
+            hash_byte(hash, static_cast<uint8_t>(tile >> 24U));
+        }
         for (const auto& attribute : result.map->attributes) {
             hash_byte(hash, attribute.height);
             hash_word(hash, attribute.feature);

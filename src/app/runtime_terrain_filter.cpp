@@ -105,7 +105,7 @@ bool box_filter_terrain(
     footprint_bounds(columns, source_x, dest_w, scale_fp, phase_x);
     footprint_bounds(rows, source_y, dest_h, scale_fp, phase_y);
     std::vector<uint32_t> sums(static_cast<std::size_t>(dest_w) * 3U);
-    const uint16_t* const grid = map.tile_indices.data();
+    const uint32_t* const grid = map.tile_indices.data();
     const uint8_t* const tiles = map.tile_palette_indices.data();
     const int64_t column_end = std::min(columns[static_cast<std::size_t>(dest_w)], terrain_w);
     for (int dy = 0; dy < dest_h; ++dy) {

@@ -416,7 +416,7 @@ terrain_atlas_footprint(uint32_t slots, uint64_t grid_cells, uint32_t page_edge)
     const uint32_t per_page = full_page_slots(page_edge);
     slots = std::min(slots, slot_limit);
     footprint.table_bytes =
-        grid_cells * sizeof(uint16_t) + static_cast<uint64_t>(slots) * sizeof(uint16_t);
+        grid_cells * sizeof(uint16_t) + static_cast<uint64_t>(slots) * sizeof(uint32_t);
     footprint.pages = (slots + per_page - 1U) / per_page;
     for (uint32_t page = 0; page < footprint.pages; ++page) {
         const uint32_t held = std::min(per_page, slots - page * per_page);
@@ -469,7 +469,7 @@ TerrainAtlasError build_terrain_atlas(
         // The grid's cell in the map's own grid, whose rows are tile_width
         // cells long.
         const std::size_t map_cell = (cell / columns) * map.tile_width + cell % columns;
-        const uint16_t tile = map.tile_indices[map_cell];
+        const uint32_t tile = map.tile_indices[map_cell];
         if (tile >= map.tile_count)
             return TerrainAtlasError::missing_tile;
         uint32_t& slot = slot_of_tile[tile];

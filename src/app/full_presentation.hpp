@@ -130,7 +130,7 @@ struct Runtime::FullPresentation {
     /// hold, which each new map takes afresh; every member zero names no
     /// map.
     struct AtlasSource {
-        const uint16_t* tile_indices{};
+        const uint32_t* tile_indices{};
         std::size_t tile_index_count{};
         const uint8_t* tile_pixels{};
         std::size_t tile_pixel_count{};

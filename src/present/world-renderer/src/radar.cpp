@@ -216,10 +216,10 @@ void radar_build_picture(
         uint8_t* out = temp->pixels + y * temp->pitch;
         for (int32_t x = 0; x < temp_w; ++x) {
             const int32_t map_x = map_w * x / temp_w;
-            int32_t tile =
+            auto tile =
                 source.tile_map
                     [tiles_per_row * (map_y / radar_tile_pixels) + map_x / radar_tile_pixels];
-            if (tile >= source.tile_count)
+            if (source.tile_count <= 0 || tile >= static_cast<uint32_t>(source.tile_count))
                 tile = 0;
             out[x] =
                 source.tile_pixels
