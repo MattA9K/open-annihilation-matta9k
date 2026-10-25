@@ -1253,7 +1253,8 @@ NoticeScreen::pointer(ScreenInputKind kind, uint8_t button, kit::Point at, int32
     default:
         break;
     }
-    return with_moved_look(take(action), pointed_look(notice_) != before, revision_);
+    const LayerAnswer answer = take(action);
+    return with_moved_look(answer, pointed_look(notice_) != before, revision_);
 }
 
 LayerAnswer NoticeScreen::key(kit::Key pressed, uint32_t /*sdl_key*/) {
@@ -1362,7 +1363,8 @@ QuestionScreen::pointer(ScreenInputKind kind, uint8_t button, kit::Point at, int
     default:
         break;
     }
-    return with_moved_look(take(outcome, 0), pointed_look(question_) != before, revision_);
+    const LayerAnswer answer = take(outcome, 0);
+    return with_moved_look(answer, pointed_look(question_) != before, revision_);
 }
 
 LayerAnswer QuestionScreen::key(kit::Key pressed, uint32_t sdl_key) {
