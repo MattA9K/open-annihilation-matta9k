@@ -12,7 +12,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
-#include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -23,6 +23,17 @@
 #include <string>
 #include <string_view>
 #include <vector>
+
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <winioctl.h>
+#endif
 
 namespace {
 
@@ -1083,22 +1094,108 @@ void asset_store_loose_listings() {
     );
 }
 
-/// A folder junction that leads outside the loose folder is not read, and
-/// one that stays inside is, on systems that make junctions.
+#ifdef _WIN32
+/// Makes a folder junction through the file system's own calls, and checks
+/// that the system reports the folder as a reparse point.
+///
+/// @param link the junction's path; nothing may exist there
+/// @param target the folder it leads to
+/// @return true when the junction was made
+bool make_junction(const fs::path& link, const fs::path& target) {
+    std::error_code error;
+    fs::path leads_to = fs::absolute(target, error);
+    if (error || ::CreateDirectoryW(link.c_str(), nullptr) == 0)
+        return false;
+    leads_to.make_preferred();
+    // A mount point's reparse data: the tag, the data's length and a
+    // reserved word, then the offsets and lengths in bytes of the target's
+    // NT path and of its plain path, then both paths, each ending in a NUL.
+    const std::wstring substitute = L"\\??\\" + leads_to.wstring();
+    const std::wstring print = leads_to.wstring();
+    constexpr std::size_t kHeaderBytes = 8;
+    constexpr std::size_t kNamesHeaderBytes = 8;
+    const std::size_t substitute_bytes = substitute.size() * sizeof(wchar_t);
+    const std::size_t print_bytes = print.size() * sizeof(wchar_t);
+    const std::size_t names_bytes = substitute_bytes + print_bytes + 2 * sizeof(wchar_t);
+    std::vector<uint8_t> data(kHeaderBytes + kNamesHeaderBytes + names_bytes);
+    const auto put16 = [&](std::size_t at, std::size_t value) {
+        data[at] = static_cast<uint8_t>(value & 0xFFU);
+        data[at + 1] = static_cast<uint8_t>((value >> 8U) & 0xFFU);
+    };
+    oa::base::bytes::store_le32(data.data(), IO_REPARSE_TAG_MOUNT_POINT);
+    put16(4, kNamesHeaderBytes + names_bytes);
+    put16(kHeaderBytes, 0);
+    put16(kHeaderBytes + 2, substitute_bytes);
+    put16(kHeaderBytes + 4, substitute_bytes + sizeof(wchar_t));
+    put16(kHeaderBytes + 6, print_bytes);
+    uint8_t* const names = data.data() + kHeaderBytes + kNamesHeaderBytes;
+    std::memcpy(names, substitute.c_str(), substitute_bytes + sizeof(wchar_t));
+    std::memcpy(
+        names + substitute_bytes + sizeof(wchar_t), print.c_str(), print_bytes + sizeof(wchar_t)
+    );
+    const HANDLE handle = ::CreateFileW(
+        link.c_str(),
+        GENERIC_WRITE,
+        0,
+        nullptr,
+        OPEN_EXISTING,
+        FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+        nullptr
+    );
+    bool made = false;
+    if (handle != INVALID_HANDLE_VALUE) {
+        DWORD returned = 0;
+        made = ::DeviceIoControl(
+                   handle,
+                   FSCTL_SET_REPARSE_POINT,
+                   data.data(),
+                   static_cast<DWORD>(data.size()),
+                   nullptr,
+                   0,
+                   &returned,
+                   nullptr
+               ) != 0;
+        ::CloseHandle(handle);
+    }
+    // Some systems accept the call and make no reparse point.
+    const DWORD attributes = ::GetFileAttributesW(link.c_str());
+    made = made && attributes != INVALID_FILE_ATTRIBUTES &&
+           (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+    if (!made)
+        ::RemoveDirectoryW(link.c_str());
+    return made;
+}
+#endif
+
+/// A folder junction that leads outside the loose folder is not read, one
+/// that stays inside is, and a folder that becomes a junction leading
+/// outside after the store listed it is not read, on systems that make
+/// junctions.
 void asset_store_loose_junctions() {
 #ifdef _WIN32
     TempDir dir;
     dir.write("game/Units/inside.fbi", text("inside"));
+    dir.write("game/sounds/near.wav", text("near"));
     dir.write("outside/maps/far.tnt", text("far"));
+    dir.write("outside/sounds/near.wav", text("far"));
     const auto game = dir.path() / "game";
-    const auto junction = [](const fs::path& link, const fs::path& target) {
-        const std::string command =
-            "mklink /J \"" + link.string() + "\" \"" + target.string() + "\" >nul 2>nul";
-        return std::system(command.c_str()) == 0;
+    // Each junction is removed before the folder, so that removing the
+    // folder never walks into what a junction leads to.
+    std::vector<fs::path> junctions;
+    const auto junction = [&](const fs::path& link, const fs::path& target) {
+        if (!make_junction(link, target))
+            return false;
+        junctions.push_back(link);
+        return true;
+    };
+    const auto remove_junctions = [&] {
+        for (const auto& made : junctions)
+            ::RemoveDirectoryW(made.c_str());
     };
     if (!junction(game / "maps", dir.path() / "outside" / "maps") ||
         !junction(game / "units2", game / "Units")) {
         std::cout << "skipped the loose junction cases: no junction made\n";
+        remove_junctions();
         return;
     }
     oa::AssetStore store(game);
@@ -1108,6 +1205,21 @@ void asset_store_loose_junctions() {
     );
     check(store.read("units2/inside.fbi").bytes == text("inside"), "a junction inside is read");
     check(store.read("units/inside.fbi").bytes == text("inside"), "a plain folder is read");
+    check(
+        store.read("sounds/near.wav").bytes == text("near"), "a folder is read before it changes"
+    );
+    std::error_code error;
+    fs::remove_all(game / "sounds", error);
+    if (error || !junction(game / "sounds", dir.path() / "outside" / "sounds")) {
+        std::cout << "skipped the junction made after listing: no junction made\n";
+        remove_junctions();
+        return;
+    }
+    check(
+        throws([&] { (void)store.read("sounds/near.wav"); }, "asset not found"),
+        "a folder that became a junction outside is not read"
+    );
+    remove_junctions();
 #endif
 }
 
