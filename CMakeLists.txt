@@ -712,7 +712,8 @@ if(OA_BUILD_PLATFORM)
     # The model stage on SDL's software renderer over a transparent target,
     # read back against the processor's raster of the same list drawn
     # through the bridge: synthetic scenes of flat and textured models at
-    # rest and turned, a depth-sorted unit, a lit building and its bright
+    # rest and turned, a depth-sorted unit, units whose polygons cross or
+    # lie each over the next, drawn with holes, a lit building and its bright
     # page, a cloaked unit, a unit under construction, units under water
     # of both sides, carried units, shadows into the target and straight
     # into the frame, shadows lighter at zoom 0.5 and none at a quarter on
@@ -720,7 +721,8 @@ if(OA_BUILD_PLATFORM)
     # back-facing polygon left out, the pages placed once and uploaded, and
     # a frame at zoom 2; with --data, every unit model of the installed
     # game at zoom 1, drawn from a cached image with and without a depth
-    # plane, held to the bounds the figures print.
+    # plane, held to the bounds the figures print, and every model with a
+    # depth plane, a colour a face, its faces held to the processor's.
     add_executable(oa-app-full-models-test src/app/runtime_full_models_test.cpp
       src/app/world_draws.cpp)
     target_link_libraries(oa-app-full-models-test PRIVATE oa-app-full-models oa-formats-hpi

@@ -1969,7 +1969,12 @@ language and both sizes.
   arithmetic of the path the processor draws the piece by (a cached piece
   as its image, a moving piece flat, a carried unit as its carrier
   composes it), the polygons of a unit with a depth plane sorted lowest
-  first, the palette's tables approximated as the design says: the shade
+  first and, where no order shows the plane's picture, as where two
+  polygons cross or the overlaps go round in a circle, each given holes
+  where the plane shows one drawn before it (`find_plane_cuts`), which its
+  triangles, a textured quad's strips among them, are cut round
+  (`cut_under_nearer`, `leave_out_holes`), the palette's tables
+  approximated as the design says: the shade
   rows as a per-vertex multiplier with a bright page of doubled texels for
   the rows above unlit, the alpha table as alpha 0.5 for cloaked units and
   shadows, the blue table as a halved colour with an additive lift, the
@@ -2125,8 +2130,10 @@ language and both sizes.
   and battlefield; `app-full-sprites` and `app-full-sprites-data` the
   sprite stage against the bands' picture on SDL's software renderer
   (`full_sprites_test.cpp`); `app-full-models` and `app-full-models-data`
-  the model stage against the processor's raster
-  (`runtime_full_models_test.cpp`); `app-full-fog` the fog passes' quads,
+  the model stage against the processor's raster, the latter with every
+  installed model with a depth plane drawn in a colour a face, at rest and
+  with its pieces turned as moving pieces, its faces held to the
+  processor's (`runtime_full_models_test.cpp`); `app-full-fog` the fog passes' quads,
   alphas and placement and the painters' level quads
   (`full_fog_test.cpp`).
 - Native pixel density: a window's density is fixed when it opens.
