@@ -543,7 +543,9 @@ the game draws its text and how the modern fonts draw it.
     water.
   - **Underwater shimmer** tints and lights only the parts of scenery and
     units that are under the water, more the deeper they lie; what stands
-    above the water keeps its colours.
+    above the water keeps its colours. At 0% your own units under the
+    water are darkened and tinted blue as the game draws them at every
+    other Hardware acceleration.
   - **Naval reflections** draw a faint, soft picture of each visible
     surface ship on the water, fading as the view turns flat.
 
