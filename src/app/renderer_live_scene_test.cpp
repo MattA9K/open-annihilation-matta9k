@@ -204,6 +204,81 @@ void canonical_terrain_grid() {
     OA_CHECK(plateau_decal);
 }
 
+/// Animated textures show the frames the classic tiers draw: the first on a
+/// piece the unit's image holds, whatever the unit does; the running one on
+/// a moving piece of a unit that is not idle, and on a unit drawn without an
+/// image.
+void animated_frames_follow_classic_tiers() {
+    Fixture fixture;
+    namespace models = oa::formats::objects3d;
+    namespace drawing = oa::present::model;
+    constexpr int32_t fixed = models::kThreeDoUnitsPerWorldUnit;
+    auto source = std::make_shared<models::Model>();
+    source->objects.resize(1);
+    source->objects[0].vertices = {{0, 0, 0}, {fixed, 0, 0}, {fixed, fixed, 0}, {0, fixed, 0}};
+    source->objects[0].primitives.resize(1);
+    source->objects[0].primitives[0].vertex_indices = {0, 1, 2, 3};
+    auto instance = oa::sim::model_runtime::make_instance(source);
+    instance.rebuild_transforms();
+    std::array<uint8_t, 2> pixels{ground_index, alternate_index};
+    drawing::TextureSequence texture;
+    texture.frames.resize(2);
+    for (std::size_t i = 0; i < texture.frames.size(); ++i) {
+        texture.frames[i].width = texture.frames[i].height = 1;
+        texture.frames[i].encoding = OA_SPRITE_RAW;
+        texture.frames[i].data = &pixels[i];
+    }
+    const oa::formats::gaf::Sequence sequence{};
+    drawing::PreparedModel prepared{};
+    prepared.objects.resize(1);
+    prepared.objects[0].primitives.resize(1);
+    auto& primitive = prepared.objects[0].primitives[0];
+    primitive.flags = drawing::primitive_animated;
+    primitive.texture = &texture;
+    primitive.cursor.sequence = &sequence;
+    primitive.cursor.frame_index = 1;
+    std::array<uint8_t, 1> image{ground_index};
+    drawing::ModelState state{};
+    state.image.sprite.data = image.data();
+    oa::Unit unit{};
+    unit.id = 7;
+    unit.position = {8 * fixed, 0, 8 * fixed};
+    fixture.draws.models.resize(1);
+    auto& draw = fixture.draws.models[0];
+    draw.model.instance = &instance;
+    draw.model.prepared = &prepared;
+    draw.model.state = &state;
+    draw.model.unit = &unit;
+    draw.plan.linked.drawn = true;
+    draw.plan.model.from_image = true;
+    const auto shown = [&] {
+        OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+        OA_CHECK(!fixture.scene.unit_ranges.empty());
+        if (fixture.scene.unit_ranges.empty())
+            return std::array<uint8_t, 4>{};
+        return triangle_color(fixture.scene, fixture.scene.unit_ranges[0].first_vertex);
+    };
+    // A walking unit's cached piece keeps the first frame.
+    auto& piece = instance.pieces()[0];
+    const auto cached = static_cast<uint16_t>(oa::sim::model_runtime::PieceFlag::cached);
+    OA_CHECK((piece.flags & cached) != 0);
+    OA_CHECK(shown()[0] == ground_color[0]);
+    // Its moving piece shows the running frame, unless the unit is idle.
+    piece.flags = static_cast<uint16_t>(piece.flags & ~cached);
+    OA_CHECK(shown()[0] == alternate_color[0]);
+    draw.plan.linked.unlit = true;
+    OA_CHECK(shown()[0] == ground_color[0]);
+    // Over an image with a depth plane a moving piece always runs.
+    state.image.sprite.aux = image.data();
+    OA_CHECK(shown()[0] == alternate_color[0]);
+    // Without an image every piece runs unless the unit is idle.
+    piece.flags = static_cast<uint16_t>(piece.flags | cached);
+    draw.plan.model.from_image = false;
+    OA_CHECK(shown()[0] == ground_color[0]);
+    draw.plan.linked.unlit = false;
+    OA_CHECK(shown()[0] == alternate_color[0]);
+}
+
 /// Keep clipped atlas coordinates valid at the map edge, including fractional intersections.
 void clipped_texture_bounds() {
     Fixture fixture;
@@ -1841,6 +1916,7 @@ int main() {
     terrain_material_repack();
     planned_model_visibility();
     model_material_lifetime();
+    animated_frames_follow_classic_tiers();
     terrain_decals();
     sprite_material_lifetime();
     cropped_ground_sprites();

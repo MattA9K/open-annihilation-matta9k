@@ -318,6 +318,7 @@ bool Runtime::render_live_match_surface() {
         inputs.palette = &match_palette_;
         inputs.draws = &models.draws;
         inputs.graphics_flags = models.renderer.graphics_flags;
+        inputs.moving_pieces_once_built = models.renderer.moving_pieces_once_built;
         inputs.shade_table = models.display.shade;
         inputs.light = {
             models.renderer.light[0], models.renderer.light[1], models.renderer.light[2]

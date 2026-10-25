@@ -1451,6 +1451,35 @@ void naval_reflection(
     }
 }
 
+/// Tells whether a piece's animated textures show their first frame, as the
+/// classic tiers draw the piece (the processor's cached image, and the Full
+/// tier's model stage): a piece the unit's image holds always does, and an
+/// unfinished unit's whole depth image does while its moving pieces wait
+/// for it to be built; a moving piece shows the running frame, unless the
+/// unit is drawn unlit over an image without a depth plane. A unit drawn
+/// without an image shows the first frame while it is unlit.
+///
+/// @param draw the unit's planned draw
+/// @param unit the unit it draws
+/// @param cached the piece is one the unit's image holds
+/// @param moving_pieces_once_built Inputs::moving_pieces_once_built
+/// @return true for the first frame, false for the running one
+bool shows_first_frame(
+    const ModelDraw& draw, const Unit& unit, bool cached, bool moving_pieces_once_built
+) {
+    const auto* state = draw.model.state;
+    const bool image =
+        draw.plan.model.from_image && state != nullptr && state->image.sprite.data != nullptr;
+    if (!image)
+        return draw.plan.linked.unlit;
+    const bool depth_image = state->image.sprite.aux != nullptr;
+    if (depth_image && unit.build_remaining != 0.0F)
+        return (unit.flags & OA_UNIT_FLAG_BUILDING) != 0 || moving_pieces_once_built;
+    if (cached)
+        return true;
+    return !depth_image && draw.plan.linked.unlit;
+}
+
 /// Uses the actual animated, rotated model vertices prepared for this frame.
 void models(const Inputs& in, Scene& scene) {
     std::size_t reflection_budget = 24576;
@@ -1600,6 +1629,12 @@ void models(const Inputs& in, Scene& scene) {
             const bool lit =
                 rows &&
                 (piece.flags & static_cast<uint16_t>(sim::model_runtime::PieceFlag::shaded)) != 0;
+            const bool first_frame = shows_first_frame(
+                draw,
+                *unit,
+                (piece.flags & static_cast<uint16_t>(sim::model_runtime::PieceFlag::cached)) != 0,
+                in.moving_pieces_once_built
+            );
             if (lit)
                 present::gpu_world::vertex_normals(object, prepared, points, normals);
 
@@ -1642,7 +1677,7 @@ void models(const Inputs& in, Scene& scene) {
                 } else {
                     const auto* frame = model::primitive_texture(
                         primitive,
-                        draw.plan.linked.unlit,
+                        first_frame,
                         in.team_colors[unit->owner_index % in.team_colors.size()]
                     );
                     if (frame == nullptr || frame->data == nullptr ||

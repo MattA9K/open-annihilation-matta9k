@@ -103,6 +103,10 @@ struct Inputs {
     int32_t camera_x{};
     int32_t camera_y{};
     uint32_t tick{}; ///< simulation time for construction emission; unchanged when paused
+    /// An unfinished mobile unit waits to be built before its moving pieces
+    /// show their running texture frames, as a building does
+    /// (ModelRenderer::moving_pieces_once_built).
+    bool moving_pieces_once_built{};
 };
 
 /// Rebuilds live terrain, visible models and GAF cutouts from a frame's plan.
