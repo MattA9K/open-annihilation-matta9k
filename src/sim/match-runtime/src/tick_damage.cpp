@@ -41,6 +41,11 @@ bool side_commander(const oa::World& world, const oa::Unit& unit) noexcept {
 }
 
 std::size_t Match::order_bucket(const sim::simulation_state::Order* order) noexcept {
+    // The entry picked from the order's address cannot change what a match
+    // does: a lookup searches only that entry's list, for the record of this
+    // very order, and nothing walks the entries or their lists in turn. Where
+    // an order lies in memory changes how long finding its record takes,
+    // never which record is found.
     // Fibonacci hashing: the top bits of the address times 2^64 / phi.
     constexpr uint64_t golden_multiplier = 0x9e3779b97f4a7c15ull;
     const auto address = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(order));
