@@ -1088,7 +1088,15 @@ clears its folders before each run. `native-net-loopback-brain`
 (`tools/check_native_net_brain.py`) seats Steady Commander at firm on the
 host's computer. The brain places four frames late in the build window and
 then stops, so the engine's computer player can strike, and the check
-requires that seat's line once.
+requires that seat's line once. `native-net-loopback-brain-starts`
+(`tools/check_native_net_brain_starts.py`) plays fixed starts with a
+computer player on each machine, whose seats print every player's start by
+name; the two must agree. The host sends each machine only its own
+players' starts and deals fixed starts in its own slot order, which the
+other machines' slots need not follow. Network play therefore notes
+another machine's player at the start worked out from the host's slot
+table under fixed starts (`net_match_fixed_start_positions`), and at none
+under shuffled ones, when a brain reads only its own.
 
 ## The mutator picker
 

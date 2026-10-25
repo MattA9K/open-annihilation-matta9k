@@ -454,6 +454,7 @@ Network play's own checks, the last rows, are in every build.
 | `--net-loopback-watcher` | The loopback check's joiner watches. |
 | `--net-loopback-computer` | The loopback check's host seats a computer player. |
 | `--net-loopback-each-ai` | The loopback check's host and joiner each seat a computer player. |
+| `--net-loopback-fixed-starts` | The loopback check's host fixes the start positions. |
 | `--check-host-not-found` | Checks a joiner whose host is never found. |
 | `--check-opened-launch start\|menu FILE` | Opens `FILE` as the system opens a launch file: as the game starts, before its window opens, or once the main menu has settled. |
 | `--check-recording-hook` | Checks the game declines bytes that are no recording and refuses a cut one. |
