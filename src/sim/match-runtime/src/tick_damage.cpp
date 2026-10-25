@@ -39,13 +39,44 @@ bool side_commander(const oa::World& world, const oa::Unit& unit) noexcept {
            ) == 0;
 }
 
+std::size_t Match::order_bucket(const sim::simulation_state::Order* order) noexcept {
+    // Fibonacci hashing: the top bits of the address times 2^64 / phi.
+    constexpr uint64_t golden_multiplier = 0x9e3779b97f4a7c15ull;
+    const auto address = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(order));
+    return static_cast<std::size_t>((address * golden_multiplier) >> (64 - order_bucket_bits));
+}
+
 Match::RuntimeOrder* Match::runtime_order(const sim::simulation_state::Order* order) {
     if (order == nullptr)
         return nullptr;
-    for (auto& entry : orders_)
+    for (auto* entry = order_buckets_[order_bucket(order)]; entry != nullptr;
+         entry = entry->bucket_next)
         if (&entry->order == order)
-            return entry.get();
+            return entry;
     return nullptr;
+}
+
+const Match::RuntimeOrder* Match::runtime_order(const sim::simulation_state::Order* order) const {
+    return const_cast<Match*>(this)->runtime_order(order);
+}
+
+Match::RuntimeOrder& Match::adopt_order(std::unique_ptr<RuntimeOrder> entry) {
+    auto& record = *entry;
+    orders_.push_back(std::move(entry));
+    auto& head = order_buckets_[order_bucket(&record.order)];
+    record.bucket_next = head;
+    head = &record;
+    return record;
+}
+
+void Match::drop_order(const RuntimeOrder& record) {
+    for (auto** link = &order_buckets_[order_bucket(&record.order)]; *link != nullptr;
+         link = &(*link)->bucket_next)
+        if (*link == &record) {
+            *link = record.bucket_next;
+            break;
+        }
+    std::erase_if(orders_, [&](const auto& candidate) { return candidate.get() == &record; });
 }
 
 void Match::wake_target_observers(sim::simulation_state::Unit& unit, uint32_t event) {
@@ -167,7 +198,7 @@ void Match::apply_damage_event(
                 sim::unit_movement::cosine_scaled(heading, hit_script_scale),
                 sim::unit_movement::sine_scaled(heading, hit_script_scale)
             };
-            instance->script()->call("HitByWeapon", hit, false);
+            instance->script()->call(ScriptFunction::hit_by_weapon, hit, false);
             auto percent = 0;
             if (unit.type && unit.type->maximum_health) {
                 percent = static_cast<int32_t>(
@@ -180,7 +211,7 @@ void Match::apply_damage_event(
                     percent = 100;
             }
             const std::array<int32_t, 1> taken{percent};
-            instance->script()->call("TakeDamage", taken, false);
+            instance->script()->call(ScriptFunction::take_damage, taken, false);
         }
     }
 }
@@ -540,7 +571,7 @@ void Match::teardown_dead_unit(
     if (settled_elsewhere && outcome.killed_percent > 0)
         if (auto* instance = this->instance(slot.unit_index); instance && instance->script()) {
             const std::array<int32_t, 1> percent{outcome.killed_percent};
-            (void)instance->script()->call("Killed", percent, true);
+            (void)instance->script()->call(ScriptFunction::killed, percent, true);
         }
     record_death_statistics(slot, death, killer);
     assign_squad(slot, 0xffffffffu);
