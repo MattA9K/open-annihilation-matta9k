@@ -399,12 +399,12 @@ int main(int argc, char** argv) {
         const auto art = renderer_water_classic::art_motion(water, 0, 0, 512, 512);
         OA_CHECK(!art.still());
         water.art = &art;
-        WorldDrawList draws;
+        WorldDrawList sea_bed_draws;
         SpriteDraw patch;
         patch.on_map = true;
         patch.terrain_decal = true;
         patch.world_position = oa::FixedVec3{128 * 65536, 16 * 65536, 128 * 65536};
-        draws.sprites.push_back(patch);
+        sea_bed_draws.sprites.push_back(patch);
         const WorldDraw lying{WorldDrawKind::sprite, 0};
         const auto quad = [&](float top) {
             card::CardFrame drawn;
@@ -416,7 +416,7 @@ int main(int argc, char** argv) {
         };
         auto moved = quad(96);
         const auto placed = moved.vertices;
-        renderer_water_classic::objects(moved, water, draws, lying, 0, 0);
+        renderer_water_classic::objects(moved, water, sea_bed_draws, lying, 0, 0);
         bool moves = false;
         for (std::size_t i = 0; i < placed.size(); ++i) {
             const auto offset = art.at(placed[i].x, placed[i].y);
@@ -425,40 +425,40 @@ int main(int argc, char** argv) {
             moves = moves || offset[0] != 0 || offset[1] != 0;
         }
         OA_CHECK(moves);
-        OA_CHECK(renderer_water_classic::on_sea_bed(water, draws, lying));
+        OA_CHECK(renderer_water_classic::on_sea_bed(water, sea_bed_draws, lying));
         // Without the motion, or above the sea, it stays.
         water.art = nullptr;
         auto still = quad(96);
-        renderer_water_classic::objects(still, water, draws, lying, 0, 0);
+        renderer_water_classic::objects(still, water, sea_bed_draws, lying, 0, 0);
         OA_CHECK(still.vertices[0].x == 120 && still.vertices[0].y == 96);
         water.art = &art;
-        draws.sprites[0].world_position->y = 40 * 65536;
+        sea_bed_draws.sprites[0].world_position->y = 40 * 65536;
         still = quad(96);
-        renderer_water_classic::objects(still, water, draws, lying, 0, 0);
+        renderer_water_classic::objects(still, water, sea_bed_draws, lying, 0, 0);
         OA_CHECK(still.vertices[0].x == 120 && still.vertices[0].y == 96);
-        OA_CHECK(!renderer_water_classic::on_sea_bed(water, draws, lying));
+        OA_CHECK(!renderer_water_classic::on_sea_bed(water, sea_bed_draws, lying));
         // An upright feature deep below moves at its foot; its top, out of
         // the water, stays.
-        draws.sprites[0].terrain_decal = false;
-        draws.sprites[0].world_position->y = 4 * 65536;
+        sea_bed_draws.sprites[0].terrain_decal = false;
+        sea_bed_draws.sprites[0].world_position->y = 4 * 65536;
         auto upright = quad(110);
         const auto standing = upright.vertices;
-        renderer_water_classic::objects(upright, water, draws, lying, 0, 0);
+        renderer_water_classic::objects(upright, water, sea_bed_draws, lying, 0, 0);
         OA_CHECK(upright.vertices[0].x == standing[0].x && upright.vertices[0].y == 110);
         const auto foot = art.at(standing[2].x, standing[2].y);
         OA_CHECK(std::abs(upright.vertices[2].x - standing[2].x - foot[0]) < 1.0e-4F);
-        OA_CHECK(!renderer_water_classic::on_sea_bed(water, draws, lying));
+        OA_CHECK(!renderer_water_classic::on_sea_bed(water, sea_bed_draws, lying));
         // Light's halos stay at their event.
         const WorldDraw lit{WorldDrawKind::lit_sprite, 0};
-        draws.sprites[0].terrain_decal = true;
+        sea_bed_draws.sprites[0].terrain_decal = true;
         auto halo = quad(96);
-        renderer_water_classic::objects(halo, water, draws, lit, 0, 0);
+        renderer_water_classic::objects(halo, water, sea_bed_draws, lit, 0, 0);
         OA_CHECK(halo.vertices[0].x == 120 && halo.vertices[0].y == 96);
-        OA_CHECK(!renderer_water_classic::on_sea_bed(water, draws, lit));
+        OA_CHECK(!renderer_water_classic::on_sea_bed(water, sea_bed_draws, lit));
         // Shadows on the sea bed lie under the surface too.
-        draws.sprites[0].terrain_decal = false;
-        draws.sprites[0].shadow = true;
-        OA_CHECK(renderer_water_classic::on_sea_bed(water, draws, lying));
+        sea_bed_draws.sprites[0].terrain_decal = false;
+        sea_bed_draws.sprites[0].shadow = true;
+        OA_CHECK(renderer_water_classic::on_sea_bed(water, sea_bed_draws, lying));
         // The surface draws only with its effects on.
         OA_CHECK(renderer_water_classic::surface_drawn(water));
         water.ripples = 0;
@@ -479,19 +479,19 @@ int main(int argc, char** argv) {
         // Shores two cells wide every sixteen across a deep sea.
         for (std::size_t cell = 0; cell < shallows.attributes.size(); ++cell)
             shallows.attributes[cell].height = cell % 16 < 2 ? 24 : 0;
-        renderer_water_classic::Inputs coast;
-        coast.map = &shallows;
-        coast.view.width = 1920;
-        coast.view.height = 1080;
-        coast.coast = 1;
-        coast.wind.strength = 1;
+        renderer_water_classic::Inputs shore;
+        shore.map = &shallows;
+        shore.view.width = 1920;
+        shore.view.height = 1080;
+        shore.coast = 1;
+        shore.wind.strength = 1;
         // A crest over the whole of water 8 pixels deep.
-        coast.seconds = 1.61;
-        coast.visible = [](float, float) { return true; };
+        shore.seconds = 1.61;
+        shore.visible = [](float, float) { return true; };
         for (const float zoom : {1.0F, 0.5F, 0.3F}) {
-            coast.view.zoom = zoom;
+            shore.view.zoom = zoom;
             card::CardFrame foam;
-            renderer_water_classic::surface(foam, coast);
+            renderer_water_classic::surface(foam, shore);
             const auto shown = [&](float extent) { return std::floor(extent / zoom / 16); };
             OA_CHECK(
                 foam.vertices.size() / 4 >=
@@ -499,9 +499,9 @@ int main(int argc, char** argv) {
             );
             OA_CHECK(card::check_frame(foam).empty());
         }
-        coast.coast = 0;
+        shore.coast = 0;
         card::CardFrame none;
-        renderer_water_classic::surface(none, coast);
+        renderer_water_classic::surface(none, shore);
         OA_CHECK(none.vertices.empty());
     }
     return oa::test::check_exit_status();
