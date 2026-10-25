@@ -260,9 +260,9 @@ bool Runtime::live_renderer_take_event(SDL_Event& event) {
     return true;
 }
 
-void Runtime::render_live_match_surface() {
+bool Runtime::render_live_match_surface() {
     if (!engine_settings().allow_full_3d || !match_ || !selected_tnt_)
-        return;
+        return true;
     if (!live_renderer_)
         live_renderer_.reset(new LiveRenderer{});
     auto& live = *live_renderer_;
@@ -304,7 +304,7 @@ void Runtime::render_live_match_surface() {
         focus_x, elevation, focus_y + elevation * height_lift, width * 0.5F, height * 0.5F, zoom
     };
     if (!renderer_live_camera::projection(live.camera, live.view, live.projection))
-        return;
+        return true;
     if (live_renderer_active() && !live.failed) {
         auto& models = match_models();
         renderer_live_scene::Inputs inputs{};
@@ -414,20 +414,20 @@ void Runtime::render_live_match_surface() {
             live.drag_button = 0;
             live.pivot_held = false;
             std::cerr << "3D view: " << error << '\n';
-            // This frame omitted the classic raster. Rebuild it once now that
-            // the failed flag selects the fallback, keeping the battlefield usable.
-            render_match_surface();
-            return;
+            // This frame left out the classic raster: render_match_surface
+            // draws the frame again, once, classically.
+            return false;
         }
     }
     if (!live_renderer_active())
-        return;
+        return true;
     if (!live.failed) {
         draw_live_overlays();
         draw_live_selection();
         draw_live_unit_overlays();
         rebuild_on_screen_units();
     }
+    return true;
 }
 
 bool Runtime::scroll_live_match_view(double screen_dx, double screen_dy) {

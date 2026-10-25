@@ -821,6 +821,13 @@ renderer::ButtonCondition Runtime::match_button_condition(std::size_t index) con
 }
 
 void Runtime::render_match_surface() {
+    // A failed rotated frame puts the view back classic, so the second draw
+    // draws the battlefield as the classic tiers do.
+    if (!draw_match_surface())
+        std::ignore = draw_match_surface();
+}
+
+bool Runtime::draw_match_surface() {
     if (!match_ || !selected_tnt_)
         throw std::logic_error("match renderer requires an initialized offline match");
     // The drawing rebuilds piece placements the match reads, so it rounds as
@@ -2321,7 +2328,7 @@ void Runtime::render_match_surface() {
         overlay_target_ = nullptr;
         hud_source_space_ = false;
         paint_origin_ = {};
-        return;
+        return true;
     }
     // The HUD overlay: resource bars, bottom panel, then radar at
     // Game.radar_offset_x and radar_offset_y, then the GUI's child gadgets last.
@@ -2399,8 +2406,14 @@ void Runtime::render_match_surface() {
     }
     // The rotated view replaces the battlefield's picture, so it is drawn
     // before what lies over the battlefield: the megamap, the markers and
-    // the commander placement.
-    render_live_match_surface();
+    // the commander placement. A rotated frame the card cannot draw ends the
+    // frame here, before anything is drawn over the battlefield it left out.
+    if (!render_live_match_surface()) {
+        overlay_target_ = nullptr;
+        hud_source_space_ = false;
+        paint_origin_ = {};
+        return false;
+    }
     // ui.megamap draws over the battlefield in its place.
     draw_megamap();
     paint_on(PaintLayer::hud);
@@ -2448,6 +2461,7 @@ void Runtime::render_match_surface() {
     // Director mode composes its own frame (draw_director_frame).
     if (!match_use_layers_ && !directed)
         compose_match_frame(surface_);
+    return true;
 }
 
 } // namespace oa::app

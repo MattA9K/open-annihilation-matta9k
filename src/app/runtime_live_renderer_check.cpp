@@ -729,10 +729,23 @@ int Runtime::check_live_renderer() {
         match_layout_.battlefield_width() > 4096,
         "failure fixture did not exceed the GPU dimension limit"
     );
-    snapshot();
+    // The failed rotated frame is drawn once, classically: the extension's
+    // HUD is asked for once, and the frame is the classic frame that follows.
+    int hud_draws = 0;
+    const Extension saved_extension = extension_;
+    extension_ = {};
+    extension_.context = &hud_draws;
+    extension_.draw_match_hud = [](void* context, Runtime&) { ++*static_cast<int*>(context); };
+    const auto fallback = snapshot();
+    extension_ = saved_extension;
     require(
         live_renderer_failed() && !live_renderer_active(),
         "GPU rejection did not release the failed camera to classic controls"
+    );
+    require(hud_draws == 1, "the failed rotated frame was drawn more than once");
+    require(
+        snapshot().rgb == fallback.rgb,
+        "the failed rotated frame did not fall back to a classic one"
     );
     match_layout_ = recovery_layout;
     SDL_Event recovery_wheel{};

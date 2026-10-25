@@ -6951,7 +6951,10 @@ class Runtime final : public menu::Host,
     /// @return whether the 3D view consumed the event
     bool live_renderer_take_event(SDL_Event& event);
     /// Replaces the battlefield with the current match's 3D frame.
-    void render_live_match_surface();
+    /// @return false when the card could not draw the rotated frame, whose
+    ///         battlefield the classic raster left out; the view is then
+    ///         classic again, and the frame must be drawn again
+    [[nodiscard]] bool render_live_match_surface();
     /// Presentation-only effect history, independent of the active renderer.
     struct MatchEffects;
     /// Observes transient events after a simulation tick without changing the match.
@@ -8694,7 +8697,18 @@ class Runtime final : public menu::Host,
     /// the match reads back from the draw (the view in Game, the on-screen
     /// list, the piece transforms, the radar's picture and blips) follows the
     /// zoom and the camera alone, whatever the draw scale.
+    ///
+    /// A rotated frame the card cannot draw leaves the battlefield undrawn;
+    /// that frame ends there, before anything is drawn over the battlefield
+    /// or the extension's HUD is asked for, and the frame is drawn once more,
+    /// classically (draw_match_surface).
     void render_match_surface();
+
+    /// Draws the match frame as render_match_surface describes.
+    ///
+    /// @return false when the rotated view's frame failed, leaving the frame
+    ///         undrawn past the battlefield, with the view put back classic
+    [[nodiscard]] bool draw_match_surface();
 
     /// Returns the 3DO renderer state of the current match, built on first use.
     ///
