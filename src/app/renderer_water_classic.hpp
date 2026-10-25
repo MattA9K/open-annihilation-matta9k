@@ -21,6 +21,9 @@ struct Inputs {
     float shimmer{};
     float reflections{};
     const renderer_water::SurfaceCache* water_surface{};
+    /// Water ripples' motion of the water's art this frame (art_motion),
+    /// which moves what lies on the sea bed with it; null for none.
+    const full_terrain::ArtMotion* art{};
     std::span<const renderer_water::Disturbance> disturbances{};
     /// Vertices already spent on reflections in this scene.
     std::size_t reflected_vertices{};
@@ -39,10 +42,23 @@ struct Inputs {
 full_terrain::ArtMotion
 art_motion(const Inputs& in, double left, double top, double right, double bottom);
 
-/// Append bounded water highlights before objects and the fog passes.
+/// Tells whether a draw lies on the sea bed: a feature lying on the ground,
+/// or a shadow, below the sea. The Full presenter draws these before
+/// surface(), so that the water's foam, rings and splashes lie over them as
+/// the ripples' moved art lies under them.
+bool on_sea_bed(const Inputs& in, const WorldDrawList& draws, const WorldDraw& draw);
+
+/// Tells whether surface() can draw anything, and so whether what lies on
+/// the sea bed is drawn before it.
+bool surface_drawn(const Inputs& in);
+
+/// Append the coast's foam and the shots' rings and splashes, over what
+/// lies on the sea bed and under everything else, before the fog passes.
 void surface(card::CardFrame& frame, const Inputs& in);
 
-/// Shade submerged geometry and place a reflected naval silhouette before its original.
+/// Move a sprite under the water with the ripples' moved art (Inputs::art),
+/// shade submerged geometry and place a reflected naval silhouette before
+/// its original.
 void objects(
     card::CardFrame& frame,
     Inputs& in,

@@ -99,7 +99,70 @@ card::Batch batch(const Inputs& in, std::size_t first) {
     };
     return out;
 }
+
+/// The sprite of a draw, where it is one: a feature, its shadow or an effect.
+const SpriteDraw* sprite_of(const WorldDrawList& draws, const WorldDraw& draw) {
+    const bool sprite = draw.kind == WorldDrawKind::sprite ||
+                        draw.kind == WorldDrawKind::blended_sprite ||
+                        draw.kind == WorldDrawKind::lit_sprite;
+    return sprite && draw.index < draws.sprites.size() ? &draws.sprites[draw.index] : nullptr;
+}
+
+/// Moves a sprite under the water with the water's art the ripples move
+/// beneath it, so that what lies on the sea bed stays where the art shows
+/// it: a feature or shadow lying on the ground by the art's motion at each
+/// corner; an upright feature by the motion at each corner as deep as the
+/// corner lies, so that a top standing out of the water stays. Effects of
+/// light are halos at their event, which stay.
+void move_with_art(
+    card::CardFrame& frame,
+    const Inputs& in,
+    const WorldDrawList& draws,
+    const WorldDraw& draw,
+    std::size_t first_vertex
+) {
+    const SpriteDraw* sprite = sprite_of(draws, draw);
+    if (!in.art || in.art->offsets.empty() || !sprite || !sprite->world_position ||
+        draw.kind == WorldDrawKind::lit_sprite)
+        return;
+    const float y = sprite->world_position->y / fixed;
+    const float sea = float(in.map->sea_level);
+    if (!(y < sea))
+        return;
+    const float scale = in.view.zoom * in.view.scale;
+    const auto& v = in.view;
+    const auto anchor =
+        screen(in, sprite->world_position->x / fixed, sprite->world_position->z / fixed - y * 0.5F);
+    const bool lying = sprite->terrain_decal || sprite->shadow || !sprite->on_map;
+    for (std::size_t i = first_vertex; i < frame.vertices.size(); ++i) {
+        auto& vertex = frame.vertices[i];
+        float share = 1;
+        if (!lying) {
+            const float height = y + std::max(0.0F, (anchor[1] - vertex.y) / scale * 2);
+            share = renderer_water_surface::art_depth_weight(sea - height);
+        }
+        // The picture's map pixel under the corner, where the terrain's
+        // moved art was cut.
+        const auto offset = in.art->at(
+            (vertex.x - v.origin_x) / scale + v.camera_x + float(v.offset.x),
+            (vertex.y - v.origin_y) / scale + v.camera_y + float(v.offset.y)
+        );
+        vertex.x += offset[0] * share * scale;
+        vertex.y += offset[1] * share * scale;
+    }
+}
 } // namespace
+
+bool on_sea_bed(const Inputs& in, const WorldDrawList& draws, const WorldDraw& draw) {
+    const SpriteDraw* sprite = sprite_of(draws, draw);
+    return in.map && in.map->sea_level > 0 && sprite && draw.kind != WorldDrawKind::lit_sprite &&
+           (sprite->terrain_decal || sprite->shadow) && sprite->world_position &&
+           sprite->world_position->y / fixed < float(in.map->sea_level);
+}
+
+bool surface_drawn(const Inputs& in) {
+    return in.map && in.map->sea_level > 0 && detail(in) > 0 && (in.ripples > 0 || in.coast > 0);
+}
 
 full_terrain::ArtMotion
 art_motion(const Inputs& in, double left, double top, double right, double bottom) {
@@ -344,6 +407,7 @@ void objects(
 ) {
     if (!in.map || detail(in) == 0 || first_vertex >= frame.vertices.size())
         return;
+    move_with_art(frame, in, draws, draw, first_vertex);
     std::optional<FixedVec3> position;
     bool naval = false;
     float hull_waterline = 0;

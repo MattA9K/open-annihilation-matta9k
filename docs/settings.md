@@ -540,9 +540,11 @@ the game draws its text and how the modern fonts draw it.
   - **Water ripples** move the map's own water art gently in one direction
     the map keeps, the same after a saved game is loaded: broad swells and
     fine ripples at different speeds, the finer ones shown only up close.
-    Visible naval shots and hits stir the water around them, and shells
-    that strike the water splash. Torpedoes and their hits stay at their
-    depth and make no splash.
+    What lies on the sea bed, such as an underwater metal patch, moves with
+    the art and lies under the water's foam and rings, while the shore and
+    land stay still. Visible naval shots and hits stir the water around
+    them, and shells that strike the water splash. Torpedoes and their hits
+    stay at their depth and make no splash.
   - **Coastal waves** run toward the shore, gentler on small, sheltered
     water.
   - **Underwater shimmer** tints and lights only the parts of scenery and

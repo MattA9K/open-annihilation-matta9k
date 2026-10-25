@@ -5,6 +5,7 @@
 #include "renderer_effect_sources.hpp"
 #include "renderer_aircraft_shadow.hpp"
 #include "renderer_water_appearance.hpp"
+#include "renderer_water_surface.hpp"
 
 #include "oa/present/world_renderer/world_fog.hpp"
 #include "oa/sim/visibility_state.hpp"
@@ -743,6 +744,23 @@ void terrain(const Inputs& in, Scene& scene) {
 }
 
 /// Drapes a cutout over the exact terrain triangles, preserving its painted footprint.
+/// Moves a corner lying under the water by the swells the vertex stage
+/// moves the ground under it by (shaders/live_scene_vertex.glsl), so that
+/// what lies on the sea bed moves with the water's art; a corner standing
+/// out of the water stays.
+void move_with_swells(const Inputs& in, Vertex& vertex) {
+    const float depth = float(in.sea_level) - vertex.height;
+    if (in.sea_level <= 0 || !(depth > 0) || !(in.water.ripples > 0) || !(in.water.detail > 0))
+        return;
+    const auto offset =
+        renderer_water_surface::art_offset(vertex.x, vertex.z + depth * 0.5F, in.water.wind, 0);
+    const float share = std::clamp(in.water.ripples, 0.0F, 2.0F) *
+                        std::clamp(in.water.detail, 0.0F, 1.0F) *
+                        renderer_water_surface::art_depth_weight(depth);
+    vertex.x += offset[0] * share;
+    vertex.z += offset[1] * share;
+}
+
 void decal(
     const Inputs& in,
     Scene& scene,
@@ -853,6 +871,7 @@ void decal(
                     };
                     if (soft_edges)
                         corners[corner].terrain_size = -1;
+                    move_with_swells(in, corners[corner]);
                 }
                 polygon(scene, std::span(corners).first(clipped.count));
             }
@@ -2360,6 +2379,8 @@ void sprites(const Inputs& in, Scene& scene, bool ground_pass) {
             if (submerged_effect) {
                 result.terrain_size = -5;
                 result.terrain_x = in.sea_level - origin_h;
+            } else if (!facing) {
+                move_with_swells(in, result);
             }
             return result;
         };

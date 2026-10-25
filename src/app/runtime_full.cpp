@@ -1877,6 +1877,7 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                 water.water_surface = water_surface();
                 water.disturbances = water_disturbances();
                 water.wind = water_wind();
+                water.art = &water_art;
                 model_inputs.water_shimmer =
                     selected_tnt_->sea_level > 0
                         ? water.shimmer * std::clamp((zoom - 0.25F) / 0.25F, 0.0F, 1.0F)
@@ -1905,13 +1906,12 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                                 water_coverage[index], sim::visibility_state::SightReading::player
                             ));
                 };
-                renderer_water_classic::surface(frame, water);
                 {
                     full::SpriteFrame sprites(sprite_inputs, full.sprite_pages, hooks, frame);
                     std::size_t before = frame.vertices.size();
                     full.models.emit_shadows(model_inputs, scene, full.executor, frame);
                     full.frame_vertices.shadows += frame.vertices.size() - before;
-                    for (const WorldDraw& draw : models.draws.draws) {
+                    const auto emit_draw = [&](const WorldDraw& draw) {
                         before = frame.vertices.size();
                         const auto first_water_index = frame.indices.size();
                         if (full::sprite_kind(draw.kind)) {
@@ -1924,7 +1924,22 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                         renderer_water_classic::objects(
                             frame, water, models.draws, draw, before, first_water_index
                         );
-                    }
+                    };
+                    // What lies on the sea bed first, under the water's foam,
+                    // rings and splashes, then everything else in the list's
+                    // order over them.
+                    const bool water_surface_drawn = renderer_water_classic::surface_drawn(water);
+                    const auto lies_on_sea_bed = [&](const WorldDraw& draw) {
+                        return water_surface_drawn &&
+                               renderer_water_classic::on_sea_bed(water, models.draws, draw);
+                    };
+                    for (const WorldDraw& draw : models.draws.draws)
+                        if (lies_on_sea_bed(draw))
+                            emit_draw(draw);
+                    renderer_water_classic::surface(frame, water);
+                    for (const WorldDraw& draw : models.draws.draws)
+                        if (!lies_on_sea_bed(draw))
+                            emit_draw(draw);
                     full.sprites = sprites.finish();
                 }
                 if (full.sprites.pages_overflowed && !full.overflow_logged) {

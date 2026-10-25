@@ -382,6 +382,92 @@ int main(int argc, char** argv) {
     frame.reset();
     renderer_water_classic::surface(frame, input);
     OA_CHECK(frame.vertices.empty());
+    // What lies on the sea bed moves with the art the ripples move under
+    // it, and is drawn before the surface's foam and rings.
+    {
+        oa::formats::tnt::Map sea;
+        sea.attribute_width = sea.attribute_height = 32;
+        sea.sea_level = 32;
+        sea.attributes.resize(32 * 32);
+        renderer_water_classic::Inputs water;
+        water.map = &sea;
+        water.view.width = 320;
+        water.view.height = 240;
+        water.ripples = 1;
+        water.wind.strength = 1;
+        water.visible = [](float, float) { return true; };
+        const auto art = renderer_water_classic::art_motion(water, 0, 0, 512, 512);
+        OA_CHECK(!art.still());
+        water.art = &art;
+        WorldDrawList draws;
+        SpriteDraw patch;
+        patch.on_map = true;
+        patch.terrain_decal = true;
+        patch.world_position = oa::FixedVec3{128 * 65536, 16 * 65536, 128 * 65536};
+        draws.sprites.push_back(patch);
+        const WorldDraw lying{WorldDrawKind::sprite, 0};
+        const auto quad = [&](float top) {
+            card::CardFrame drawn;
+            card::append_quad(drawn, 120, top, 16, 16, 0, 0, 1, 1, {1, 1, 1, 1});
+            card::Batch batch;
+            batch.index_count = 6;
+            drawn.batches.push_back(batch);
+            return drawn;
+        };
+        auto moved = quad(96);
+        const auto placed = moved.vertices;
+        renderer_water_classic::objects(moved, water, draws, lying, 0, 0);
+        bool moves = false;
+        for (std::size_t i = 0; i < placed.size(); ++i) {
+            const auto offset = art.at(placed[i].x, placed[i].y);
+            OA_CHECK(std::abs(moved.vertices[i].x - placed[i].x - offset[0]) < 1.0e-4F);
+            OA_CHECK(std::abs(moved.vertices[i].y - placed[i].y - offset[1]) < 1.0e-4F);
+            moves = moves || offset[0] != 0 || offset[1] != 0;
+        }
+        OA_CHECK(moves);
+        OA_CHECK(renderer_water_classic::on_sea_bed(water, draws, lying));
+        // Without the motion, or above the sea, it stays.
+        water.art = nullptr;
+        auto still = quad(96);
+        renderer_water_classic::objects(still, water, draws, lying, 0, 0);
+        OA_CHECK(still.vertices[0].x == 120 && still.vertices[0].y == 96);
+        water.art = &art;
+        draws.sprites[0].world_position->y = 40 * 65536;
+        still = quad(96);
+        renderer_water_classic::objects(still, water, draws, lying, 0, 0);
+        OA_CHECK(still.vertices[0].x == 120 && still.vertices[0].y == 96);
+        OA_CHECK(!renderer_water_classic::on_sea_bed(water, draws, lying));
+        // An upright feature deep below moves at its foot; its top, out of
+        // the water, stays.
+        draws.sprites[0].terrain_decal = false;
+        draws.sprites[0].world_position->y = 4 * 65536;
+        auto upright = quad(110);
+        const auto standing = upright.vertices;
+        renderer_water_classic::objects(upright, water, draws, lying, 0, 0);
+        OA_CHECK(upright.vertices[0].x == standing[0].x && upright.vertices[0].y == 110);
+        const auto foot = art.at(standing[2].x, standing[2].y);
+        OA_CHECK(std::abs(upright.vertices[2].x - standing[2].x - foot[0]) < 1.0e-4F);
+        OA_CHECK(!renderer_water_classic::on_sea_bed(water, draws, lying));
+        // Light's halos stay at their event.
+        const WorldDraw lit{WorldDrawKind::lit_sprite, 0};
+        draws.sprites[0].terrain_decal = true;
+        auto halo = quad(96);
+        renderer_water_classic::objects(halo, water, draws, lit, 0, 0);
+        OA_CHECK(halo.vertices[0].x == 120 && halo.vertices[0].y == 96);
+        OA_CHECK(!renderer_water_classic::on_sea_bed(water, draws, lit));
+        // Shadows on the sea bed lie under the surface too.
+        draws.sprites[0].terrain_decal = false;
+        draws.sprites[0].shadow = true;
+        OA_CHECK(renderer_water_classic::on_sea_bed(water, draws, lying));
+        // The surface draws only with its effects on.
+        OA_CHECK(renderer_water_classic::surface_drawn(water));
+        water.ripples = 0;
+        OA_CHECK(!renderer_water_classic::surface_drawn(water));
+        water.coast = 1;
+        OA_CHECK(renderer_water_classic::surface_drawn(water));
+        water.view.zoom = 0.25F;
+        OA_CHECK(!renderer_water_classic::surface_drawn(water));
+    }
     // The coast's foam lies on every shallow cell the view shows, at any
     // zoom: a wide view far out draws as many cells' foam as it shows, not
     // one cell in a few.

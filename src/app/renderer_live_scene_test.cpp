@@ -3,6 +3,7 @@
 
 // Live terrain preserves painted coordinates, visibility and bounded atlas reuse.
 #include "renderer_live_scene.hpp"
+#include "renderer_water_surface.hpp"
 #include "renderer_aircraft_shadow.hpp"
 #include "renderer_water_appearance.hpp"
 #include "oa/test/check.hpp"
@@ -1118,6 +1119,73 @@ void terrain_decals() {
         OA_CHECK(fixture.scene.vertices[i].z == z);
 }
 
+/// What lies on the sea bed moves with the swells the vertex stage moves
+/// the ground by, and a feature's top standing out of the water stays.
+void sea_bed_follows_swells() {
+    Fixture fixture;
+    fixture.inputs.sea_level = 32;
+    fixture.inputs.water.wind.strength = 1;
+    oa::formats::gaf::RenderedFrame frame{};
+    frame.width = frame.height = 24;
+    frame.pixels.assign(frame.width * frame.height, ground_index);
+    frame.coverage.assign(frame.width * frame.height, 1);
+    fixture.draws.sprites.push_back({&frame, {4, 4}, false, true, true});
+    fixture.draws.sprites.back().world_position = oa::FixedVec3{16 * 65536, 0, 16 * 65536};
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    const auto still = fixture.scene.vertices;
+    fixture.inputs.water.ripples = 1;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.vertices.size() == still.size());
+    bool moved = false;
+    for (std::size_t i = 0; i < std::min(still.size(), fixture.scene.vertices.size()); ++i) {
+        const auto& before = still[i];
+        const auto& after = fixture.scene.vertices[i];
+        if (i < fixture.scene.terrain_vertex_count) {
+            // The ground itself moves in the vertex stage.
+            OA_CHECK(after.x == before.x && after.z == before.z);
+            continue;
+        }
+        const float depth = 32 - before.height;
+        const auto offset = oa::app::renderer_water_surface::art_offset(
+            before.x, before.z + depth * 0.5F, fixture.inputs.water.wind, 0
+        );
+        OA_CHECK(std::abs(after.x - before.x - offset[0]) < tolerance);
+        OA_CHECK(std::abs(after.z - before.z - offset[1]) < tolerance);
+        moved = moved || after.x != before.x;
+    }
+    OA_CHECK(moved);
+    // An upright feature at the sea bed keeps the top it shows above water.
+    frame.origin_y = frame.height;
+    fixture.draws.sprites.back().terrain_decal = false;
+    fixture.draws.sprites.back().world_position = oa::FixedVec3{16 * 65536, 20 * 65536, 16 * 65536};
+    fixture.inputs.water.ripples = 0;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    const auto upright = fixture.scene.vertices;
+    fixture.inputs.water.ripples = 1;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    bool foot_moved = false, top_stayed = false;
+    for (std::size_t i = fixture.scene.terrain_vertex_count;
+         i < std::min(upright.size(), fixture.scene.vertices.size());
+         ++i) {
+        if (upright[i].height >= 32) {
+            OA_CHECK(fixture.scene.vertices[i].x == upright[i].x);
+            top_stayed = true;
+        } else {
+            foot_moved = foot_moved || fixture.scene.vertices[i].x != upright[i].x;
+        }
+    }
+    OA_CHECK(foot_moved && top_stayed);
+    // Dry ground's features stay.
+    fixture.inputs.sea_level = 0;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    const auto dry = fixture.scene.vertices;
+    fixture.inputs.water.ripples = 0;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.vertices.size() == dry.size());
+    for (std::size_t i = 0; i < std::min(dry.size(), fixture.scene.vertices.size()); ++i)
+        OA_CHECK(fixture.scene.vertices[i].x == dry[i].x);
+}
+
 /// Repeated frame references share materials only for the current build.
 void sprite_material_lifetime() {
     Fixture fixture;
@@ -2093,6 +2161,7 @@ void underwater_effect_altitude() {
 
 int main() {
     water_surface_bounds();
+    sea_bed_follows_swells();
     water_disturbance_visibility();
     naval_reflection_visibility();
     model_shade_parity();
