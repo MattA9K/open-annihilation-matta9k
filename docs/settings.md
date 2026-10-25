@@ -509,8 +509,8 @@ the game draws its text and how the modern fonts draw it.
   classic view back. A match always starts in the classic top-down view,
   and Off keeps it there. While an order or a building is armed, Alt+click
   still places it unsnapped (the click snap's override key) and leaves the
-  camera alone. With Hardware acceleration Off or Basic the gesture only
-  says that it needs Full. The rotated view is drawn by the graphics card
+  camera alone. With Hardware acceleration Off or Basic, Alt and its drags,
+  Alt+R and Alt+U keep their classic uses. The rotated view is drawn by the graphics card
   through Metal on a Mac or Vulkan elsewhere: on Windows 7 to 11 and Linux
   where the card's driver offers Vulkan, but not on Windows XP or 95 to
   Me. Where neither can be used, the first turn fails once and the view
