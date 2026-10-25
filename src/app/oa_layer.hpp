@@ -911,6 +911,14 @@ class OaLayer {
     /// that frame.
     void forget_kept_drawings() noexcept;
 
+    /// Returns the number of the drawing the front end keeps of a screen, as
+    /// the last present left it, by which a check tells whether a present
+    /// drew the screen again.
+    ///
+    /// @param screen the screen
+    /// @return the drawing's number; 0 when none is kept
+    [[nodiscard]] uint64_t kept_drawing(const LayerScreen& screen) const noexcept;
+
     /// The layer's overlay's input callback (OverlayDesc::event): take_input.
     ///
     /// @param context the screen context, with its input and the runtime as its host
@@ -1184,6 +1192,7 @@ class OaLayer {
         uint32_t icon_height{};     ///< the icon's rows
         const void* language{};     ///< the interface's language
         uint64_t languages{};       ///< the languages' registry generation
+        uint64_t interface_words{}; ///< the interface's words' generation (interface_generation)
         bool modern_text{};         ///< game text is drawn in the modern fonts
         bool outline{};             ///< modern text is outlined
         bool shadow{};              ///< modern text casts a shadow

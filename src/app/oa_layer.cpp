@@ -2966,6 +2966,13 @@ void OaLayer::forget_kept_drawings() noexcept {
     front_drawings_.clear();
 }
 
+uint64_t OaLayer::kept_drawing(const LayerScreen& screen) const noexcept {
+    for (const KeptDrawing& drawing : front_drawings_)
+        if (drawing.screen == screen.identity())
+            return drawing.drawing;
+    return 0;
+}
+
 void OaLayer::darken_front_end(renderer::Surface& frame) const {
     // A blend of the frame itself, in 256ths, for each: the same picture the
     // window shows at every size. A match is left as it is.
@@ -3254,6 +3261,7 @@ void OaLayer::present_front_end(const SDL_FRect& area) {
     common.icon_height = icon.height;
     common.language = &oa::data::languages::interface_language();
     common.languages = oa::data::languages::registry_generation();
+    common.interface_words = oa::data::languages::interface_generation();
     const oa::present::TextSettings text = oa::present::game_text_settings();
     common.modern_text = text.style.modern_fonts;
     common.outline = text.style.outline;
