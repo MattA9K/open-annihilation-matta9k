@@ -166,7 +166,7 @@ int Runtime::check_live_renderer() {
         const auto saved_modifiers = SDL_GetModState();
         SDL_SetModState(SDL_KMOD_ALT);
         bool taken = false;
-        for (const uint8_t button : {SDL_BUTTON_LEFT, SDL_BUTTON_MIDDLE}) {
+        for (const uint8_t button : {uint8_t{SDL_BUTTON_LEFT}, uint8_t{SDL_BUTTON_MIDDLE}}) {
             SDL_Event press{};
             press.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
             press.button.button = button;
@@ -1833,7 +1833,7 @@ int Runtime::check_live_renderer() {
             inputs.tick = match_->simulation().tick;
             inputs.water.sea_level = static_cast<float>(sea);
             inputs.water.seconds = inputs.tick / 30.0F;
-            inputs.water.reflections = reflections ? 1 : 0;
+            inputs.water.reflections = reflections ? 1.0F : 0.0F;
             inputs.water.shimmer = shimmer;
             renderer_live_camera::TerrainBounds bounds{};
             require(
