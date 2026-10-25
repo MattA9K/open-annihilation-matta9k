@@ -109,10 +109,19 @@ void Runtime::reset_live_renderer() {
 
 bool Runtime::live_renderer_take_event(SDL_Event& event) {
     // Where no rotated view can be drawn, Alt and its clicks and keys stay
-    // the game's.
+    // the game's: in a build with no shaders for it, and below Full
+    // hardware acceleration, which never draws it.
     if (!renderer_live_gpu::shaders_built() || !engine_settings().allow_full_3d ||
         screen_ != Screen::match || !match_ || !selected_tnt_)
         return false;
+    if (!full_presentation() && !options_.headless_check) {
+        // A camera drag begun on Full ends where Full does.
+        if (live_renderer_) {
+            live_renderer_->dragging = false;
+            live_renderer_->drag_button = 0;
+        }
+        return false;
+    }
     if (!live_renderer_)
         live_renderer_.reset(new LiveRenderer{});
     auto& live = *live_renderer_;
@@ -184,11 +193,6 @@ bool Runtime::live_renderer_take_event(SDL_Event& event) {
          (live_renderer_active() && engine_settings().middle_click_pan));
     if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && battlefield &&
         (middle_camera_drag || primary_camera_drag)) {
-        if (!full_presentation() && !options_.headless_check) {
-            live.drag_button = event.button.button;
-            status_ = "3D camera requires Full hardware acceleration";
-            return true;
-        }
         // An explicit camera gesture retries after a failed frame.
         live.failed = false;
         live.unavailable = false;

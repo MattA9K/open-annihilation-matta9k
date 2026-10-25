@@ -160,6 +160,43 @@ int Runtime::check_live_renderer() {
     };
 
     require(!live_renderer_active(), "Skirmish did not start at classic orientation");
+    // Below Full no rotated view is drawn: Alt, its drags and its keys stay
+    // the game's, with no status line in their place.
+    {
+        require(!full_presentation(), "the check's preferences do not keep the match below Full");
+        const bool was_headless = options_.headless_check;
+        options_.headless_check = false;
+        const auto saved_modifiers = SDL_GetModState();
+        SDL_SetModState(SDL_KMOD_ALT);
+        bool taken = false;
+        for (const uint8_t button : {SDL_BUTTON_LEFT, SDL_BUTTON_MIDDLE}) {
+            SDL_Event press{};
+            press.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+            press.button.button = button;
+            press.button.down = true;
+            press.button.x = static_cast<float>(match_layout_.left + 32);
+            press.button.y = static_cast<float>(match_layout_.top + 32);
+            taken = live_renderer_take_event(press) || taken;
+            SDL_Event motion{};
+            motion.type = SDL_EVENT_MOUSE_MOTION;
+            motion.motion.state = SDL_BUTTON_MASK(button);
+            motion.motion.x = press.button.x + orbit_travel;
+            motion.motion.y = press.button.y + orbit_travel;
+            motion.motion.xrel = orbit_travel;
+            motion.motion.yrel = orbit_travel;
+            taken = live_renderer_take_event(motion) || taken;
+            SDL_Event release = press;
+            release.type = SDL_EVENT_MOUSE_BUTTON_UP;
+            release.button.down = false;
+            taken = live_renderer_take_event(release) || taken;
+        }
+        SDL_SetModState(saved_modifiers);
+        taken = key(SDLK_R, SDL_KMOD_ALT) || key(SDLK_U, SDL_KMOD_ALT) || taken;
+        options_.headless_check = was_headless;
+        require(!taken, "below Full the camera took Alt input from the game");
+        require(status_ == initial_status, "below Full the camera answered with a status line");
+        require(!live_renderer_active(), "below Full an Alt+drag turned the camera");
+    }
     // A camera click with no motion still owns its release after Option is
     // released; ordinary classic-view clicks must remain gameplay input.
     for (const bool modified : {false, true}) {
