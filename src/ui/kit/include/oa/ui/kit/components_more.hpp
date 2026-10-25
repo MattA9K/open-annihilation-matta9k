@@ -240,16 +240,33 @@ place_notice(const Notice& notice, const Measure& regular, const Measure& small)
 [[nodiscard]] PlacedNotice place_notice(const Notice& notice, const Fonts* fonts);
 
 /// Returns a question's buttons' places, right-aligned in the footer of a box
-/// of a height and of its size class's width, button_gap columns apart, each
-/// as wide as its caption at
-/// estimated_width and prompt_button_padding more, at least button_width.
-/// They depend on no font, so a press lands where a button is drawn whatever
-/// the fonts. Buttons past most_question_buttons are not placed.
+/// of a height and of its size class's width, button_gap columns apart. Each
+/// is as wide as its caption and prompt_button_padding more, at least
+/// button_width. A caption counts as the wider of its estimated_width and its
+/// width in the small font, so a caption the font draws wider than the
+/// estimate keeps the padding, and one it draws narrower keeps the place the
+/// estimate gives it. A row wider than the room between the box's paddings is
+/// narrowed, its widest buttons first, until it fits. Buttons past
+/// most_question_buttons are not placed.
 ///
 /// @param question the question
 /// @param height the question's height
+/// @param small a caption's width in the small font
 /// @return the buttons' rectangles, left to right
-[[nodiscard]] std::vector<Rect> question_button_rects(const Question& question, int32_t height);
+[[nodiscard]] std::vector<Rect>
+question_button_rects(const Question& question, int32_t height, const Measure& small);
+
+/// Returns a question's buttons' places in its fonts, or at estimated widths
+/// without them. A press is tested on these places, so the pointer and finger
+/// functions below take the fonts the question is drawn in, and a press lands
+/// where a button is drawn.
+///
+/// @param question the question
+/// @param height the question's height
+/// @param fonts the fonts it is drawn in; null to estimate widths (estimated_width)
+/// @return the buttons' rectangles, left to right
+[[nodiscard]] std::vector<Rect>
+question_button_rects(const Question& question, int32_t height, const Fonts* fonts = nullptr);
 
 /// Places a question: its text as a notice's, then its items when it has
 /// any (one a line, a 20-point badge, a gap and the name with the aside,
@@ -379,16 +396,21 @@ notice_finger_down(Notice& notice, Point finger, int32_t height, int32_t reach);
 /// @param[in,out] question the question
 /// @param at the pointer, in points from the question's top left corner
 /// @param height the question's height (PlacedQuestion::height)
+/// @param fonts the fonts it is drawn in, which place its buttons
+///        (question_button_rects); null to estimate widths
 /// @return a redraw when the look changed
-[[nodiscard]] QuestionAnswer question_pointer_move(Question& question, Point at, int32_t height);
+[[nodiscard]] QuestionAnswer
+question_pointer_move(Question& question, Point at, int32_t height, const Fonts* fonts = nullptr);
 
 /// Presses the pointer's button on a question: a press on a button holds it.
 ///
 /// @param[in,out] question the question
 /// @param at the pointer, in points from the question's top left corner
 /// @param height the question's height
+/// @param fonts the fonts it is drawn in; null to estimate widths
 /// @return a redraw when a button is held
-[[nodiscard]] QuestionAnswer question_pointer_down(Question& question, Point at, int32_t height);
+[[nodiscard]] QuestionAnswer
+question_pointer_down(Question& question, Point at, int32_t height, const Fonts* fonts = nullptr);
 
 /// Presses a question with a finger: as question_pointer_down at the point
 /// reach gives, the buttons tried left to right. The press's moves and its
@@ -398,9 +420,11 @@ notice_finger_down(Notice& notice, Point finger, int32_t height, int32_t reach);
 /// @param finger the finger, in points from the question's top left corner
 /// @param height the question's height
 /// @param reach how far a button may lie from the finger, in points
+/// @param fonts the fonts it is drawn in; null to estimate widths
 /// @return a redraw when a button is held
-[[nodiscard]] QuestionAnswer
-question_finger_down(Question& question, Point finger, int32_t height, int32_t reach);
+[[nodiscard]] QuestionAnswer question_finger_down(
+    Question& question, Point finger, int32_t height, int32_t reach, const Fonts* fonts = nullptr
+);
 
 /// Releases the pointer's button on a question: a release over the button
 /// the press held answers it.
@@ -408,8 +432,10 @@ question_finger_down(Question& question, Point finger, int32_t height, int32_t r
 /// @param[in,out] question the question
 /// @param at the pointer, in points from the question's top left corner
 /// @param height the question's height
+/// @param fonts the fonts it is drawn in; null to estimate widths
 /// @return the answer, or a redraw
-[[nodiscard]] QuestionAnswer question_pointer_up(Question& question, Point at, int32_t height);
+[[nodiscard]] QuestionAnswer
+question_pointer_up(Question& question, Point at, int32_t height, const Fonts* fonts = nullptr);
 
 /// Takes a key on a question: Enter and Space answer the marked button,
 /// Escape and No the cancel button, Yes the primary button; Left, Up and

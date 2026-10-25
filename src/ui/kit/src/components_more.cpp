@@ -5,7 +5,8 @@
 // lists, what pointer, finger and key events do to them, and their drawing.
 // A work dialog is the same panel with one line and a bar or a spinner, and
 // no buttons. The arithmetic is the settings dialog's notices' and prompts',
-// moved here unchanged; a box's width and greatest height are its size class's.
+// moved here unchanged but for a question's buttons, which also fit their
+// captions in the fonts; a box's width and greatest height are its size class's.
 
 #include "oa/ui/kit/components_more.hpp"
 
@@ -326,9 +327,10 @@ question_button_name(std::string_view word, const QuestionButton& button, std::s
 ///
 /// @param question the question
 /// @param height its height
+/// @param fonts the fonts it is drawn in; null to estimate widths
 /// @return the list, without items
-DisplayList question_controls(const Question& question, int32_t height) {
-    const std::vector<Rect> rects = question_button_rects(question, height);
+DisplayList question_controls(const Question& question, int32_t height, const Fonts* fonts) {
+    const std::vector<Rect> rects = question_button_rects(question, height, fonts);
     const std::string_view word = question_word_of(question);
     DisplayList list;
     for (std::size_t index = 0; index < rects.size(); ++index) {
@@ -634,6 +636,27 @@ QuestionAnswer look_changed(bool redraw) {
     return {redraw ? QuestionAction::redraw : QuestionAction::none, -1};
 }
 
+/// Narrows a row of buttons until it and its gaps fit a room: a point at a
+/// time off the widest, so the widest come to one width. None is narrowed
+/// below button_width.
+///
+/// @param[in,out] widths the buttons' widths, left to right
+/// @param room the row's room, in points
+void narrow_row(std::vector<int32_t>& widths, int32_t room) {
+    if (widths.empty())
+        return;
+    int32_t total = static_cast<int32_t>(widths.size() - 1) * metrics.button_gap;
+    for (const int32_t width : widths)
+        total += width;
+    while (total > room) {
+        const auto widest = std::max_element(widths.begin(), widths.end());
+        if (*widest <= metrics.button_width)
+            return;
+        --*widest;
+        --total;
+    }
+}
+
 } // namespace
 
 PlacedNotice place_notice(const Notice& notice, const Measure& regular, const Measure& small) {
@@ -657,20 +680,30 @@ PlacedNotice place_notice(const Notice& notice, const Fonts* fonts) {
     );
 }
 
-std::vector<Rect> question_button_rects(const Question& question, int32_t height) {
+std::vector<Rect>
+question_button_rects(const Question& question, int32_t height, const Measure& small) {
     const int32_t top = button_top_of(height);
     const std::size_t count = std::min(question.buttons.size(), most_question_buttons);
+    std::vector<int32_t> widths(count);
+    for (std::size_t index = 0; index < count; ++index) {
+        const std::string& caption = question.buttons[index].caption;
+        const int32_t words = std::max(estimated_width(caption), small ? small(caption) : 0);
+        widths[index] = std::max(metrics.button_width, words + metrics.prompt_button_padding);
+    }
+    const int32_t width = box_width(question.size_class);
+    narrow_row(widths, width - 2 * metrics.padding);
     std::vector<Rect> rects(count);
-    int32_t right = box_width(question.size_class) - metrics.padding;
+    int32_t right = width - metrics.padding;
     for (std::size_t index = count; index-- > 0;) {
-        const int32_t width = std::max(
-            metrics.button_width,
-            estimated_width(question.buttons[index].caption) + metrics.prompt_button_padding
-        );
-        rects[index] = {right - width, top, width, metrics.button_height};
-        right -= width + metrics.button_gap;
+        rects[index] = {right - widths[index], top, widths[index], metrics.button_height};
+        right -= widths[index] + metrics.button_gap;
     }
     return rects;
+}
+
+std::vector<Rect>
+question_button_rects(const Question& question, int32_t height, const Fonts* fonts) {
+    return question_button_rects(question, height, measure_in(fonts, FontRole::small));
 }
 
 /// Places one question item on the row it starts at.
@@ -723,7 +756,7 @@ place_question(const Question& question, const Measure& regular, const Measure& 
         // A bar the height cuts is left out.
         if (bar_cut)
             placed.bar = {};
-        placed.buttons = question_button_rects(question, placed.height);
+        placed.buttons = question_button_rects(question, placed.height, small);
         return placed;
     }
 
@@ -774,7 +807,7 @@ place_question(const Question& question, const Measure& regular, const Measure& 
     placed.cut = placed.lines.size() != all_lines || placed.items.size() != all_items || bar_cut;
     if (bar_cut)
         placed.bar = {};
-    placed.buttons = question_button_rects(question, placed.height);
+    placed.buttons = question_button_rects(question, placed.height, small);
     return placed;
 }
 
@@ -902,7 +935,7 @@ DisplayList question_list(const Question& question, const Fonts* fonts) {
     const PlacedQuestion placed = place_question(question, fonts);
     const int32_t width = box_width(question.size_class);
     const std::string title = title_for_header(question.title, width, fonts);
-    DisplayList list = question_controls(question, placed.height);
+    DisplayList list = question_controls(question, placed.height, fonts);
     std::vector<std::string> paragraphs;
     for (const Paragraph& paragraph : question.paragraphs)
         paragraphs.push_back(paragraph.text);
@@ -1026,34 +1059,37 @@ NoticeAction notice_key(Notice& notice, Key key) {
     }
 }
 
-QuestionAnswer question_pointer_move(Question& question, Point at, int32_t height) {
+QuestionAnswer
+question_pointer_move(Question& question, Point at, int32_t height, const Fonts* fonts) {
     if (question.pressed != no_control) {
         at.x += question.finger_shift_x;
         at.y += question.finger_shift_y;
     }
-    const ControlId hovered = hit(question_controls(question, height), at);
+    const ControlId hovered = hit(question_controls(question, height, fonts), at);
     if (hovered == question.hovered)
         return {};
     question.hovered = hovered;
     return look_changed(true);
 }
 
-QuestionAnswer question_pointer_down(Question& question, Point at, int32_t height) {
+QuestionAnswer
+question_pointer_down(Question& question, Point at, int32_t height, const Fonts* fonts) {
     question.finger_shift_x = 0;
     question.finger_shift_y = 0;
-    question.hovered = hit(question_controls(question, height), at);
+    question.hovered = hit(question_controls(question, height, fonts), at);
     if (question.hovered == no_control)
         return {};
     question.pressed = question.hovered;
     return look_changed(true);
 }
 
-QuestionAnswer
-question_finger_down(Question& question, Point finger, int32_t height, int32_t reach_px) {
+QuestionAnswer question_finger_down(
+    Question& question, Point finger, int32_t height, int32_t reach_px, const Fonts* fonts
+) {
     // The nearest button within reach, left to right, at its point nearest
     // the finger.
-    const Reached landed = reach(question_controls(question, height), finger, reach_px);
-    const QuestionAnswer pressed = question_pointer_down(question, landed.at, height);
+    const Reached landed = reach(question_controls(question, height, fonts), finger, reach_px);
+    const QuestionAnswer pressed = question_pointer_down(question, landed.at, height, fonts);
     if (pressed.action == QuestionAction::redraw) {
         question.finger_shift_x = landed.at.x - finger.x;
         question.finger_shift_y = landed.at.y - finger.y;
@@ -1061,14 +1097,15 @@ question_finger_down(Question& question, Point finger, int32_t height, int32_t r
     return pressed;
 }
 
-QuestionAnswer question_pointer_up(Question& question, Point at, int32_t height) {
+QuestionAnswer
+question_pointer_up(Question& question, Point at, int32_t height, const Fonts* fonts) {
     if (question.pressed != no_control) {
         at.x += question.finger_shift_x;
         at.y += question.finger_shift_y;
     }
     question.finger_shift_x = 0;
     question.finger_shift_y = 0;
-    question.hovered = hit(question_controls(question, height), at);
+    question.hovered = hit(question_controls(question, height, fonts), at);
     const ControlId held = question.pressed;
     question.pressed = no_control;
     if (held == no_control)

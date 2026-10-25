@@ -564,8 +564,14 @@ the carousel slides flat and the call to action holds a steady ring.
 - A notice and a question place their parts from the Compact metrics, but
   for their width and greatest height, which are their size class's: their
   text wraps at the wider width, and their buttons keep their sizes. A
-  question's buttons are as wide as their captions at the estimated width,
-  whatever the fonts, so a press lands where a button is drawn. Their
+  question's button is as wide as its caption and the padding, the caption
+  counted at the wider of the estimated width and the small font's
+  measure: a caption the fonts draw wider than the estimate, as the modern
+  fonts draw Cyrillic capitals, widens its button, and one they draw
+  narrower keeps the estimate's place. A row wider than the room between
+  the box's paddings is narrowed from its widest buttons. The pointer and
+  finger functions take the fonts the question is drawn in, so a press
+  lands where a button is drawn. Their
   events hit and reach through `hit` and `reach` over the same controls
   their display lists hold: a notice's OK before its open button, a
   question's buttons left to right.
@@ -700,7 +706,9 @@ names, kinds and Tab order, a word of their own (`language-notice`) and
 their text's control, which changes what no press or finger finds at any
 point of the box, where a finger lands, every key (the editing
 keys and Info, which do nothing, among them), that `paint` matches `draw_notice` and
-`draw_question`, and the progress bar's fill.
+`draw_question`, and the progress bar's fill. It fits a question's buttons
+to a measure and to fonts wider than the estimate, where the display list,
+the placement and the presses agree, and narrows a row too wide for its box.
 `ui-kit-rows` lays out, draws, focuses and changes a page of every row
 kind from a table: the placement of rows shaped as the settings dialog's
 Controls, Graphics and Developer sections, with the game's fonts and the
