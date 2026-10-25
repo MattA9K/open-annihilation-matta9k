@@ -19,6 +19,17 @@ press opens the game menu when there is nothing left to cancel. Escape
 closes the open game menu as Resume does. Canceling a surrender dialog or
 closing a team panel does not clear an explicit simulation pause.
 
+## Unit information
+
+F1 opens the unit information panel for the build button or the unit under
+the pointer: its picture, costs and statistics. OK closes it, with either
+mouse button, and so do Enter, Escape and O; a right click elsewhere on the
+panel does nothing. In the left-click interface a right click on the
+battlefield beside the panel drops the selection and closes the panel, as
+in 3.1c. In the right-click interface a right click there gives the
+selection its order and the panel stays open, and a left click on open
+ground drops the selection and closes it.
+
 ## The 3D camera
 
 With **Allow Full 3D Mode** on under Settings > Graphics and Full hardware

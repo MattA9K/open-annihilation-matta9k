@@ -1780,6 +1780,71 @@ void Runtime::check_pointer_picks() {
     require_pick(unit_info_panel_.has_value(), "F1 did not open the unit info panel again");
     key(SDLK_O, SDL_SCANCODE_O);
     require_pick(!unit_info_panel_, "O, OK's quick key, did not close the unit info panel");
+    // A right press on the panel is the panel's: on its face it does
+    // nothing, and on OK it closes the panel. Beside it the right button is
+    // the battlefield's: in the left-click interface a right click there
+    // drops the selection and closes the panel; in the right-click interface
+    // it gives the default order and the panel stays, and a left click on
+    // open ground drops the selection and closes it.
+    const auto info_open = [&] {
+        return unit_info_panel_.has_value() && (game.frame_flags & hud::kFrameUnitInfoOpen) != 0;
+    };
+    const auto open_info_with_commander = [&] {
+        adopt_selection(commander);
+        selected_match_unit_ = commander;
+        move_to(info_x, info_y);
+        key(SDLK_F1, SDL_SCANCODE_F1);
+        require_pick(info_open(), "F1 did not open the unit info panel again");
+    };
+    // Open ground left of the panel, halfway down it.
+    const auto beside_info_x = static_cast<float>((match_layout_.left + info_area->x) / 2);
+    const auto beside_info_y = static_cast<float>(info_area->y + info_area->height / 2);
+    move_to(beside_info_x, beside_info_y);
+    require_pick(
+        battlefield_contains(beside_info_x, beside_info_y) && hovered_match_unit_ == 0 &&
+            game.cursor_feature >= OA_PLOT_FEATURE_RESERVED,
+        "found no open ground beside the unit info panel"
+    );
+    open_info_with_commander();
+    click(
+        SDL_BUTTON_RIGHT, static_cast<float>(info_area->x + 2), static_cast<float>(info_area->y + 2)
+    );
+    require_pick(
+        info_open() && selected(commander),
+        "a right click on the unit info panel's face closed it or dropped the selection"
+    );
+    click(SDL_BUTTON_RIGHT, static_cast<float>(done_canvas.x), static_cast<float>(done_canvas.y));
+    require_pick(
+        !unit_info_panel_ && (game.frame_flags & hud::kFrameUnitInfoOpen) == 0 &&
+            selected(commander),
+        "a right click on OK did not close the unit info panel alone"
+    );
+    open_info_with_commander();
+    click(SDL_BUTTON_RIGHT, beside_info_x, beside_info_y);
+    require_pick(
+        !unit_info_panel_ && (game.frame_flags & hud::kFrameUnitInfoOpen) == 0 &&
+            !has_local_selection(),
+        "left-click interface: a right click beside the unit info panel did not drop the "
+        "selection and close the panel"
+    );
+    game.interface_type = input::interface_right_click;
+    match_->stop_orders(commander);
+    open_info_with_commander();
+    click(SDL_BUTTON_RIGHT, beside_info_x, beside_info_y);
+    require_pick(
+        info_open() && selected(commander) && !queue_kinds(commander).empty(),
+        "right-click interface: a right click beside the unit info panel did not give the "
+        "default order with the panel kept open"
+    );
+    match_->stop_orders(commander);
+    click(SDL_BUTTON_LEFT, beside_info_x, beside_info_y);
+    require_pick(
+        !unit_info_panel_ && (game.frame_flags & hud::kFrameUnitInfoOpen) == 0 &&
+            !has_local_selection(),
+        "right-click interface: a left click on open ground beside the unit info panel did not "
+        "drop the selection and close the panel"
+    );
+    game.interface_type = input::interface_left_click;
 
     // 'n' centres on the next unvisited local unit and selects nothing; the
     // units then on screen are visited; with every unit visited the cycle
@@ -2043,7 +2108,8 @@ void Runtime::check_pointer_picks() {
     std::cout << "pointer pick check: on-screen list (sight, cloak, box at the edge), turned root "
                  "box, smaller unit and tie, still pointer, under-attack only off screen, unit "
                  "panel status, target, build button and unidentified blip, F1 panel and its "
-                 "picture, 'n', Ctrl+S, click visits, Escape, LOAD/UNLOAD, pad landing and "
+                 "picture, its right clicks on and beside it in both interfaces, 'n', Ctrl+S, "
+                 "click visits, Escape, LOAD/UNLOAD, pad landing and "
                  "Ctrl+Z over 40 Samsons and 40 Bulldogs in two far groups\n";
 }
 
