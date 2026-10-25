@@ -30,8 +30,8 @@ names both, and a sanitizer build (`cmake --preset check`, then
 `cmake --build --preset check` and `ctest --preset check`); put your
 `OA_GAME_DIR`, compiler launcher and job count in a `CMakeUserPresets.json`
 that inherits them, which Git ignores. The Clang check
-of the documentation blocks in public headers is a build target instead
-(`cmake --build build --target oa-doc-check`, see
+of the documentation blocks in public headers is the build target
+`oa-doc-check`, which the test `doc-check` builds (see
 [conventions.md](conventions.md#checks)). Some useful variations:
 
 | To | Run |

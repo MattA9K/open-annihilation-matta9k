@@ -4562,7 +4562,8 @@ foreach(target IN ITEMS oa-game oa-intro oa-tool)
     VERBATIM)
 endforeach()
 # oa-doc-check compiles the public headers with Clang's documentation
-# warnings as errors (cmake/OaDocumentationCheck.cmake).
+# warnings as errors, and the test doc-check builds it
+# (cmake/OaDocumentationCheck.cmake).
 include("${CMAKE_CURRENT_LIST_DIR}/cmake/OaDocumentationCheck.cmake")
 oa_add_documentation_check()
 
