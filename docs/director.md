@@ -236,10 +236,10 @@ A camera the script turns ([the script](#the-script)) is drawn as Full 3D
 Mode draws the game's rotated view: by the live 3D renderer on the card,
 with the same terrain, units, water and effects, at the frame's own size
 and centred on the script's exact centre and zoom. Allow Full 3D Mode does
-not stop it; the script asks for the turn. The live renderer's shaders are
-in this build only on Apple systems, so elsewhere a script that turns the
-camera stops the render before its first frame, as does one whose frames
-are wider or taller than the live renderer's 4096 pixels. A frame whose
+not stop it; the script asks for the turn. The live renderer draws through
+Metal or Vulkan; where SDL can make neither, a turned frame stops the
+render, and a script whose frames are wider or taller than the live
+renderer's 4096 pixels stops before its first frame. A frame whose
 camera does not turn is the Full tier's classic view, and a shot may move
 from one to the other. Like the game's, the card's water moves at the
 tick rate, so the frames between two ticks show the later tick's water.
@@ -443,11 +443,11 @@ stage, twice, with two stills, and checks that both renders draw the same
 frames; `native-director-render-relative` renders it with
 its files and preferences named relative to the working directory and pins
 the same hashes; `native-director-render-full` renders it on the graphics
-card's Full tier, with its second shot turning the camera where this build
-has the live renderer's shaders, pins the same sound, checks that the run
-manifest says the card drew the frames, that most frames differ from one
-another and that the live renderer drew every frame of the turned shot,
-and skips where no renderer on a graphics card can be made;
+card's Full tier, with its second shot turning the camera, pins the same
+sound, checks that the run manifest says the card drew the frames, that
+most frames differ from one another and that the live renderer drew every
+frame of the turned shot, and skips where no renderer on a graphics card,
+or no device for the live renderer, can be made;
 `native-director-view` checks the frames director mode
 draws; `app-director-output` checks the files, the encoder's arguments and
 bundles.
@@ -477,9 +477,9 @@ bundles.
   transition frames are drawn twice. On the graphics card each frame also
   waits for its read-back.
 - **Frames drawn on the graphics card** are not pinned and need SDL 3.4 and
-  a graphics device; a turned camera needs the live renderer's shaders,
-  which this build has only on Apple systems, and frames of at most 4096
-  pixels a side ([drawing on the graphics card](#drawing-on-the-graphics-card)).
+  a graphics device; a turned camera needs the live renderer's device, on
+  Metal or Vulkan, and frames of at most 4096 pixels a side
+  ([drawing on the graphics card](#drawing-on-the-graphics-card)).
 - **A turned camera** shows what the live 3D renderer draws: its model
   shading and cloaked units are not yet the classic view's, and the
   original art shows its painted sides at steep angles.

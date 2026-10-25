@@ -288,7 +288,18 @@ over units. Order markers remain overlays, as in the classic view.
 | Gamma | Uses the existing presentation conversion. |
 | Classic model shading and cloak blending | Still incomplete in the live path. |
 
-The preview currently needs macOS Metal through SDL GPU. It reuses its device,
+The preview draws through SDL's GPU interface on Metal or Vulkan: SDL
+chooses Metal on Apple systems and Vulkan elsewhere, and `SDL_GPU_DRIVER`
+names one. Each stage is written once, in Vulkan's GLSL, in
+`src/app/shaders/`; `tools/make_live_shaders.py` compiles it to SPIR-V and,
+through SPIR-V, to Metal shading language, in
+`src/app/renderer_live_shaders.inc`, which is committed, so the build needs
+no shader tools, and the `live-shaders` check makes it afresh where the
+tools are installed. Windows's own graphics interface has no form yet: on
+Windows the preview needs a Vulkan driver. On a Mac, Vulkan through a translation layer such as
+MoltenVK runs the SPIR-V for testing:
+`SDL_GPU_DRIVER=vulkan SDL_VULKAN_LIBRARY=/opt/homebrew/lib/libvulkan.1.dylib`.
+It reuses its device,
 pipeline, atlas and frame buffers, but each frame waits for GPU readback and
 uploads the result through the existing presentation path. Performance is
 provisional. The live path omits the unused classic battlefield raster, and
@@ -323,7 +334,7 @@ OA_BUILD_TYPE=Check ./run.sh --game-dir "$OA_GAME_DIR" --check-live-renderer
 ```
 
 Use the native video driver for this check; the dummy driver cannot create
-a Metal device. An unavailable backend returns 77, while rendering failures
+a GPU device. An unavailable backend returns 77, while rendering failures
 fail the check. The module checks separately cover camera projection, live
 scene visibility and atlas invalidation, and persistent GPU resources.
 

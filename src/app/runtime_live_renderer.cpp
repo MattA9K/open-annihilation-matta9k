@@ -132,10 +132,10 @@ void Runtime::reset_live_renderer() {
 
 bool Runtime::live_renderer_take_event(SDL_Event& event) {
     // Where no rotated view can be drawn, Alt and its clicks and keys stay
-    // the game's: in a build with no shaders for it, and below Full
-    // hardware acceleration, which never draws it.
-    if (!renderer_live_gpu::shaders_built() || !engine_settings().allow_full_3d ||
-        screen_ != Screen::match || !match_ || !selected_tnt_)
+    // the game's: below Full hardware acceleration, which never draws it,
+    // and once SDL has made no device for it, for the rest of the run.
+    if ((live_renderer_ && live_renderer_->gpu.device_unavailable) ||
+        !engine_settings().allow_full_3d || screen_ != Screen::match || !match_ || !selected_tnt_)
         return false;
     if (!full_presentation() && !options_.headless_check) {
         // A camera drag begun on Full ends where Full does.

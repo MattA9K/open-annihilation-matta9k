@@ -542,11 +542,6 @@ void Runtime::render_director_frames(DirectorRender& render, const ReplayHooks& 
             "the script turns the camera, which only a render on the graphics card draws "
             "(--hardware-acceleration=full); the processor draws the classic view"
         );
-    else if (turns && !renderer_live_gpu::shaders_built())
-        throw std::runtime_error(
-            "the script turns the camera, which the 3D renderer draws, and this build has no "
-            "shaders for it on this system"
-        );
     else if (
         turns && (output_size.width > renderer_live_gpu::largest_edge ||
                   output_size.height > renderer_live_gpu::largest_edge)
@@ -1343,9 +1338,9 @@ int Runtime::check_director_render() {
     // processor, the frames only for being pictures.
     const bool card =
         options_.hardware_acceleration == oa::ui::engine_settings::HardwareAcceleration::full;
-    // On the card, where this build has the live renderer's shaders, the
-    // second shot turns the camera: the live renderer draws its frames.
-    const bool turn = card && renderer_live_gpu::shaders_built();
+    // On the card the second shot turns the camera: the live renderer draws
+    // its frames, and where it can make no device the check skips.
+    const bool turn = card;
     const auto require = [](bool ok, const std::string& what) {
         if (!ok)
             throw std::runtime_error("director render check: " + what);

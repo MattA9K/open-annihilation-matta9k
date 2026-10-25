@@ -37,18 +37,6 @@ using Result = renderer_proof_gpu::Result;
 /// pixels.
 inline constexpr uint32_t largest_edge = 4096;
 
-/// Tells whether this build carries shaders the rotated view can draw with:
-/// only Metal's, so only on Apple platforms. Elsewhere render() answers
-/// unavailable to every frame.
-/// @return true where render() may draw
-[[nodiscard]] constexpr bool shaders_built() noexcept {
-#if defined(__APPLE__)
-    return true;
-#else
-    return false;
-#endif
-}
-
 /// Shared water animation controls; zero intensities leave source artwork unchanged.
 struct WaterEffects {
     float ripples{};
@@ -67,6 +55,10 @@ struct Context {
     struct State;
     std::unique_ptr<State> state{};
     uint32_t actual_supersample{}; ///< successful last frame axis factor; zero before success
+    /// SDL made no graphics device the renderer can draw with: none on
+    /// Metal or Vulkan. render() answers unavailable from then on without
+    /// trying again.
+    bool device_unavailable{};
     /// Allocate the state without opening a device or window.
     Context();
     /// Release pending commands and GPU resources before the device.
@@ -105,7 +97,8 @@ struct AtlasUpdate {
 ///        enlarged target fits 4096 pixels per axis, then GPU box-filtered before readback
 /// @param atlas_update optional changed rows; ignored after creation, resizing or a revision gap
 /// @param water optional water animation, sea level and distance attenuation
-/// @return success, unavailable without Metal, or failed for invalid input or GPU errors
+/// @return success; unavailable where SDL makes no device on Metal or Vulkan; or failed for
+///         invalid input or GPU errors
 Result render(
     Context& context,
     std::span<const Vertex> vertices,

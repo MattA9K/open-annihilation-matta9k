@@ -2965,8 +2965,7 @@ if(OA_BUILD_PLATFORM)
         FAIL_REGULAR_EXPRESSION "director render check:|filesystem error")
       # The same render drawn by the graphics card's Full tier
       # (--hardware-acceleration=full) on a renderer with no window, its
-      # second shot turning the camera where the build has the live
-      # renderer's shaders: the sound and the world are the processor's
+      # second shot turning the camera: the sound and the world are the processor's
       # render's, pinned as above, the run manifest says the card drew the
       # frames, the live renderer draws every frame of the turned shot, and
       # the frames are pictures, whose hashes differ from one driver to the
@@ -4322,6 +4321,12 @@ if(BUILD_TESTING)
     add_test(NAME format-check COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/format_sources.py
       --root ${CMAKE_CURRENT_SOURCE_DIR} --check)
     set_tests_properties(format-check PROPERTIES TIMEOUT 300 SKIP_RETURN_CODE 77)
+    # The live renderer's shaders, src/app/renderer_live_shaders.inc, are
+    # what tools/make_live_shaders.py makes from src/app/shaders; without
+    # its tools, at the versions the file records, the check skips.
+    add_test(NAME live-shaders COMMAND ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/tools/make_live_shaders.py --check)
+    set_tests_properties(live-shaders PROPERTIES TIMEOUT 60 SKIP_RETURN_CODE 77)
     # Every file of the engine states its copyright and licence: an SPDX
     # header, an annotation in REUSE.toml, or a licence text's own terms
     # (tools/spdx_headers.py).

@@ -225,7 +225,8 @@ While rotated, selection and unit orders use the 3D camera; mouse-wheel
 zoom keeps the terrain point under the pointer anchored. Shift shows projected
 order queues and queued build sites. Escape still opens the menu. Enhanced AA and shadow
 settings apply, subject to the preview's rendering limits. The 3D
-renderer currently requires Metal and Full hardware acceleration. See the [preview notes](development/pluggable-renderers.md#interactive-skirmish-preview)
+renderer needs Full hardware acceleration and a graphics card SDL can draw
+on through Metal or Vulkan. See the [preview notes](development/pluggable-renderers.md#interactive-skirmish-preview)
 for limitations and a weapon-effect test recipe.
 
 ### Network play

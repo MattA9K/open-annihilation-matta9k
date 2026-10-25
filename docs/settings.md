@@ -511,8 +511,10 @@ the game draws its text and how the modern fonts draw it.
   still places it unsnapped (the click snap's override key) and leaves the
   camera alone. With Hardware acceleration Off or Basic the gesture only
   says that it needs Full. The rotated view is drawn by the graphics card
-  through Metal, so for now it turns only on a Mac; elsewhere the view stays
-  classic.
+  through Metal on a Mac or Vulkan elsewhere: on Windows 7 to 11 and Linux
+  where the card's driver offers Vulkan, but not on Windows XP or 95 to
+  Me. Where neither can be used, the first turn fails once and the view
+  stays classic, and Alt keeps its other uses for the rest of the run.
 - **Unlocked Camera**, Off by default, locked ("Needs Allow Full 3D Mode")
   while Allow Full 3D Mode is Off. On lets the camera turn beyond the
   angles at which the game's flat art still looks right. Alt+U (Option+U)

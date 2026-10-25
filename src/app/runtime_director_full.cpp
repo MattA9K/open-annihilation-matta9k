@@ -189,13 +189,13 @@ void Runtime::draw_director_card_frame(std::span<uint8_t> rgb) {
         refresh_filtered_terrain();
         render_match_surface();
         exact_view_.held = false;
-        if (!live_renderer_active() || live_renderer_failed())
-            throw std::runtime_error(
-                live_renderer_unavailable()
-                    ? "the turned camera needs the 3D renderer, which this graphics card or "
-                      "build cannot draw"
-                    : "the 3D renderer did not draw the turned frame"
+        if (live_renderer_unavailable())
+            throw DirectorCardUnavailable(
+                "the turned camera needs the 3D renderer, and SDL made no graphics device it "
+                "can draw with: it draws on Metal or Vulkan"
             );
+        if (!live_renderer_active() || live_renderer_failed())
+            throw std::runtime_error("the 3D renderer did not draw the turned frame");
         renderer::Surface composed;
         const renderer::Surface* picture = &match_world_cpu_;
         if (presentation.show_interface) {

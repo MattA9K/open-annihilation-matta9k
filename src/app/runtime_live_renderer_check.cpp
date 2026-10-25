@@ -45,7 +45,7 @@ namespace {
 /// Target dimensions used to exercise render target replacement.
 [[maybe_unused]] constexpr int resized_width = 960;
 [[maybe_unused]] constexpr int resized_height = 640;
-/// Exit code for a platform without the experimental Metal backend.
+/// Exit code where SDL makes no graphics device the live renderer can draw with.
 constexpr int unavailable_exit = 77;
 
 /// Ends the native check with a specific explanation.
@@ -72,10 +72,6 @@ constexpr int unavailable_exit = 77;
 } // namespace
 
 int Runtime::check_live_renderer() {
-#if !defined(__APPLE__)
-    std::cout << "live renderer check: skipped: the experimental backend requires Metal\n";
-    return unavailable_exit;
-#else
     // SDL's GPU backend needs the native video driver, but no window or
     // visible renderer is created by this check.
     require(SDL_InitSubSystem(SDL_INIT_VIDEO), "could not initialize windowless video");
@@ -2471,7 +2467,6 @@ int Runtime::check_live_renderer() {
            "target resize preserve the frozen frame; live picking and rendering remain fault-free "
            "as the simulation advances, without opening a window\n";
     return 0;
-#endif
 }
 
 } // namespace oa::app
