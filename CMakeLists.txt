@@ -1683,7 +1683,8 @@ if(OA_BUILD_PLATFORM)
       # each tier's frame is the processor's far view, which plans no model,
       # Full's presented without leaving Full. A shot of render type 2 whose
       # lens's centre lies off the battlefield draws no lens, and a laser's
-      # shot after it lists the lines it lists alone.
+      # shot after it lists the lines it lists alone. The Arm commander's
+      # laser lights in its beam's colour.
       # Pictures of one moment at zoom 0.5, 1 and 2.5 in both tiers, and of
       # the shadows at each of those zooms, go to local/reports. Skips under
       # 2 GiB of memory.

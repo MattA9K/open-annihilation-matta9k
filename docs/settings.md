@@ -525,7 +525,9 @@ the game draws its text and how the modern fonts draw it.
   Basic keep the game's own look. Setting Hardware acceleration from Full
   to Basic or Off turns all four to 0%, and back to Full turns them to
   100%; below Full each can still be turned on. Zero leaves the effect out
-  and 100% draws it at its standard strength. The lighting sliders change how bright a light is, never how
+  and 100% draws it at its standard strength. A weapon lights in the colour
+  its shot is drawn in: a laser or a lightning bolt in its beam's colour,
+  shells, plasma and missiles in a warm light. The lighting sliders change how bright a light is, never how
   far it reaches or how long it lasts; Heat distortion changes how far the
   shimmer moves the picture. They apply in the classic and the rotated
   view and take effect at once, in a match too. A saved Off or On from an
