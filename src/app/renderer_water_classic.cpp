@@ -13,7 +13,10 @@ namespace oa::app::renderer_water_classic {
 namespace {
 constexpr float cell = 16;
 constexpr float fixed = 65536;
-constexpr std::size_t maximum_surface_cells = 4096;
+/// Coastal foam lies on water shallower than this, in map pixels.
+constexpr float foam_depth = 24;
+/// Most foam quads a frame holds: far more shore than any view shows.
+constexpr std::size_t maximum_foam_quads = 16384;
 constexpr std::size_t maximum_reflected_vertices = 24576;
 
 /// Fade effects before water detail becomes smaller than a screen pixel.
@@ -203,27 +206,23 @@ void surface(card::CardFrame& frame, const Inputs& in) {
         int(in.map->attribute_height),
         int((in.view.camera_y + sea * 0.5F + in.view.height / in.view.zoom) / cell) + 2
     );
-    const int stride = std::max(
-        1,
-        int(std::ceil(
-            std::sqrt(
-                double(std::max(0, right - left)) * std::max(0, bottom - top) /
-                maximum_surface_cells
-            )
-        ))
-    );
-    for (int row = top; row < bottom; row += stride) {
-        for (int col = left; col < right; col += stride) {
+    // Every cell the view shows, however far out: the foam lies only on
+    // the shallows, so the cells under deep water and land are passed over
+    // by their depth alone, and the shore's foam never breaks into a cell
+    // here and there as the view zooms out.
+    std::size_t foam_quads = 0;
+    for (int row = top; row < bottom && in.coast > 0; ++row) {
+        for (int col = left; col < right && foam_quads < maximum_foam_quads; ++col) {
             const float x = col * cell;
             const float z = row * cell;
-            if (!wet(in, x, z) || !wet(in, x + 15.999F, z) || !wet(in, x, z + 15.999F) ||
-                !wet(in, x + 15.999F, z + 15.999F))
-                continue;
             const float d = depth(in, x + 8, z + 8);
+            if (!(d > 0 && d < foam_depth) || !wet(in, x, z) || !wet(in, x + 15.999F, z) ||
+                !wet(in, x, z + 15.999F) || !wet(in, x + 15.999F, z + 15.999F))
+                continue;
             const float phase = float(in.seconds) * 1.8F + x * 0.045F + z * 0.073F;
             const float wave = 0.5F + 0.5F * std::sin(phase);
             const float fetch = in.water_surface ? in.water_surface->fetch(x + 8, z + 8) : 0.25F;
-            const float coastal = std::clamp(1 - d / 24, 0.0F, 1.0F) * fetch;
+            const float coastal = std::clamp(1 - d / foam_depth, 0.0F, 1.0F) * fetch;
             const float coast_crest = 0.5F + 0.5F * std::sin(d * 0.7F + float(in.seconds) * 1.4F);
             const float foam = detail(in) * 0.070F * in.coast * coastal *
                                (0.12F + 0.88F * in.wind.strength) *
@@ -242,6 +241,7 @@ void surface(card::CardFrame& frame, const Inputs& in) {
                     1,
                     {0.65F, 0.86F, 0.95F, std::min(foam, 0.3F)}
                 );
+                ++foam_quads;
             }
         }
     }

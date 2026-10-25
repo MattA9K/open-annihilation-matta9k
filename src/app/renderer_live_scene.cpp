@@ -2457,11 +2457,15 @@ void water_disturbances(const Inputs& in, Scene& scene) {
 }
 
 /// Adds a transparent water sheet for the coastal waves only over the
-/// already visible wet ground triangles. Water ripples need none: they
-/// move the ground's own art (shaders/live_scene_vertex.glsl).
+/// already visible wet ground triangles of the shallows, where the
+/// fragment stage's foam lies: none over deep water, so that however far
+/// the view zooms out the budget holds the whole shore. Water ripples need
+/// none: they move the ground's own art (shaders/live_scene_vertex.glsl).
 void water_surface(const Inputs& in, Scene& scene) {
     if (in.water.detail <= 0 || in.water.coastal_waves <= 0)
         return;
+    // The foam fades out by this depth, in map pixels.
+    constexpr float foam_depth = 24;
     constexpr std::size_t vertex_budget = 196608;
     const auto begin = scene.vertices.size();
     for (std::size_t index = 0; index + 2 < scene.terrain_vertex_count &&
@@ -2474,6 +2478,11 @@ void water_surface(const Inputs& in, Scene& scene) {
                 triangle.begin(),
                 triangle.end(),
                 [&](const Vertex& vertex) { return vertex.height >= in.sea_level; }
+            ) ||
+            std::all_of(
+                triangle.begin(),
+                triangle.end(),
+                [&](const Vertex& vertex) { return vertex.height <= in.sea_level - foam_depth; }
             ) ||
             std::all_of(triangle.begin(), triangle.end(), [](const Vertex& vertex) {
                 return vertex.brightness == 0;

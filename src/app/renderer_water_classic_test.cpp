@@ -382,5 +382,41 @@ int main(int argc, char** argv) {
     frame.reset();
     renderer_water_classic::surface(frame, input);
     OA_CHECK(frame.vertices.empty());
+    // The coast's foam lies on every shallow cell the view shows, at any
+    // zoom: a wide view far out draws as many cells' foam as it shows, not
+    // one cell in a few.
+    {
+        oa::formats::tnt::Map shallows;
+        shallows.attribute_width = shallows.attribute_height = 512;
+        shallows.sea_level = 32;
+        shallows.attributes.resize(512 * 512);
+        // Shores two cells wide every sixteen across a deep sea.
+        for (std::size_t cell = 0; cell < shallows.attributes.size(); ++cell)
+            shallows.attributes[cell].height = cell % 16 < 2 ? 24 : 0;
+        renderer_water_classic::Inputs coast;
+        coast.map = &shallows;
+        coast.view.width = 1920;
+        coast.view.height = 1080;
+        coast.coast = 1;
+        coast.wind.strength = 1;
+        // A crest over the whole of water 8 pixels deep.
+        coast.seconds = 1.61;
+        coast.visible = [](float, float) { return true; };
+        for (const float zoom : {1.0F, 0.5F, 0.3F}) {
+            coast.view.zoom = zoom;
+            card::CardFrame foam;
+            renderer_water_classic::surface(foam, coast);
+            const auto shown = [&](float extent) { return std::floor(extent / zoom / 16); };
+            OA_CHECK(
+                foam.vertices.size() / 4 >=
+                std::size_t(std::floor(shown(1920) / 16) * 2 * shown(1080))
+            );
+            OA_CHECK(card::check_frame(foam).empty());
+        }
+        coast.coast = 0;
+        card::CardFrame none;
+        renderer_water_classic::surface(none, coast);
+        OA_CHECK(none.vertices.empty());
+    }
     return oa::test::check_exit_status();
 }

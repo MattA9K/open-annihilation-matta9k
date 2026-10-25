@@ -1710,6 +1710,19 @@ void water_surface_bounds() {
     }
     OA_CHECK(water_vertices > 0);
     OA_CHECK(coast);
+    // Deep water takes no sheet: the coastal foam lies on the shallows
+    // alone, so however far out the view, the sheet's budget holds the
+    // whole shore.
+    fixture.inputs.sea_level = 64;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(
+        std::none_of(
+            fixture.scene.vertices.begin(), fixture.scene.vertices.end(), [](const auto& vertex) {
+                return vertex.terrain_size == -2;
+            }
+        )
+    );
+    fixture.inputs.sea_level = 8;
     fixture.inputs.water.detail = 0;
     OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
     OA_CHECK(fixture.scene.vertices.size() == fixture.scene.terrain_vertex_count);
