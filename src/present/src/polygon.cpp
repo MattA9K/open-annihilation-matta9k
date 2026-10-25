@@ -245,6 +245,26 @@ bool clip_to_sprite(const Sprite& target, Bounds& b, int32_t& last_row) noexcept
     return b.max_y != b.min_y;
 }
 
+// Plots one end of a span row, depth tested when the sprite has a depth
+// plane; an end outside the sprite is left out.
+void plot_span_end(Sprite& target, int32_t x, int32_t y, int32_t depth, uint8_t color) noexcept {
+    if (x < 0 || x >= static_cast<int32_t>(target.width) || y < 0 ||
+        y >= static_cast<int32_t>(target.height))
+        return;
+    const std::ptrdiff_t offset = sprite_offset(target, x, y);
+    uint8_t* pixel = static_cast<uint8_t*>(target.data) + offset;
+    if (target.aux == nullptr) {
+        *pixel = color;
+        return;
+    }
+    uint8_t* stored = static_cast<uint8_t*>(target.aux) + offset;
+    const uint8_t value = depth_byte(depth);
+    if (*stored <= value) {
+        *pixel = color;
+        *stored = value;
+    }
+}
+
 } // namespace
 
 void draw_range_ring(
@@ -341,27 +361,10 @@ int32_t fill_polygon(
 }
 
 void plot_span_ends(int32_t y, const PolygonSpanRow& row, Sprite& target, uint8_t color) noexcept {
-    const int32_t span = wrap_sub(row.right, row.left);
-    if (span <= 0)
+    if (wrap_sub(row.right, row.left) <= 0)
         return;
-    const std::ptrdiff_t offset = sprite_offset(target, row.left, y);
-    uint8_t* pixel = static_cast<uint8_t*>(target.data) + offset;
-    if (target.aux == nullptr) {
-        pixel[0] = color;
-        pixel[span] = color;
-        return;
-    }
-    uint8_t* depth = static_cast<uint8_t*>(target.aux) + offset;
-    const uint8_t left = depth_byte(row.left_depth);
-    if (depth[0] <= left) {
-        pixel[0] = color;
-        depth[0] = left;
-    }
-    const uint8_t right = depth_byte(row.right_depth);
-    if (depth[span] <= right) {
-        pixel[span] = color;
-        depth[span] = right;
-    }
+    plot_span_end(target, row.left, y, row.left_depth, color);
+    plot_span_end(target, row.right, y, row.right_depth, color);
 }
 
 int32_t outline_depth_polygon(

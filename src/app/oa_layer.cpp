@@ -1244,21 +1244,23 @@ void QuestionScreen::draw(const kit::Canvas& canvas) const {
 LayerAnswer
 QuestionScreen::pointer(ScreenInputKind kind, uint8_t button, kit::Point at, int32_t finger_reach) {
     const int32_t tall = shown_height();
+    // The buttons are tested where the fonts the question is drawn in place them.
+    const kit::Fonts* fonts = layer_.screen_fonts();
     kit::QuestionAnswer outcome{};
     switch (kind) {
     case ScreenInputKind::pointer_move:
-        outcome = kit::question_pointer_move(question_, at, tall);
+        outcome = kit::question_pointer_move(question_, at, tall, fonts);
         break;
     case ScreenInputKind::pointer_down:
         // A finger's press takes the nearest button within reach.
         if (button == SDL_BUTTON_LEFT)
             outcome = finger_reach > 0
-                          ? kit::question_finger_down(question_, at, tall, finger_reach)
-                          : kit::question_pointer_down(question_, at, tall);
+                          ? kit::question_finger_down(question_, at, tall, finger_reach, fonts)
+                          : kit::question_pointer_down(question_, at, tall, fonts);
         break;
     case ScreenInputKind::pointer_up:
         if (button == SDL_BUTTON_LEFT)
-            outcome = kit::question_pointer_up(question_, at, tall);
+            outcome = kit::question_pointer_up(question_, at, tall, fonts);
         break;
     default:
         break;
@@ -2612,6 +2614,8 @@ void OaLayer::tick() {
     runtime_.keep_presence_card_screen();
     runtime_.keep_more_maps_screen();
     runtime_.keep_mutator_button_screen();
+    runtime_.keep_brain_seats_screen();
+    runtime_.keep_brain_room_screen();
     runtime_.offer_differing_results_question();
     runtime_.follow_mutator_room_chat();
     runtime_.keep_get_map_screen();

@@ -863,7 +863,10 @@ What each limit holds:
 - **`model-composite`**: the size of the buffer a model is drawn into.
   Without `clamp-oversize` the buffer grows to fit a larger model, as in
   3.1c; with it the buffer keeps its size and a larger model is cut to it
-  from its top left. Local display only.
+  from its top left, its build outline and the units it carries with it.
+  The size is counted in the game's pixels: with Enhanced anti-aliasing a
+  model is drawn finer into a buffer as many times larger, so a model that
+  fits is drawn whole at every level. Local display only.
 
 There is no weapon-id limit: every profile keeps 3.1c's 256 weapon ids.
 

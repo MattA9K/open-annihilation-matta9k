@@ -106,6 +106,26 @@ Value clamped(int64_t number, Value lowest, Value highest) noexcept {
     );
 }
 
+/// Returns the intensity an effect's keys hold: its percent key, clamped to
+/// 0 to 200 and rounded to the nearest stop of 10, or else the On and Off
+/// switch the effect had before, as 100 or 0.
+///
+/// @param values the preferences
+/// @param intensity_key the key of the effect's percent
+/// @param switch_key the key of the effect's earlier switch; empty for none
+/// @return the intensity in percent; nothing when neither key holds a number
+std::optional<uint32_t> stored_intensity(
+    const Values& values, std::string_view intensity_key, std::string_view switch_key = {}
+) {
+    if (const auto number = stored_number(values, intensity_key))
+        return static_cast<uint32_t>((clamped(*number, 0, 200) + 5) / 10 * 10);
+    if (switch_key.empty())
+        return std::nullopt;
+    if (const auto number = stored_number(values, switch_key))
+        return *number > 0 ? 100U : 0U;
+    return std::nullopt;
+}
+
 /// Returns the anti-aliasing level a stored number reads as.
 ///
 /// @param number the stored number
@@ -364,6 +384,11 @@ EngineSettings default_settings(const Inputs& inputs) {
     // card is used is decided apart, so the default never moves with it.
     settings.hardware_acceleration =
         inputs.players_own_profile ? HardwareAcceleration::full : HardwareAcceleration::off;
+    const uint32_t effects = default_effect_intensity(settings.hardware_acceleration);
+    settings.weapon_lighting = effects;
+    settings.nanolathe_lighting = effects;
+    settings.wreck_glow = effects;
+    settings.heat_distortion = effects;
     // A named file draws game text in the game's own fonts.
     settings.modern_fonts = inputs.players_own_profile;
     // A named file plays in English, as the game does without a language on
@@ -582,6 +607,40 @@ std::optional<TouchLatches> touch_latches_from_text(std::string_view text) noexc
     return std::nullopt;
 }
 
+void follow_acceleration_with_effects(
+    EngineSettings& settings, HardwareAcceleration before
+) noexcept {
+    const bool was_full = before == HardwareAcceleration::full;
+    const bool is_full = settings.hardware_acceleration == HardwareAcceleration::full;
+    if (was_full == is_full)
+        return;
+    const uint32_t effects = default_effect_intensity(settings.hardware_acceleration);
+    settings.weapon_lighting = effects;
+    settings.nanolathe_lighting = effects;
+    settings.wreck_glow = effects;
+    settings.heat_distortion = effects;
+}
+
+void follow_acceleration_with_unset_effects(
+    EngineSettings& settings, const Values& values, HardwareAcceleration acceleration
+) {
+    const uint32_t unset_effect = default_effect_intensity(acceleration);
+    const auto follow = [&](uint32_t EngineSettings::* percent,
+                            std::string_view intensity_key,
+                            std::string_view switch_key) {
+        if (!stored_intensity(values, intensity_key, switch_key))
+            settings.*percent = unset_effect;
+    };
+    follow(&EngineSettings::weapon_lighting, key::weapon_lighting_intensity, key::weapon_lighting);
+    follow(
+        &EngineSettings::nanolathe_lighting,
+        key::nanolathe_lighting_intensity,
+        key::nanolathe_lighting
+    );
+    follow(&EngineSettings::wreck_glow, key::wreck_glow_intensity, key::wreck_glow);
+    follow(&EngineSettings::heat_distortion, key::heat_distortion_intensity, key::heat_distortion);
+}
+
 EngineSettings read_settings(
     const oa::platform::preferences::Values& values, const Inputs& inputs, bool switch_alt
 ) {
@@ -625,8 +684,34 @@ EngineSettings read_settings(
             stored_acceleration(found->second).value_or(settings.hardware_acceleration);
     if (const auto number = stored_number(values, key::vertical_sync))
         settings.vertical_sync = *number > 0;
+    if (const auto number = stored_number(values, key::allow_full_3d))
+        settings.allow_full_3d = *number > 0;
+    if (const auto number = stored_number(values, key::unlocked_camera))
+        settings.unlocked_camera = *number > 0;
     if (const auto number = stored_number(values, key::smooth_motion))
         settings.smooth_motion = *number > 0;
+    // An effect with no stored percent follows the stored acceleration.
+    const uint32_t unset_effect = default_effect_intensity(settings.hardware_acceleration);
+    settings.weapon_lighting =
+        stored_intensity(values, key::weapon_lighting_intensity, key::weapon_lighting)
+            .value_or(unset_effect);
+    settings.nanolathe_lighting =
+        stored_intensity(values, key::nanolathe_lighting_intensity, key::nanolathe_lighting)
+            .value_or(unset_effect);
+    settings.wreck_glow =
+        stored_intensity(values, key::wreck_glow_intensity, key::wreck_glow).value_or(unset_effect);
+    settings.water_ripples =
+        stored_intensity(values, key::water_ripples_intensity).value_or(settings.water_ripples);
+    settings.coastal_waves =
+        stored_intensity(values, key::coastal_waves_intensity).value_or(settings.coastal_waves);
+    settings.underwater_shimmer = stored_intensity(values, key::underwater_shimmer_intensity)
+                                      .value_or(settings.underwater_shimmer);
+    settings.naval_reflections = stored_intensity(values, key::naval_reflections_intensity)
+                                     .value_or(settings.naval_reflections);
+    settings.heat_distortion =
+        stored_intensity(values, key::heat_distortion_intensity, key::heat_distortion)
+            .value_or(unset_effect);
+
     if (const auto found = values.find(std::string{key::menu_scaling}); found != values.end())
         settings.menu_scaling =
             menu_scaling_from_text(found->second).value_or(settings.menu_scaling);
@@ -708,6 +793,7 @@ EngineSettings read_settings(
     settings.file_type_oalang = file_type_on(values, key::file_type_oalang);
     settings.file_type_oareg = file_type_on(values, key::file_type_oareg);
     settings.file_type_oamut = file_type_on(values, key::file_type_oamut);
+    settings.file_type_oabrain = file_type_on(values, key::file_type_oabrain);
     settings.file_type_oalaunch = file_type_on(values, key::file_type_oalaunch);
     return settings;
 }
@@ -853,10 +939,93 @@ void write_settings(
     );
     store(
         values,
+        key::allow_full_3d,
+        switch_text(chosen.allow_full_3d),
+        chosen.allow_full_3d != opened.allow_full_3d,
+        chosen.allow_full_3d == defaults.allow_full_3d,
+        restored
+    );
+    store(
+        values,
+        key::unlocked_camera,
+        switch_text(chosen.unlocked_camera),
+        chosen.unlocked_camera != opened.unlocked_camera,
+        chosen.unlocked_camera == defaults.unlocked_camera,
+        restored
+    );
+    store(
+        values,
         key::smooth_motion,
         switch_text(chosen.smooth_motion),
         chosen.smooth_motion != opened.smooth_motion,
         chosen.smooth_motion == defaults.smooth_motion,
+        restored
+    );
+    // Coloured weapon lighting, Nanolathe glow, Wreck glow and Heat
+    // distortion: a percent the chosen acceleration gives an unset effect
+    // (default_effect_intensity) is stored as no key, any other as its key,
+    // and a change of acceleration counts as a change of all four, so the
+    // file reads back as chosen. An effect's earlier On and Off key goes when
+    // its percent key is written or erased, never alone, so that a Restore
+    // defaults followed by the value read from it keeps that value.
+    const bool acceleration_moved = chosen.hardware_acceleration != opened.hardware_acceleration;
+    const uint32_t unset_effect = default_effect_intensity(chosen.hardware_acceleration);
+    const auto store_effect = [&](std::string_view switch_key,
+                                  std::string_view intensity_key,
+                                  uint32_t EngineSettings::* field) {
+        const uint32_t percent = chosen.*field;
+        const bool changed = percent != opened.*field || acceleration_moved;
+        const bool unset = percent == unset_effect;
+        if (!changed && !(restored && unset))
+            return;
+        values.erase(std::string{switch_key});
+        if (unset)
+            values.erase(std::string{intensity_key});
+        else
+            values[std::string{intensity_key}] = std::to_string(percent);
+    };
+    store_effect(
+        key::weapon_lighting, key::weapon_lighting_intensity, &EngineSettings::weapon_lighting
+    );
+    store_effect(
+        key::nanolathe_lighting,
+        key::nanolathe_lighting_intensity,
+        &EngineSettings::nanolathe_lighting
+    );
+    store_effect(key::wreck_glow, key::wreck_glow_intensity, &EngineSettings::wreck_glow);
+    store_effect(
+        key::heat_distortion, key::heat_distortion_intensity, &EngineSettings::heat_distortion
+    );
+    store(
+        values,
+        key::water_ripples_intensity,
+        std::to_string(chosen.water_ripples),
+        chosen.water_ripples != opened.water_ripples,
+        chosen.water_ripples == defaults.water_ripples,
+        restored
+    );
+    store(
+        values,
+        key::coastal_waves_intensity,
+        std::to_string(chosen.coastal_waves),
+        chosen.coastal_waves != opened.coastal_waves,
+        chosen.coastal_waves == defaults.coastal_waves,
+        restored
+    );
+    store(
+        values,
+        key::underwater_shimmer_intensity,
+        std::to_string(chosen.underwater_shimmer),
+        chosen.underwater_shimmer != opened.underwater_shimmer,
+        chosen.underwater_shimmer == defaults.underwater_shimmer,
+        restored
+    );
+    store(
+        values,
+        key::naval_reflections_intensity,
+        std::to_string(chosen.naval_reflections),
+        chosen.naval_reflections != opened.naval_reflections,
+        chosen.naval_reflections == defaults.naval_reflections,
         restored
     );
     store(
@@ -1140,6 +1309,7 @@ void write_settings(
     store_file_type(key::file_type_oalang, &EngineSettings::file_type_oalang);
     store_file_type(key::file_type_oareg, &EngineSettings::file_type_oareg);
     store_file_type(key::file_type_oamut, &EngineSettings::file_type_oamut);
+    store_file_type(key::file_type_oabrain, &EngineSettings::file_type_oabrain);
     store_file_type(key::file_type_oalaunch, &EngineSettings::file_type_oalaunch);
     // Restore defaults keeps the overrides: Restore profile values clears them.
     if (!profile_id.empty() && chosen.hack_overrides != opened.hack_overrides) {

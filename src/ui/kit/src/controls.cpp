@@ -401,15 +401,32 @@ int32_t count_width(const Fonts* fonts, int32_t count) {
     return std::max(kMetrics.tab_count_height, digits + 2 * kMetrics.tab_count_padding);
 }
 
-/// Returns a tab caption's width in the small font with tab_tracking.
+/// Returns the points either side of a caption: the look's, or the theme's.
+///
+/// @param look the tabs
+/// @return the padding, in points
+int32_t tab_side_padding(const TabsLook& look) noexcept {
+    return look.side_padding >= 0 ? look.side_padding : kMetrics.tab_padding;
+}
+
+/// Returns the points between a caption's characters: the look's, or the theme's.
+///
+/// @param look the tabs
+/// @return the tracking, in points
+int32_t tab_letter_gap(const TabsLook& look) noexcept {
+    return look.tracking >= 0 ? look.tracking : kMetrics.tab_tracking;
+}
+
+/// Returns a tab caption's width in the small font with the given tracking.
 ///
 /// @param fonts the fonts, or null for no columns
 /// @param caption the caption
+/// @param tracking the points between characters
 /// @return the width, in points
-int32_t caption_width(const Fonts* fonts, std::string_view caption) {
+int32_t caption_width(const Fonts* fonts, std::string_view caption, int32_t tracking) {
     if (fonts == nullptr || caption.empty())
         return 0;
-    return tracked_width(*fonts, FontRole::small, caption, kMetrics.tab_tracking);
+    return tracked_width(*fonts, FontRole::small, caption, tracking);
 }
 
 // ---- Cards ----
@@ -1059,8 +1076,10 @@ std::vector<Rect> tab_rects(const Fonts& fonts, const Rect& strip, const TabsLoo
     std::vector<Rect> rects;
     rects.reserve(look.captions.size());
     int32_t left = strip.x;
+    const int32_t side = tab_side_padding(look);
+    const int32_t letter_gap = tab_letter_gap(look);
     for (std::size_t index = 0; index < look.captions.size(); ++index) {
-        int32_t width = 2 * kMetrics.tab_padding + caption_width(&fonts, look.captions[index]);
+        int32_t width = 2 * side + caption_width(&fonts, look.captions[index], letter_gap);
         const int32_t count = count_of(look, index);
         const int32_t digits = shown_count_width(&fonts, look, count);
         if (digits > 0)
@@ -1131,8 +1150,9 @@ TabMeasure measure_strip(int32_t total, int32_t strip_width, int32_t scroll, int
     return measured;
 }
 
-/// Clamps a scroll so the open tab lies wholly in the view. The rectangles'
-/// x is each tab's left in the unshifted content, from 0.
+/// Clamps a scroll to the strip and, when asked, so the open tab lies
+/// wholly in the view. The rectangles' x is each tab's left in the unshifted
+/// content, from 0.
 ///
 /// @param asked the scroll asked for, in points
 /// @param total the tabs' width, in points
@@ -1140,6 +1160,7 @@ TabMeasure measure_strip(int32_t total, int32_t strip_width, int32_t scroll, int
 /// @param arrow an arrow's width, in points
 /// @param content each tab, from the content's left
 /// @param selected the open tab's index
+/// @param keep_selected true keeps the open tab wholly in the view
 /// @return the clamped scroll, in points
 int32_t fit_tab_scroll(
     int32_t asked,
@@ -1147,13 +1168,14 @@ int32_t fit_tab_scroll(
     int32_t strip_width,
     int32_t arrow,
     const std::vector<Rect>& content,
-    std::size_t selected
+    std::size_t selected,
+    bool keep_selected
 ) {
     int32_t scroll = std::max(asked, int32_t{0});
     for (int32_t pass = 0; pass < 8; ++pass) {
         const TabMeasure measured = measure_strip(total, strip_width, scroll, arrow);
         int32_t next = std::clamp(scroll, int32_t{0}, measured.max_scroll);
-        if (selected < content.size()) {
+        if (keep_selected && selected < content.size()) {
             const Rect& tab = content[selected];
             int32_t low = tab.x + tab.width - measured.visible;
             if (tab.width > measured.visible)
@@ -1193,16 +1215,15 @@ void draw_tab_arrow(const Canvas& canvas, const Rect& rect, bool pointing_left, 
         draw_mark(canvas, Mark::arrow_closed, at, ink);
 }
 
-/// Moves one step and clamps it. A positive direction reveals the next tab
-/// whose right lies past the view; a negative one the last whose left lies
-/// before the scroll.
+/// Moves one step and clamps it to the strip. A positive direction reveals
+/// the next tab whose right lies past the view; a negative one the last
+/// whose left lies before the scroll. The open tab may leave the view.
 ///
 /// @param scroll the scroll now, in points
 /// @param total the tabs' width, in points
 /// @param strip_width the strip's width, in points
 /// @param arrow an arrow's width, in points
 /// @param content each tab, from the content's left
-/// @param selected the open tab's index
 /// @param direction positive toward the right, negative toward the left
 /// @return the scroll after the step, in points
 int32_t step_tab_scroll(
@@ -1211,7 +1232,6 @@ int32_t step_tab_scroll(
     int32_t strip_width,
     int32_t arrow,
     const std::vector<Rect>& content,
-    std::size_t selected,
     int32_t direction
 ) {
     const TabMeasure measured = measure_strip(total, strip_width, scroll, arrow);
@@ -1229,7 +1249,7 @@ int32_t step_tab_scroll(
             if (tab.x < scroll)
                 asked = tab.x;
     }
-    return fit_tab_scroll(asked, total, strip_width, arrow, content, selected);
+    return fit_tab_scroll(asked, total, strip_width, arrow, content, 0, false);
 }
 
 } // namespace
@@ -1247,8 +1267,15 @@ TabStrip place_tabs(const Fonts& fonts, const Rect& strip, const TabsLook& look)
     std::vector<Rect> content = placed.tabs;
     for (Rect& tab : content)
         tab.x -= strip.x;
-    placed.scroll =
-        fit_tab_scroll(look.scroll, total, strip.width, kTabArrow, content, placed.selected);
+    placed.scroll = fit_tab_scroll(
+        look.scroll,
+        total,
+        strip.width,
+        kTabArrow,
+        content,
+        placed.selected,
+        look.keep_selected_in_view
+    );
     const TabMeasure measured = measure_strip(total, strip.width, placed.scroll, kTabArrow);
     placed.overflows = total > strip.width && strip.width > kTabArrow * 2;
     placed.limit = measured.max_scroll;
@@ -1283,22 +1310,24 @@ void draw_tabs(const Canvas& canvas, const Rect& strip, const TabsLook& look) {
             look.right_arrow_hovered ? colour::text : colour::hint
         );
     const Canvas room = clipped(canvas, placed.view);
+    const int32_t side = tab_side_padding(look);
+    const int32_t letter_gap = tab_letter_gap(look);
     for (std::size_t index = 0; index < placed.tabs.size() && index < look.captions.size();
          ++index) {
         const Rect& tab = placed.tabs[index];
         const bool selected = index == look.selected;
         const bool hovered = look.hovered.has_value() && *look.hovered == index;
         const std::string& caption = look.captions[index];
-        const int32_t caption_columns = caption_width(canvas.fonts, caption);
+        const int32_t caption_columns = caption_width(canvas.fonts, caption, letter_gap);
         const int32_t above_rule = tab.height - kMetrics.tab_rule;
         line(
             room,
             FontRole::small,
             caption,
-            {tab.x + kMetrics.tab_padding, tab.y, caption_columns, above_rule},
+            {tab.x + side, tab.y, caption_columns, above_rule},
             Align::left,
             selected || hovered ? colour::text : colour::hint,
-            kMetrics.tab_tracking
+            letter_gap
         );
         const int32_t count = count_of(look, index);
         if (look.count_style == TabCountStyle::words) {
@@ -1306,7 +1335,7 @@ void draw_tabs(const Canvas& canvas, const Rect& strip, const TabsLook& look) {
                 const std::string digits = std::to_string(count);
                 const int32_t digits_width = text_width(*canvas.fonts, FontRole::small, digits);
                 const Rect digits_box{
-                    tab.x + kMetrics.tab_padding + caption_columns + kMetrics.tab_count_gap,
+                    tab.x + side + caption_columns + kMetrics.tab_count_gap,
                     tab.y,
                     digits_width,
                     above_rule,
@@ -1320,7 +1349,7 @@ void draw_tabs(const Canvas& canvas, const Rect& strip, const TabsLook& look) {
             }
         } else if (count > 0) {
             const Rect pill{
-                tab.x + kMetrics.tab_padding + caption_columns + kMetrics.tab_count_gap,
+                tab.x + side + caption_columns + kMetrics.tab_count_gap,
                 tab.y + (above_rule - kMetrics.tab_count_height) / 2,
                 count_width(canvas.fonts, count),
                 kMetrics.tab_count_height,
@@ -1405,7 +1434,24 @@ void add_tabs(
     add_arrow(placed.right_arrow, right_id, std::move(right_name), "scroll right");
 }
 
-int32_t tab_scroll_step(const DisplayList& list, int32_t steps) {
+namespace {
+
+/// A strip of tabs as a display list holds it: its tabs from the content's
+/// left, their width, its arrow's width and its scroll.
+struct ListedStrip {
+    Rect strip{};                ///< the strip
+    std::vector<Rect> content{}; ///< each tab, from the content's left, left to right
+    int32_t total{};             ///< the tabs' width, in points
+    int32_t arrow{kTabArrow};    ///< an arrow's width, in points
+    int32_t scroll{};            ///< the scroll the strip was placed at, in points
+};
+
+/// Reads the strip a list holds: its tabs item and the tab controls on its
+/// row.
+///
+/// @param list the display list a strip was added to
+/// @return the strip; none when the list has none, or it was not placed or has no tabs
+std::optional<ListedStrip> listed_strip(const DisplayList& list) {
     const Item* tabs_item = nullptr;
     for (const Item& item : list.items) {
         if (item.role == Role::tabs) {
@@ -1414,53 +1460,87 @@ int32_t tab_scroll_step(const DisplayList& list, int32_t steps) {
         }
     }
     if (tabs_item == nullptr)
-        return 0;
+        return std::nullopt;
     const auto* look = std::get_if<TabsLook>(&tabs_item->look);
     if (look == nullptr || look->view_width <= 0)
-        return look == nullptr ? 0 : look->scroll;
+        return std::nullopt;
 
-    const Rect& strip = tabs_item->rect;
-    std::vector<const Control*> tabs;
+    ListedStrip listed;
+    listed.strip = tabs_item->rect;
+    listed.scroll = look->scroll;
+    const Rect& strip = listed.strip;
     for (const Control& control : list.controls) {
         if (control.kind != ControlKind::tab)
             continue;
         if (control.rect.y != strip.y || control.rect.height != strip.height)
             continue;
-        tabs.push_back(&control);
+        const int32_t left = control.rect.x - look->view_x + look->scroll;
+        listed.content.push_back(Rect{left, 0, control.rect.width, control.rect.height});
     }
-    if (tabs.empty())
-        return look->scroll;
-
-    std::vector<Rect> content;
-    content.reserve(tabs.size());
-    for (const Control* control : tabs) {
-        const int32_t left = control->rect.x - look->view_x + look->scroll;
-        content.push_back(Rect{left, 0, control->rect.width, control->rect.height});
-    }
-    std::sort(content.begin(), content.end(), [](const Rect& ahead, const Rect& behind) {
-        return ahead.x < behind.x;
-    });
-    const int32_t total = content.back().x + content.back().width;
+    if (listed.content.empty())
+        return std::nullopt;
+    std::sort(
+        listed.content.begin(), listed.content.end(), [](const Rect& ahead, const Rect& behind) {
+            return ahead.x < behind.x;
+        }
+    );
+    listed.total = listed.content.back().x + listed.content.back().width;
     const int32_t left_inset = look->view_x - strip.x;
     const int32_t right_inset = strip.x + strip.width - (look->view_x + look->view_width);
-    int32_t arrow = kTabArrow;
     if (left_inset > 0)
-        arrow = left_inset;
+        listed.arrow = left_inset;
     else if (right_inset > 0)
-        arrow = right_inset;
+        listed.arrow = right_inset;
+    return listed;
+}
 
-    const std::size_t selected = look->selected < content.size() ? look->selected : 0;
-    int32_t scroll = look->scroll;
+} // namespace
+
+int32_t tab_scroll_step(const DisplayList& list, int32_t steps) {
+    const std::optional<ListedStrip> listed = listed_strip(list);
+    if (!listed) {
+        for (const Item& item : list.items)
+            if (const auto* look = std::get_if<TabsLook>(&item.look);
+                item.role == Role::tabs && look != nullptr)
+                return look->scroll;
+        return 0;
+    }
+    const int32_t width = listed->strip.width;
+    int32_t scroll = listed->scroll;
     int32_t remaining = steps;
     while (remaining > 0) {
-        scroll = step_tab_scroll(scroll, total, strip.width, arrow, content, selected, 1);
+        scroll = step_tab_scroll(scroll, listed->total, width, listed->arrow, listed->content, 1);
         --remaining;
     }
     while (remaining < 0) {
-        scroll = step_tab_scroll(scroll, total, strip.width, arrow, content, selected, -1);
+        scroll = step_tab_scroll(scroll, listed->total, width, listed->arrow, listed->content, -1);
         ++remaining;
     }
     return scroll;
+}
+
+int32_t tab_scroll_by(const DisplayList& list, int32_t from, int32_t points) {
+    const std::optional<ListedStrip> listed = listed_strip(list);
+    if (!listed)
+        return 0;
+    const int64_t asked = static_cast<int64_t>(from) + points;
+    const auto clamped =
+        static_cast<int32_t>(std::clamp(asked, int64_t{0}, static_cast<int64_t>(listed->total)));
+    return fit_tab_scroll(
+        clamped, listed->total, listed->strip.width, listed->arrow, listed->content, 0, false
+    );
+}
+
+std::optional<Rect> tab_drag_area(const DisplayList& list) {
+    for (const Item& item : list.items) {
+        if (item.role != Role::tabs)
+            continue;
+        const auto* look = std::get_if<TabsLook>(&item.look);
+        if (look == nullptr || look->view_width <= 0 || look->view_width >= item.rect.width)
+            return std::nullopt;
+        return Rect{look->view_x, item.rect.y, look->view_width, item.rect.height};
+    }
+    return std::nullopt;
 }
 
 // ---- Cards ----

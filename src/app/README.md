@@ -22,6 +22,15 @@ target's `OA_GAME_FILES_DIR` property names it for build commands. The
 out-of-memory report goes to `ErrorLog.txt` beside the application: beside
 the executable, or beside the bundle, never inside it.
 
+Classic travels with those files as `classic.oabrain` in `brains/`. The build
+packs `brains/classic` with `oa-tool brain pack` after the game links
+(`cmake/OaBrains.cmake`). A build that runs its own `oa-tool` uses that
+tool. A cross build cannot run the `oa-tool` it compiles: it packs Classic
+with the host build's `oa-tool` when `OA_HOST_OA_TOOL` names that
+executable, and leaves Classic out when the option is empty, saying so
+once at configure time. `tools/build_windows.sh` passes `build/oa-tool`
+when the host build has one.
+
 The game carries three icons. `tools/make_icons.py` makes them on macOS
 from the 1024-pixel pictures in `branding/` and the results are committed
 beside those pictures. The app icon, the plates alone
@@ -115,7 +124,7 @@ what each crash and failure counts for at the next start;
 `--render-fault POINT[@FRAME]` narrows it to one
 (`native-renderer-ladder-create` makes every driver but software refuse at
 start; `--render-fault card` fails a call of the Full tier's own on a
-Full match frame). Two cases switch the accelerated tier on and run
+Full match frame, and `--render-fault effects` its effects pass). Two cases switch the accelerated tier on and run
 only when named: `--render-fault memory` (`native-renderer-ladder-memory`),
 the memory guard refusing buffers and then dropping the tier, and
 `--render-fault full-memory` (`native-renderer-ladder-full-memory`), the
@@ -1068,6 +1077,27 @@ at once: the map picker is its own screen.
   `mutator-room-host-on-<w>x<h>.png`. A FIXTURES_SETUP test
   (`mutator-room-clean`) clears its folders before each run.
 
+`native-brain-room` (`--check-brain-room`, `runtime_brain_room_check.cpp`)
+hosts a battle room alone and checks each computer row's brain button at
+640x480 and 1280x720: no button with no brain installed, Steady Commander
+remembered at firm, the built-in player at Medium, and Lantern Scout on
+every computer this machine runs. The button meets no control of the room
+but its row's empty screen-size column. It writes
+`brain-room-host-<w>x<h>.png`. A FIXTURES_SETUP test (`brain-room-clean`)
+clears its folders before each run. `native-net-loopback-brain`
+(`tools/check_native_net_brain.py`) seats Steady Commander at firm on the
+host's computer. The brain places four frames late in the build window and
+then stops, so the engine's computer player can strike, and the check
+requires that seat's line once. `native-net-loopback-brain-starts`
+(`tools/check_native_net_brain_starts.py`) plays fixed starts with a
+computer player on each machine, whose seats print every player's start by
+name; the two must agree. The host sends each machine only its own
+players' starts and deals fixed starts in its own slot order, which the
+other machines' slots need not follow. Network play therefore notes
+another machine's player at the start worked out from the host's slot
+table under fixed starts (`net_match_fixed_start_positions`), and at none
+under shuffled ones, when a brain reads only its own.
+
 ## The mutator picker
 
 The mutator picker is one modal screen on the OA layer (`mutator-picker`),
@@ -1151,6 +1181,132 @@ when that screen goes or a match starts.
   its details, the waiting line, the question and the read-only footer in
   every language. A FIXTURES_SETUP test (`mutator-picker-clean`) clears its
   folders before each run.
+
+## The brain picker
+
+The brain picker is one modal screen on the OA layer (`brain-picker`),
+centred over the screen that asked, at the size class's dialog size. Its
+model and screen are
+[src/ui/brain-picker](../ui/brain-picker/README.md);
+`runtime_brain_picker.cpp` hosts them. It closes as Cancel when the
+screen underneath goes or a match starts.
+
+- **The request.** `open_brain_picker` takes a `BrainPickerRequest`: the
+  setup, the seat's name, the choice it opens on, the setup's difficulty,
+  whether that difficulty fixes the built-in player's level, whether the
+  picker offers the choice for every computer seat, and two calls. USE THIS
+  calls the first with the choice and whether it is for every computer
+  seat. CANCEL, the header's close mark, and the screen underneath going
+  away call the second and hand nothing back. It refuses while a match is
+  running, while a front-end dialog or a modal OA screen is up, without
+  the layer's fonts, or while the picker is already open.
+- **The feed.** `BrainPickerFeed` is where the list comes from. The
+  runtime's own feed, installed the first time the picker opens, lists the
+  built-in computer player and then each brain installed in the player's
+  Brains folder. A brain's name, description, level names and option labels
+  are resolved for the language in use when that list is built. Its icon
+  is decoded then and kept until the picker closes. `draw` and `tick` do
+  not list the folder, read a manifest or decode an icon. The generation
+  moves on only when the Library installs or removes a brain. A check
+  replaces the feed with `set_brain_picker_feed` and puts the runtime's
+  back with `restore_brain_picker_feed`.
+- **The check.** `native-brain-picker` (`--check-brain-picker`,
+  `runtime_brain_picker_check.cpp`) turns every built-in registry off and
+  at 640x480, 1280x720, 1920x1080 and 2560x1440 opens the picker over the
+  main menu on a feed of made-up brains. It requires the size class and
+  the centred window, the row order, Ridge Raider locked with "Made for
+  Ridge", Firm, Calm then USE THIS handing Steady Commander at calm with
+  aggression high and every seat off, the built-in player's Difficulty
+  note and every computer seat, CANCEL handing nothing, and the keyboard
+  alone and the controller alone each reaching a level and USE THIS. At
+  1280x720 it also takes the header's close mark. It then restores the
+  runtime's own feed and, after two made-up packages are written into the
+  check's Brains folder, requires those rows under the built-in player.
+  It writes each size's opening frame as `brain-picker-<w>x<h>.png`.
+  `--check-text-fit` paints `brain-picker`, the inline details at Regular
+  and Large, and Compact's details page, in every language. A
+  FIXTURES_SETUP test (`brain-picker-clean`) clears its folders before
+  each run.
+
+## Computer seat buttons
+
+While at least one brain is installed, each computer row of the skirmish
+setup has a button to the right of its Energy button. The button reads
+that seat's brain and level, cut with … when the room between Energy and
+the next control is too narrow, and opens that seat's picker. With no
+brain installed the setup is unchanged: no button, no card and no extra
+stop for the keyboard.
+
+- **Placement.** The button is placed from its row's Energy button, 4
+  points to the right, centred on that button, as wide as 160 points and
+  no narrower than 48. It stops short of the first control to its right
+  that shares any of its rows. A row with no such room draws no button.
+- **The label.** A named brain reads its name and level. The built-in
+  player reads "Built-in" and the word the Difficulty button is showing.
+  The automation name is `oa.brain-seat.<slot>` and its text is the whole
+  label; the drawn words are the label cut to the button.
+- **Focus.** Tab and Shift+Tab, the arrows, and a controller's L1, R1 and
+  A reach the button. While it has the focus the setup's own focus is
+  none, and the button draws the kit's focus ring. A press elsewhere, or
+  leaving the setup, clears it. Y still opens Mutators.
+- **The card.** Resting the pointer on the button, or F1 or View while it
+  has the focus, shows the seat's card: the brain, its version, its level,
+  and Full awareness when the brain sees every unit. Escape closes the card.
+- **The choice.** USE THIS writes that seat. With every computer seat on,
+  it writes every computer row and leaves a human or an open slot as it
+  is. The choice stays in memory until START, which remembers it.
+- **The check.** `native-brain-seat-buttons`
+  (`--check-brain-seat-buttons`, `runtime_brain_seats_check.cpp`) turns
+  every built-in registry off and, at 640x480 and 1280x720, keeps a frame
+  of the setup before any brain is written. It then requires Steady
+  Commander at Firm, a second computer row reading the built-in player and
+  the Difficulty button's word, Tab from that row's Energy, the picker,
+  Lantern Scout on every computer seat, the hover card, and the two
+  `plays lantern-scout` lines a start logs. With the brains removed the
+  frame matches the one it kept, and no seat button remains. It writes
+  `brain-seats-skirmish-<w>x<h>.png`. `--check-text-fit` paints the
+  buttons with three computer rows, one of them a long name, in every
+  language and both sizes. A FIXTURES_SETUP test (`brain-seats-clean`)
+  clears its folders before each run.
+
+## The campaign's computer player
+
+While at least one brain is installed, NEWGAME and Any Mission show one
+button in the Difficulty button's column, under it. The button reads the
+campaign seat's brain and level. The built-in player reads "Built-in" and
+the word the Difficulty button is showing. The automation name is
+`oa.brain-seat.campaign`. With no brain installed those screens are unchanged.
+
+- **Placement.** The button takes the size of the control under Difficulty
+  and sits in that column, with a gap of 2 above and below. When the column
+  has no room for that, the button is the label's own size, placed against
+  Difficulty by the same rule a block uses when it does not fit.
+- **The picker.** A press opens the campaign seat's picker. The seat is
+  named Computer player, and the built-in player's level stays the run's
+  difficulty. A mission has one computer player, so the picker has no
+  switch for every computer seat. USE THIS sets the campaign's seat at
+  place 1, which every mission of the run starts with.
+- **Focus.** Tab and Shift+Tab, and a controller's L1, R1 and A, reach the
+  button. Up and Down stay with the campaign and mission lists. The card
+  shows when the pointer rests on the button, and on the information key.
+- **Saves.** Once a campaign save has loaded, the campaign's seat becomes
+  the brain, level and options that save seated on player 1. A save that
+  seated no brain there leaves the built-in player. A skirmish save leaves
+  the campaign's seat as it is.
+- **The check.** `native-brain-campaign` (`--check-brain-campaign`,
+  `runtime_brain_campaign_check.cpp`) at 640x480 and 1280x720 keeps a frame
+  of NEWGAME and of Any Mission before any brain is written. It then
+  requires the button under Difficulty, reading the built-in player and the
+  Difficulty button's word, Tab reaching it while Up does not, the picker,
+  Steady Commander at Firm, and the same button on Any Mission. The first
+  mission logs `player 1 plays steady-commander 1.2 at firm`. A save made
+  in that mission, loaded after the campaign seat was set back to the
+  built-in player, leaves the seat at Steady Commander, and a skirmish save
+  leaves it as it is. With the brain removed the frames match the ones it
+  kept. It writes `brain-campaign-<screen>-<w>x<h>.png`.
+  `--check-text-fit` paints the button with a long brain name, in every
+  language and both sizes. A FIXTURES_SETUP test (`brain-campaign-clean`)
+  clears its folders before each run.
 
 ## The mutator questions
 
@@ -1839,7 +1995,11 @@ language and both sizes.
   the stages' `full::CardError`), or the failure `--render-fault card`
   forces, drops Full with the failing call struck against the driver as a
   `card` strike (`take_full_failure`), which the same failure in the next
-  run on the driver records `full-unusable`; a frame the executor refuses
+  run on the driver records `full-unusable`; a failed effects pass (its
+  readback, conversion or upload, which the memory guard counts before
+  they are made, or the failure `--render-fault effects` forces) drops
+  nothing: that frame is drawn without the effects, the failure logged
+  once (`full_effects::compose`, `FullPresentation::effects_skipped`); a frame the executor refuses
   before drawing anything of it, one the stages built wrong
   (`FullFrameRefusedError`, `card::Executor::frame_refused`), drops Full
   with nothing struck, since no driver caused it; a failed Full function
@@ -2501,9 +2661,17 @@ language and both sizes.
 - `runtime_hud.cpp`, `runtime_match_hud.cpp`: the HUD.
 - `runtime_messages.cpp`: the in-game message log (`Game.chat_lines`) drawn
   over the battlefield, and the speed and message part of `--check-navigation`.
+- `runtime_seat_chat.cpp`: chat a computer seat on this machine reads and
+  sends. The listener, the pace and the queue live in `oa-app-seat-chat`.
 - `runtime_console.cpp`, `runtime_console_debug.cpp`: the in-game console's
   host hooks, the debug grid, "Profile" bars and DebugBreak, and the console
-  part of `--check-navigation`.
+  part of `--check-navigation`. `PrintWeights` writes a seated brain's
+  `report()` text, or one line of the brain's name, its version and
+  "gives no report." when that brain has no report, and today's report
+  when the built-in player has the seat. `ReloadAIProfiles` reloads the
+  built-in players' profile and calls each seated brain's `start` again
+  with that profile. `native-brain-console` checks both on a headless
+  skirmish.
 - `runtime_console_cheats.cpp`, `runtime_console_sound.cpp`: the cheat flag
   each mission start sets, from `sim::scenario::session_cheats_allowed`: a
   campaign and a skirmish run cheats, a multiplayer game while its host's
@@ -2998,7 +3166,11 @@ language and both sizes.
   every player's unit announcements sent to the director's sound hooks;
   as everywhere, nothing drawn changes the match, and
   `--check-director-view` checks that a drawn and an undrawn replay reach
-  one world. `director_output.hpp` and
+  one world. `runtime_director_full.cpp` draws director mode's frames on
+  the graphics card when a render asks for `--hardware-acceleration=full`:
+  the Full tier's presenter on SDL's GPU renderer with no window,
+  presenting into a texture (`FullPresentation::final_target`) that is read
+  back into the frame. `director_output.hpp` and
   `director_output.cpp` (`oa-app-director-output`) write a render's files
   (each chunk's frame manifest and sound, the run manifest, the stills as
   PNG pictures), run `ffmpeg` on
@@ -3061,6 +3233,129 @@ language and both sizes.
   that with Smooth motion Off every frame draws the runner where its
   playout has it at the latest tick, the world as with it On; and that,
   with no such player, every frame is.
+
+## Brain seats
+
+A computer seat of a skirmish or a campaign mission can be played by an
+installed brain. `set_brain_seat` names the brain, the level and the
+options for one player. Just before a new game finishes loading, the
+runtime reads that brain from `Brains` in the player's folder, checks that
+it fits, and seats it. A seat with no brain, or a brain that does not fit
+or cannot be read, plays as the built-in computer player. A network game
+is not saved. In the battle room, each computer this machine runs has a
+button over the empty screen-size column. The button reads the brain, its
+version and its level, and opens the picker. USE THIS sets that computer,
+or every computer this machine runs. Another machine's brain is shown in
+the same place, and its card names a brain that sees every unit. The
+level's difficulty is shown in the row and cannot be changed. The battle
+room remembers the seats, and START seats them before the first tick. With
+no brain installed and none chosen, the row is unchanged. The screen is
+`runtime_brain_room.cpp` (`brain-room`), kept while the battle room is in
+front. A recording does not seat a brain. A saved game names each
+computer seat's brain and seats that brain before the first tick. The
+package is read by `oa-app-brain-seats` (`brain_seats.hpp`); the seat
+itself lives in the simulation.
+
+A save made while brains play stores a Brains account beside the mutators'
+loadout. The account holds the seats, each brain's version, package, level,
+options and the name players see, and each brain's own saved state, at most
+1 MiB. A brain without `save()` starts again from the units. Loading seats
+each saved brain that is installed, and hands `start` the saved state when
+the installed brain is the same version and package. A different version or
+package leaves the state out, and the log names the version that saved it.
+A save that names a brain which is not installed is refused with a sentence
+naming it. From the game's Load screen the question "Load with the built-in
+player?" is pushed over that screen. LOAD WITH THE BUILT-IN PLAYER loads
+with the built-in player on the missing seats, and BACK loads nothing. A
+save with no brain seated holds no Brains account. The end screen's save
+between missions is made after the match was released, so it holds no
+account and the next mission starts from the campaign seat.
+`--check-saved-brains` (`runtime_brain_saves_check.cpp`, ctest
+`native-saved-brains`) saves a skirmish Steady Commander plays, loads that
+state, and walks the missing-brain question.
+
+A recording names each computer player that ran a brain: the player, the
+brain, its version and its level, and, for a brain this machine ran, the
+package. A brain another machine ran is the one that machine's presence
+record named when the match started. Choosing the brain sends that record
+then, so a start that does not pass the battle room again still leaves
+every machine the name. It stores that as its own sector, after the
+mutators' sector, and leaves the sector out when no brain played, so a
+recording without brains
+is unchanged. Text that does not fit one sector is left out and the
+recording is still written. Playback reads the sector, logs each seat's
+brain, and seats none: every player stays mirrored. The note beside a save,
+a recording or a film lists each of those seats after the mutators, in
+player order: the player and the brain's id, then the version, the level's
+name and the brain's name. A note without those lines reads as it does
+today. An older build ignores the lines it does not know.
+
+When a seated brain's turn fails, its sandbox closes and its hooks come
+off before that turn returns. From the next tick the built-in computer
+player plays the seat from the units as they stand. The machine that
+seated the brain posts one notice in the match message log, in the
+player's language: the brain stopped, it could not start, or it does not
+fit this game. The same machine writes `logs/brains/seat-<n>.log` under
+the data directory (`--data-dir`'s folder when it is given), where n is the player index plus one. The log starts
+with the brain's name, version, id, level, seat and match seed, then each
+printed line and the error, and it stops at 1 MiB with the line `the log
+is full`. A log that cannot be written is reported once on standard error,
+and the notice is still shown. A brain that cannot be read stays a line on
+standard error only.
+
+A skirmish and a campaign also remember which brain sits on each computer
+seat. Opening the skirmish setup, other than from the map picker or from a
+start that returned to it, reads `open-annihilation.brains.skirmish`.
+Opening a new campaign or Any Mission from Single Player or the main menu
+reads `open-annihilation.brains.campaign`. START seats those brains before
+the first tick. A computer seat with nothing remembered takes the default
+brain, at the level that brain offers for the setup's difficulty. A seat
+left on the built-in player stays on the built-in player. A brain that is
+not installed, or that does not fit the game being played, leaves the
+built-in player in the seat, and the log says why. Each brain that plays
+is one line: `brains: player N plays <id> <version> at <level>`. With no
+brain seated and no default, START changes nothing about brains and writes
+no seats key. Restore defaults does not erase a key that is there.
+
+`tools/check_native_brain_seats.py` (`native-brain-seats`) plays a headless
+skirmish from a scratch folder that holds Steady Commander and Ridge
+Raider. It checks a start with no brain, Steady Commander remembered at
+Firm, the default brain, Ridge Raider with no mod played, and a brain that
+is not installed.
+
+## Chat a computer seat reads and sends
+
+A computer seat on this machine can read chat and say a line of its own.
+`oa-app-seat-chat` (`src/app/seat_chat.cpp`) keeps one listener, a pace and
+a queue. The runtime (`runtime_seat_chat.cpp`) feeds the listener from three
+places and flushes the queue once a frame.
+
+The three sources are: a line the local human types
+(`Runtime::submit_chat_line`, handed on as `hear_local` with that line's
+mode and targets); a chat record from another machine whose addressee is a
+player of this machine (`NetMatchHooks::seat_chat`, handed on through
+`hear_remote_seat_chat`); and a line another computer seat on this machine
+says, handed to the listener when the queue is flushed, for each other
+computer seat here that hears it.
+
+The listener is one function. It is called with the seat, the sender, who
+the line was said to (everyone, allies, enemies or the seat alone) and the
+words without the "<Name>" head. With no listener the lines are still
+posted and sent, and nobody is called.
+
+A seat may say at most one line per 30 ticks of `Game.tick`, counted per
+seat, so a replay of the same start repeats the same lines. The first line
+is always allowed. `Runtime::advance_match_clock` flushes the queue after
+the frame's steps and before the oldest message expires, so the message log
+is written and a network record is sent outside `Match::tick`. A line shows
+in the local message log when the local player hears it, and goes out to
+other machines from the seat's own player id.
+
+These are not handed to a seat: a command the local human types (a line
+whose first character is '+'), `NetworkPlay::net_say`, the automatic lines
+of the loopback check, a private-channel record, a command ('+' or '.'
+first, after spaces), an empty line, the seat's own line, a line the seat
+does not hear, and a further line inside 30 ticks.
 
 ## Touch controls
 

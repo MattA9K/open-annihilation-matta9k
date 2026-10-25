@@ -6,8 +6,10 @@
 // about the entries, and what the Active tab says of the player's setup.
 #include "oa/ui/library/library.hpp"
 
+#include "oa/data/content_bundles.hpp"
 #include "oa/data/languages.hpp"
 #include "oa/data/mod_profile/registry.hpp"
+#include "oa/formats/oabrain/manifest.hpp"
 #include "oa/formats/oamut/manifest.hpp"
 #include "oa/ui/kit/tag_icon.hpp"
 #include "oa/ui/library/prerequisites.hpp"
@@ -219,6 +221,10 @@ std::string blocked_reason(const Library& library, const Entry& entry) {
             return registry->downloads_off_reason;
         return filled(text, words::blocked_downloads_off, {{"registry", entry.registry_name}});
     }
+    // A brain that does not fit the game being played says so on the row.
+    // That is information: it does not block GET or UPDATE.
+    if (entry.id.kind == Kind::brain)
+        return {};
     if (entry.state == State::update) {
         const UpdateNote& update = *entry.update;
         switch (update.blocked) {
@@ -313,6 +319,13 @@ void settle_entry(const Library& library, Entry& entry) {
             if (facts->verdict && facts->verdict->state == Verdict::State::incompatible)
                 entry.not_compatible = true;
             entry.needs_missing = first_unmet_need(library.inputs, *facts);
+        }
+    } else if (entry.id.kind == Kind::brain) {
+        if (const BrainFacts* facts = brain_facts(entry)) {
+            entry.not_compatible =
+                !brain_unfit_reason(library.inputs, *facts, library.text).empty();
+            if (facts->verdict && facts->verdict->state == Verdict::State::incompatible)
+                entry.not_compatible = true;
         }
     }
     entry.blocked = blocked_reason(library, entry);
@@ -458,6 +471,67 @@ void ensure_built_in_languages(Library& library) {
         }
         settle_built_in_language(library, *language, library.entries[*place]);
     }
+}
+
+/// Sets the built-in computer player: installed, with its name and summary,
+/// and with no package behind it.
+///
+/// @param library the Library
+/// @param[in,out] entry the built-in entry
+void settle_built_in_brain(const Library& library, Entry& entry) {
+    entry.listing = nullptr;
+    entry.installed = nullptr;
+    entry.update = nullptr;
+    entry.queued = nullptr;
+    entry.replaces_registry_name.clear();
+    entry.built_in = false;
+    entry.not_reviewed = false;
+    entry.registry_name.clear();
+    entry.blocked.clear();
+    entry.can_act = true;
+    entry.not_compatible = false;
+    entry.needs_missing.clear();
+    entry.is_default = false;
+    entry.badge = nullptr;
+    entry.shown_name = std::string(shown(library.text, words::built_in_brain_name));
+    entry.shown_summary = std::string(shown(library.text, words::built_in_brain_summary));
+    entry.state = State::installed;
+}
+
+/// Makes sure the built-in computer player is present, and settles it.
+///
+/// An entry a package already took under the same id is kept as the built-in
+/// player: a package key cannot be built_in_brain_key, and the entry offers
+/// none of a package's actions. The default is the installed brain whose key
+/// is Inputs::default_brain, or this entry when that names none.
+///
+/// @param[in,out] library the Library, its other entries already settled
+void ensure_built_in_brain(Library& library) {
+    const EntryId id = built_in_brain_id();
+    std::optional<std::size_t> place;
+    for (std::size_t index = 0; index < library.entries.size(); ++index)
+        if (library.entries[index].id == id)
+            place = index;
+    if (!place) {
+        Entry added;
+        added.id = id;
+        library.entries.push_back(std::move(added));
+        place = library.entries.size() - 1;
+    }
+    settle_built_in_brain(library, library.entries[*place]);
+    const std::string& wanted = library.inputs.default_brain;
+    bool named = false;
+    for (Entry& entry : library.entries) {
+        entry.is_default = false;
+        if (wanted.empty() || entry.id.kind != Kind::brain || entry.installed == nullptr)
+            continue;
+        if (entry.id.key != wanted)
+            continue;
+        entry.is_default = true;
+        named = true;
+    }
+    if (!named)
+        library.entries[*place].is_default = true;
 }
 
 /// Makes the selection one of the visible entries.
@@ -903,6 +977,101 @@ void append_mutator_facts(const Library& library, const Entry& entry, std::vecto
     list.push_back(fact_of(shown(text, words::fact_rules), rules, rules, Mark::none));
 }
 
+/// Returns the name an expansion shows. An unknown id is shown as itself.
+///
+/// @param text how texts are looked up
+/// @param id the expansion's id
+/// @return the name
+std::string expansion_name(const TextHooks& text, std::string_view id) {
+    const oa::data::content_bundles::Bundle* bundle = oa::data::content_bundles::find_bundle(id);
+    if (bundle == nullptr)
+        return std::string(id);
+    return std::string(shown(text, bundle->english_name));
+}
+
+/// Tells whether an expansion is on in the pending content.
+///
+/// @param inputs the Library's inputs
+/// @param id the expansion's id
+/// @return true when it is on
+bool expansion_on(const Inputs& inputs, std::string_view id) {
+    return std::find(inputs.content.enabled.begin(), inputs.content.enabled.end(), id) !=
+           inputs.content.enabled.end();
+}
+
+/// Appends a brain's facts after Author: Levels, Works with, Needs, Full
+/// awareness, Network and Checked. Size and From are written by the caller.
+///
+/// @param library the Library
+/// @param entry the brain
+/// @param[in,out] list the facts so far
+void append_brain_facts(const Library& library, const Entry& entry, std::vector<Fact>& list) {
+    const TextHooks& text = library.text;
+    const BrainFacts* brain = brain_facts(entry);
+    const BrainFacts empty;
+    const BrainFacts& facts = brain != nullptr ? *brain : empty;
+
+    std::vector<std::string> level_names;
+    for (const BrainLevel& level : facts.levels) {
+        if (!level.name.empty())
+            level_names.push_back(level.name);
+    }
+    if (!level_names.empty()) {
+        const std::string levels = join_names(text, level_names);
+        list.push_back(fact_of(shown(text, words::fact_levels), levels, levels, Mark::none));
+    }
+
+    const BrainWorksWith works = brain_works_with(library.inputs, facts, text);
+    const std::string works_text =
+        works.any ? std::string(shown(text, words::works_with_any)) : join_or(text, works.names);
+    if (!works_text.empty()) {
+        list.push_back(fact_of(
+            shown(text, words::fact_works_with),
+            works_text,
+            works_text,
+            works.fits ? Mark::none : Mark::warn
+        ));
+    }
+
+    if (const std::optional<formats::oamod::EngineRange> range =
+            formats::oamod::parse_engine_range(facts.requires_engine)) {
+        const bool met = formats::oamod::engine_range_met(*range, library.inputs.engine);
+        list.push_back(fact_of(
+            shown(text, words::fact_needs),
+            filled(text, words::needs_engine, {{"range", engine_text(*range, text)}}),
+            filled(text, words::needs_engine_short, {{"range", engine_short_text(*range, text)}}),
+            met ? Mark::good : Mark::warn
+        ));
+    }
+    for (const std::string& expansion : facts.requires_expansions) {
+        if (expansion.empty())
+            continue;
+        const std::string name = expansion_name(text, expansion);
+        const bool on = expansion_on(library.inputs, expansion);
+        list.push_back(
+            fact_of(shown(text, words::fact_needs), name, name, on ? Mark::good : Mark::warn)
+        );
+    }
+
+    if (facts.full_awareness) {
+        const std::string sees(shown(text, words::full_awareness_sees));
+        list.push_back(fact_of(shown(text, words::chip_full_awareness), sees, sees, Mark::warn));
+    }
+    if (facts.network_bytes > 0) {
+        const std::string value =
+            filled(text, words::network_learned, {{"size", size_text(facts.network_bytes, text)}});
+        list.push_back(fact_of(shown(text, words::fact_network), value, value, Mark::none));
+    }
+
+    if (entry.installed != nullptr && facts.verdict) {
+        const CheckedWords checked =
+            checked_text(*facts.verdict, played_mod_name(library.inputs, text), text);
+        list.push_back(
+            fact_of(shown(text, words::fact_checked), checked.value, checked.value, checked.mark)
+        );
+    }
+}
+
 /// Tells whether a finished queue item still stands in for the installed copy.
 ///
 /// The install can finish before the installed packages are read again, and
@@ -1036,6 +1205,7 @@ void refresh(Library& library, Inputs inputs) {
         library.expansion_note = true;
     ensure_base_game(library);
     ensure_built_in_languages(library);
+    ensure_built_in_brain(library);
     recompute(library);
 }
 
@@ -1119,7 +1289,7 @@ const Entry* selected_entry(const Library& library) {
 }
 
 std::string_view entry_name(const Entry& entry) {
-    if (is_built_in_language(entry.id))
+    if (is_built_in_brain(entry.id) || is_built_in_language(entry.id))
         return entry.shown_name;
     if (is_base_game(entry.id))
         return entry.shown_name.empty() ? words::no_mod : std::string_view(entry.shown_name);
@@ -1158,7 +1328,7 @@ bool works_with_played(const Inputs& inputs, const MutatorFacts& facts) {
 }
 
 std::string_view entry_summary(const Entry& entry) {
-    if (is_built_in_language(entry.id))
+    if (is_built_in_brain(entry.id) || is_built_in_language(entry.id))
         return entry.shown_summary;
     if (is_base_game(entry.id))
         return entry.shown_summary;
@@ -1182,6 +1352,11 @@ namespace {
 const std::vector<std::string>* tags_of(const Entry& entry) {
     if (entry.id.kind == Kind::mutator)
         return mutator_tag_list(entry);
+    if (entry.id.kind == Kind::brain) {
+        if (const BrainFacts* facts = brain_facts(entry))
+            return &facts->tags;
+        return nullptr;
+    }
     if (entry.listing != nullptr)
         return &entry.listing->tags;
     return nullptr;
@@ -1201,9 +1376,21 @@ std::vector<std::pair<std::string, std::size_t>> tags_in_tab(const Library& libr
         for (const std::string& tag : *tags)
             ++counts[tag];
     }
-    if (library.tab != Tab::mutators)
+    if (library.tab != Tab::mutators && library.tab != Tab::brains)
         return {counts.begin(), counts.end()};
     std::vector<std::pair<std::string, std::size_t>> ordered;
+    if (library.tab == Tab::brains) {
+        for (const std::string_view id : formats::oabrain::brain_tags) {
+            const auto found = counts.find(std::string(id));
+            if (found == counts.end())
+                continue;
+            ordered.push_back(*found);
+            counts.erase(found);
+        }
+        for (const auto& counted : counts)
+            ordered.push_back(counted);
+        return ordered;
+    }
     for (const std::string_view id : kit::tag_ids) {
         const auto found = counts.find(std::string(id));
         if (found == counts.end())
@@ -1221,7 +1408,8 @@ std::size_t filter_count(const Library& library, Filter filter) {
     std::size_t packages = 0;
     for (std::size_t index = 0; index < kept.size(); ++index)
         if (kept[index] && !is_base_game(library.entries[index].id) &&
-            !is_built_in_language(library.entries[index].id))
+            !is_built_in_language(library.entries[index].id) &&
+            !is_built_in_brain(library.entries[index].id))
             ++packages;
     return packages;
 }
@@ -1424,6 +1612,39 @@ std::vector<ActionButton> entry_actions(const Library& library, const Entry& ent
             add(Action::use_now, true);
         return buttons;
     }
+    // The built-in computer player is not a package. It is not got, updated
+    // or uninstalled. USE BY DEFAULT hands new computer seats back to it.
+    if (is_built_in_brain(entry.id)) {
+        if (!entry.is_default)
+            add(Action::use_by_default, true);
+        return buttons;
+    }
+    // A brain is got, made the default, checked, uninstalled and opened.
+    // Nothing seats it, and a brain that does not fit still offers GET.
+    if (entry.id.kind == Kind::brain) {
+        if (entry.state == State::get || entry.state == State::update) {
+            if (item != nullptr && pending(item->phase))
+                add(Action::cancel, true);
+            else if (item != nullptr && item->phase == Phase::failed && item->retryable)
+                add(Action::retry, entry.can_act);
+            else
+                add(entry.state == State::get ? Action::get : Action::update, entry.can_act);
+        }
+        if (entry.installed != nullptr && !entry.is_default)
+            add(Action::use_by_default, true);
+        const BrainFacts* brain = brain_facts(entry);
+        if (entry.installed != nullptr && brain != nullptr && brain->verdict) {
+            const bool checking = brain->verdict->state == Verdict::State::checking;
+            add(Action::check_with_mod, !in_match && !checking);
+        }
+        if (entry.installed != nullptr) {
+            add(Action::uninstall, uninstall_off_reason(library, entry).empty());
+            add(Action::open_folder, true);
+        }
+        if (entry.listing != nullptr && !entry.listing->homepage.empty())
+            add(Action::homepage, true);
+        return buttons;
+    }
     // A mutator is got, checked, uninstalled and opened. Nothing switches it on.
     // GET WITH takes GET's place when the plan brings a prerequisite, or is
     // blocked before the mutator itself can be the only download.
@@ -1528,8 +1749,22 @@ std::vector<Fact> facts(const Library& library, const Entry& entry) {
     const Installed* installed = entry.installed;
     std::vector<Fact> list;
     // The base game is not a package: its details are its summary alone.
+    // The built-in computer player names its levels and that it works with
+    // any mod, and nothing else.
     if (is_base_game(entry.id) || is_built_in_language(entry.id))
         return list;
+    if (is_built_in_brain(entry.id)) {
+        const std::string levels = join_names(
+            text,
+            {std::string(shown(text, words::level_easy)),
+             std::string(shown(text, words::level_medium)),
+             std::string(shown(text, words::level_hard))}
+        );
+        list.push_back(fact_of(shown(text, words::fact_levels), levels, levels, Mark::none));
+        const std::string any(shown(text, words::works_with_any));
+        list.push_back(fact_of(shown(text, words::fact_works_with), any, any, Mark::none));
+        return list;
+    }
 
     const ContentLines lines = content_lines(library, entry);
     bool games_written = false;
@@ -1578,6 +1813,39 @@ std::vector<Fact> facts(const Library& library, const Entry& entry) {
 
     if (entry.id.kind == Kind::mutator) {
         append_mutator_facts(library, entry, list);
+        if (entry.id.registry.empty()) {
+            const std::string own(shown(text, words::from_own));
+            list.push_back(fact_of(shown(text, words::fact_from), own, own, Mark::none));
+        } else if (entry.not_reviewed) {
+            const std::string from =
+                filled(text, words::from_not_reviewed, {{"registry", entry.registry_name}});
+            list.push_back(fact_of(shown(text, words::fact_from), from, from, Mark::warn));
+        } else {
+            list.push_back(fact_of(
+                shown(text, words::fact_from), entry.registry_name, entry.registry_name, Mark::none
+            ));
+        }
+        return list;
+    }
+
+    if (entry.id.kind == Kind::brain) {
+        append_brain_facts(library, entry, list);
+        if (listing != nullptr) {
+            const std::string size = size_text(listing->size, text);
+            if (entry.update != nullptr) {
+                const std::string download = size_text(entry.update->size, text);
+                list.push_back(fact_of(
+                    shown(text, words::fact_size),
+                    filled(
+                        text, words::size_with_download, {{"size", size}, {"download", download}}
+                    ),
+                    filled(text, words::size_download_short, {{"download", download}}),
+                    Mark::none
+                ));
+            } else {
+                list.push_back(fact_of(shown(text, words::fact_size), size, size, Mark::none));
+            }
+        }
         if (entry.id.registry.empty()) {
             const std::string own(shown(text, words::from_own));
             list.push_back(fact_of(shown(text, words::fact_from), own, own, Mark::none));
@@ -1731,6 +1999,11 @@ std::string status_line(const Library& library, const Entry& entry) {
     const TextHooks& text = library.text;
     if (is_built_in_language(entry.id))
         return std::string(shown(text, words::status_built_in_language));
+    if (is_built_in_brain(entry.id)) {
+        return std::string(shown(
+            text, entry.is_default ? words::status_built_in_default : words::registry_built_in
+        ));
+    }
     if (entry.queued != nullptr && entry.queued->phase != Phase::installed)
         return queue_status(*entry.queued, text);
     if (!entry.can_act)
@@ -1761,11 +2034,14 @@ std::string status_line(const Library& library, const Entry& entry) {
         // A folder with no oamod.yaml says so in its status.
         if (entry.installed != nullptr && entry.installed->without_manifest)
             return std::string(shown(text, words::status_without_manifest));
+        if (entry.id.kind == Kind::brain && entry.is_default && entry.state == State::installed)
+            return std::string(shown(text, words::status_installed_default));
         return std::string(shown(
             text, entry.state == State::playing ? words::status_playing : words::status_installed
         ));
     case State::get:
-        if (entry.id.kind == Kind::mutator && entry.listing != nullptr) {
+        if ((entry.id.kind == Kind::mutator || entry.id.kind == Kind::brain) &&
+            entry.listing != nullptr) {
             return filled(
                 text,
                 words::status_not_installed_version,

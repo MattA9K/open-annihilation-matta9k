@@ -348,6 +348,8 @@ std::string_view tab_text(Tab tab, bool compact, const TextHooks& text) {
         return shown(text, words::tab_maps);
     case Tab::mutators:
         return shown(text, words::tab_mutators);
+    case Tab::brains:
+        return shown(text, words::tab_brains);
     case Tab::languages:
         return shown(text, compact ? words::tab_languages_short : words::tab_languages);
     case Tab::updates:
@@ -444,6 +446,8 @@ std::string_view action_text(Action action, const TextHooks& text) {
         return shown(text, words::action_turn_on);
     case Action::check_with_mod:
         return shown(text, words::action_check_with_mod);
+    case Action::use_by_default:
+        return shown(text, words::action_use_by_default);
     case Action::get_with:
         return shown(text, words::action_get_with);
     }

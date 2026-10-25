@@ -130,6 +130,22 @@ writes its key only when that game has mutators. `--mutator` and a
 launch file never write them, and a game without mutators leaves them
 as they are. Absent, or text that cannot be read as that loadout, the
 setup has no set. Restore defaults does not erase them.
+`open-annihilation.brain.default` holds the id of the brain the player
+uses as the default computer player. Absent, empty, or an id that is not
+installed, the built-in computer player is the default. Restore defaults
+does not erase it. USE BY DEFAULT writes it. Uninstalling that brain
+erases the key, so it does not keep naming a brain that is gone.
+`open-annihilation.brains.skirmish`,
+`open-annihilation.brains.multiplayer` and
+`open-annihilation.brains.campaign` each hold the computer seats that
+setup last started a game with, as the seat text: each seat's place and,
+when it names one, its brain, level and options. A skirmish's START and a
+campaign mission's start write their key when a seat names a brain, or
+when the key is already there. A start whose seats name no brain, and
+whose key is absent, writes nothing. The multiplayer key is the battle
+room's and is written the same way when that setup starts a game. Absent,
+or text that cannot be read as seats, the setup has no seats. Restore
+defaults does not erase them.
 `open-annihilation.user-folder` holds the folder the player keeps their
 saved games, screenshots, films, recordings and mods in, as an absolute
 UTF-8 path, in place of `Open Annihilation` in Documents; absent or
@@ -206,6 +222,10 @@ of range is clamped. A switch is On for any number above 0: a word such as
 | `open-annihilation.fog-of-war` | `classic` or `smooth`; any other text reads as `smooth` | `smooth` |
 | `open-annihilation.zoomed-out-units` | `rendered` or `dots`; any other text, `icons` among them, reads as `rendered` | `rendered` |
 | `open-annihilation.zoomed-out-after` | `1/2`, `1/3`, `1/4`, `1/6`, `1/8`, `1/12` or `1/16`; any other text reads as `1/6` | `1/6` |
+| `open-annihilation.allow-full-3d` | 0 or 1 | 1 |
+| `open-annihilation.unlocked-camera` | 0 or 1 | 0 |
+| `open-annihilation.weapon-lighting.intensity`, `open-annihilation.nanolathe-lighting.intensity`, `open-annihilation.wreck-glow.intensity`, `open-annihilation.heat-distortion.intensity` | percent, 0 to 200, held to that range and rounded to the nearest 10; any other text is ignored. Without it, the effect's earlier switch (`open-annihilation.weapon-lighting`, `.nanolathe-lighting`, `.wreck-glow` or `.heat-distortion`, 0 or 1) reads as 0 or 100 | 100 with `open-annihilation.hardware-acceleration` at `full`, else 0 |
+| `open-annihilation.water-ripples.intensity`, `open-annihilation.coastal-waves.intensity`, `open-annihilation.underwater-shimmer.intensity`, `open-annihilation.naval-reflections.intensity` | percent, 0 to 200, held to that range and rounded to the nearest 10; any other text is ignored | 100 |
 | `open-annihilation.window-frame` | `hidden-in-play` or `always-shown`; any other text reads as `hidden-in-play` | `hidden-in-play` |
 | `open-annihilation.hud-scaling` | 0 or 1 | 1 |
 | `open-annihilation.interface-size` | `automatic`, or the percent `100`, `150`, `200`, `300` or `400`; `150` read while `open-annihilation.modern-fonts` reads 0 reads as `100`; any other text, `0` among them, reads as `automatic` | `automatic` |
@@ -223,13 +243,14 @@ of range is clamped. A switch is On for any number above 0: a word such as
 | `open-annihilation.file-types.oalang` | `on` or `off`, as the mod packages' key | on: this copy opens language packs |
 | `open-annihilation.file-types.oareg` | `on` or `off`, as the mod packages' key | on: this copy opens registry files |
 | `open-annihilation.file-types.oamut` | `on` or `off`, as the mod packages' key | on: this copy opens mutator packages |
+| `open-annihilation.file-types.oabrain` | `on` or `off`, as the mod packages' key | on: this copy opens brain packages |
 | `open-annihilation.file-types.oalaunch` | `on` or `off`, as the mod packages' key | on: this copy opens launch files |
 | `open-annihilation.base-game` | `totala` or `totala-demo`; any other text reads as `totala` | `totala`, with every copied expansion of it that can be on |
 | `open-annihilation.expansions.<game>` | comma-separated expansion ids, in the built-in order; empty means none on | every copied expansion of that game that can be on |
 | `open-annihilation.content-note` | `required-expansion` when a mod was cleared because an expansion it needs went off | no note waiting |
 | `mutators.clash-default` | `add` or `replace`; any other text reads as `replace`. The clash mode a mutator uses when the player and its manifest leave it unset. `Runtime::apply_match_mutators` reads it, and so does the battle room on the host, which sends each mode with its list; a guest plays the host's modes and never reads its own | `replace` |
 
-The six file-type keys are words, `on` and `off`, not the `0` and `1` of
+The seven file-type keys are words, `on` and `off`, not the `0` and `1` of
 the other switches. Settings › System shows a switch for each on Windows,
 Linux and macOS, and OK registers, withdraws or changes the default opener
 of a type whose switch moved, that type alone. A start registers the types

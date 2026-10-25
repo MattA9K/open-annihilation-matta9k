@@ -80,7 +80,8 @@ On Linux, in a terminal in the game's folder:
 - A word that begins with `-` or `/` and a letter, such as `-c` or `/d`, is
   one of 3.1c's switches ([The 3.1c command line](#the-31c-command-line)).
   Any other word names the language, as in 3.1c: `german`.
-- A `.oamod`, `.oalang`, `.oamap` or `.oareg` file named on its own is opened
+- A `.oamod`, `.oalang`, `.oamap`, `.oamut`, `.oabrain` or `.oareg` file named on
+  its own is opened
   as `--open FILE` opens it. A launch file is named with `-c` or `--launch`:
   on its own, its name is just a word of 3.1c's command line, and no launch
   starts.
@@ -147,7 +148,7 @@ the console it was started from.
 | `--preferences-file PATH` | Reads and writes the preferences in `PATH` instead of the usual file. Your Open Annihilation folder is then the one beside it ([settings](settings.md#where-the-settings-are-kept)). |
 | `--data-dir PATH` | Keeps the data the game unpacks for itself in `PATH`, in place of the system's per-user data folder. |
 | `--log-dir PATH` | Writes this run's log into `PATH`, whatever kind of run it is. What the game prints goes into the log too; only `--status-stdout`'s lines stay on standard output. |
-| `--open FILE` | Opens a `.oamod`, `.oalang`, `.oamap`, `.oamut` or `.oareg` file once the main menu shows, as opening it from the desktop does; give it once for each file. |
+| `--open FILE` | Opens a `.oamod`, `.oalang`, `.oamap`, `.oamut`, `.oabrain` or `.oareg` file once the main menu shows, as opening it from the desktop does; give it once for each file. |
 | `--install-mod FILE` | The same as `--open FILE`. |
 | `--no-game-files-screen` | With no usable game folder, shows the notice with its look-again button instead of the Game files screen, where a system offers both ([game files](game-files.md)). |
 
@@ -205,6 +206,7 @@ id is refused the same way when no player folder can be worked out.
 | `--max-fps N` | The most frames a second, from 30 through 1000, or 0 for no limit, for this run. |
 | `--hardware-acceleration[=off\|basic\|full]` | Sets Hardware acceleration for this run; alone it is `full`. |
 | `--no-hardware-acceleration` | Turns Hardware acceleration off for this run. |
+| `--experimental-3d` | Accepted for older launch scripts; camera access is now controlled by Graphics → Allow Full 3D Mode, On by default. |
 | `--native-density` | Opens the window at the display's own pixel density for this run. |
 | `--touch-controls` | Turns the touch controls on with no touch screen ([touch controls](touch-controls.md)). |
 
@@ -212,6 +214,20 @@ None of these is remembered: [settings](settings.md#for-one-run-the-command-line
 says what each one shows in Settings. 3.1c's `-d` and `-df` choose a window
 or full screen, and `-s` and `-w` turn the sound off
 ([The 3.1c command line](#the-31c-command-line)).
+
+With **Allow Full 3D Mode** enabled in Graphics, a match starts at the classic view. On a Mac,
+hold Option and click-drag to orbit; add Shift to pan. Option+R resets to
+classic, and Option+U toggles the saved Unlocked Camera setting. These gestures
+work with a trackpad's primary click or an ordinary mouse. On other
+platforms use Alt in place of Option. Alt/Option+middle-drag also orbits;
+middle-drag pans when middle-click pan is enabled.
+While rotated, selection and unit orders use the 3D camera; mouse-wheel
+zoom keeps the terrain point under the pointer anchored. Shift shows projected
+order queues and queued build sites. Escape still opens the menu. Enhanced AA and shadow
+settings apply, subject to the preview's rendering limits. The 3D
+renderer needs Full hardware acceleration and a graphics card SDL can draw
+on through Metal or Vulkan. See the [preview notes](development/pluggable-renderers.md#interactive-skirmish-preview)
+for limitations and a weapon-effect test recipe.
 
 ### Network play
 
@@ -311,12 +327,13 @@ See [what a game reports as it is played](multiplayer/status.md).
 | Option | What it does |
 |---|---|
 | `--capture-video PATH.mp4` | Records what the window shows to an MP4 video; it needs the `ffmpeg` program ([capturing video](capture.md)). |
-| `--showcase arm-first-mission\|skirmish-battle` | Plays a scripted run for a showcase video, in place of a player ([capturing video](capture.md)). |
+| `--showcase arm-first-mission\|skirmish-battle\|base-construction` | Plays a scripted run for a showcase video, in place of a player ([capturing video](capture.md)). |
 | `--generate-script RECORDING` | Plans a director script's camera shots from a recorded game ([director scripts](director.md)). |
-| `--render-script PATH.oascript\|PATH.oamovie` | Renders a director script, or a bundle of one and its recording, to video with its sound ([director scripts](director.md)). |
+| `--render-script PATH.oascript\|PATH.oamovie` | Renders a director script, or a bundle of one and its recording, to video with its sound ([director scripts](director.md)). With `--hardware-acceleration=full` its frames are drawn by the graphics card's Full tier, with no window ([drawing on the graphics card](director.md#drawing-on-the-graphics-card)). |
 | `--output PATH` | Where `--generate-script` writes its script or bundle, or the folder `--render-script` renders into. |
 | `--chunks A-B` | The chunks `--render-script` draws, counted from 0. |
 | `--stills F,F...` | The frames `--render-script` also writes as pictures, counted from 0. |
+| `--effect NAME=PERCENT` | The percent `--render-script` draws an effect at, such as `heat-distortion=0`, in place of the run's settings; once for each effect ([the effects](director.md#drawing-on-the-graphics-card)). |
 
 `--play-demo` and `--net-record` are under [Network play](#network-play).
 
@@ -359,6 +376,7 @@ Network play's own checks, the last rows, are in every build.
 | `--check-unit-pages whole\|scaled:TYPE,...` | Checks the named unit types' pages at several window sizes. |
 | `--check-kill-board` | Checks the kills board F4 shows. |
 | `--check-paused-save` | Saves a paused skirmish, loads it and checks it runs. |
+| `--check-saved-brains` | Saves a skirmish a brain plays, loads it with that brain's state, and asks to load with the built-in player when the brain is missing. |
 | `--check-simulation-hash` | Checks the simulation hash with no mod, with a mod and after a Developer Mode override. |
 | `--check-zoom-memory` | Zooms a large battlefield out and back with a small model budget. |
 | `--check-unit-language TAG` | Checks units' names and descriptions show in the language `TAG` names. |
@@ -408,7 +426,11 @@ Network play's own checks, the last rows, are in every build.
 | `--check-map-browser` | Checks the map browser at four window sizes. |
 | `--check-mutator-button` | Checks Mutators on the skirmish setup and the campaign launch at 640x480 and 1280x720: the button's size and place, its badge and count, Tab, Down, a finger's reach, Y, the remembered set and the set a start hands on. |
 | `--check-mutator-room` | Hosts a battle room alone and checks Mutators above Select Map, as large as it, at 640x480 and 1280x720, its count, the remembered multiplayer set, the chat lines, and the button while the room's options are locked. |
+| `--check-brain-room` | Hosts a battle room alone and checks each computer row's brain button at 640x480 and 1280x720: the label, the greyed difficulty, the picker, every computer seat, the hover card, and the button meeting no control of the room but its row's empty screen-size column. |
 | `--check-mutator-picker` | Checks the mutator picker at four window sizes, including a cancelled download, a check after an install, USE THESE fetching one, a download already under way, and the runtime's own feed. |
+| `--check-brain-picker` | Checks the brain picker at four window sizes: the row order, a locked brain, the level, USE THIS, every computer seat, CANCEL, the keys, the controller, and the runtime's own feed. |
+| `--check-brain-seat-buttons` | Checks each computer row's brain button on the skirmish setup at 640x480 and 1280x720: its place beside Energy, the label, Tab, the picker, the hover card and the brains a start seats. |
+| `--check-brain-campaign` | Checks the campaign computer player's brain button on NEWGAME and Any Mission at 640x480 and 1280x720: its place under Difficulty, the label, Tab, the picker, the brain the first mission seats and the seat a loaded campaign save leaves. |
 | `--check-mutator-prompts` | Checks the questions a stopped skirmish start, a crash and Get mutators ask: START WITHOUT IT, BACK, FORGET IT and RETRY. Then the host's "The game did not start" for a guest without its release and for one with it. |
 | `--check-mod-warning` | Checks the warning for a mod whose files are missing. |
 | `--check-mod-install` | Installs, rolls back and replaces made-up mod packages. |
@@ -420,11 +442,13 @@ Network play's own checks, the last rows, are in every build.
 | `--check-library-map-previews` | Checks the Library's map pictures. |
 | `--check-library-content` | Turns Core Contingency off in the Library, and chooses the demo when its installer is there. |
 | `--check-library-update-question` | At 640x480, confirms a rules-changing update fifty times and requires the Library to stay open with its tabs. |
+| `--check-renderer-proof` | Draws a fixed terrain scene offscreen from the installed game and compares its classic projection with the experimental renderer. `--snapshot` names the output location. |
+| `--check-live-renderer` | Starts a Skirmish headlessly and checks the experimental live renderer with an offscreen GPU; opens no window. |
 | `--check-renderer-ladder` | Forces each renderer failure the game handles and checks it goes on. |
 | `--render-fault POINT[@FRAME]` | Forces only that failure, for `--check-renderer-ladder`. |
 | `--check-briefing-narration` | Checks a briefing's narration plays and stops when it should. |
 | `--check-director-view` | Checks the director's view of a headless skirmish. |
-| `--check-director-render` | Renders a small director script and checks the files it writes. |
+| `--check-director-render` | Renders a small director script and checks the files it writes; with `--hardware-acceleration=full`, on the graphics card's Full tier. |
 | `--check-interpolation` | Checks the frames drawn between ticks, and the frames at whole ticks with Smooth motion Off. |
 | `--check-unit-playout` | Checks another machine's units move evenly. |
 | `--reclaim-check` | Has the commander reclaim the nearest feature in a headless skirmish. |
@@ -432,6 +456,7 @@ Network play's own checks, the last rows, are in every build.
 | `--net-loopback-watcher` | The loopback check's joiner watches. |
 | `--net-loopback-computer` | The loopback check's host seats a computer player. |
 | `--net-loopback-each-ai` | The loopback check's host and joiner each seat a computer player. |
+| `--net-loopback-fixed-starts` | The loopback check's host fixes the start positions. |
 | `--check-host-not-found` | Checks a joiner whose host is never found. |
 | `--check-opened-launch start\|menu FILE` | Opens `FILE` as the system opens a launch file: as the game starts, before its window opens, or once the main menu has settled. |
 | `--check-recording-hook` | Checks the game declines bytes that are no recording and refuses a cut one. |
@@ -465,6 +490,14 @@ one, for the engine's developers.
 | `--load PATH.sav` | Starts the headless run from a saved game. |
 | `--give-orders` | Gives the units orders in a headless run. |
 | `--seed N` | Starts the random numbers from `N`, so two runs play alike. |
+| `--brain-match A,B` | Plays a two-seat headless skirmish. Each seat is an installed brain id, a brain folder, or `builtin`. It needs `--headless-check`, `--match-ticks` and `--brain-map`. [Below](#--brain-match). |
+| `--brain-levels L1,L2` | The level of each `--brain-match` seat. A built-in level is `easy`, `medium` or `hard`, and `hard` when the word is left out. A brain's level is a level id from its manifest, and its first level when the word is left out. |
+| `--brain-map NAME` | The map a `--brain-match` plays. |
+| `--brain-shadow BRAIN` | Runs BRAIN beside the built-in player on every computer seat of a skirmish, a campaign mission or a loaded game on this machine. BRAIN is an installed brain's id, or a brain folder. The built-in player still plays the seat. [Below](#--brain-shadow). |
+| `--brain-shadow-sections LIST` | Sections to compare, separated by commas: `start`, `schedule`, `sort`, `task1` to `task9`. Left out, every section is compared. It needs `--brain-shadow`. |
+| `--brain-shadow-log DIR` | Writes the shadow's call logs into DIR. It needs `--brain-shadow`. |
+| `--brain-trace FILE` | Writes a brain log of every computer seat's calls, orders and draws. It needs `--headless-check` and `--match-ticks`. [Below](#--brain-trace-and---brain-record). |
+| `--brain-record FILE` | Writes the features and decisions a brain records, and after a brain match each seat's result. It needs `--headless-check` and `--match-ticks`. [Below](#--brain-trace-and---brain-record). |
 | `--trace-digest FILE` | Writes a digest of the match at each tick. |
 | `--trace-units FILE` | Adds a line for each unit to it. It needs `--trace-digest`. |
 | `--trace-lookups FILE` | Writes every game file and listing the run looks up, and, for a path a mutator serves or hides, which mutator. |
@@ -536,6 +569,179 @@ pointer lines should reach that edge's column or row. Then:
   outermost row or column on that side; with `top:-8` the match pointer
   lines stop at `y=8`. A line after `scale-changed` or
   `display-mode-changed` shows when the window moved there.
+
+#### `--brain-match`
+
+```sh
+open-annihilation --headless-check --brain-match steady-commander,builtin --brain-levels steady,hard --brain-map "Ashap Plateau" --seed 4242 --match-ticks 1800
+```
+
+Both seats are computer players. `A` and `B` are separated by one comma and
+are not trimmed. `builtin` is the built-in computer player. A seat that
+holds `/` or `\`, or starts with `.`, is a brain's folder. Any other seat
+is the id of a brain installed under the user folder's `Brains`.
+`--brain-levels` is two levels in the same order, or left out. A brain
+match needs `--headless-check`, `--match-ticks` and `--brain-map`.
+`--brain-levels` and `--brain-map` need `--brain-match`. A brain match
+cannot be combined with `--stage`, `--combat`, `--load`, `--save-after`,
+`--campaign`, `--frame-rate` or `--benchmark`.
+
+The match stops at the first tick where one seat has units and the other
+has none (that seat wins), or where neither seat has units (a draw). When
+both still have units after `--match-ticks` ticks, there is no winner.
+The same command prints the same lines on every run. Each line starts
+with `brain match: `, and every number is a whole decimal. A stored
+amount with a fraction is cut toward zero. Seats are numbered 1 and 2.
+
+```text
+brain match: map Ashap Plateau seed 4242 ticks 1800
+brain match: seat 1 steady-commander 1.2 level steady side 0
+brain match: seat 2 built-in level hard side 1
+brain match: end tick 1800 winner none reason time
+brain match: seat 1 units 4 built 3 lost 0 kills 0 metal 512 energy 980 metal-produced 1203 energy-produced 4410 instructions 1834000 status playing
+brain match: seat 2 units 9 built 8 lost 0 kills 0 metal 220 energy 1500 metal-produced 1650 energy-produced 5120 instructions - status built-in
+brain match: digest 0123456789abcdef
+```
+
+| Word | What it says |
+|---|---|
+| `map`, `seed`, `ticks` | The map, the seed the match played, and the tick count the command asked for. |
+| `seat N` and a brain | The brain's id, its version, the level id it played, and the seat's side. A folder is named by its last piece, never by the path. |
+| `built-in` | This seat is the built-in computer player, at `easy`, `medium` or `hard`. |
+| `end tick` | The tick the match stopped on. |
+| `winner` | `seat 1`, `seat 2`, or `none`. |
+| `reason` | `last-standing` when one seat still has units, `draw` when neither does, or `time` when the tick count is spent with both still in play. |
+| `units` | Live units of that seat. |
+| `built`, `lost`, `kills` | Units the seat has built, lost and killed. |
+| `metal`, `energy` | Metal and energy in store. |
+| `metal-produced`, `energy-produced` | Metal and energy the seat has produced. |
+| `instructions` | Instructions the brain's calls have used, or `-` for a built-in seat. |
+| `status` | `playing`, `stopped-at` and the tick the brain stopped, or `built-in`. |
+| `stopped:` | The next line of a seat whose brain stopped, naming the script and the line. The match plays on. |
+| `digest` | The world digest, 16 lower-case hex digits. |
+
+A seat whose brain could not be seated is not played. The run prints
+`brain match: seat 2 ridge-raider was not seated:` and the reason, and
+exits with status 1. A map that cannot be played prints
+`brain match: map NAME could not be played` and exits with status 1. An
+option the command refuses also exits with status 1. Status 0 means the
+match played to the end above, whoever won.
+
+#### `--brain-shadow`
+
+```sh
+open-annihilation --skip-intro --mute --headless-check --seed 1234567 --match-ticks 600 --brain-shadow tests/data/brains/steady-shadow --brain-shadow-sections task9 --brain-shadow-log /tmp/shadow-logs
+```
+
+BRAIN is an installed brain's id, or a folder (a path that holds `/` or
+`\`, or starts with `.`). The brain is seated beside every computer seat
+this machine plays, in a skirmish, a campaign mission or a loaded game. A
+seat a brain already plays keeps that brain. A network game seats no
+shadow. The built-in player plays each seat as before. The brain's orders
+are recorded and not applied.
+
+At the end of the run, one line is printed for each shadowed seat:
+
+```text
+brain shadow: seat 1: start not compared, 601 ticks, no difference
+brain shadow: seat 1: start same, 601 ticks, first difference at tick 29 in sort, 20 ticks differ
+brain shadow: seat 1: stopped at tick 12: brain.lua:4: something failed
+```
+
+The load's player pass is compared too, once, before the ticks
+`--match-ticks` runs. A run of 600 ticks compares 601, and the first squad
+sort is at tick 29.
+
+`start` is `same`, `differs` or `not compared`. The seat number is the
+engine's player index. A stopped brain prints only the stopped line.
+
+`--brain-shadow-sections` is a comma-separated list. A word that is not
+`start`, `schedule`, `sort` or `task1` to `task9` is ignored. Left out,
+every section is compared. `--brain-shadow-sections` and
+`--brain-shadow-log` need `--brain-shadow`.
+
+`--brain-shadow-log DIR` writes `seat-<p>-start-builtin.log`,
+`seat-<p>-start-brain.log`, and, for the first differing tick and the two
+before it, `seat-<p>-tick-<t>-builtin.log` and `seat-<p>-tick-<t>-brain.log`.
+
+#### `--brain-trace` and `--brain-record`
+
+```sh
+open-annihilation --skip-intro --mute --headless-check --seed 4242 --match-ticks 1800 --brain-match tests/data/brains/steady-commander,builtin --brain-map "Ashap Plateau" --brain-trace log.txt --brain-record records.txt
+```
+
+Both need `--headless-check` and `--match-ticks`. They work in a brain
+match, a shadow run, and any headless skirmish where brains are seated.
+The files are created when the match starts. A file that cannot be
+created stops the run with status 1. Writing either file leaves the
+report, the digest and a `--trace-digest` stream unchanged, and a brain
+is charged the same instructions whether or not the record file is open.
+
+`--brain-trace FILE` writes a brain log for every computer seat this
+machine plays. The first line is `brain log 1`. Each tick then follows
+the call log: a brain's hook calls, orders and draws, and a built-in
+seat's orders and draws. A shadow run writes both sides. In the log,
+`<p>` is the engine's player index. A brain match's report numbers those
+same seats 1 and 2, so report seat 1 is log seat 0.
+
+```text
+brain log 1
+tick <t> seat <p> builtin|brain
+call <hook> <n>…
+own-draw <low> <high> <value>
+own-draw float <16 hex digits>
+order <name> <slot> <n>…
+section <name>
+draw <bound> <value>
+assign <slot> <squad>
+move <slot> <x> <y> <z> <queue>
+patrol <slot> <x> <y> <z> <queue>
+attack <slot> <target>
+build <slot> <type> <x> <y> <z>
+queue <slot> <type> <count>
+on <slot> <0|1>
+attack_point <slot> <x> <y> <z>
+stance <slot> <move> <fire>
+refused <name> <slot>
+resync <state>
+```
+
+Numbers are decimal. Coordinates are signed 16.16 integers. `call` is
+written before the hook runs. A unit is its slot, a player is its index,
+and an amount is the amount the hook receives. A timer is named `timer`.
+`fits` and `start` are logged under tick 0. `brain.random(n)` is
+`own-draw 1 n`, and `brain.random(0)` is `own-draw 0 0` with the raw word.
+`math.random(m, n)` is `own-draw m n`. `math.random()` is
+`own-draw float` and 16 lower-case hex digits of the value's bits.
+`brain.shared_random` is a `draw` line. An order the lines above already
+name is written as that line. Any other order is `order` and its numbers
+follow in the order the brain passed them.
+
+`--brain-record FILE` writes JSON lines, UTF-8, one record a line. Keys
+stay in the order shown. Numbers are whole. The same match writes the
+same bytes on every machine: the file holds no time, path, user or
+engine version. A record's seat number is the engine index plus one.
+
+```text
+{"kind":"header","format":1,"map":"Ashap Plateau","seed":4242,"seats":[{"seat":1,"brain":"learned-scout","version":"1.0","level":"rule"},{"seat":2,"brain":"builtin","level":"easy"}]}
+{"kind":"sample","tick":300,"seat":1,"features":{"sectors":{"shape":[2,8,8],"values":[0,65536]}},"decision":17}
+{"kind":"result","seat":1,"winner":false,"tick":1800,"units":4}
+```
+
+The header lists each computer seat this machine plays, in index order.
+A brain's seat names its id, version and level. A built-in seat names
+`builtin` and `easy`, `medium` or `hard`, and has no version. A sample is
+one `brain.record` call: features in byte order of their names, each
+value a tensor of counts of 65536ths (`65536` is 1), and a decision that
+is either an integer or a tensor of the same shape. An integer decision
+is that integer, not a count of 65536ths. After a brain match that
+played to its report, one result line follows for each of the two seats.
+`units` is how many units that seat still has. `winner` is true only for
+the seat that won. A match that does not play writes no result lines.
+
+The record file stops growing at 1 GiB. Its last line is
+`{"kind":"full"}`, standard error says `brain record is full`, and the
+match goes on.
 
 ## Ways to launch a game
 
@@ -784,13 +990,16 @@ setting the file leaves out keeps the battle room's own choice.
 joins needs `game.address`, or `--join ADDRESS`.
 
 Each item of `computer-players` is a group of `side` (`arm` or `core`),
-`team` (`1` to `5`, or `none`), `colour` (`1` to `10`) and `difficulty`
-(`easy`, `medium` or `hard`). Any but the side may be left out, and the
-battle room then chooses it as it does for a computer player a click seats:
-no team, the next free colour, and hard. A refusal names an item by its
-place, counting from 1 (`computer-players[2].team`). A deathmatch or a
-tournament game seats no computer players, and the computer players and the
-player must fit `game.player-limit`.
+`team` (`1` to `5`, or `none`), `colour` (`1` to `10`), `difficulty`
+(`easy`, `medium` or `hard`) and `brain`, an installed brain's id. Any but
+the side may be left out, and the battle room then chooses it as it does
+for a computer player a click seats: no team, the next free colour, hard,
+and the room's own brain. A brain that is not installed refuses the launch.
+One that does not fit the game plays the built-in player. A refusal names
+an item by its place, counting from 1 (`computer-players[2].team`,
+`computer-players[2].brain`). A deathmatch or a tournament game seats no
+computer players, and the computer players and the player must fit
+`game.player-limit`.
 
 `rules.unit-restrictions` is a group of units and their limits, each unit by
 its FBI UnitName in any case: `0` cannot be built, `1` to `100` is the most
@@ -963,7 +1172,7 @@ settings in src/app/netgame/launch_file.cpp, word for word. -->
 | `rules.time-limit` | `--time-limit N` | A whole number of 0 or more, kept and passed on with the score report. |
 | `rules.lock-options` | `--lock-options[=on\|off]` | Locks the battle room's option controls for a host: `on` or `off`. |
 | `rules.unit-restrictions` | `--unit-restriction UNIT=0-100\|no-limit` | Build limits, as the battle room's Restrictions sets them: each unit by its FBI UnitName (such as `CORKROG`), from 0, which cannot be built, through 100, or `no-limit`. Give the option once for each unit. A unit the game's content does not have is left out. |
-| `computer-players` | `--computer-player arm\|core[:TEAM[:COLOUR[:DIFFICULTY]]]` | The computer players this machine seats, at most 9, each with a side, and a team, colour and difficulty (`easy`, `medium` or `hard`) the battle room otherwise chooses. Give the option once for each. |
+| `computer-players` | `--computer-player arm\|core[:TEAM[:COLOUR[:DIFFICULTY[:BRAIN]]]]` | The computer players this machine seats, at most 9, each with a side, and a team, colour and difficulty (`easy`, `medium` or `hard`) the battle room otherwise chooses, then a brain's id. A brain that is not installed refuses the launch; one that does not fit plays the built-in player. Give the option once for each. |
 | `content.base-game` | `--content GAME[:EXPANSION,...]` | The base game this run plays, by its id. |
 | `content.expansions` | `--content GAME[:EXPANSION,...]` | The expansions this run plays, a list of ids. It needs a base game. |
 | `content.mod` | `--mod FILE \| --mod-dir PATH` | The mod this run plays: in the file a mod's id or a path, and on the command line its profile or its folder. |
@@ -973,11 +1182,15 @@ settings in src/app/netgame/launch_file.cpp, word for word. -->
 | `status.quit-after-game` | `--quit-after-game[=after-score]` | Leaves when the game ends (`on`), stays (`off`), or leaves after the score (`after-score`). |
 
 `--computer-player` takes the computer player's side, then, after a colon
-each, its team (`1` to `5`, or `none`), its colour (`1` to `10`) and its
-difficulty (`easy`, `medium` or `hard`). A part left out or left empty is
-chosen by the battle room: `core:2::hard` is Core on team 2, in the next
-free colour, playing hard. The first `--computer-player` replaces the
-file's list, and each adds one computer player.
+each, its team (`1` to `5`, or `none`), its colour (`1` to `10`), its
+difficulty (`easy`, `medium` or `hard`) and a brain's id. A part left out
+or left empty is chosen by the battle room: `core:2::hard` is Core on team
+2, in the next free colour, playing hard, with the room's own brain.
+`core:2::hard:steady-commander` seats that installed brain at the level
+hard gives. A brain that is not installed refuses the launch. One that
+does not fit the game plays the built-in player. The first
+`--computer-player` replaces the file's list, and each adds one computer
+player.
 
 `--unit-restriction` takes a unit's FBI UnitName, an equals sign and its
 limit, such as `CORKROG=0`. In the file the restrictions are a group of

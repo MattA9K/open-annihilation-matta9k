@@ -31,6 +31,8 @@
 #include "oa/data/defs/unit_catalog.hpp"
 #include "oa/data/languages.hpp"
 #include "oa/data/languages/language_pack.hpp"
+#include "oa/data/brain_facts.hpp"
+#include "oa/data/brain_library/seats.hpp"
 #include "oa/data/limits.hpp"
 #include "oa/sim/gameplay_input/input.hpp"
 #include "oa/sim/gameplay_input/order_cursor.hpp"
@@ -68,6 +70,7 @@
 #include "oa/ui/engine_settings.hpp"
 #include "oa/ui/engine_settings/dialog.hpp"
 #include "oa/ui/mutator_picker/model.hpp"
+#include "oa/ui/brain_picker/model.hpp"
 #include "oa/data/content_bundles/content_choice.hpp"
 #include "oa/data/mutators/choice.hpp"
 #include "oa/data/mutators/dry_run.hpp"
@@ -78,6 +81,8 @@
 #include "oa/app/content/downloads.hpp"
 #include "oa/app/content/settings.hpp"
 #include "oa/app/renderer_records.hpp"
+#include "oa/app/brain_seats.hpp"
+#include "oa/app/seat_chat.hpp"
 #include "oa/ui/frontend_multiplayer/host_mutators.hpp"
 #include "oa/ui/frontend_renderer/scroll_bars.hpp"
 #include "oa/present/world_renderer/world_radar.hpp"
@@ -104,6 +109,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace oa::ui::console {
@@ -111,6 +117,20 @@ struct Console;
 struct ConsoleHost;
 enum class CrashTest : uint8_t;
 } // namespace oa::ui::console
+
+namespace oa::app::renderer_effect_sources {
+struct Source;
+} // namespace oa::app::renderer_effect_sources
+
+namespace oa::app::renderer_water {
+struct Wind;
+class SurfaceCache;
+struct Disturbance;
+} // namespace oa::app::renderer_water
+
+namespace oa::app::renderer_effect_events {
+class Capture;
+} // namespace oa::app::renderer_effect_events
 
 namespace oa::present::model {
 struct RgbBridge;
@@ -167,6 +187,10 @@ namespace oa::data::mutator_library {
 struct Listing;
 } // namespace oa::data::mutator_library
 
+namespace oa::data::brain_library {
+struct Listing;
+} // namespace oa::data::brain_library
+
 namespace oa::data::mutators {
 struct ChosenMap;
 struct Loadout;
@@ -181,6 +205,7 @@ struct PresenceMutators;
 } // namespace oa::netgame
 
 namespace oa::data::saves {
+struct ContentBrain;
 struct ContentMutator;
 } // namespace oa::data::saves
 
@@ -194,10 +219,15 @@ class FontStack;
 } // namespace oa::platform::text_font
 
 namespace oa::ui::frontend_multiplayer {
+struct Lobby;
 struct LobbyMapSource;
 struct LobbyPackMap;
 struct LocalPack;
 } // namespace oa::ui::frontend_multiplayer
+
+namespace oa::sim::brains {
+struct RecordSample;
+}
 
 namespace oa::app {
 
@@ -412,6 +442,26 @@ struct MutatorPickerRequest {
     bool remembered{false};
 };
 
+/// One computer player a match will seat with a brain.
+///
+/// `saved` is the state a saved game hands back to `start`. Empty is no
+/// state. An empty `version` and `package_sha256` are a brain installed by
+/// hand, whose folder has no origin record.
+struct BrainSeat {
+    uint8_t player{};                                 ///< the player, 0 to 9
+    std::filesystem::path folder{};                   ///< the brain's folder
+    std::string id{};                                 ///< the brain's id
+    std::string version{};                            ///< the manifest's version
+    std::string package_sha256{};                     ///< the package file's SHA-256, or empty
+    std::string level{};                              ///< the level's id
+    oa::data::brain_library::Difficulty difficulty{}; ///< the level's income
+    /// Option id and canonical value, in the brain's option order.
+    std::vector<std::pair<std::string, std::string>> options{};
+    /// Saved state `start` receives. Empty when the brain saved none, or when
+    /// the installed brain is not the version and package the save recorded.
+    std::optional<std::vector<uint8_t>> saved{};
+};
+
 /// Where the mutator picker reads what it lists, and where it queues a download.
 ///
 /// The runtime's own feed is installed until a check replaces it.
@@ -440,6 +490,42 @@ struct MutatorPickerFeed {
     };
     /// Retries a download that stopped. Null leaves it stopped.
     void (*retry)(void* context, std::string_view registry, std::string_view key){nullptr};
+};
+
+/// What a caller hands the brain picker, and what the picker hands back.
+struct BrainPickerRequest {
+    /// Which setup opened the picker.
+    oa::data::brain_library::Setup setup{};
+    /// The seat, as a player reads it.
+    std::string seat_name{};
+    /// The seat's choice as the setup remembered it.
+    oa::ui::brain_picker::Choice current{};
+    /// The setup's difficulty. A new brain starts at the level of this
+    /// difficulty, and the built-in player uses it while the level is fixed.
+    oa::data::brain_library::Difficulty setup_difficulty{};
+    /// True in a skirmish or a campaign, where the Difficulty button sets
+    /// every built-in seat's level.
+    bool built_in_level_fixed{};
+    /// True when the picker offers to put the choice on every computer seat.
+    bool offer_every_seat{};
+    /// Called with the choice and whether it is for every computer seat,
+    /// when USE THIS closes the picker.
+    std::function<void(oa::ui::brain_picker::Choice, bool every_seat)> used{};
+    /// Called when the picker closes without handing a choice.
+    std::function<void()> cancelled{};
+};
+
+/// Where the brain picker reads the brains it lists.
+///
+/// The brains are in the order the picker lists them, the built-in player
+/// first. The generation moves on when that list would differ. The runtime's
+/// own feed is installed until a check replaces it.
+struct BrainPickerFeed {
+    void* context{nullptr};
+    /// The brains the picker can show. Null gives no list.
+    std::vector<oa::ui::brain_picker::Brain> (*brains)(void* context){nullptr};
+    /// A count that moves on when `brains` would give something else.
+    uint64_t (*generation)(void* context){nullptr};
 };
 
 /// One mutator that stopped a skirmish or a campaign mission from starting.
@@ -598,6 +684,39 @@ class Runtime final : public menu::Host,
     void move_map_unit_computer_last(
         std::array<int32_t, 10>& positions, int32_t& placing, bool fixed_positions
     );
+
+    // Brains read where the match placed its players (runtime_campaign.cpp).
+    // Network play notes its own placement through the same three calls.
+
+    /// Copies the selected schema's kind-1 start markers, in stored order.
+    void note_brain_map_starts();
+
+    /// Records the start index this match gave one player.
+    ///
+    /// `start_index` is the index passed to the placement, after a neutral
+    /// map has moved the computer player. `map_placed` is true when the map's
+    /// own units took the commander's place. `placed_here` is true when this
+    /// machine placed that player. A later note of a player this machine did
+    /// not place does not replace an index already recorded here.
+    ///
+    /// @param player player index, 0 to 9
+    /// @param start_index zero-based start, or negative when none
+    /// @param map_placed true when the map's units were placed
+    /// @param placed_here true when this machine placed the player
+    void remember_brain_player_start(
+        uint8_t player, int32_t start_index, bool map_placed, bool placed_here
+    );
+
+    /// Publishes the start rule into the note, and into brains state when a
+    /// brain is already seated.
+    ///
+    /// A campaign mission is fixed. So is a match in which every player this
+    /// machine had to place was placed by the map's own units and none took a
+    /// commander. Otherwise `fixed_by_setup` is the skirmish StartLocation or
+    /// the battle room's fixed-starts option. Does not create brains state.
+    ///
+    /// @param fixed_by_setup true when the setup itself asked for fixed starts
+    void publish_brain_starts(bool fixed_by_setup);
 
     /// Tells whether the match's map places units for the neutral player,
     /// which the team start positions read.
@@ -1816,6 +1935,17 @@ class Runtime final : public menu::Host,
     /// @param ticks ticks to run
     void run_headless_match(std::size_t ticks);
 
+    /// Plays a two-seat headless skirmish between the brains `--brain-match` names.
+    ///
+    /// The match stops when one seat or neither has units left, or after
+    /// `ticks` ticks, and prints the brain match report. It returns 0 when
+    /// the match played to that end, and 1 when the map cannot be played or
+    /// a seat's brain could not be seated.
+    ///
+    /// @param ticks ticks to run at most
+    /// @return 0 when the match played, 1 when it did not
+    int run_headless_brain_match(std::size_t ticks);
+
     /// Runs the --campaign mission headless with the computer player active.
     ///
     /// Every distinct tick error is logged with the run's tick it first
@@ -1900,10 +2030,44 @@ class Runtime final : public menu::Host,
     /// EngineView::margin pixels larger and cut at the view's offset, with
     /// the default gamma; the player's saved gamma never applies. No
     /// overlay, label, panel, message or cursor is drawn. The Game block's
-    /// camera is left bound to the drawn view.
+    /// camera is left bound to the drawn view. The processor draws it,
+    /// unless director_draws_on_card (draw_director_card_frame).
     ///
     /// @param[out] rgb the frame, width * height * 3 bytes, row by row
     void draw_director_frame(std::span<uint8_t> rgb);
+
+    /// Tells whether director mode's frames are drawn by the graphics card's
+    /// Full tier (DirectorPresentation::full), on the renderer with no window
+    /// open_director_card made.
+    ///
+    /// @return true in director mode once that renderer is open
+    [[nodiscard]] bool director_draws_on_card() const noexcept;
+
+    /// Opens the renderer the Full tier draws director frames on: starts
+    /// SDL's video, makes SDL's GPU renderer with no window, makes it the
+    /// runtime's renderer, switches the accelerated presentation on at a
+    /// Full rung and runs the Full function test on its card executor.
+    /// Called by enter_director_mode when the presentation asks for the
+    /// graphics card.
+    ///
+    /// Throws DirectorCardUnavailable when SDL's video or the renderer does
+    /// not start, and std::runtime_error when the function test fails.
+    void open_director_card();
+
+    /// Closes what open_director_card opened, as much of it as was opened,
+    /// and puts the runtime's renderer back.
+    ///
+    /// @param[in,out] state director mode's state, whose card is closed
+    void close_director_card(DirectorState& state) noexcept;
+
+    /// Draws the running match's current tick from the director's camera on
+    /// the graphics card's Full tier and reads it back into a frame:
+    /// draw_director_frame's frame, the card's picture in place of the
+    /// processor's. Throws std::runtime_error when the Full tier does not
+    /// draw it.
+    ///
+    /// @param[out] rgb the frame, width * height * 3 bytes, row by row
+    void draw_director_card_frame(std::span<uint8_t> rgb);
 
     /// Runs --check-director-view: a headless skirmish drawn in director
     /// mode, checked against the same skirmish replayed in director mode
@@ -1967,8 +2131,13 @@ class Runtime final : public menu::Host,
     /// Runs --check-director-render: a small director script rendered over
     /// the headless skirmish with encoding off, in full and its second chunk
     /// alone, checked for its files, its sound and the world it reaches.
-    /// Throws std::runtime_error when a check fails.
-    void check_director_render();
+    /// With --hardware-acceleration=full the frames are drawn by the
+    /// graphics card's Full tier, and the run manifest must say so. Throws
+    /// std::runtime_error when a check fails.
+    ///
+    /// @return 0 when it ran; 77, which ctest reports as skipped, when the
+    ///     Full tier was asked for and no graphics card renderer could be made
+    [[nodiscard]] int check_director_render();
 
     /// Starts the --campaign mission --mission names through the Any Mission list, its briefing and
     /// Start.
@@ -2213,6 +2382,17 @@ class Runtime final : public menu::Host,
     /// @param runtime the running app
     /// @return the source the multiplayer screens bind
     friend oa::ui::frontend_multiplayer::LobbyMapSource pack_map_source(Runtime& runtime);
+    /// Hands a chat line from another machine to the computer seats it
+    /// reached (hear_remote_seat_chat in extension.hpp).
+    ///
+    /// @param runtime the running app
+    /// @param from slot of the sender
+    /// @param addressee slot the record was addressed to
+    /// @param broadcast the record went to every player
+    /// @param line the line as this machine shows it; null is ignored
+    friend void hear_remote_seat_chat(
+        Runtime& runtime, uint8_t from, uint8_t addressee, bool broadcast, const char* line
+    );
 
     // ---- Touch controls (docs/touch-controls.md) --------------------------------------
 
@@ -2258,10 +2438,11 @@ class Runtime final : public menu::Host,
     /// @param mods SDL_Keymod bits held with it
     void press_match_key(SDL_Keycode key, SDL_Keymod mods);
 
-    /// Rewrites a hardware key event with Cmd held into the key it stands for while touch
-    /// controls are active: Cmd+. → Escape, Cmd+1..4 → F1..F4, Cmd+P → Pause (Cmd removed).
+    /// Rewrites a hardware key event with Cmd held into its alternate, removing Cmd.
     ///
-    /// Leaves every other event unchanged. [runtime_input_modifiers.cpp]
+    /// With touch controls active: Cmd+. → Escape, Cmd+1..4 → F1..F4, Cmd+P → Pause.
+    /// On desktop Macs, Cmd+P also supplies Pause during a match. Leaves every other
+    /// event unchanged. [runtime_input_modifiers.cpp]
     ///
     /// @param[in,out] event the event dispatch_event is given
     void remap_command_key(SDL_Event& event) const;
@@ -4450,6 +4631,47 @@ class Runtime final : public menu::Host,
     /// A package change before the first read leaves the listing unmade.
     void reload_installed_mutators() const;
 
+    /// The installed brains, read from the player's Brains folder.
+    struct BrainLibraryState;
+
+    /// Frees the brain listing.
+    ///
+    /// @param state state to free; null is allowed
+    static void destroy_brain_library_state(BrainLibraryState* state) noexcept;
+
+    /// Returns the installed brains, read on first use from
+    /// `<user folder>/Brains` and read again after every change of a
+    /// brain package.
+    ///
+    /// @return the listing
+    [[nodiscard]] const oa::data::brain_library::Listing& installed_brains() const;
+
+    /// Reads the Brains folder again when a listing is already held.
+    ///
+    /// The generation the brain picker watches moves either way. A package
+    /// change before the first read still leaves the listing unmade.
+    void reload_installed_brains() const;
+
+    /// Returns the default brain's id.
+    ///
+    /// The value of open-annihilation.brain.default when a brain of that id
+    /// is installed, and empty when the key is absent, empty, or names a
+    /// brain that is not installed. Once the Library's worker has searched,
+    /// this reads that listing and does not open the Brains folder. Before
+    /// that search, the folder is read.
+    ///
+    /// @return the id, or empty for the built-in computer player
+    [[nodiscard]] std::string default_brain() const;
+
+    /// Stores the default computer player.
+    ///
+    /// An installed brain's id writes open-annihilation.brain.default. An
+    /// empty id erases the key, so the built-in player is the default. A
+    /// failure to store it is logged once.
+    ///
+    /// @param id the brain's id, or empty for the built-in player
+    void set_default_brain(std::string_view id);
+
   public:
 
     /// Replaces the mutators the next matches apply.
@@ -4459,6 +4681,15 @@ class Runtime final : public menu::Host,
     ///
     /// @param chosen the mutators, top first
     void choose_match_mutators(std::vector<oa::data::mutators::ResolvedMutator> chosen);
+
+    /// Names the brain one seat plays, or clears that seat.
+    ///
+    /// A player outside 0 to 9 does nothing. An empty choice clears the seat.
+    /// A skirmish or a campaign mission seats the choices before its first tick.
+    ///
+    /// @param player player index, 0 to 9
+    /// @param choice the brain, the level and the options; empty clears the seat
+    void set_brain_seat(uint8_t player, std::optional<BrainSeatChoice> choice);
 
     /// Returns the mutators the next matches apply.
     ///
@@ -4747,6 +4978,23 @@ class Runtime final : public menu::Host,
     /// @return the mutators, or an empty list when this match applied none
     [[nodiscard]] std::vector<oa::data::saves::ContentMutator> played_mutators() const;
 
+    /// The brains that played this match's computer players, as seats text.
+    ///
+    /// This machine's seated brains are named with their package SHA-256.
+    /// Other machines' computers are named from the room's labels kept at the
+    /// start, without a package. Empty when no brain played.
+    ///
+    /// @return the seats text, or empty when no brain played
+    [[nodiscard]] std::string played_brains_text() const;
+
+    /// The brains that played this match's computer players, for the content note.
+    ///
+    /// One entry per brain, in player order. The level is the level's name and
+    /// the name is the brain's name. Empty when no brain played.
+    ///
+    /// @return those brains, or an empty list when none played
+    [[nodiscard]] std::vector<oa::data::saves::ContentBrain> played_brains() const;
+
     /// Why a recording's loadout cannot be played on this machine.
     ///
     /// Empty when the text is the canonical loadout and every mutator is
@@ -4863,6 +5111,131 @@ class Runtime final : public menu::Host,
     /// @return true when the flag is set
     [[nodiscard]] bool mutators_refused_for_run() const noexcept;
 
+    /// The seats stored for one setup.
+    ///
+    /// None when the key is absent or its text is not seats.
+    ///
+    /// @param setup the setup
+    /// @return the seats, or none
+    [[nodiscard]] std::optional<oa::data::brain_library::Seats>
+    remembered_brain_seats(oa::data::brain_library::Setup setup) const;
+
+    /// Stores the seats a setup started with and saves the preferences.
+    ///
+    /// Writes only when a seat names a brain, or the setup's key is already
+    /// there. A failure to save is logged once and is not thrown.
+    ///
+    /// @param setup the setup
+    /// @param seats the seats
+    void remember_brain_seats(
+        oa::data::brain_library::Setup setup, const oa::data::brain_library::Seats& seats
+    );
+
+    /// The seats a setup keeps for this run.
+    ///
+    /// Skirmish and campaign fill theirs when the setup is entered. The
+    /// battle room writes its seats, in the order this machine seated its
+    /// computers, when START seats them. The room's buttons read each
+    /// computer's own choice, not this record.
+    ///
+    /// @param setup the setup
+    /// @return the seats
+    [[nodiscard]] oa::data::brain_library::Seats&
+    setup_brain_seats(oa::data::brain_library::Setup setup);
+
+    /// Notes the computer players this machine runs and fills a choice each
+    /// one lacks.
+    ///
+    /// A computer with no choice takes the next remembered multiplayer seat,
+    /// in the order this machine seated them, else the default brain at the
+    /// level for hard, else the built-in player at hard. A remembered brain
+    /// that is not installed or does not fit falls back the same way, and
+    /// that is logged. The choice is published onto the lobby once the
+    /// computer is seated. No computer left on this machine clears the
+    /// choices. A launch calls it with the lobby it is starting, which is
+    /// not the battle room's lobby.
+    ///
+    /// @param lobby the battle room, this machine's or a launch's
+    void note_room_computers(oa::ui::frontend_multiplayer::Lobby& lobby);
+
+    /// Remembers the brains other machines' computers play, as the room shows them.
+    ///
+    /// Called when a network match has started, from the room as it stands
+    /// then. This machine's own computers are not among them: those come from
+    /// the brains the match seated. A later match drops what this one remembered.
+    ///
+    /// @param lobby the battle room the match started from
+    void keep_remote_played_brains(const oa::ui::frontend_multiplayer::Lobby& lobby);
+
+    /// The choices of the computer players this machine runs.
+    ///
+    /// `place` is the slot. The seats are in the order this machine seated
+    /// them. A seat with an empty brain is the built-in player. Empty when
+    /// this machine runs no computer.
+    ///
+    /// @return those seats
+    [[nodiscard]] oa::data::brain_library::Seats room_brain_seats() const;
+
+    /// The brains the computer players of one start will play.
+    ///
+    /// A seat that names no brain is left out: the built-in player was
+    /// chosen and stays chosen. A player with no seat takes the default
+    /// brain, at `default_level` for `setup_difficulty`. A brain that is not
+    /// installed, or that does not fit the game being played, is left out
+    /// and logged. A level the brain lacks takes `default_level`. An option
+    /// the brain lacks is dropped. A value it does not allow takes the
+    /// option's default.
+    ///
+    /// @param seats the setup's seats
+    /// @param computer_players the computer players, each a slot 0 to 9
+    /// @param setup_difficulty the setup's difficulty
+    /// @return one seat for each computer player that plays a brain
+    [[nodiscard]] std::vector<BrainSeat> resolve_brain_seats(
+        const oa::data::brain_library::Seats& seats,
+        std::span<const uint8_t> computer_players,
+        oa::data::brain_library::Difficulty setup_difficulty
+    );
+
+    /// Holds the brains the next match seats.
+    ///
+    /// An empty list seats nobody. The list stays until that match takes it
+    /// or `cancel_brain_seats_once` drops it. A match already running is
+    /// left as it is.
+    ///
+    /// @param seats the brains, one for each computer player that plays one
+    void seat_brains_once(std::vector<BrainSeat> seats);
+
+    /// Drops the brains held for the next match.
+    ///
+    /// A quiet no-op when none are held. A caller calls this when the match
+    /// start that `seat_brains_once` armed does not seat them.
+    void cancel_brain_seats_once() noexcept;
+
+    /// Tells whether brains are held for the next match.
+    ///
+    /// True from `seat_brains_once` until the next match takes the list or
+    /// `cancel_brain_seats_once` drops it, including a list that seats nobody.
+    ///
+    /// @return true while a list is held
+    [[nodiscard]] bool brain_seats_held_for_next_match() const noexcept;
+
+    /// The brains the running match seated.
+    ///
+    /// Empty when no match is running, and when the match seated none.
+    ///
+    /// @return the brains, in the order they were seated
+    [[nodiscard]] const std::vector<BrainSeat>& seated_brains() const noexcept;
+
+    /// The seats the last successful load of a saved game handed to the match.
+    ///
+    /// Empty when that load seated no brain, and after a load that stopped
+    /// before its match. Each seat is the brain that was seated: its place,
+    /// id, the installed version and package, the level and options it plays
+    /// at, and the name players see.
+    ///
+    /// @return those seats
+    [[nodiscard]] const oa::data::brain_library::Seats& loaded_brain_seats() const noexcept;
+
   private:
 
     /// Remembers the mutators that stopped a start, for "Start without X?".
@@ -4918,6 +5291,133 @@ class Runtime final : public menu::Host,
     ///
     /// @param bootstrap the match being started
     void apply_match_mutators(const MatchBootstrap& bootstrap);
+
+    /// Seats each chosen brain on a computer player of this machine.
+    ///
+    /// A seat with no choice is left alone. A choice on a seat that is not a
+    /// computer is left alone. A brain that cannot be read writes one line to
+    /// standard error and that seat plays as the built-in computer player. A
+    /// brain that does not fit or fails to start does the same, and also posts
+    /// one notice and writes the seat's log. Nothing is seated when no match
+    /// is running.
+    void seat_chosen_brains();
+
+    /// Seats `--brain-shadow` beside every computer seat this machine plays.
+    ///
+    /// A seat a brain already plays is left alone. A network game, a shared
+    /// match and a replay seat nothing. A brain that cannot be read writes
+    /// one line to standard error and that seat keeps the built-in player.
+    /// Nothing is seated when no match is running or the option is empty.
+    void seat_shadow_brains();
+
+    /// Prints one line for each shadowed seat, and writes the logs when asked.
+    ///
+    /// The first call prints. A later call in the same match prints nothing,
+    /// so a headless run and the leave that follows it do not both print.
+    void print_shadow_reports();
+
+    /// Opens the seat's log and installs the report hooks.
+    ///
+    /// Called before the brain is seated, so lines from fits and start are
+    /// kept. A log that cannot be written is reported once; seating goes on.
+    ///
+    /// @param player player index, 0 to 9
+    /// @param name the manifest's name
+    /// @param version the brain's version
+    /// @param id the brain's id
+    /// @param level the chosen level's id
+    void prepare_brain_report(
+        uint8_t player,
+        std::string_view name,
+        std::string_view version,
+        std::string_view id,
+        std::string_view level
+    );
+
+    /// Writes a seating failure to the log and posts one notice.
+    ///
+    /// A brain that does not fit uses that sentence. A refusal or a failed
+    /// start uses the could-not-start sentence.
+    ///
+    /// @param player player index, 0 to 9
+    /// @param name the manifest's name
+    /// @param outcome what seating returned
+    void report_unseated_brain(
+        uint8_t player, std::string_view name, const oa::sim::brains::SeatOutcome& outcome
+    );
+
+    /// Writes one printed line to that seat's log.
+    ///
+    /// @param context the runtime
+    /// @param player player index, 0 to 9
+    /// @param tick the match tick
+    /// @param line the printed line
+    static void brain_printed(void* context, uint8_t player, uint32_t tick, std::string_view line);
+
+    /// Writes the stop to the log and posts the stopped notice.
+    ///
+    /// @param context the runtime
+    /// @param player player index, 0 to 9
+    /// @param tick the match tick
+    /// @param error the script error
+    static void brain_stopped(
+        void* context,
+        uint8_t player,
+        uint32_t tick,
+        const oa::data::script_host::ScriptError& error
+    );
+
+    /// Queues a line a seated brain asked to say.
+    ///
+    /// @param context this runtime
+    /// @param seat the brain's player
+    /// @param text the words
+    /// @param mode everyone, allies, enemies or chosen
+    /// @param target the chosen player
+    /// @return the seat-chat answer as a number
+    static uint8_t brain_chat_say(
+        void* context, uint8_t seat, std::string_view text, uint8_t mode, uint8_t target
+    );
+
+    /// Queues a line a computer seat heard, for that seat's next turn.
+    ///
+    /// @param context this runtime
+    /// @param seat the seat that heard the line
+    /// @param from the sender
+    /// @param mode everyone, allies, enemies or chosen
+    /// @param words the words, without a name head
+    static void brain_chat_heard(
+        void* context, uint8_t seat, uint8_t from, uint8_t mode, std::string_view words
+    );
+
+    /// Connects seated brains to the match's chat.
+    ///
+    /// Does nothing when no brain is seated, so a match without brains keeps
+    /// the listener the seat chat already has.
+    void attach_brain_chat();
+
+    /// Returns the facts a brain reads as `game`.
+    ///
+    /// The base game and the expansions are the mounted content choice, or
+    /// `totala` with no expansion when the managed copy is not mounted. The
+    /// engine is this build's. The mode is campaign during a campaign
+    /// mission, network during a multiplayer session, and skirmish otherwise.
+    /// The difficulty is the match's when a match is running, otherwise the
+    /// preferences'. The mod is the profile the match plays, or the base
+    /// game's name when the game plays 3.1c, with this match's sides. The
+    /// mutators are the running match's loadout in apply order, or none.
+    /// The map name is the selected map, and the map path is that map's
+    /// mission path, or empty when the match has no map context.
+    /// The AI profile is the file `computer_profile_file` reads, and the
+    /// report path is the map's profile slot, empty when that slot is null.
+    /// `ai_profiles` is every readable profile under the AI directory, at
+    /// most 256, in the order they are listed. The start rule, the map's
+    /// starts and each player's start index are the note
+    /// `publish_brain_starts` last wrote, or unknown with no starts when
+    /// this match has not placed its players.
+    ///
+    /// @return the facts, owned outright
+    [[nodiscard]] oa::data::brain_facts::GameFacts brain_game_facts() const;
 
     /// Fills the pipeline's hack check from this run's profile.
     ///
@@ -5202,6 +5702,14 @@ class Runtime final : public menu::Host,
     /// pack map's fit and the reasons maps were refused
     /// (runtime_pack_maps.cpp).
     struct PackMapState;
+
+    /// The open brain log and record file (runtime_brain_logs.cpp).
+    struct BrainTraceFiles;
+
+    /// Frees the brain log and the record file.
+    ///
+    /// @param state state to free; null is allowed
+    static void destroy_brain_trace_files(BrainTraceFiles* state) noexcept;
 
     /// Frees the pack maps' state.
     ///
@@ -5545,6 +6053,29 @@ class Runtime final : public menu::Host,
     /// @param request the setup, the set it opens on, and what it hands back
     /// @return false when the picker cannot open
     bool open_mutator_picker(MutatorPickerRequest request);
+
+    /// Opens the brain picker on the OA layer, over the screen that asked.
+    ///
+    /// The list comes from the feed: the runtime's own feed lists the brains
+    /// installed in the player's Brains folder. That feed is installed the
+    /// first time, unless a check has replaced it. Refused during a match,
+    /// while a front-end dialog is up, while a modal OA screen is up, without
+    /// the layer's fonts, or while the picker is already open.
+    ///
+    /// @param request the setup, the seat, the choice it opens on, and what it hands back
+    /// @return false when the picker cannot open
+    bool open_brain_picker(BrainPickerRequest request);
+
+    /// Replaces the brain picker's feed.
+    ///
+    /// A check uses this. Restoring the runtime's own feed puts that feed
+    /// back. Badge pictures the own feed was holding are dropped.
+    ///
+    /// @param feed the feed
+    void set_brain_picker_feed(BrainPickerFeed feed);
+
+    /// Puts the runtime's own brain-picker feed back.
+    void restore_brain_picker_feed();
 
     /// Replaces the mutator picker's feed.
     ///
@@ -6069,6 +6600,9 @@ class Runtime final : public menu::Host,
     /// The mutator picker, a screen of the OA layer named mutator-picker.
     struct MutatorPickerScreen;
 
+    /// The brain picker, a screen of the OA layer named brain-picker.
+    struct BrainPickerScreen;
+
     /// MUTATORS… on the skirmish setup and the campaign launch, a screen of
     /// the OA layer named mutators-button.
     struct MutatorButtonScreen;
@@ -6086,6 +6620,53 @@ class Runtime final : public menu::Host,
     /// Throws std::runtime_error naming the first step that failed.
     void check_mutator_button();
 
+    /// A computer seat's brain on SKIRMISH, a screen of the OA layer named
+    /// brain-seats. One button sits to the right of each computer row's
+    /// Energy button while a brain is installed.
+    struct BrainSeatsScreen;
+
+    /// Keeps the computer-seat buttons on the OA layer while SKIRMISH, NEWGAME
+    /// or Any Mission shows and a brain is installed: pushes the screen when
+    /// the layer has none. OaLayer::tick calls it once a frame, after
+    /// MUTATORS…. A Library that has just closed reloads the installed brains
+    /// first.
+    void keep_brain_seats_screen();
+
+    /// Runs --check-brain-seat-buttons: each computer row's brain button on
+    /// SKIRMISH at 640x480 and 1280x720, the focus hand-over, the picker,
+    /// the hover card and the brains a start seats. Writes
+    /// brain-seats-skirmish-<w>x<h>.png in the working folder.
+    ///
+    /// Throws std::runtime_error naming the first step that failed.
+    void check_brain_seat_buttons();
+
+    /// A computer seat's brain in the battle room, a screen of the OA layer
+    /// named brain-room. A button sits on each computer row this machine
+    /// runs, over that row's empty screen-size column, while a brain is
+    /// installed or the seat runs one. Another machine's brain is a label.
+    struct BrainRoomScreen;
+
+    /// Keeps the battle room's brain seats on the OA layer while the battle
+    /// room is in front and a row needs one: pushes the screen when the
+    /// layer has none. OaLayer::tick calls it once a frame, after the
+    /// skirmish seat buttons.
+    void keep_brain_room_screen();
+
+    /// Runs --check-brain-room: a battle room hosted alone, at 640x480 and
+    /// 1280x720, the seat button, the picker, the card and the presence
+    /// record. Writes brain-room-host-<w>x<h>.png in the working folder.
+    ///
+    /// Throws std::runtime_error naming the first step that failed.
+    void check_brain_room();
+
+    /// Runs --check-brain-campaign: the campaign's brain button on NEWGAME
+    /// and Any Mission at 640x480 and 1280x720, Tab, the picker, the brain
+    /// the first mission seats and the seat a loaded campaign save leaves.
+    /// Writes brain-campaign-<screen>-<w>x<h>.png in the working folder.
+    ///
+    /// Throws std::runtime_error naming the first step that failed.
+    void check_brain_campaign();
+
     /// Runs --check-mutator-room: the host's MUTATORS… in a battle room
     /// hosted alone, at 640x480 and 1280x720, the remembered multiplayer
     /// set, the chat lines, and the button while the room's options are
@@ -6102,6 +6683,15 @@ class Runtime final : public menu::Host,
     ///
     /// @param state the state; null is allowed
     static void destroy_mutator_picker_state(MutatorPickerState* state) noexcept;
+
+    /// The brain picker's badge pictures, while it is open. Defined in
+    /// runtime_brain_picker.cpp.
+    struct BrainPickerState;
+
+    /// Frees the brain picker's state.
+    ///
+    /// @param state the state; null is allowed
+    static void destroy_brain_picker_state(BrainPickerState* state) noexcept;
 
     /// Keeps MORE MAPS… on the OA layer while the skirmish map list (SELMAP)
     /// shows, or the host's map dialog in the battle room: pushes it when the
@@ -6163,9 +6753,9 @@ class Runtime final : public menu::Host,
     /// Throws std::runtime_error naming the first step that failed.
     void check_map_browser();
 
-    /// Writes --check-mutator-picker's registry list into the player's
-    /// folder, every built-in registry turned off, before the content
-    /// service reads it, so that the check fetches nothing.
+    /// Writes --check-mutator-picker's and --check-brain-picker's registry
+    /// list into the player's folder, every built-in registry turned off,
+    /// before the content service reads it, so that the check fetches nothing.
     void prepare_mutator_picker_check();
 
     /// Runs --check-mutator-picker: the picker over the main menu at
@@ -6175,6 +6765,17 @@ class Runtime final : public menu::Host,
     ///
     /// Throws std::runtime_error naming the first step that failed.
     void check_mutator_picker();
+
+    /// Runs --check-brain-picker: the picker over the main menu at
+    /// 640x480, 1280x720, 1920x1080 and 2560x1440, over a feed of made-up
+    /// brains, then on the runtime's own feed. Writes each size's opening
+    /// frame as brain-picker-<w>x<h>.png in the working folder.
+    ///
+    /// Throws std::runtime_error naming the first step that failed.
+    void check_brain_picker();
+
+    /// Installs the check's brain feed. The text-fit check opens the picker on it too.
+    void install_brain_picker_check_feed();
 
     /// Installs the check's feed. The text-fit check opens the picker on it too.
     void install_mutator_picker_check_feed();
@@ -6207,6 +6808,14 @@ class Runtime final : public menu::Host,
     ///
     /// Throws std::runtime_error naming the first step that failed.
     void check_mutator_prompts();
+
+    /// Runs --check-saved-brains: a skirmish Steady Commander plays is saved
+    /// and loaded with its state, a save with no brain has no account, a
+    /// newer brain leaves the state out, and a missing brain asks to load
+    /// with the built-in player.
+    ///
+    /// Throws std::runtime_error naming the first step that failed.
+    void check_saved_brains();
 
     /// Stops the check's feed from asking for verdicts, clears the ones it
     /// published, and moves its generation on.
@@ -6286,7 +6895,7 @@ class Runtime final : public menu::Host,
     /// window at 640x480 and the language as it found it.
     void check_window_edge_rows_fit();
 
-    /// Checks that System's File Type Registration and its six file-type
+    /// Checks that System's File Type Registration and its seven file-type
     /// switches fit the settings dialog on a 640x480 window in English and
     /// German, at the section's top and its end, as part of
     /// --check-engine-settings. Leaves the window at 640x480 and the
@@ -6314,6 +6923,150 @@ class Runtime final : public menu::Host,
     /// what the painters painted, and what the last Full frame drew. Made
     /// at the first switch-on of the run.
     struct FullPresentation;
+
+    /// Persistent resources and camera for the live 3D match view.
+    struct LiveRenderer;
+    /// Releases the 3D device before SDL shuts down.
+    static void destroy_live_renderer(LiveRenderer* renderer) noexcept;
+    /// Reports whether the camera has left the classic orientation.
+    [[nodiscard]] bool live_renderer_active() const noexcept;
+    /// Reports whether the wider camera range is enabled.
+    [[nodiscard]] bool live_renderer_unlocked() const noexcept;
+    /// Reports a scene or GPU failure from the last attempted frame.
+    [[nodiscard]] bool live_renderer_failed() const noexcept;
+    /// Distinguishes an unsupported GPU backend from a rendering error.
+    [[nodiscard]] bool live_renderer_unavailable() const noexcept;
+    /// Returns the geometry count of the last built live frame.
+    [[nodiscard]] std::size_t live_renderer_vertex_count() const noexcept;
+    /// Returns how many vertices in the last live frame carry emitted light.
+    [[nodiscard]] std::size_t live_renderer_emissive_vertex_count() const noexcept;
+    /// Returns the number of sight-gated construction particles in the last live frame.
+    [[nodiscard]] std::size_t live_renderer_nano_particle_count() const noexcept;
+    /// Marks terrain pixels visible through the live geometry for debug painting.
+    /// @return one byte per battlefield pixel, nonzero where terrain is frontmost
+    [[nodiscard]] std::vector<uint8_t> live_terrain_visibility_mask() const;
+    /// Scrolls the rotated view in screen directions through its ground projection.
+    /// @param screen_dx horizontal screen pixels to move the camera
+    /// @param screen_dy vertical screen pixels to move the camera
+    /// @return true when the live camera handled the scroll, including an active drag
+    bool scroll_live_match_view(double screen_dx, double screen_dy);
+    /// Applies camera permission and angle limits without moving the view centre.
+    /// @param allowed whether camera rotation is enabled
+    /// @param unlocked whether angles outside the art-friendly range are allowed
+    void apply_live_camera_settings(bool allowed, bool unlocked);
+    /// Restores classic orientation while retaining reusable GPU resources.
+    void reset_live_renderer();
+    /// Turns the live camera for a director's frame, with the wider angles of
+    /// Unlocked camera: the yaw taken modulo a turn and the pitch held within
+    /// the unlocked range. Clears a failure, so that the frame is tried.
+    /// @param yaw_degrees turn about the vertical from the classic view
+    /// @param pitch_degrees elevation change from the classic view
+    /// @return true when the camera is turned from the classic view
+    bool turn_live_camera(float yaw_degrees, float pitch_degrees);
+    /// Picks the drawn terrain beneath a frame point in the rotated view:
+    /// where the pointer's ray meets the terrain's mesh, between map pixels
+    /// and at the mesh's height, as the camera anchors on it.
+    /// @param x frame column in pixels
+    /// @param y frame row in pixels
+    /// @return fixed-point world position, or no terrain intersection
+    std::optional<oa::sim::ground_orders::Point> live_ground_hit(float x, float y) const;
+    /// Picks the ground beneath a frame point in the rotated view as orders
+    /// and placement take it, as a classic pick gives it: the whole map
+    /// pixel the drawn terrain is hit in (live_ground_hit), at the
+    /// simulation's terrain height there, never below the sea.
+    /// @param x frame column in pixels
+    /// @param y frame row in pixels
+    /// @return fixed-point world position, or no terrain intersection
+    std::optional<oa::sim::ground_orders::Point> live_ground_point(float x, float y) const;
+    /// Picks the frontmost visible animated unit beneath a frame point.
+    /// @param x frame column in pixels
+    /// @param y frame row in pixels
+    /// @return unit slot, or zero when terrain or another object covers it
+    uint16_t live_unit_under(float x, float y) const;
+    /// Measures a visible unit's projected bounds in frame pixels.
+    /// @param id unit slot
+    /// @return frame bounds, or no visible geometry
+    std::optional<oa::Rect32> live_unit_bounds(uint16_t id) const;
+    /// Projects a world point through the current live camera into frame pixels.
+    /// @param x world horizontal position in pixels
+    /// @param height world altitude in pixels
+    /// @param z world map depth in pixels
+    /// @return projected frame point
+    oa::present::world_renderer::ScreenPoint
+    live_project_world(float x, float height, float z) const;
+    /// Builds picking geometry and visible unit bounds from the rendered frame.
+    void rebuild_live_picking();
+    /// Draws selection and build feedback on the live battlefield.
+    void draw_live_selection();
+    /// Draws projected order queues and terrain debug overlays on the live battlefield.
+    void draw_live_overlays();
+    /// Draws health, squad and countdown overlays at interpolated live unit positions.
+    void draw_live_unit_overlays();
+    /// Handles camera gestures while ordinary input follows gameplay paths.
+    /// @param event the SDL event in window coordinates
+    /// @return whether the 3D view consumed the event
+    bool live_renderer_take_event(SDL_Event& event);
+    /// Replaces the battlefield with the current match's 3D frame.
+    /// @return false when the card could not draw the rotated frame, whose
+    ///         battlefield the classic raster left out; the view is then
+    ///         classic again, and the frame must be drawn again
+    [[nodiscard]] bool render_live_match_surface();
+    /// Presentation-only effect history, independent of the active renderer.
+    struct MatchEffects;
+    /// Observes transient events after a simulation tick without changing the match.
+    void observe_match_effect_tick() noexcept;
+    /// Captures visual shot events while preserving existing read-only observers.
+    renderer_effect_events::Capture capture_match_effect_events() noexcept;
+    /// Collects visible light and heat sources from the current match and draw plan.
+    std::span<const renderer_effect_sources::Source> collect_match_effect_sources();
+    /// Returns the current frame's collected sources.
+    std::span<const renderer_effect_sources::Source> match_effect_sources() const noexcept;
+    /// Stable map-derived surface flow and absolute-tick texture drift.
+    renderer_water::Wind water_wind() const noexcept;
+    /// Cached water-body fetch for the current match; no per-frame map traversal.
+    const renderer_water::SurfaceCache* water_surface() const noexcept;
+    /// Recent visible naval firing and water impacts; recheck sight when drawing.
+    std::span<const renderer_water::Disturbance> water_disturbances() const noexcept;
+    /// Match a visible impact sprite to a recent EMG hit, independent of merged light centres.
+    /// @param point canonical world location in fixed-point units
+    /// @return true within six world pixels of an EMG hit in the last game second
+    bool emg_impact_at(const oa::FixedVec3& point) const noexcept;
+    /// True for smoke in the short column immediately above a recent EMG hit.
+    bool emg_smoke_at(const oa::FixedVec3& point) const noexcept;
+    /// Clears transient presentation history when changing or seeking a match.
+    void reset_match_effect_sources();
+    /// Reports whether a collected source has an enabled visual contribution.
+    bool match_effects_enabled();
+    /// Applies effects before battlefield overlays and HUD are drawn.
+    void compose_match_effects(renderer::Surface& surface, bool live);
+    /// Composes an RGB or RGBA battlefield at its output scale and local origin.
+    void compose_match_effect_pixels(
+        std::span<uint8_t> pixels,
+        uint32_t width,
+        uint32_t height,
+        uint32_t pitch,
+        uint32_t channels,
+        float origin_x,
+        float origin_y,
+        float scale_x,
+        float scale_y,
+        bool live = false,
+        float effect_row_offset = 0
+    );
+    /// Rasterizes visible scene surfaces and their camera depth for local effects.
+    void live_scene_visibility(
+        std::vector<uint8_t>& visibility,
+        std::vector<float>& depth,
+        bool terrain_only = false,
+        std::span<const uint32_t> row_left = {},
+        std::span<const uint32_t> row_right = {},
+        std::span<const uint8_t> requested_pixels = {}
+    ) const;
+    /// Projects a world position onto the live camera's depth axis.
+    float live_project_depth(float x, float height, float z) const;
+    /// Exercises live Skirmish rendering without opening a window.
+    /// @return zero on success, 77 for an unavailable GPU backend
+    int check_live_renderer();
 
     /// Frees the Full tier's presentation.
     ///
@@ -6835,20 +7588,97 @@ class Runtime final : public menu::Host,
     ///     empty without a campaign mission or map
     std::string session_ai_profile_path();
 
+    /// The profile file the computer players read, and the path it came from.
+    struct ComputerProfileFile {
+        std::string path{}; ///< the path whose bytes were read, or empty
+        std::string text{}; ///< those bytes; empty when neither file exists
+    };
+
     /// Reads the computer players' profile: the session's, else ai/default.txt.
     ///
-    /// @return the profile text; empty when neither exists, and the computer
-    ///     players then take only their types' own directives
+    /// The path is the one whose bytes were kept. A session path that is
+    /// missing, empty or too large falls through to ai/default.txt, as
+    /// `read_computer_profile` always has.
+    ///
+    /// @return the path and the bytes; both empty when neither file exists
+    ComputerProfileFile computer_profile_file();
+
+    /// Reads the computer players' profile text.
+    ///
+    /// @return `computer_profile_file()`'s text; empty when neither file
+    ///     exists, and the computer players then take only their types' own
+    ///     directives
     std::string read_computer_profile();
 
     /// Configures the computer players before the mission's units exist, as mission state set-up
     /// does.
     ///
-    /// They take the profile and the side build lists read from
+    /// When this start may seat a brain (brains held for it, a seat chosen
+    /// for one, or a shadow asked for), the facts a brain reads are stored
+    /// first, before any brain is seated; a match that seats none builds no
+    /// facts. The players take the profile and the side build lists read from
     /// gamedata/sidedata.tdf; the match applies both before its first tick's
-    /// orders run. Throws std::runtime_error when either cannot be loaded or
+    /// orders run. Brains held for this start are seated after those players
+    /// are configured. Throws std::runtime_error when either cannot be loaded or
     /// stored.
     void configure_computer_players();
+
+    /// Stores this match's facts (`brain_game_facts`) for the brains seated in
+    /// it, once per match. Does nothing when they are already stored or no
+    /// match is running.
+    void store_brain_game_facts();
+
+    /// Forgets the start rule, the map's starts and each player's start.
+    ///
+    /// Called as a match configures its computer players, before anyone is
+    /// placed, so a previous match cannot leak into this one.
+    void clear_brain_start_notes();
+
+    /// Copies the playing campaign schema's start-position rules, in rule order.
+    void note_campaign_map_starts();
+
+    /// Installs the brain log and record hooks when the command asked for a file.
+    ///
+    /// Lines and samples that arrive before the files exist are kept until
+    /// `open_brain_log_files`. Neither hook is installed when no file was
+    /// asked for, so a match with no file plays as before.
+    void install_brain_log_hooks();
+
+    /// Creates the brain log and the record file, when the command named them.
+    ///
+    /// The record file's first line is its header. Samples kept before the
+    /// file existed follow that line. Throws std::runtime_error when a named
+    /// file cannot be created.
+    void open_brain_log_files();
+
+    /// Writes one result line for each seat of a brain match that played.
+    ///
+    /// @param winner the winning player, or 255 when there is none
+    /// @param live live units of player 0 and player 1
+    void write_brain_record_results(uint8_t winner, const uint32_t* live);
+
+    /// Keeps one tick of the brain log. A null runtime does nothing.
+    static void brain_log_lines(void* context, std::string_view text) noexcept;
+
+    /// Keeps one training sample. A null runtime does nothing.
+    static void
+    brain_log_sample(void* context, const oa::sim::brains::RecordSample& sample) noexcept;
+
+    /// Remembers the computer seats a setup starts with and holds the brains
+    /// the next match seats.
+    ///
+    /// A computer slot keeps its own seat, including one that names no brain.
+    /// A slot with none takes the default brain, at `default_level`, with no
+    /// options. The match is handed what `resolve_brain_seats` keeps.
+    ///
+    /// @param setup the setup
+    void hand_setup_brain_seats(oa::data::brain_library::Setup setup);
+
+    /// Seats the brains held for this match, after the C++ players are configured.
+    ///
+    /// Each one goes through `seat_brain`. One that cannot be seated stays
+    /// with the built-in player. With nothing held, this does nothing.
+    void take_pending_brain_seats();
 
     /// Reloads the computer players' profile (ReloadAIProfiles): it is read again and reapplied
     /// over reset tables. A profile that cannot be stored is reported on the status line and
@@ -7923,7 +8753,18 @@ class Runtime final : public menu::Host,
     /// the match reads back from the draw (the view in Game, the on-screen
     /// list, the piece transforms, the radar's picture and blips) follows the
     /// zoom and the camera alone, whatever the draw scale.
+    ///
+    /// A rotated frame the card cannot draw leaves the battlefield undrawn;
+    /// that frame ends there, before anything is drawn over the battlefield
+    /// or the extension's HUD is asked for, and the frame is drawn once more,
+    /// classically (draw_match_surface).
     void render_match_surface();
+
+    /// Draws the match frame as render_match_surface describes.
+    ///
+    /// @return false when the rotated view's frame failed, leaving the frame
+    ///         undrawn past the battlefield, with the view put back classic
+    [[nodiscard]] bool draw_match_surface();
 
     /// Returns the 3DO renderer state of the current match, built on first use.
     ///
@@ -12407,7 +13248,9 @@ class Runtime final : public menu::Host,
 
     /// Selects the local units whose position lies in a drag box: the canvas corners go back to
     /// Game.drag_start and drag_end, and selection::select_units_in_box selects or, with shift,
-    /// toggles the units there and visits the local units on screen for 'n'.
+    /// toggles the units there and visits the local units on screen for 'n'. The rotated view
+    /// tests each unit where it drew it (selection::select_units_where), with the same speech,
+    /// sound and visits.
     ///
     /// @param x0 one corner's column
     /// @param y0 one corner's row
@@ -12415,6 +13258,17 @@ class Runtime final : public menu::Host,
     /// @param y1 the other corner's row
     /// @param add true (shift) to toggle the units in the box instead of replacing the selection
     void box_select_units(int x0, int y0, int x1, int y1, bool add);
+
+    /// The classic view's part of box_select_units: the box as map points
+    /// in Game.drag_start and drag_end, which selection::select_units_in_box selects in.
+    ///
+    /// @param x0 one corner's column
+    /// @param y0 one corner's row
+    /// @param x1 the other corner's column
+    /// @param y1 the other corner's row
+    /// @param add true (shift) to toggle the units in the box instead of replacing the selection
+    /// @return true when anything ends up selected
+    bool select_units_in_classic_box(int x0, int y0, int x1, int y1, bool add);
 
     /// Gives the selection an order on each unit whose projected position lies in a canvas box.
     ///
@@ -13639,6 +14493,34 @@ class Runtime final : public menu::Host,
     /// the speed lock (read_speed_lock_line).
     void submit_chat_line();
 
+    /// Queues a line for a computer seat on this machine.
+    ///
+    /// Refuses with not_a_seat while no match runs. The line is posted and
+    /// sent after the frame's ticks (flush_seat_chat).
+    ///
+    /// @param seat player slot
+    /// @param text the words, without a "<Name>" head
+    /// @param mode everyone, allies, enemies or chosen
+    /// @param target player slot for chosen
+    /// @return why the line was queued or refused
+    [[nodiscard]] seat_chat::Said
+    say_for_seat(uint8_t seat, std::string_view text, uint8_t mode, uint8_t target);
+
+    /// Replaces the listener that hears chat for the computer seats.
+    ///
+    /// @param listener the listener; a null heard hears nothing
+    void set_seat_chat_listener(const seat_chat::Listener& listener) noexcept;
+
+    /// Hands a chat line from another machine to the computer seats it reached.
+    ///
+    /// A null line is ignored. With no match running, nothing is handed on.
+    ///
+    /// @param from slot of the sender
+    /// @param addressee slot the record was addressed to
+    /// @param broadcast the record went to every player
+    /// @param text the line as this machine shows it; null is ignored
+    void hear_seat_chat_remote(uint8_t from, uint8_t addressee, bool broadcast, const char* text);
+
     /// Holds back a ".take" or ".takecmd" chat line while another player's
     /// commander lies destroyed (sharing.take-requires-live-commander), and
     /// tells this player why.
@@ -14533,6 +15415,9 @@ class Runtime final : public menu::Host,
 
   private:
 
+    /// Posts and sends the computer seats' queued chat after the frame's ticks.
+    void flush_seat_chat();
+
     /// Reads the Summary fields a load needs from a save file.
     ///
     /// @param path savegame file
@@ -14656,6 +15541,40 @@ class Runtime final : public menu::Host,
     /// @param[in,out] bank the save, read whole
     /// @return false, with the status line set, when the mutators cannot be played
     bool check_saved_mutators(oa::data::persist::Bank* bank);
+
+    /// Writes the Brains account of a save made while brains are seated:
+    /// each seat's player, brain, version, package, level, options and name,
+    /// and the plain data its save() returned. A match that seated no brain
+    /// writes nothing, so its save keeps the bytes it has today.
+    ///
+    /// @param[in,out] bank the save being written
+    /// @throws std::runtime_error when the account cannot be written
+    void save_brains(oa::data::persist::Bank* bank);
+
+    /// Seats the brains a save names, before the match's first tick.
+    ///
+    /// A save with no Brains account seats none, so a campaign start hands
+    /// none of its own. Text that does not parse is refused. A brain that is
+    /// not installed is refused, unless this load was asked to play the
+    /// built-in player on those seats, which then seats the others. Saved
+    /// state is handed on only when the installed version and package are
+    /// the saved ones.
+    ///
+    /// @param[in,out] bank the save, read whole
+    /// @return false, with the status line set, when the save cannot be played
+    bool check_saved_brains(oa::data::persist::Bank* bank);
+
+    /// Asks "Load with the built-in player?" when the save names a brain that
+    /// is not installed, pushing the question over the screen that asked.
+    ///
+    /// A save with no Brains account, or text that does not parse, asks
+    /// nothing: the load itself refuses text that does not parse. LOAD WITH
+    /// THE BUILT-IN PLAYER loads this path with the built-in player on the
+    /// missing seats. BACK loads nothing.
+    ///
+    /// @param path the save, already resolved
+    /// @return true when the question was asked and the load has not started
+    bool offer_builtin_brain_load(const std::filesystem::path& path);
 
     /// Restores each rule-state table of the match from the save's ModProfile
     /// account; a table the save does not hold keeps its state as built.
@@ -17344,6 +18263,8 @@ class Runtime final : public menu::Host,
     oa::ui::hud::KillBoard kill_board_{};
     // The message log's random numbers (message_hooks), never the match's.
     PresentationRandom message_random_{};
+    // Chat a computer seat on this machine reads and sends (seat_chat.hpp).
+    seat_chat::SeatChat seat_chat_{};
     std::optional<oa::ui::gui_layout::Layout> talk_layout_{};
     oa::formats::gaf::Archive match_talk_{};
     int32_t match_camera_x_ = 0, match_camera_z_ = 0;
@@ -17548,6 +18469,15 @@ class Runtime final : public menu::Host,
     /// unless a check switches it on. Declared after sdl_, so its textures go
     /// before the renderer.
     AcceleratedPresentation accelerated_{};
+    /// The match's effect lights, glows and water events, by the match they
+    /// were seen in (observe_match_effect_tick); presentation only.
+    std::shared_ptr<MatchEffects> match_effects_{};
+    /// The rotated view's camera and GPU resources; null until a match first
+    /// draws with Allow Full 3D Mode on. Declared after sdl_, so they go
+    /// before the SDL host.
+    std::unique_ptr<LiveRenderer, void (*)(LiveRenderer*) noexcept> live_renderer_{
+        nullptr, &destroy_live_renderer
+    };
     /// The Full tier's presentation; null until the tier first switches on
     /// in the run. Declared after sdl_, so its pages and targets go before
     /// the renderer.
@@ -18087,6 +19017,29 @@ class Runtime final : public menu::Host,
     MutatorPickerFeed mutator_picker_feed_{};
     /// True once a feed is installed. The own feed is installed on first open.
     bool mutator_picker_feed_set_{false};
+    // The brain picker's badge pictures, while the picker is open.
+    std::unique_ptr<BrainPickerState, void (*)(BrainPickerState*) noexcept> brain_picker_state_{
+        nullptr, destroy_brain_picker_state
+    };
+    /// Where the brain picker reads its list. The own feed until a check replaces it.
+    BrainPickerFeed brain_picker_feed_{};
+    /// True once a feed is installed. The own feed is installed on first open.
+    bool brain_picker_feed_set_{false};
+
+    /// The own feed's list of brains, the built-in player first.
+    ///
+    /// Reads the installed brains. Does not run a script. An icon is decoded
+    /// here and kept until the picker closes.
+    ///
+    /// @param context the runtime
+    /// @return the brains, in the order the picker lists them
+    static std::vector<oa::ui::brain_picker::Brain> own_brain_picker_brains(void* context);
+
+    /// The own feed's generation: it moves when a brain is installed or removed.
+    ///
+    /// @param context the runtime
+    /// @return the count
+    static uint64_t own_brain_picker_generation(void* context);
 
     /// The own feed's list of mutators.
     ///
@@ -18167,11 +19120,23 @@ class Runtime final : public menu::Host,
     // The installed mutators; null until first read.
     mutable std::unique_ptr<MutatorLibraryState, void (*)(MutatorLibraryState*) noexcept>
         mutator_library_state_{nullptr, destroy_mutator_library_state};
+    // The installed brains; null until first read.
+    mutable std::unique_ptr<BrainLibraryState, void (*)(BrainLibraryState*) noexcept>
+        brain_library_state_{nullptr, destroy_brain_library_state};
+    /// Moves when a brain package is installed or removed, including a change
+    /// before the listing is first read. The brain picker's own feed reads it.
+    /// It starts at 1, so a generation of 0 still means a feed has not spoken.
+    mutable uint64_t installed_brains_generation_{1};
+    /// True while the Library was on the OA layer last frame. Its closing
+    /// reloads the installed brains once, not every frame it stays closed.
+    bool library_was_open_{};
     // The mutators the next matches apply, and the running match's result;
     // null until a choice is stored.
     std::unique_ptr<MutatorState, void (*)(MutatorState*) noexcept> mutator_state_{
         nullptr, destroy_mutator_state
     };
+    /// The brain named for each seat. Empty until a setup chooses one.
+    std::array<std::optional<BrainSeatChoice>, OA_PLAYER_COUNT> brain_seat_choices_{};
     /// Dry runs `check_mutators`, the Library and the picker have kept.
     /// A verdict read from the file does not count, and nor does a cancelled run.
     uint32_t mutator_dry_runs_{};
@@ -18249,14 +19214,121 @@ class Runtime final : public menu::Host,
     std::optional<std::vector<oa::ui::mutator_picker::Chosen>> saved_campaign_mutators_{};
     /// The button screen's helpers read the setup's records.
     friend struct MutatorButtonAccess;
+    /// The seat screen's helpers read the setup's records and write a choice.
+    friend struct BrainSeatsAccess;
+    /// The battle-room seat screen writes a choice onto this machine's computers.
+    friend struct BrainRoomAccess;
     /// `--no-mutators` has already logged the list it refused.
     bool mutator_refusal_logged_{};
     /// A failure to store or erase a remembered set has already been logged.
     bool mutator_sets_failure_logged_{};
+    /// A failure to store or erase the default brain has already been logged.
+    bool brain_default_failure_logged_{};
+    /// The seats skirmish, the battle room and campaign keep for this run.
+    /// Empty until that setup is entered. The battle room's is written at
+    /// START in seating order. The room's buttons do not read it.
+    std::array<oa::data::brain_library::Seats, 3> setup_brain_seats_{};
+
+    /// One computer this machine runs, and the choice it plays.
+    struct RoomBrainChoice {
+        uint32_t player_id{};                  ///< the computer's player id
+        uint8_t slot{};                        ///< the slot it sits in
+        oa::ui::brain_picker::Choice choice{}; ///< the brain, or the built-in player
+    };
+
+    /// The computers this machine runs, in the order it seated them.
+    std::vector<RoomBrainChoice> room_brain_choices_{};
+    /// How many remembered multiplayer seats this visit has already given
+    /// out. It advances as computers are seated and does not go back when
+    /// one leaves. No computer left on this machine resets it.
+    std::size_t room_brain_cursor_{};
+    /// Writes a choice onto one computer this machine runs, or every one,
+    /// and publishes it onto the lobby.
+    ///
+    /// @param lobby the battle room
+    /// @param player_id the computer the picker was opened on
+    /// @param choice the choice USE THIS handed
+    /// @param every true when the choice is for every computer this machine runs
+    void apply_room_brain_choice(
+        oa::ui::frontend_multiplayer::Lobby& lobby,
+        uint32_t player_id,
+        const oa::ui::brain_picker::Choice& choice,
+        bool every
+    );
+    /// The brains the next match seats. Disengaged means none were handed.
+    /// An engaged empty list seats nobody.
+    std::optional<std::vector<BrainSeat>> pending_brain_seats_;
+    /// The brains the running match seated. Empty when no match is running.
+    std::vector<BrainSeat> seated_brains_;
+
+    /// A brain another machine's computer plays, as the room showed it.
+    struct RemotePlayedBrain {
+        int32_t player{};         ///< the player, 0 to 9
+        std::string id{};         ///< the brain's id
+        std::string name{};       ///< the brain's name
+        std::string version{};    ///< the brain's version
+        std::string level_id{};   ///< the level's id
+        std::string level_name{}; ///< the level's name
+    };
+
+    /// Brains other machines' computers play in the running match. Empty when
+    /// this match started with none, and once the next match starts.
+    std::vector<RemotePlayedBrain> remote_played_brains_{};
+    /// The seats the last successful load handed on. Cleared when that load
+    /// stops before its match.
+    oa::data::brain_library::Seats loaded_brain_seats_{};
+    /// True for the one load that plays the built-in player on a missing brain.
+    bool load_missing_brains_as_builtin_{false};
+    /// A failure to store the seats has already been logged.
+    bool brain_seats_failure_logged_{};
+    /// The seed of the match being started, copied into a brain's log.
+    uint32_t brain_match_seed_{};
+    /// True once this match's facts are stored for its brains. Cleared as
+    /// each match configures its computer players.
+    bool brain_game_facts_stored_{};
+    /// True once this match has published a start rule. Cleared with the notes.
+    bool brain_starts_noted_{false};
+    /// The rule `publish_brain_starts` last chose. Unknown until then.
+    oa::data::brain_facts::StartRule brain_start_rule_{oa::data::brain_facts::StartRule::unknown};
+    /// Start positions of the schema in play. Empty until they are noted.
+    std::vector<oa::data::brain_facts::MapStart> brain_map_starts_{};
+    /// Each player's zero-based start, or -1. Cleared as the notes are.
+    std::array<int16_t, OA_PLAYER_COUNT> brain_player_start_{
+        -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
+    };
+    /// True when this machine placed that player.
+    std::array<bool, OA_PLAYER_COUNT> brain_player_placed_{};
+    /// True when a map-unit placement was recorded for this match.
+    bool brain_start_from_map_{false};
+    /// True when a commander placement was recorded for this match.
+    bool brain_start_from_commander_{false};
+    /// One log per seat for the latest brain seated there.
+    std::array<BrainLog, OA_PLAYER_COUNT> brain_logs_{};
+    /// The id a seat's brain was not seated under. Empty when it was seated
+    /// or the seat was not given a brain. A folder is named by its id.
+    std::array<std::string, OA_PLAYER_COUNT> brain_unseated_id_{};
+    /// Why that brain was not seated. Empty when the seat was seated.
+    std::array<std::string, OA_PLAYER_COUNT> brain_unseated_reason_{};
+    /// The id, version and level of the brain last prepared for the seat.
+    std::array<std::string, OA_PLAYER_COUNT> brain_seat_id_{};
+    std::array<std::string, OA_PLAYER_COUNT> brain_seat_version_{};
+    std::array<std::string, OA_PLAYER_COUNT> brain_seat_level_{};
+    /// True after that seat's brain stopped. The match plays on.
+    std::array<bool, OA_PLAYER_COUNT> brain_seat_stopped_{};
+    /// The tick a brain stopped, and the sentence that names why.
+    std::array<uint32_t, OA_PLAYER_COUNT> brain_stop_tick_{};
+    std::array<std::string, OA_PLAYER_COUNT> brain_stop_text_{};
+    /// True after this match's shadow lines have been printed.
+    bool shadow_report_printed_{false};
     // The mounted pack map, the game's names, the fits and the refusals;
     // null until a pack map is first named.
     std::unique_ptr<PackMapState, void (*)(PackMapState*) noexcept> pack_map_state_{
         nullptr, destroy_pack_map_state
+    };
+    /// The brain log and the record file for this run. Null until a match
+    /// asks for either.
+    std::unique_ptr<BrainTraceFiles, void (*)(BrainTraceFiles*) noexcept> brain_trace_files_{
+        nullptr, destroy_brain_trace_files
     };
     // The registries and their catalogues; null until start_content.
     std::unique_ptr<ContentState, void (*)(ContentState*) noexcept> content_{

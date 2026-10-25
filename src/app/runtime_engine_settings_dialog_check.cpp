@@ -144,12 +144,12 @@ constexpr std::array<WindowLayout, 5> kWindowLayouts{{
 }};
 static_assert(kWindowLayouts.size() == kWindowSizes.size(), "one layout for each window size");
 
-/// Graphics' scroll limit at Compact: its eleven rows, Smooth motion and
+/// Graphics' scroll limit at Compact: its twenty-one rows, Smooth motion and
 /// Fog of War among them, after Menu scaling, Window frame, HUD scaling and
 /// Interface size left for User Interface.
-constexpr int32_t kGraphicsScrollLimit = 454;
-/// Graphics' scroll limit at Large, whose taller view all but holds its rows.
-constexpr int32_t kGraphicsLargeScrollLimit = 82;
+constexpr int32_t kGraphicsScrollLimit = 972;
+/// Graphics' scroll limit at Large, whose taller view holds more of its rows.
+constexpr int32_t kGraphicsLargeScrollLimit = 600;
 /// Interface size's place on User Interface, from the section's first row.
 constexpr int32_t kInterfaceSizeRow = 3;
 
@@ -199,7 +199,7 @@ void require(bool ok, std::string_view what) {
 }
 
 #if defined(__APPLE__) && !TARGET_OS_IPHONE
-/// The six file-type switches, cleared, so a comparison can ignore them.
+/// The seven file-type switches, cleared, so a comparison can ignore them.
 ///
 /// @param settings the settings
 /// @return the same settings with every file-type switch off
@@ -209,6 +209,7 @@ settings::EngineSettings without_file_type_switches(settings::EngineSettings set
     settings.file_type_oalang = false;
     settings.file_type_oareg = false;
     settings.file_type_oamut = false;
+    settings.file_type_oabrain = false;
     settings.file_type_oalaunch = false;
     return settings;
 }
@@ -417,12 +418,34 @@ std::string_view label_of(settings::Setting setting) {
         return "Registry files (.oareg)";
     case settings::Setting::file_type_oamut:
         return "Mutator packages (.oamut)";
+    case settings::Setting::file_type_oabrain:
+        return "Brain packages (.oabrain)";
     case settings::Setting::file_type_oalaunch:
         return "Launch files (.oalaunch)";
     case settings::Setting::file_types_note:
         return "File types";
     case settings::Setting::skirmish_players:
         return "Skirmish players";
+    case settings::Setting::weapon_lighting:
+        return "Coloured weapon lighting";
+    case settings::Setting::nanolathe_lighting:
+        return "Nanolathe glow";
+    case settings::Setting::wreck_glow:
+        return "Wreck glow";
+    case settings::Setting::water_ripples:
+        return "Water ripples";
+    case settings::Setting::coastal_waves:
+        return "Coastal waves";
+    case settings::Setting::underwater_shimmer:
+        return "Underwater shimmer";
+    case settings::Setting::naval_reflections:
+        return "Naval reflections";
+    case settings::Setting::heat_distortion:
+        return "Heat distortion";
+    case settings::Setting::allow_full_3d:
+        return "Allow Full 3D Mode";
+    case settings::Setting::unlocked_camera:
+        return "Unlocked Camera";
     case settings::Setting::welcome_setup:
         return "Welcome setup";
     case settings::Setting::fog_of_war:
@@ -2867,7 +2890,7 @@ void Runtime::check_window_edge_rows_fit() {
 }
 
 void Runtime::check_file_type_rows_fit() {
-    // System's File Type Registration and its six switches, the launch
+    // System's File Type Registration and its seven switches, the launch
     // file's last, on the 640x480 window, Compact, in English and German, at
     // the section's top and at its end: no text of theirs is wider than its
     // box or drawn across another. Simplified Chinese draws from its pack,
@@ -2879,7 +2902,7 @@ void Runtime::check_file_type_rows_fit() {
     load(Screen::main_menu);
     require(screen_ == Screen::main_menu, "the main menu did not open on the 640x480 window");
     const std::string kept_language = language_state().choice;
-    constexpr std::array<std::string_view, 8> words{
+    constexpr std::array<std::string_view, 9> words{
         "File Type Registration",
         "Open these files with the game from your file manager.",
         "Mod packages (.oamod)",
@@ -2887,6 +2910,7 @@ void Runtime::check_file_type_rows_fit() {
         "Language packs (.oalang)",
         "Registry files (.oareg)",
         "Mutator packages (.oamut)",
+        "Brain packages (.oabrain)",
         "Launch files (.oalaunch)",
     };
     for (const std::string_view tag : {std::string_view{"en"}, std::string_view{"de"}}) {

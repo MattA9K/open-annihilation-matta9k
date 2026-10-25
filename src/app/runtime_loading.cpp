@@ -267,7 +267,13 @@ void Runtime::teardown_match() {
     offline_services_.clear_match();
     offline_services_.set_on_screen_test(nullptr, nullptr);
     effect_boundary_.clock = nullptr;
+    live_renderer_.reset();
+    reset_match_effect_sources();
     match_.reset();
+    // The brains this match seated go with it. A list held for the next
+    // start stays: a new start tears the previous match down before it
+    // configures the players that list is for.
+    seated_brains_.clear();
     release_match_mutators();
     // A replay or a saved game puts the player's mutators back once its match
     // ends. A teardown before that match starts leaves the held list as it is.
@@ -311,6 +317,7 @@ void Runtime::teardown_match() {
 }
 
 void Runtime::leave_match() {
+    print_shadow_reports();
     if (match_)
         call_hook_or_report<&Extension::match_event>(
             extension_, hook_error_report(), *this, MatchEvent::left
@@ -329,6 +336,7 @@ void Runtime::leave_match() {
     chat_composing_ = false;
     chat_buffer_.clear();
     chat_composition_.clear();
+    seat_chat_.reset();
     match_zoom_ = kDefaultBattlefieldZoom;
     match_zoom_target_ = kDefaultBattlefieldZoom;
     zoom_focus_ = {};

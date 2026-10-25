@@ -959,6 +959,8 @@ void clear_computer_difficulty(Lobby& lobby, int32_t slot) noexcept {
     const auto id = slot_player(lobby, slot).player_id;
     lobby.computer_difficulty[slot] = 0;
     lobby.computer_difficulty_set[slot] = false;
+    lobby.computer_brain[slot].reset();
+    lobby.computer_launch_brain[static_cast<std::size_t>(slot)].clear();
     if (lobby.computer_command_kind != 0 && lobby.computer_command_player == id)
         lobby.computer_command_kind = 0;
 }
@@ -1043,6 +1045,8 @@ bool owner_runs_oa(Lobby& lobby, int32_t owner) noexcept {
 /// @param slot The computer player's slot.
 /// @return True when this machine hosts and the owner's machine runs OA.
 bool host_edits_remote_computer(Lobby& lobby, int32_t slot) noexcept {
+    if (slot < 0 || slot >= kSlotCount || lobby.computer_brain[slot])
+        return false;
     if (!host_is_local(lobby) || !remote_computer(lobby, slot))
         return false;
     return owner_runs_oa(lobby, computer_owner_slot(lobby, slot));
@@ -1058,6 +1062,8 @@ bool host_edits_remote_computer(Lobby& lobby, int32_t slot) noexcept {
 /// @param slot The computer player's slot.
 /// @return True when a click on the row should change it.
 bool edits_computer(Lobby& lobby, int32_t slot) noexcept {
+    if (slot < 0 || slot >= kSlotCount || lobby.computer_brain[slot])
+        return false;
     if (lobby_launch_locked(lobby))
         return false;
     if ((info_of(lobby, local_player(lobby)).options & option::ready) != 0)
@@ -1162,6 +1168,36 @@ void take_computer_presence(Lobby& lobby, int32_t sender_slot) noexcept {
             note_computer_command_echo(lobby, id, kComputerEditDifficulty, difficulty);
         }
     }
+    std::span<const uint8_t> brains_value;
+    const bool brains_found = netgame::find_presence_field(
+        bytes, size, netgame::PresenceTag::computer_brains, &brains_value
+    );
+    const auto decoded =
+        brains_found ? netgame::decode_presence_brains(brains_value) : std::nullopt;
+    for (int32_t slot = 0; slot < kSlotCount; ++slot) {
+        if (computer_owner_slot(lobby, slot) != sender_slot)
+            continue;
+        const auto id = slot_player(lobby, slot).player_id;
+        const netgame::PresenceBrain* match = nullptr;
+        if (decoded) {
+            for (const auto& item : *decoded) {
+                if (item.player == id)
+                    match = &item;
+            }
+        }
+        if (match == nullptr) {
+            lobby.computer_brain[slot].reset();
+            continue;
+        }
+        ComputerBrain brain;
+        brain.id = match->id;
+        brain.name = match->name;
+        brain.version = match->version;
+        brain.level_id = match->level_id;
+        brain.level = match->level;
+        brain.full_awareness = match->full_awareness;
+        lobby.computer_brain[slot] = std::move(brain);
+    }
     const auto host = lobby_host_slot(lobby);
     if (host_is_local(lobby) || host == kNoSlot || sender_slot != static_cast<int32_t>(host))
         return;
@@ -1205,6 +1241,47 @@ void append_computer_presence(
                 &written
             ) == netgame::WireError::ok)
             size = written;
+    }
+    std::vector<netgame::PresenceBrain> brains;
+    for (int32_t slot = 0; slot < kSlotCount; ++slot) {
+        const auto& player = slot_player(lobby, slot);
+        if (!occupied_by(player, kSlotComputer) || !lobby.computer_brain[slot])
+            continue;
+        const auto& seated = *lobby.computer_brain[slot];
+        netgame::PresenceBrain item;
+        item.player = player.player_id;
+        item.id = seated.id;
+        item.name = seated.name;
+        item.version = seated.version;
+        item.level_id = seated.level_id;
+        item.level = seated.level;
+        item.full_awareness = seated.full_awareness;
+        brains.push_back(std::move(item));
+    }
+    if (!brains.empty()) {
+        const auto limit = capacity < netgame::presence_record_max_bytes
+                               ? capacity
+                               : netgame::presence_record_max_bytes;
+        if (limit > size + netgame::presence_field_header_bytes) {
+            const auto room = limit - size - netgame::presence_field_header_bytes;
+            uint8_t value[netgame::presence_record_max_bytes];
+            std::size_t brain_written = 0;
+            std::size_t sent = 0;
+            if (netgame::encode_presence_brains(brains, value, room, &brain_written, &sent) ==
+                    netgame::WireError::ok &&
+                sent != 0) {
+                std::size_t total = 0;
+                if (netgame::append_presence_field(
+                        record,
+                        size,
+                        capacity,
+                        netgame::PresenceTag::computer_brains,
+                        std::span<const uint8_t>(value, brain_written),
+                        &total
+                    ) == netgame::WireError::ok)
+                    size = total;
+            }
+        }
     }
     if (lobby.computer_command_kind == 0)
         return;
@@ -1409,6 +1486,74 @@ bool lobby_content_allows_start(Lobby& lobby) noexcept {
             return false;
     }
     return true;
+}
+
+namespace {
+
+/// A seat that plays: in use, local, a computer, or a remote player still
+/// playing, and not watching. A remote seat counts only once this machine
+/// has that player's own block.
+bool playing_seat(Lobby& lobby, int32_t player_slot) noexcept {
+    if (lobby.game == nullptr || player_slot < 0 || player_slot >= kSlotCount)
+        return false;
+    const auto& player = slot_player(lobby, player_slot);
+    if (player.in_use == 0)
+        return false;
+    const auto* info = player_info(lobby, player);
+    if (info == nullptr || (info->options & option::watcher) != 0)
+        return false;
+    if (local_or_computer(player))
+        return true;
+    if (player.status != kSlotRemote)
+        return false;
+    if (lobby.presence_records.block_player[player_slot] != player.player_id)
+        return false;
+    return slot_remote_playing(lobby, player);
+}
+
+} // namespace
+
+int32_t lobby_first_side_past_table(Lobby& lobby) noexcept {
+    if (lobby.game == nullptr)
+        return -1;
+    const auto side_count = lobby_side_count(*lobby.game);
+    if (side_count == 0)
+        return -1;
+    for (int32_t player_slot = 0; player_slot < kSlotCount; ++player_slot) {
+        if (!playing_seat(lobby, player_slot))
+            continue;
+        const auto* info = player_info(lobby, slot_player(lobby, player_slot));
+        if (info != nullptr && info->side >= side_count)
+            return player_slot;
+    }
+    return -1;
+}
+
+bool lobby_sides_allow_start(Lobby& lobby) noexcept {
+    if (lobby.game == nullptr || !host_is_local(lobby))
+        return true;
+    return lobby_first_side_past_table(lobby) < 0;
+}
+
+void lobby_note_sides_past_table(Lobby& lobby) noexcept {
+    if (lobby.game == nullptr || !host_is_local(lobby))
+        return;
+    const auto side_count = lobby_side_count(*lobby.game);
+    for (int32_t player_slot = 0; player_slot < kSlotCount; ++player_slot) {
+        const auto* info = player_info(lobby, slot_player(lobby, player_slot));
+        const bool past = side_count != 0 && playing_seat(lobby, player_slot) && info != nullptr &&
+                          info->side >= side_count;
+        if (!past) {
+            lobby.side_past_table_posted[player_slot] = -1;
+            continue;
+        }
+        if (lobby.side_past_table_posted[player_slot] == static_cast<int16_t>(info->side))
+            continue;
+        lobby_post_classic_line(
+            lobby, "*** {player} chose a side this game does not have.", player_slot
+        );
+        lobby.side_past_table_posted[player_slot] = static_cast<int16_t>(info->side);
+    }
 }
 
 namespace {
@@ -2037,6 +2182,8 @@ void lobby_reset(Lobby& lobby, Game& game) noexcept {
     std::fill(
         std::begin(lobby.computer_difficulty_set), std::end(lobby.computer_difficulty_set), false
     );
+    lobby.computer_brain.fill(std::nullopt);
+    lobby.computer_launch_brain.fill({});
     lobby.computer_command_player = 0;
     lobby.computer_command_kind = 0;
     lobby.computer_command_value = 0;
@@ -2052,6 +2199,11 @@ void lobby_reset(Lobby& lobby, Game& game) noexcept {
     lobby.presence_records.part_refused_digest.reset();
     lobby.mutators_hold_seen = false;
     lobby.classic_lines_posted = false;
+    std::fill(
+        std::begin(lobby.side_past_table_posted),
+        std::end(lobby.side_past_table_posted),
+        static_cast<int16_t>(-1)
+    );
     // The recorder's session starts again; the line it answers with stays.
     char program[sizeof lobby.recorder.program];
     std::memcpy(program, lobby.recorder.program, sizeof program);
@@ -2309,6 +2461,12 @@ void lobby_swap_slots(Lobby& lobby, int32_t first, int32_t second) noexcept {
     std::swap(records.sent_to[first], records.sent_to[second]);
     std::swap(lobby.computer_difficulty[first], lobby.computer_difficulty[second]);
     std::swap(lobby.computer_difficulty_set[first], lobby.computer_difficulty_set[second]);
+    std::swap(lobby.computer_brain[first], lobby.computer_brain[second]);
+    std::swap(
+        lobby.computer_launch_brain[static_cast<std::size_t>(first)],
+        lobby.computer_launch_brain[static_cast<std::size_t>(second)]
+    );
+    std::swap(lobby.side_past_table_posted[first], lobby.side_past_table_posted[second]);
     slot_set_status(lobby, a, kSlotOpen);
     a.in_use = 0;
     // The game renumbers eleven records; the eleventh lies past the table.
@@ -2896,6 +3054,10 @@ bool seat_launch_computers(Lobby& lobby) noexcept {
             note_computer_difficulty(
                 lobby, slot, static_cast<uint8_t>(computer.difficulty - nl::difficulty::easy)
             );
+        if (computer.brain[0] == '\0')
+            lobby.computer_launch_brain[static_cast<std::size_t>(slot)].clear();
+        else
+            lobby.computer_launch_brain[static_cast<std::size_t>(slot)] = computer.brain;
         notify(lobby, 2);
     }
     if (seated == 0)
@@ -2990,7 +3152,7 @@ void lobby_enter_battleroom(Lobby& lobby, Panel& panel) noexcept {
         panel,
         "START",
         !(host && lobby_ready_to_start(lobby) && lobby_content_allows_start(lobby) &&
-          lobby_mutators_allow_start(lobby) && synced)
+          lobby_mutators_allow_start(lobby) && lobby_sides_allow_start(lobby) && synced)
     );
     panel_set_grayed(panel, "RESTRICTIONS", false);
     panel_set_text(panel, "METALTEXT", "0");
@@ -3457,7 +3619,8 @@ LobbyAction handle_panel_event(Lobby& lobby, Panel& panel) noexcept {
     }
     if (panel_selected_is(panel, "START")) {
         const bool mutators_allow = lobby_mutators_allow_start(lobby);
-        if (!lobby_content_allows_start(lobby) || !mutators_allow) {
+        const bool sides_allow = lobby_sides_allow_start(lobby);
+        if (!lobby_content_allows_start(lobby) || !mutators_allow || !sides_allow) {
             if (!mutators_allow)
                 lobby_note_refused_start(lobby_mutators_block(lobby));
             panel.selected = kNoControl;
@@ -3603,6 +3766,7 @@ LobbyAction lobby_tick(Lobby& lobby, Panel& panel, LobbyFront front, Panel* view
     presence_refresh(lobby);
     presence_send_due(lobby);
     lobby_log_mutators_hold(lobby);
+    lobby_note_sides_past_table(lobby);
     if ((game.gui_flags & 1U) != 0) {
         if (!lobby.rows_built)
             lobby_build_rows(lobby, panel);
@@ -3645,9 +3809,9 @@ LobbyAction lobby_tick(Lobby& lobby, Panel& panel, LobbyFront front, Panel* view
         if (front == LobbyFront::battleroom) {
             if (host_is_local(lobby)) {
                 const bool synced = unit_sync_complete(lobby);
-                const bool ready = lobby_ready_to_start(lobby) &&
-                                   lobby_content_allows_start(lobby) &&
-                                   lobby_mutators_allow_start(lobby);
+                const bool ready =
+                    lobby_ready_to_start(lobby) && lobby_content_allows_start(lobby) &&
+                    lobby_mutators_allow_start(lobby) && lobby_sides_allow_start(lobby);
                 const auto tick = now(lobby);
                 panel_set_grayed(panel, "SYNCHING", true);
                 if (lobby.start_frame > 0 && lobby_clock_passed(tick, lobby.start_frame_tick)) {
@@ -4281,6 +4445,23 @@ void lobby_send_slot_table(Lobby& lobby) noexcept {
     const auto host = lobby_host_slot(lobby);
     if (netgame::encode_record(record, wire, sizeof(wire), &written) == netgame::WireError::ok)
         send(lobby, slot_player(lobby, host).player_id, kBroadcastId, wire, written);
+}
+
+void lobby_set_computer_brain(
+    Lobby& lobby, int32_t slot, std::optional<ComputerBrain> brain, uint8_t difficulty
+) noexcept {
+    if (slot < 0 || slot >= kSlotCount || lobby.game == nullptr)
+        return;
+    if (!occupied_by(slot_player(lobby, slot), kSlotComputer))
+        return;
+    lobby.computer_brain[slot] = std::move(brain);
+    note_computer_difficulty(lobby, slot, difficulty);
+}
+
+const ComputerBrain* lobby_computer_brain(const Lobby& lobby, int32_t slot) noexcept {
+    if (slot < 0 || slot >= kSlotCount || !lobby.computer_brain[slot])
+        return nullptr;
+    return &*lobby.computer_brain[slot];
 }
 
 void lobby_add_computer(Lobby& lobby, int32_t slot) noexcept {

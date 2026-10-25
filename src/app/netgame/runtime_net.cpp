@@ -1027,6 +1027,10 @@ struct NetworkPlay::NetHost {
         nm::NetMatchHooks hooks{};
         hooks.context = &play;
         hooks.chat = chat;
+        hooks.seat_chat =
+            [](void* context, uint8_t sender, uint8_t addressee, bool broadcast, const char* line) {
+                hear_remote_seat_chat(self(context).runtime_, sender, addressee, broadcast, line);
+            };
         hooks.notice = notice;
         hooks.translate_game_text = translate_text;
         hooks.rand15 = rand15;
@@ -1116,9 +1120,19 @@ struct NetworkPlay::NetHost {
             return;
         }
         state.hosting = host_slot == local_slot;
-        if (state.hosting)
+        // A joiner that has already seen the start no longer treats a remote
+        // computer as a computer, so this machine's brains go out first. The
+        // joiner then still has them when it records the game.
+        if (state.hosting) {
+            play.runtime_.note_room_computers(lobby);
             nm::net_match_queue_game_start(&state.connection, *lobby.game);
+        }
         state.building_game = lobby.game;
+        std::copy(
+            std::begin(lobby.game->slot_table),
+            std::end(lobby.game->slot_table),
+            state.host_slot_ids.begin()
+        );
         state.loading_pace = {};
         state.load_rows = {};
         try {
@@ -1257,6 +1271,27 @@ struct NetworkPlay::NetHost {
 
         runtime.release_room_mutators();
         runtime.choose_match_mutators(std::move(room_chosen));
+        // This machine's computers take their brains before the match's first
+        // tick. Another machine's computers are not in the list. The seats
+        // remembered afterwards are in the order this machine seated them.
+        runtime.note_room_computers(lobby);
+        const oa::data::brain_library::Seats room_seats = runtime.room_brain_seats();
+        std::vector<uint8_t> room_computers;
+        room_computers.reserve(room_seats.seats.size());
+        for (const oa::data::brain_library::Seat& room_seat : room_seats.seats) {
+            if (room_seat.place < 0 || room_seat.place > 9)
+                continue;
+            room_computers.push_back(static_cast<uint8_t>(room_seat.place));
+        }
+        runtime.seat_brains_once(runtime.resolve_brain_seats(
+            room_seats, room_computers, oa::data::brain_library::Difficulty::hard
+        ));
+        if (!room_seats.seats.empty()) {
+            oa::data::brain_library::Seats memory_seats = room_seats;
+            for (std::size_t seat_index = 0; seat_index < memory_seats.seats.size(); ++seat_index)
+                memory_seats.seats[seat_index].place = static_cast<int32_t>(seat_index);
+            runtime.remember_brain_seats(oa::data::brain_library::Setup::multiplayer, memory_seats);
+        }
         runtime.bootstrap_match(
             {.units_per_player = limit,
              .place_commanders = false,
@@ -1267,6 +1302,9 @@ struct NetworkPlay::NetHost {
              // at the host's.
              .run_unit_limit = state.hosting}
         );
+        // Other machines' computers, as the room showed them. This machine's
+        // own are the brains the match just seated.
+        runtime.keep_remote_played_brains(lobby);
         mp::unit_sync_destroy(lobby);
         if (!runtime.match_ || runtime.altitude_sight_blocked_)
             throw std::runtime_error(
@@ -1280,6 +1318,19 @@ struct NetworkPlay::NetHost {
         auto& world = runtime.match_->state();
         if (!nm::match_launch_apply(lobby, &world))
             throw std::runtime_error("the lobby has no local slot");
+        // A seat this machine places on a side the match does not have ends
+        // the start here, before the machines wait for each other to load.
+        if (const auto past = nm::match_first_side_past_table(&world); past < OA_PLAYER_COUNT) {
+            const auto& seated = world.game.players[past];
+            const auto* info = world_player_info(&world, &seated);
+            const auto side = info != nullptr ? static_cast<unsigned>(info->side) : 0U;
+            abort(
+                play,
+                std::string(field_text(seated.name, sizeof seated.name)) + ": side " +
+                    std::to_string(side) + " is not one of this game's sides"
+            );
+            return;
+        }
         play.start_reporter(world, lobby.game);
         if (state.hosting)
             world.game.session_flags =
@@ -1420,13 +1471,16 @@ struct NetworkPlay::NetHost {
         for (const auto& [slot, start] : starts)
             start_positions[slot] = start;
         const bool fixed_positions = (host->options & OA_SETUP_OPTION_FIXED_LOCATIONS) != 0;
+        runtime.note_brain_map_starts();
         for (const auto& placed : starts) {
             const uint8_t slot = placed.first;
             // A position an earlier move swapped is read from the table.
             int32_t start = start_positions[slot];
             runtime.move_map_unit_computer_last(start_positions, start, fixed_positions);
-            if (runtime.place_map_units(slot, start))
+            if (runtime.place_map_units(slot, start)) {
+                runtime.remember_brain_player_start(slot, start, true, true);
                 continue;
+            }
             const auto& info = world.player_info[slot];
             const oa::sim::unit_spawn::PlayerSetup setup{
                 info.side, info.color, host->metal_hundreds * 100, host->energy_hundreds * 100
@@ -1442,7 +1496,27 @@ struct NetworkPlay::NetHost {
             );
             if (!started.position_found || started.unit == nullptr)
                 throw std::runtime_error("a local commander could not be placed");
+            runtime.remember_brain_player_start(slot, start, false, true);
         }
+        // Another machine's player is noted at the start the host dealt it,
+        // the same on every machine. The host sends each machine only its
+        // own players' starts, so with fixed starts the others are worked
+        // out as the host deals them, in the host's slot order; nothing
+        // moves a computer player last then. Shuffled starts are the host's
+        // alone, and a machine may then have moved its computer player last,
+        // so another machine's player has none, and a brain reads only its
+        // own start.
+        std::array<int32_t, OA_PLAYER_COUNT> dealt{};
+        dealt.fill(-1);
+        if (fixed_positions)
+            (void)nm::net_match_fixed_start_positions(state.net.get(), state.host_slot_ids, dealt);
+        for (uint8_t slot = 0; slot < OA_PLAYER_COUNT; ++slot) {
+            const auto& player = world.game.players[slot];
+            if (player.in_use == 0 || nm::match_slot_watcher(&world, slot))
+                continue;
+            runtime.remember_brain_player_start(slot, dealt[slot], false, false);
+        }
+        runtime.publish_brain_starts(fixed_positions);
         // Every store starts at the host's resources.
         oa::ui::hud::set_starting_resources(
             world, oa::data::campaign::SessionKind::multiplayer, nullptr, nullptr
@@ -1524,6 +1598,13 @@ struct NetworkPlay::NetHost {
                 << "demo mutators: the loadout is too long for the recording and is left out\n";
         } else {
             setup.loadout_text = loadout_text;
+        }
+        // Empty text writes no sector, so a game without brains is unchanged.
+        const std::string brains_text = runtime.played_brains_text();
+        if (brains_text.size() > oa::session::demo::recording_brains_most_bytes) {
+            std::cerr << "demo brains: the seats are too long for the recording and are left out\n";
+        } else {
+            setup.brains_text = brains_text;
         }
         const auto add_player = [&](uint8_t slot) {
             const auto& player = world.game.players[slot];
@@ -2667,6 +2748,14 @@ void NetworkPlay::net_send_chat(const char* line) {
     nm::net_match_say(net_->net.get(), line);
 }
 
+void NetworkPlay::net_send_seat_chat(
+    uint8_t seat, const char* line, uint8_t mode, const uint8_t* targets
+) {
+    if (!net_ || !net_->active || net_->loading || line == nullptr || *line == '\0')
+        return;
+    nm::net_match_say_from(net_->net.get(), seat, line, mode, targets);
+}
+
 const char* NetworkPlay::shared_chat_line(const char* line, std::size_t index) const {
     if (!net_ || !net_->active || net_->loading || line == nullptr)
         return nullptr;
@@ -2859,6 +2948,9 @@ int NetworkPlay::run_net_loopback_check(std::size_t ticks) {
     host_info.options ^= mp::option::watching_allowed;
     if (!watching)
         host_info.options ^= mp::option::cheats_allowed;
+    // --net-loopback-fixed-starts: the host's block asks for fixed starts.
+    if (net_options().net_loopback_fixed_starts)
+        host_info.options |= mp::option::fixed_locations;
     mp::lobby_send_player_info(*host.lobby);
     mp::lobby_send_player_info(*client.lobby);
     wait_until(
@@ -3146,6 +3238,22 @@ int NetworkPlay::run_net_loopback_check(std::size_t ticks) {
     };
     hold_speed(runtime_, kHostLeftSpeed);
     hold_speed(joiner, kClientLeftSpeed);
+
+    // The host's battle room sends its slot table every few seconds, and the
+    // joiner launches with it, as from a room that has been open that long.
+    mp::lobby_send_slot_table(*host.lobby);
+    wait_until(
+        [&] {
+            drain(host);
+            drain(client);
+            return std::equal(
+                std::begin(host.lobby->game->slot_table),
+                std::end(host.lobby->game->slot_table),
+                std::begin(client.lobby->game->slot_table)
+            );
+        },
+        "the host's slot table did not reach the joiner"
+    );
 
     // START: the host launches and its 0x08 launches the client. No frame
     // runs while the host builds its world; the loading screen's work goes on

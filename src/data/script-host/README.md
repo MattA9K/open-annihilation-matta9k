@@ -26,8 +26,19 @@ The interpreter underneath is Lua 5.4.9, built as the C library
   caller's work on a later phase and calls no script.
 - `run_file` loads a package path as a text chunk and runs it as one phase.
   `call` runs the function `push` placed on the stack, then `read` sees how
-  many results came back. Each phase has a fresh instruction allowance and
-  a fresh real-time limit.
+  many results came back. Each of those phases has a fresh instruction
+  allowance and a fresh real-time limit.
+- `call_banked` runs one call the way `call` does, but the allowance is the
+  bank's balance and the real-time limit is the bank's. The instructions
+  that call used come off the balance. `refill_bank` adds one tick's
+  allowance, and the balance never passes the limit. A profile with no bank
+  makes `call_banked` return an error and leaves the sandbox usable.
+- `drain_printed` hands the lines `print` kept to the caller, oldest first,
+  then forgets them, so the next call can print again. Call it between
+  phases. A null receiver forgets the lines without handing them over.
+- `MemorySources` holds a package's files and serves them through
+  `SourceHooks`. A path matches byte for byte. The hooks point at the
+  object, so it must not move while a sandbox uses them.
 - A false return fills a `ScriptError`. `describe` prints
   `<package>: <phase>: <chunk>:<line>: <message>`, and leaves the chunk and
   the line out when the chunk is unknown.
@@ -102,6 +113,32 @@ moves that state; the moved-from object has no state.
   slow one. In multiplayer the loadout digest refuses a match whose machines
   disagree, so the difference cannot desync a match. A dry run records
   `time_limit` like any other failure.
+- A profile may carry a bank. The defaults are 2,000,000 instructions a
+  tick (`default_tick_allowance`), 30 ticks (`default_bank_ticks`) and 250
+  milliseconds (`default_call_time_limit`). The bank opens full. Its limit
+  is one tick's allowance times the tick count, and that count includes the
+  current tick, so the default limit is 60,000,000. `ticks` below 1 counts
+  as 1, and the product saturates at the largest count. A banked call
+  spends the instructions it used, and no more than the balance it started
+  with. The count steps as it does for any other phase, by
+  `budget_check_interval`, so up to 999 instructions of each call go
+  uncounted. The balance is that count alone: no clock, thread or signal.
+  A phase that is not banked (`open`, `run_file`, `call`, `run_host`,
+  `compile_check`) still uses the profile's allowance and leaves the
+  balance unchanged.
+- A banked call's real-time limit is the bank's, 250 milliseconds unless
+  the profile names another. Past it the call stops with `time_limit` and
+  the message `<phase> ran for more than 250 milliseconds on this computer;
+  the stop is for the computer's speed, not the script's instructions`.
+  The length is spelled the same way as the phase limit above (`250
+  milliseconds`, `1 second`). A phase that is not banked keeps
+  `OpenOptions::time_limit` and today's sentence. A `pcall` or `xpcall`
+  cannot keep a banked call going past a spent balance or a passed time
+  limit.
+- `drain_printed` hands out every kept line, oldest first, including the
+  omission note when lines were dropped, then clears the print limits. The
+  next call can keep `max_printed_lines` lines again. It is only for the
+  gap between phases.
 - `string.find`, `string.match`, `string.gmatch` and `string.gsub` count
   their work against that allowance. A step is one entry into the matcher,
   one character a `*`, `+` or `-` repetition tries, or one character a `%b`
@@ -279,6 +316,59 @@ A fixed value is a poor table key: two equal values are two keys, and
 `pairs` refuses a userdata key. Use `f:raw()` as the key. `getmetatable`
 does not hand back the metatable.
 
+## f32
+
+`f32` holds one IEEE binary32 value, the width of a player's resources and
+build progress. A profile opens it from `install` by calling
+`open_f32_library`. A sandbox whose profile does not call that has no `f32`.
+A mutator does not see it.
+
+Arithmetic follows C++ promotion, so a script can mix these values the way
+the built-in player mixes float and double. Two `f32` values, or an `f32`
+and an integer, use float arithmetic and the result is an `f32`. The integer
+is converted to float once, directly, and is not converted to a double
+first. An `f32` and a Lua float widen the `f32` exactly and use double
+arithmetic, and the result is a Lua float. Comparisons use the same rules.
+`//`, `%` and `^` have no metamethod, so Lua raises its own arithmetic error.
+
+An `f32` and a `fixed` value do not mix. The operation raises, names itself,
+and tells the script to convert with `f32(x)`.
+
+`f32(v)` takes an `f32`, an integer, a Lua float or a `fixed` value. Each
+conversion rounds once, nearest, ties to even. A fixed count is divided by
+65536, which is exact for every count in range, and that quotient is what
+converts to float. `v:tonumber()` widens exactly. `v:tofixed()` multiplies
+the widened value by 65536 and truncates toward zero, as `fixed(number)`
+does. A NaN, an infinity or a count outside the fixed range raises.
+`v:bits()` is the integer 0 to 4294967295, and `f32.from_bits` builds a
+value from those bits. A NaN produced by an operation, or by narrowing a
+double, is stored as the quiet NaN whose bits are 0x7fc00000, so every build
+agrees. `from_bits` keeps the bits it is given until an operation.
+
+`f32(1) == 1` is false. Lua calls that comparison only when both values are
+userdata. `getmetatable` does not hand back the metatable.
+
+`f32` follows the build exactly as the simulation's own floats do. Each
+operation is rounded as written. Under `OA_X86_FLOAT=fpu` the simulation's
+floats change too, and `f32` changes with them.
+
+## geometry
+
+`geometry` is a plain table. A profile opens it from `install` by calling
+`open_geometry_library`, and later code may add fields to the table. A
+sandbox whose profile does not call that has no `geometry`. A mutator does
+not see it.
+
+`geometry.direction(x, z)` is the engine's heading, an integer from 0 to
+65535. `geometry.planar_length(x, z)` is the engine's planar distance as a
+fixed value. `geometry.length(x, y, z)` is the engine's truncated length as
+a fixed value, and a length past 2^31 stays negative. `geometry.scale(x, y,
+z, factor)` is the engine's fixed-point scale and returns three fixed
+values. Each function calls the engine's own geometry. An argument is a
+fixed value or an integer. An integer is a whole number of world units,
+times 65536. A count that does not fit in a 32-bit coordinate raises, and a
+float is refused. Scaled sine and cosine are not in this table.
+
 ## Iteration
 
 `pairs` visits number keys in ascending order, then string keys in byte
@@ -328,11 +418,63 @@ and alignment are not the same on every machine the engine builds for.
 
 ## Profiles
 
-A profile is a name, an instruction allowance, a memory cap and an optional
-`install`. One interpreter serves every profile. `mutator_profile` is the
-default. A later profile, such as a computer player's with a per-tick
-allowance, adds its own functions from `install` without a second interpreter.
-Each sandbox still has its own state.
+A profile is a name, an instruction allowance, a memory cap, an optional
+`install`, and an optional bank. One interpreter serves every profile.
+`mutator_profile` is the default and carries no bank, so every phase still
+gets the allowance in `budget`. A profile whose bank has a `per_tick` above
+zero opens with that bank full: a computer player can spend a saved balance
+on one heavy turn, and a refill puts one tick's allowance back, up to 30
+ticks including the current one. The profile adds its own functions from
+`install` without a second interpreter. Each sandbox still has its own state.
+
+## Plain data
+
+`oa/data/script_host/plain_data.hpp` turns one Lua value into bytes a saved
+game can keep, and pushes those bytes back as a value. The bytes are the
+same on every build, and the same whatever order a table was filled in.
+
+Plain data is nil, booleans, integers, floats, strings, fixed counts and
+tables of those. Nil is only the top value, the one a save that returns
+nothing produces. A fixed count is the userdata `fixed` builds. Anything
+else is refused, and the refusal names the place from the top, as
+`saved.units[3]: a function cannot be saved`. A string key that is a name
+is written after a dot. Any other string key is `["…"]`. An integer key is
+in brackets.
+
+The bytes are little-endian. They start with the four letters `OAPD` and a
+format byte `1`, then one value, and nothing after it:
+
+- `0` nil, `1` false, `2` true;
+- `3` and an 8-byte two's-complement integer;
+- `4` and the 8 bytes of a double. A NaN is written as the quiet NaN
+  `0x7ff8000000000000`. A signed zero stays signed;
+- `5`, a 4-byte length and the bytes, at most 65,536;
+- `6` and an 8-byte fixed count inside the fixed range;
+- `7`, a 4-byte entry count, then each key and its value. Integer keys come
+  first, ascending. String keys follow, in byte order. A key is itself an
+  integer or a string value.
+
+A table reached twice, without being inside itself, is written twice and
+comes back as two tables. A cycle is refused. A table with a metatable is
+refused. A key that is not an integer or a string is refused. Lua already
+stores a float key whose value is a whole number as an integer, so that key
+is saved as an integer and `math.type` of a real integer stays `"integer"`.
+A float and an integer stay distinct.
+
+The value may be 64 levels deep, counting the outermost, and the bytes may
+be 1 MiB, header included. One more level, or one more byte, is refused.
+Encoding charges `units_for_bytes` of the encoded size plus one unit per
+value written, keys included, and only after the walk has dropped its
+containers: the walk makes no call that can raise, and the charge can.
+Nothing is charged when the value is refused. Pushing checks the bytes
+first, without Lua, and raises `the saved data is damaged: …` when they are
+not one plain value. It then charges the same count as it builds the
+tables and strings. A string longer than 40 bytes also pays the usual
+string charge when it is created.
+
+The caller keeps its `PlainData` and `PlainDataProblem` outside the frame
+a raise can skip. `data-script-host-plain-values` checks the bytes, the
+refusals, the round trip and the charge.
 
 ## Tests
 
@@ -371,8 +513,15 @@ library's argument rules. `tests/random_reference.py` prints the generator's
 draws. Both scripts are run with `python3 -I` and print the tables the test
 holds. `data-script-host-fixed` checks every count against
 `tests/fixed_reference.py` the same way, through the C++ functions and
-through a sandbox. `data-script-host-iteration` checks `pairs`, the refusal
-of unordered keys, and the name helpers.
+through a sandbox. `data-script-host-f32` checks every value against
+`tests/f32_reference.py` the same way, through the C++ conversions and
+through a sandbox whose profile opens `f32`. The reference is exact rational
+arithmetic, run with `python3 -I`, and prints the table the test holds. A
+sandbox on the mutator profile has no `f32`. `data-script-host-geometry`
+checks direction, planar length, truncated length and scale against the
+engine's own functions, including a length that wraps past 2^31, and a
+mutator sandbox has no `geometry`. `data-script-host-iteration` checks
+`pairs`, the refusal of unordered keys, and the name helpers.
 
 `data-script-host-patterns` runs each pattern case through the sandbox and
 through Lua's own string functions and compares every returned value, its
@@ -411,6 +560,39 @@ memory with shorter strings is still a memory error.
 where a value sits, the `string.format` refusals, the absent pack functions,
 C collation, the refusal to open under another collation, numeric or
 character-type locale, and that no route makes a weak table.
+
+`data-script-host-bank` uses a made-up package. The bank opens at 30 ticks,
+a refill stops at that limit, and a profile with no bank stays usable. A
+banked call spends exactly the instructions it counted, and two sandboxes
+on the same calls and refills hold the same balance. Spending the balance
+down, refilling, and overspending stops with the banked instruction
+sentence. A loop, including one inside `pcall` and one inside `xpcall`
+with a looping handler, stops on the balance and the failure sticks. A
+banked call that cannot spend its allowance stops on the bank's real-time
+limit, with the sentence that names the computer's speed; a phase that is
+not banked in that sandbox keeps the sandbox's own limit and today's
+sentence. `run_file`, `call` and `run_host` keep the profile allowance and
+leave the balance unchanged, and after a banked call a `call` reports
+today's instruction sentence again. `drain_printed` hands 300 printed
+lines out as 256, in order, ending with the omission note, and the next
+call can print again. A drain with no receiver forgets the lines.
+
+`data-script-host-memory-sources` stores files and reads them back by the
+exact path, including through `SourceHooks`. A different case and a
+trailing slash do not match. Replacing a path keeps one file. A sandbox
+opened on those hooks runs `brain.lua`, and `require("a.b")` reads
+`lua/a/b.lua` from the same object.
+
+`data-script-host-plain-values` encodes plain values to fixed bytes, including
+one table built five ways and from two sandboxes. A round trip keeps
+integers, floats, signed zero, infinities, a NaN, strings, fixed counts and
+nested tables, and encoding the result gives the same bytes. It refuses a
+function, userdata that is not fixed (including an `f32`), a metatable, a
+cycle, a boolean key, a float key, 65 levels and 1,048,577 bytes. Checking
+refuses a truncated value, a bad tag, unsorted and repeated keys, a string
+past 65,536 bytes, a fixed count out of range, trailing bytes and a nil
+below the top. Damaged bytes fail the phase. The same value charges the
+same count twice, and a larger value charges more.
 
 ## Limitations
 

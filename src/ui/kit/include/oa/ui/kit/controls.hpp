@@ -17,6 +17,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -329,8 +330,9 @@ void add_search(
 // ---- Tabs ----
 
 /// Returns each tab's rectangle, left to right from the strip's left, each
-/// as tall as the strip: its caption in the small font with tab_tracking,
-/// tab_padding either side, and its count after the caption. A pill shows a
+/// as tall as the strip: its caption in the small font with the look's
+/// tracking, or the theme's tab_tracking, that padding either side, or the
+/// theme's tab_padding, and its count after the caption. A pill shows a
 /// count above 0. Words show a count of 0 or more, and skip a negative one.
 ///
 /// @param fonts the fonts
@@ -354,7 +356,8 @@ struct TabStrip {
 };
 
 /// Places a strip of tabs. The rectangles tab_rects returns are shifted by
-/// the scroll, clamped so the open tab lies wholly in the view. A strip
+/// the scroll, clamped to the strip and, while the look keeps the open tab
+/// in view, so the open tab lies wholly in the view. A strip
 /// whose tabs fit is not shifted and has no arrows. An arrow shows at an
 /// end when more tabs lie that way.
 ///
@@ -413,14 +416,31 @@ void add_tabs(
 
 /// Moves a placed strip by steps. A positive step reveals the next tab that
 /// is not wholly in the view, toward the right, and a negative step the
-/// previous one toward the left. The result is clamped so the open tab stays
-/// wholly in the view. The strip is the list's tabs item, and the tabs are
-/// the tab controls on its row.
+/// previous one toward the left. The result is clamped to the strip, from
+/// the first tab to the last, and the open tab may leave the view. The strip
+/// is the list's tabs item, and the tabs are the tab controls on its row.
 ///
 /// @param list the display list a strip was added to
 /// @param steps how many tabs to move; positive reveals tabs to the right
 /// @return the scroll to ask for next, in points
 [[nodiscard]] int32_t tab_scroll_step(const DisplayList& list, int32_t steps);
+
+/// Moves a placed strip by points from a scroll it had, as a drag does. The
+/// result is clamped to the strip, from the first tab to the last, and the
+/// open tab may leave the view. A strip whose tabs fit stays at 0.
+///
+/// @param list the display list a strip was added to
+/// @param from the scroll the move starts from, in points
+/// @param points how far to move; positive reveals tabs to the right
+/// @return the scroll to ask for next, in points
+[[nodiscard]] int32_t tab_scroll_by(const DisplayList& list, int32_t from, int32_t points);
+
+/// Returns where a press can drag a placed strip sideways: the view between
+/// its arrows, as tall as the strip. A strip whose tabs fit has none.
+///
+/// @param list the display list a strip was added to
+/// @return the view; none when the list has no strip or its tabs fit
+[[nodiscard]] std::optional<Rect> tab_drag_area(const DisplayList& list);
 
 // ---- Cards ----
 

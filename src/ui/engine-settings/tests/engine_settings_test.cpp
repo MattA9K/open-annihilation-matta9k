@@ -182,6 +182,7 @@ void hardware_acceleration_reads_its_words_and_the_switchs_numbers() {
     const auto own = settings::default_settings(players_own_on_linux);
     auto off = own;
     off.hardware_acceleration = HardwareAcceleration::off;
+    settings::follow_acceleration_with_effects(off, own.hardware_acceleration);
     off.vertical_sync = true;
     Values values;
     settings::write_settings(values, own, off, own, false);
@@ -572,14 +573,15 @@ void file_type_switches_store_on_and_off() {
     const settings::EngineSettings defaults{};
     CHECK(
         defaults.file_type_oamod && defaults.file_type_oamap && defaults.file_type_oalang &&
-        defaults.file_type_oareg && defaults.file_type_oamut
+        defaults.file_type_oareg && defaults.file_type_oamut && defaults.file_type_oabrain
     );
 
     // Absent keys, "on", and any other text read as on. Only "off" turns one off.
     const auto from_absent = settings::read_settings({}, {}, false);
     CHECK(
         from_absent.file_type_oamod && from_absent.file_type_oamap &&
-        from_absent.file_type_oalang && from_absent.file_type_oareg && from_absent.file_type_oamut
+        from_absent.file_type_oalang && from_absent.file_type_oareg &&
+        from_absent.file_type_oamut && from_absent.file_type_oabrain
     );
     Values mixed;
     mixed[std::string{settings::key::file_type_oamod}] = "off";
@@ -587,13 +589,16 @@ void file_type_switches_store_on_and_off() {
     mixed[std::string{settings::key::file_type_oalang}] = "0";
     mixed[std::string{settings::key::file_type_oareg}] = "no";
     mixed[std::string{settings::key::file_type_oamut}] = "off";
+    mixed[std::string{settings::key::file_type_oabrain}] = "off";
     const auto read = settings::read_settings(mixed, {}, false);
     CHECK(!read.file_type_oamod);
     CHECK(read.file_type_oamap);
     CHECK(read.file_type_oalang);
     CHECK(read.file_type_oareg);
     CHECK(!read.file_type_oamut);
+    CHECK(!read.file_type_oabrain);
     CHECK(settings::key::file_type_oamut == "open-annihilation.file-types.oamut");
+    CHECK(settings::key::file_type_oabrain == "open-annihilation.file-types.oabrain");
 
     // A switch moved off is stored as off. One left on writes nothing.
     auto chosen = defaults;
@@ -606,6 +611,7 @@ void file_type_switches_store_on_and_off() {
     CHECK(written.count(std::string{settings::key::file_type_oalang}) == 0);
     CHECK(written.count(std::string{settings::key::file_type_oareg}) == 0);
     CHECK(written.count(std::string{settings::key::file_type_oamut}) == 0);
+    CHECK(written.count(std::string{settings::key::file_type_oabrain}) == 0);
     CHECK(settings::read_settings(written, {}, false).file_type_oamod == false);
     CHECK(settings::read_settings(written, {}, false).file_type_oalang);
 
@@ -629,6 +635,15 @@ void file_type_switches_store_on_and_off() {
     settings::write_settings(mutator_written, defaults, mutators_off, defaults, false);
     CHECK(mutator_written.at(std::string{settings::key::file_type_oamut}) == "off");
     CHECK(!settings::read_settings(mutator_written, {}, false).file_type_oamut);
+
+    // The brain packages' switch moved off is stored as off, and reads back off.
+    auto brains_off = defaults;
+    brains_off.file_type_oabrain = false;
+    Values brain_written;
+    settings::write_settings(brain_written, defaults, brains_off, defaults, false);
+    CHECK(brain_written.at(std::string{settings::key::file_type_oabrain}) == "off");
+    CHECK(!settings::read_settings(brain_written, {}, false).file_type_oabrain);
+    CHECK(settings::read_settings(brain_written, {}, false).file_type_oamut);
 }
 
 void the_launch_file_switch_round_trips() {
@@ -649,10 +664,10 @@ void the_launch_file_switch_round_trips() {
     CHECK(!off.file_type_oalaunch);
     CHECK(
         off.file_type_oamod && off.file_type_oamap && off.file_type_oalang && off.file_type_oareg &&
-        off.file_type_oamut
+        off.file_type_oamut && off.file_type_oabrain
     );
 
-    // Moved off, it alone is stored, as off, and reads back off with the other five on.
+    // Moved off, it alone is stored, as off, and reads back off with the other six on.
     auto chosen = defaults;
     chosen.file_type_oalaunch = false;
     Values written;
@@ -663,13 +678,14 @@ void the_launch_file_switch_round_trips() {
           settings::key::file_type_oamap,
           settings::key::file_type_oalang,
           settings::key::file_type_oareg,
-          settings::key::file_type_oamut})
+          settings::key::file_type_oamut,
+          settings::key::file_type_oabrain})
         CHECK(written.count(std::string{other}) == 0);
     const auto read = settings::read_settings(written, {}, false);
     CHECK(!read.file_type_oalaunch);
     CHECK(
         read.file_type_oamod && read.file_type_oamap && read.file_type_oalang &&
-        read.file_type_oareg && read.file_type_oamut
+        read.file_type_oareg && read.file_type_oamut && read.file_type_oabrain
     );
 
     // Moved on again, it is stored as on and reads back on.
@@ -2413,6 +2429,204 @@ void the_hud_scaling_default_read_and_round_trip() {
     CHECK(values.empty());
 }
 
+/// Intensity values supersede legacy switches, clamp and persist independently.
+void visual_effect_switches_round_trip() {
+    const auto defaults = settings::default_settings(players_own_on_linux);
+
+    struct Effect {
+        std::string_view legacy;
+        std::string_view key;
+        uint32_t settings::EngineSettings::* field;
+    };
+
+    const std::array<Effect, 4> effects{{
+        {settings::key::weapon_lighting,
+         settings::key::weapon_lighting_intensity,
+         &settings::EngineSettings::weapon_lighting},
+        {settings::key::nanolathe_lighting,
+         settings::key::nanolathe_lighting_intensity,
+         &settings::EngineSettings::nanolathe_lighting},
+        {settings::key::wreck_glow,
+         settings::key::wreck_glow_intensity,
+         &settings::EngineSettings::wreck_glow},
+        {settings::key::heat_distortion,
+         settings::key::heat_distortion_intensity,
+         &settings::EngineSettings::heat_distortion},
+    }};
+    for (const auto& [legacy, key, field] : effects) {
+        CHECK(defaults.*field == 100);
+        CHECK(read_one(legacy, "0").*field == 0);
+        CHECK(read_one(legacy, "1").*field == 100);
+        CHECK(read_one(key, "invalid").*field == 0);
+        CHECK(read_one(key, "-10").*field == 0);
+        CHECK(read_one(key, "999").*field == 200);
+        CHECK(read_one(key, "143").*field == 140);
+        CHECK(read_one(key, "146").*field == 150);
+        Values values{{std::string{legacy}, "0"}, {std::string{key}, "150"}};
+        auto opened = settings::read_settings(values, players_own_on_linux, false);
+        CHECK(opened.*field == 150);
+        auto chosen = opened;
+        chosen.*field = 200;
+        settings::write_settings(values, opened, chosen, defaults, false);
+        CHECK(values.size() == 1);
+        CHECK(values.at(std::string{key}) == "200");
+        CHECK(settings::read_settings(values, players_own_on_linux, false) == chosen);
+        settings::write_settings(values, chosen, defaults, defaults, true);
+        CHECK(values.empty());
+        values = {{std::string{legacy}, "0"}};
+        opened = settings::read_settings(values, players_own_on_linux, false);
+        settings::write_settings(values, opened, defaults, defaults, false);
+        CHECK(settings::read_settings(values, players_own_on_linux, false).*field == 100);
+        // Restore defaults, then the earlier switch's value chosen again: OK
+        // keeps that value.
+        values = {{std::string{legacy}, "0"}};
+        opened = settings::read_settings(values, players_own_on_linux, false);
+        settings::write_settings(values, opened, opened, defaults, true);
+        CHECK(settings::read_settings(values, players_own_on_linux, false).*field == 0);
+    }
+    CHECK(defaults.allow_full_3d);
+    CHECK(!defaults.unlocked_camera);
+    auto chosen = defaults;
+    chosen.allow_full_3d = false;
+    chosen.unlocked_camera = true;
+    Values values;
+    settings::write_settings(values, defaults, chosen, defaults, false);
+    CHECK(settings::read_settings(values, players_own_on_linux, false) == chosen);
+    settings::write_settings(values, chosen, defaults, defaults, true);
+    CHECK(values.empty());
+}
+
+/// Each effect slider names its own preferences key, and an acceleration
+/// given for a run sets the unset ones of the four that follow it, keeping
+/// what the file stores.
+void unset_effects_follow_a_runs_acceleration() {
+    for (const auto& slider : settings::effect_sliders) {
+        const std::string key = "open-annihilation." + std::string(slider.name) + ".intensity";
+        CHECK(read_one(key, "70").*slider.percent == 70);
+    }
+    Values values = one_key(settings::key::weapon_lighting_intensity, "50");
+    values[std::string{settings::key::wreck_glow}] = "0";
+    auto chosen = settings::read_settings(values, {}, false);
+    CHECK(chosen.hardware_acceleration == HardwareAcceleration::off);
+    CHECK(chosen.nanolathe_lighting == 0 && chosen.heat_distortion == 0);
+    const auto water = chosen.water_ripples;
+    settings::follow_acceleration_with_unset_effects(chosen, values, HardwareAcceleration::full);
+    CHECK(chosen.weapon_lighting == 50);
+    CHECK(chosen.wreck_glow == 0);
+    CHECK(chosen.nanolathe_lighting == 100 && chosen.heat_distortion == 100);
+    CHECK(chosen.water_ripples == water);
+    settings::follow_acceleration_with_unset_effects(chosen, values, HardwareAcceleration::basic);
+    CHECK(chosen.weapon_lighting == 50 && chosen.nanolathe_lighting == 0);
+    for (const auto& slider : settings::effect_sliders)
+        CHECK(
+            slider.follows_acceleration ==
+            (slider.percent == &settings::EngineSettings::weapon_lighting ||
+             slider.percent == &settings::EngineSettings::nanolathe_lighting ||
+             slider.percent == &settings::EngineSettings::wreck_glow ||
+             slider.percent == &settings::EngineSettings::heat_distortion)
+        );
+}
+
+/// The four effects default to 100% with Full and 0% below it, leaving or
+/// reaching Full turns them off or on, and the file reads back as chosen.
+void effects_follow_hardware_acceleration() {
+    constexpr std::array<uint32_t settings::EngineSettings::*, 4> effects{
+        &settings::EngineSettings::weapon_lighting,
+        &settings::EngineSettings::nanolathe_lighting,
+        &settings::EngineSettings::wreck_glow,
+        &settings::EngineSettings::heat_distortion,
+    };
+    const auto own = settings::default_settings(players_own_on_linux);
+    const auto named = settings::default_settings({});
+    for (const auto field : effects) {
+        CHECK(own.*field == 100);
+        CHECK(named.*field == 0);
+        CHECK(read_one(settings::key::hardware_acceleration, "basic").*field == 0);
+        CHECK(read_one(settings::key::hardware_acceleration, "full").*field == 100);
+        CHECK(
+            settings::read_settings(
+                one_key(settings::key::hardware_acceleration, "off"), players_own_on_linux, false
+            ).*field ==
+            0
+        );
+    }
+    // The water effects keep their own default.
+    CHECK(named.water_ripples == own.water_ripples);
+
+    // Leaving Full turns the four off; a level below Full keeps what the
+    // player chose; reaching Full turns them on.
+    auto chosen = own;
+    chosen.weapon_lighting = 150;
+    chosen.hardware_acceleration = HardwareAcceleration::basic;
+    settings::follow_acceleration_with_effects(chosen, HardwareAcceleration::full);
+    for (const auto field : effects)
+        CHECK(chosen.*field == 0);
+    CHECK(chosen.water_ripples == own.water_ripples);
+    chosen.wreck_glow = 60;
+    chosen.hardware_acceleration = HardwareAcceleration::off;
+    settings::follow_acceleration_with_effects(chosen, HardwareAcceleration::basic);
+    CHECK(chosen.wreck_glow == 60);
+    chosen.hardware_acceleration = HardwareAcceleration::full;
+    settings::follow_acceleration_with_effects(chosen, HardwareAcceleration::off);
+    for (const auto field : effects)
+        CHECK(chosen.*field == 100);
+
+    // An effect turned on below Full is stored and read back; one that is
+    // what the acceleration gives an unset effect leaves no key.
+    auto basic = own;
+    basic.hardware_acceleration = HardwareAcceleration::basic;
+    settings::follow_acceleration_with_effects(basic, own.hardware_acceleration);
+    basic.heat_distortion = 100;
+    Values values;
+    settings::write_settings(values, own, basic, own, false);
+    CHECK(values.size() == 2);
+    CHECK(values.at(std::string{settings::key::hardware_acceleration}) == "basic");
+    CHECK(values.at(std::string{settings::key::heat_distortion_intensity}) == "100");
+    CHECK(settings::read_settings(values, players_own_on_linux, false) == basic);
+    // Acceleration moved with the effects left as they were still reads back.
+    auto moved = own;
+    moved.hardware_acceleration = HardwareAcceleration::off;
+    values.clear();
+    settings::write_settings(values, own, moved, own, false);
+    CHECK(settings::read_settings(values, players_own_on_linux, false) == moved);
+    settings::write_settings(values, moved, own, own, true);
+    CHECK(values.empty());
+}
+
+/// Water effect intensity persists independently, clamps and restores defaults.
+void water_effects_round_trip() {
+    const auto defaults = settings::default_settings(players_own_on_linux);
+
+    struct Effect {
+        std::string_view key;
+        uint32_t settings::EngineSettings::* field;
+    };
+
+    const std::array<Effect, 4> effects{{
+        {settings::key::water_ripples_intensity, &settings::EngineSettings::water_ripples},
+        {settings::key::coastal_waves_intensity, &settings::EngineSettings::coastal_waves},
+        {settings::key::underwater_shimmer_intensity,
+         &settings::EngineSettings::underwater_shimmer},
+        {settings::key::naval_reflections_intensity, &settings::EngineSettings::naval_reflections},
+    }};
+    for (const auto& [key, field] : effects) {
+        CHECK(defaults.*field == 100);
+        CHECK(read_one(key, "invalid").*field == 100);
+        CHECK(read_one(key, "-10").*field == 0);
+        CHECK(read_one(key, "999").*field == 200);
+        CHECK(read_one(key, "143").*field == 140);
+        CHECK(read_one(key, "146").*field == 150);
+        Values values;
+        auto chosen = defaults;
+        chosen.*field = 0;
+        settings::write_settings(values, defaults, chosen, defaults, false);
+        CHECK(values.size() == 1);
+        CHECK(settings::read_settings(values, players_own_on_linux, false) == chosen);
+        settings::write_settings(values, chosen, defaults, defaults, true);
+        CHECK(values.empty());
+    }
+}
+
 /// Smooth motion: On everywhere by default, a light machine and a Steam
 /// Deck included; a file written before it reads On; a number above 0 reads
 /// On and any other number Off; Off written alone and read back, On chosen
@@ -2733,6 +2947,8 @@ void menu_scaling_and_native_density_default_read_and_round_trip() {
 }
 
 int main() {
+    effects_follow_hardware_acceleration();
+    unset_effects_follow_a_runs_acceleration();
     defaults_play_as_without_the_settings();
     escape_opens_the_menu_by_default_only_on_macos_with_the_players_own_file();
     the_unit_limit_defaults_to_the_installations_with_the_players_own_file();
@@ -2789,6 +3005,8 @@ int main() {
     the_window_frame_default_read_and_round_trip();
     the_hud_scaling_default_read_and_round_trip();
     the_smooth_motion_default_read_and_round_trip();
+    visual_effect_switches_round_trip();
+    water_effects_round_trip();
     the_interface_size_default_read_and_round_trip();
     the_zoom_limits_default_read_and_round_trip();
     the_view_past_the_map_edge_defaults_reads_and_round_trips();

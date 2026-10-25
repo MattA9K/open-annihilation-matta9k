@@ -575,6 +575,30 @@ void Runtime::bootstrap_match(const MatchBootstrap& bootstrap) {
     } side_table_restore{*this};
 
     load_match_side_table();
+    // A new skirmish whose side was saved under other side data plays the
+    // first side the menu offers, and says so. A saved game, a replay, a
+    // campaign and a network start keep the side they were given.
+    if (bootstrap.seat_roster && bootstrap.place_commanders && !bootstrap.multiplayer &&
+        !campaign_mission_) {
+        for (std::size_t player_slot = 0; player_slot < skirmish_settings_.slots.size();
+             ++player_slot) {
+            auto& setup = skirmish_settings_.slots[player_slot];
+            if (setup.controller == entry::controller::disabled)
+                continue;
+            if (setup.side < static_cast<int32_t>(side_table_.count))
+                continue;
+            const int32_t chosen = setup.side;
+            const int32_t played = skirmish::offered_side(
+                chosen,
+                static_cast<int32_t>(side_table_.count),
+                oa::data::defs::skirmish_hidden_sides()
+            );
+            setup.side = played;
+            std::cerr << "open-annihilation: side data: player " << player_slot << " chose side "
+                      << chosen << ", which this match's side data does not have; it plays side "
+                      << played << '\n';
+        }
+    }
     // The weapons, every WEAPONS\*.TDF section into its ID's slot. A lava
     // world loads the lava explosions into the water explosion slot.
     weapon_registry_ = oa::sim::combat_state::WeaponRegistry{};
@@ -1068,6 +1092,7 @@ void Runtime::bootstrap_match(const MatchBootstrap& bootstrap) {
             ? kFixedRandomSeed
             : static_cast<uint32_t>(counter) + static_cast<uint32_t>(counter >> 32U)
     );
+    brain_match_seed_ = static_cast<uint32_t>(random_seed);
     // A campaign plays under the rules block its mission loader wrote, a
     // skirmish under its own settings; the session flags apply either.
     int32_t session_record[4] = {
@@ -1421,6 +1446,8 @@ void Runtime::bootstrap_match(const MatchBootstrap& bootstrap) {
         // A mission resumed from a savegame restores it instead.
         if (!resume_saved_mission())
             spawn_campaign_units();
+        note_campaign_map_starts();
+        publish_brain_starts(true);
         started_players = 0;
         for (const auto& slot : match_->world().slots)
             if (slot.unit != nullptr && slot.unit->type_index)
@@ -1430,6 +1457,7 @@ void Runtime::bootstrap_match(const MatchBootstrap& bootstrap) {
         // with fixed positions each player starts at its slot's, with
         // random ones the players' slots are shuffled among them.
         const bool fixed_positions = preferences_.skirmish_location != 0;
+        note_brain_map_starts();
         std::array<int32_t, 10> start_positions{};
         start_positions.fill(-1);
         std::array<int32_t, 10> starts{};
@@ -1460,12 +1488,16 @@ void Runtime::bootstrap_match(const MatchBootstrap& bootstrap) {
             // position take the commander's place; before the commander is
             // placed the computer player moves last on a neutral map.
             if (place_map_units(static_cast<uint8_t>(player), start_index)) {
+                remember_brain_player_start(static_cast<uint8_t>(player), start_index, true, true);
                 ++started_players;
                 continue;
             }
             if (player < start_positions.size()) {
                 move_map_unit_computer_last(start_positions, start_index, fixed_positions);
                 if (place_map_units(static_cast<uint8_t>(player), start_index)) {
+                    remember_brain_player_start(
+                        static_cast<uint8_t>(player), start_index, true, true
+                    );
                     ++started_players;
                     continue;
                 }
@@ -1498,8 +1530,10 @@ void Runtime::bootstrap_match(const MatchBootstrap& bootstrap) {
             }
             if (!started.position_found || started.unit == nullptr)
                 throw std::runtime_error("offline commander start failed");
+            remember_brain_player_start(static_cast<uint8_t>(player), start_index, false, true);
             ++started_players;
         }
+        publish_brain_starts(fixed_positions);
         // Mission start seeds the stores once every commander is placed.
         std::array<oa::ui::hud::SkirmishSlot, OA_PLAYER_COUNT> seeds{};
         for (std::size_t player = 0;
@@ -1534,8 +1568,12 @@ void Runtime::bootstrap_match(const MatchBootstrap& bootstrap) {
     // A new skirmish or campaign mission has finished loading here; its
     // players' pass waits for the first tick. A saved game, a network game
     // and a recorded game load more after this and end theirs when they have.
-    if (!bootstrap.multiplayer && !bootstrap.replay && !resuming_saved_game())
+    if (!bootstrap.multiplayer && !bootstrap.replay && !resuming_saved_game()) {
+        open_brain_log_files();
+        seat_chosen_brains();
+        seat_shadow_brains();
         match_->finish_load();
+    }
     status_ = "Offline match world prepared for " + selected_map_name_runtime_ + " with " +
               std::to_string(unit_definitions_.size()) + " unit runtimes, " +
               std::to_string(feature_table_.defs.size()) + " feature definitions and " +

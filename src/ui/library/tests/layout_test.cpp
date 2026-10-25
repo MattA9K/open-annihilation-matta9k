@@ -291,14 +291,15 @@ std::vector<std::string> order_problems(const kit::DisplayList& list) {
 /// @return true when it is
 bool designed_name(const std::string& name) {
     static const std::regex pattern(
-        "library\\.(tab\\.(active|mods|maps|mutators|languages|updates|registries|scroll-left|"
+        "library\\.(tab\\.(active|mods|maps|mutators|brains|languages|updates|registries|scroll-"
+        "left|"
         "scroll-right)|"
         "search|filter|"
         "filter\\.(all|new|installed|updates|tag-[a-z0-9-]+)|tag\\.[a-z0-9-]+|tags|tags\\.[a-z0-9-]"
         "+|detail\\.tag\\.[a-z0-9-]+|"
         "list|row\\.[a-z0-9-]+(\\.[a-z0-9-]+)?(\\.(get|update))?|action|"
         "action\\.(get|update|update-all|cancel|retry|roll-back|play-now|switch-off|"
-        "check-with-mod|uninstall|open-folder|homepage)|"
+        "check-with-mod|use-by-default|uninstall|open-folder|homepage)|"
         "details|back|refresh|close-x|close|status|queue|note|from|rules|"
         "active\\.(mod|language|base|expansions|lock|unload|change|search|map\\.[1-9][0-9]*|"
         "from\\.[1-9][0-9]*|expansion\\.[a-z0-9-]+(\\.(get|cancel|retry))?)|"
@@ -393,6 +394,9 @@ std::string words_in(const kit::DisplayList& list, const kit::Rect& box) {
 
 /// Lists how the selected entry's Rules and From facts are not shown whole.
 ///
+/// A mod or a mutator shows Rules. A brain does not: the design's facts stop
+/// at From, so a Rules fact on a brain is the fault.
+///
 /// @param library the model, with an entry selected
 /// @param list the display list showing its details
 /// @param long_form the details show the long values
@@ -405,7 +409,10 @@ whole_fact_problems(const lib::Library& library, const kit::DisplayList& list, b
         return {"nothing is selected"};
     const std::optional<lib::Fact> rules = fact_of(library, *entry, "Rules");
     const kit::Control* rules_label = fixture::named(list, "library.rules");
-    if (!rules || rules_label == nullptr) {
+    if (entry->id.kind == lib::Kind::brain) {
+        if (rules || rules_label != nullptr)
+            problems.emplace_back("a brain shows a Rules fact");
+    } else if (!rules || rules_label == nullptr) {
         problems.emplace_back("the Rules fact is not shown");
     } else {
         const std::string& value = long_form ? rules->long_value : rules->short_value;
@@ -468,6 +475,8 @@ std::string_view word_of(lib::Action action) {
         return "use-now";
     case lib::Action::check_with_mod:
         return "check-with-mod";
+    case lib::Action::use_by_default:
+        return "use-by-default";
     case lib::Action::get_with:
         return "get-with";
     default:
@@ -1280,6 +1289,7 @@ void tab_follows_the_declared_order() {
         "library.tab.mods",
         "library.tab.maps",
         "library.tab.mutators",
+        "library.tab.brains",
         "library.tab.languages",
         "library.tab.updates",
         "library.tab.registries",
@@ -1322,9 +1332,9 @@ void tab_follows_the_declared_order() {
     OA_CHECK(regular.size() > regular_end.size() + 5);
     OA_CHECK(std::equal(regular_end.rbegin(), regular_end.rend(), regular.rbegin()));
     OA_CHECK(
-        regular.size() > 11 && regular[0] == "library.tab.active" &&
-        regular[7] == "library.search" && regular[8] == "library.filter.all" &&
-        regular[9] == "library.filter.new"
+        regular.size() > 12 && regular[0] == "library.tab.active" &&
+        regular[8] == "library.search" && regular[9] == "library.filter.all" &&
+        regular[10] == "library.filter.new"
     );
 }
 
@@ -4118,8 +4128,9 @@ bool open_tab_is_shown(const kit::DisplayList& list) {
 }
 
 /// The tabs keep their full names. At Compact the strip scrolls, the open
-/// tab stays in view, and an arrow or the wheel moves it by one tab. Where
-/// the names fit there are no arrows. A download draws its bar at every size.
+/// tab is in view until the strip is scrolled, and an arrow or the wheel
+/// moves it by one tab and leaves it there. Where the names fit there are no
+/// arrows. A download draws its bar at every size.
 void tabs_scroll_and_the_queue_shows_its_bar() {
     const std::vector<fixture::NamedFrame> all = fixture::frames();
     lib::Library library = with_ridge();
@@ -4210,25 +4221,179 @@ void tabs_scroll_and_the_queue_shows_its_bar() {
         OA_CHECK(turned.redraw);
         OA_CHECK(scrolling.tab_scroll == stepped);
         OA_CHECK(scrolling.list_scroll == 0);
-        OA_CHECK(open_tab_is_shown(laid_out(library, scrolling, narrow)));
+        static_cast<void>(laid_out(library, scrolling, narrow));
+        OA_CHECK(scrolling.tab_scroll == stepped);
 
         lib::ScreenState by_arrow;
         const kit::DisplayList before = laid_out(library, by_arrow, narrow);
         const int32_t by_step = kit::tab_scroll_step(before, 1);
         click(library, by_arrow, before, "library.tab.scroll-right");
         OA_CHECK(by_arrow.tab_scroll == by_step);
-        OA_CHECK(open_tab_is_shown(laid_out(library, by_arrow, narrow)));
+        static_cast<void>(laid_out(library, by_arrow, narrow));
+        OA_CHECK(by_arrow.tab_scroll == by_step);
     }
 
     library = with_ridge();
     lib::ScreenState commands;
     kit::DisplayList shown = laid_out(library, commands, narrow);
-    for (int32_t step = 0; library.tab != lib::Tab::registries && step < 6; ++step)
+    for (int32_t step = 0; library.tab != lib::Tab::registries && step < 8; ++step)
         lib::library_command(library, commands, shown, lib::ScreenCommand::next_tab);
     shown = laid_out(library, commands, narrow);
     OA_CHECK(library.tab == lib::Tab::registries);
     OA_CHECK(open_tab_is_shown(shown));
     OA_CHECK(commands.tab_scroll > 0);
+}
+
+/// Tells whether a tab lies wholly in the strip's view.
+///
+/// @param list the display list
+/// @param name the tab's automation name
+/// @return true when it is wholly shown
+bool tab_is_shown(const kit::DisplayList& list, std::string_view name) {
+    const kit::Item* strip = tab_strip(list);
+    const kit::Control* tab = fixture::named(list, name);
+    if (strip == nullptr || tab == nullptr)
+        return false;
+    const auto* look = std::get_if<kit::TabsLook>(&strip->look);
+    if (look == nullptr)
+        return false;
+    const kit::Rect view{look->view_x, strip->rect.y, look->view_width, strip->rect.height};
+    return kit::wholly_in(tab->rect, view);
+}
+
+/// Returns the middle of a tab whose middle lies in the strip's view, where a
+/// press can drag the strip.
+///
+/// @param list the display list
+/// @return the point; none when no tab's middle is in view or the tabs fit
+std::optional<kit::Point> tab_in_view(const kit::DisplayList& list) {
+    const std::optional<kit::Rect> area = kit::tab_drag_area(list);
+    if (!area)
+        return std::nullopt;
+    for (const kit::Control& control : list.controls) {
+        if (control.kind != kit::ControlKind::tab)
+            continue;
+        const kit::Point middle = centre_of(control);
+        if (kit::contains(*area, middle))
+            return middle;
+    }
+    return std::nullopt;
+}
+
+/// Whatever tab is open, the arrows reach the strip's first and last tabs,
+/// and the strip stays where they leave it. A press on the tabs that moves
+/// sideways drags the strip with it and opens nothing, a mouse after three
+/// points and a finger past its reach; a press that does not move opens its
+/// tab. Opening a tab brings it into view again.
+void tabs_scroll_to_either_end_and_drag() {
+    // As narrow as the scroll test's, so the full names overflow.
+    kit::Frame narrow;
+    narrow.area = {0, 0, 280, 480};
+    narrow.size_class = kit::SizeClass::compact;
+    narrow.scale_percent = 100;
+
+    lib::Library library = with_ridge();
+    lib::set_tab(library, lib::Tab::mods);
+    lib::ScreenState state;
+    kit::DisplayList list = laid_out(library, state, narrow);
+    OA_CHECK(tab_is_shown(list, "library.tab.mods"));
+    for (int32_t step = 0; step < 12 && fixture::named(list, "library.tab.scroll-right"); ++step) {
+        click(library, state, list, "library.tab.scroll-right");
+        list = laid_out(library, state, narrow);
+    }
+    OA_CHECK(fixture::named(list, "library.tab.scroll-right") == nullptr);
+    OA_CHECK(tab_is_shown(list, "library.tab.registries"));
+    OA_CHECK(!tab_is_shown(list, "library.tab.mods"));
+    OA_CHECK(library.tab == lib::Tab::mods);
+    for (int32_t step = 0; step < 12 && fixture::named(list, "library.tab.scroll-left"); ++step) {
+        click(library, state, list, "library.tab.scroll-left");
+        list = laid_out(library, state, narrow);
+    }
+    OA_CHECK(state.tab_scroll == 0);
+    OA_CHECK(tab_is_shown(list, "library.tab.active"));
+
+    // A mouse: two points leave the strip, three drag it, and letting go
+    // opens nothing.
+    lib::ScreenState mouse;
+    list = laid_out(library, mouse, narrow);
+    const kit::Control* mods = fixture::named(list, "library.tab.mods");
+    OA_CHECK(mods != nullptr);
+    if (mods != nullptr) {
+        const kit::Point from = centre_of(*mods);
+        static_cast<void>(
+            lib::library_pointer(library, mouse, list, lib::PointerKind::down, 1, from, 0)
+        );
+        static_cast<void>(lib::library_pointer(
+            library, mouse, list, lib::PointerKind::move, 0, {from.x - 2, from.y}, 0
+        ));
+        OA_CHECK(mouse.tab_scroll == 0);
+        OA_CHECK(!mouse.tab_drag.scrolling);
+        const lib::ScreenResult dragged = lib::library_pointer(
+            library, mouse, list, lib::PointerKind::move, 0, {from.x - 60, from.y}, 0
+        );
+        OA_CHECK(dragged.redraw);
+        OA_CHECK(mouse.tab_scroll == kit::tab_scroll_by(list, 0, 60));
+        OA_CHECK(mouse.tab_scroll > 0);
+        static_cast<void>(lib::library_pointer(
+            library, mouse, list, lib::PointerKind::up, 1, {from.x - 60, from.y}, 0
+        ));
+        OA_CHECK(library.tab == lib::Tab::mods);
+        const int32_t left_at = mouse.tab_scroll;
+        list = laid_out(library, mouse, narrow);
+        OA_CHECK(mouse.tab_scroll == left_at);
+
+        // Dragged far past the end, the strip stops at its last tab.
+        const std::optional<kit::Point> again = tab_in_view(list);
+        OA_CHECK(again.has_value());
+        if (again) {
+            const kit::Point at = *again;
+            static_cast<void>(
+                lib::library_pointer(library, mouse, list, lib::PointerKind::down, 1, at, 0)
+            );
+            static_cast<void>(lib::library_pointer(
+                library, mouse, list, lib::PointerKind::move, 0, {at.x - 4000, at.y}, 0
+            ));
+            static_cast<void>(lib::library_pointer(
+                library, mouse, list, lib::PointerKind::up, 1, {at.x - 4000, at.y}, 0
+            ));
+            list = laid_out(library, mouse, narrow);
+            OA_CHECK(fixture::named(list, "library.tab.scroll-right") == nullptr);
+            OA_CHECK(tab_is_shown(list, "library.tab.registries"));
+            OA_CHECK(library.tab == lib::Tab::mods);
+        }
+
+        // A click on a tab in view opens it, and the strip shows it whole.
+        click(library, mouse, list, "library.tab.registries");
+        OA_CHECK(library.tab == lib::Tab::registries);
+        list = laid_out(library, mouse, narrow);
+        OA_CHECK(tab_is_shown(list, "library.tab.registries"));
+    }
+
+    // A finger drags past its reach, not before.
+    lib::set_tab(library, lib::Tab::mods);
+    lib::ScreenState finger;
+    list = laid_out(library, finger, narrow);
+    const kit::Control* maps = fixture::named(list, "library.tab.maps");
+    OA_CHECK(maps != nullptr);
+    if (maps != nullptr) {
+        constexpr int32_t reach = 12;
+        const kit::Point from = centre_of(*maps);
+        static_cast<void>(
+            lib::library_pointer(library, finger, list, lib::PointerKind::down, 1, from, reach)
+        );
+        static_cast<void>(lib::library_pointer(
+            library, finger, list, lib::PointerKind::move, 0, {from.x - reach, from.y}, reach
+        ));
+        OA_CHECK(finger.tab_scroll == 0);
+        static_cast<void>(lib::library_pointer(
+            library, finger, list, lib::PointerKind::move, 0, {from.x - 40, from.y}, reach
+        ));
+        OA_CHECK(finger.tab_scroll == kit::tab_scroll_by(list, 0, 40));
+        static_cast<void>(lib::library_pointer(
+            library, finger, list, lib::PointerKind::up, 1, {from.x - 40, from.y}, reach
+        ));
+        OA_CHECK(library.tab == lib::Tab::mods);
+    }
 }
 
 } // namespace
@@ -4247,6 +4412,8 @@ std::string_view wordy_tabs(void*, std::string_view english) {
         return "Mapyyyyyyy";
     if (english == lib::words::tab_mutators)
         return "Mutatoryyyyyy";
+    if (english == lib::words::tab_brains)
+        return "Mozkyyy";
     if (english == lib::words::tab_languages)
         return "Movyyyyyyyy";
     if (english == lib::words::tab_updates)
@@ -4270,7 +4437,7 @@ kit::Rect pressed_area(const kit::Control& control) {
 /// and Large, the tabs take the whole row and the search a row under them:
 /// every tab is shown whole and none lies under the search, so a press on
 /// a tab, Registries among them, opens it. English fits beside the search
-/// at Large. At Regular the seven captions take the row.
+/// at Large. At Regular the eight captions take the row.
 void wordy_tabs_take_the_row_over_the_search() {
     for (const fixture::NamedFrame& named : fixture::frames()) {
         if (named.frame.size_class == kit::SizeClass::compact)
@@ -4296,7 +4463,14 @@ void wordy_tabs_take_the_row_over_the_search() {
                     OA_CHECK(!beside);
             }
             for (const std::string_view word :
-                 {"active", "mods", "maps", "mutators", "languages", "updates", "registries"}) {
+                 {"active",
+                  "mods",
+                  "maps",
+                  "mutators",
+                  "brains",
+                  "languages",
+                  "updates",
+                  "registries"}) {
                 const kit::Control* tab = fixture::named(list, "library.tab." + std::string(word));
                 OA_CHECK(tab != nullptr);
                 if (tab == nullptr)
@@ -4844,6 +5018,18 @@ bool shows_danger(const kit::DisplayList& list, std::string_view reason) {
     return false;
 }
 
+/// Tells whether a layout draws these words in the lock colour.
+///
+/// @param list the display list
+/// @param piece the words
+/// @return true when a text in the lock colour contains them
+bool shows_lock(const kit::DisplayList& list, std::string_view piece) {
+    for (const kit::Item& item : list.items)
+        if (item.colour == kit::colour::lock && item.text.find(piece) != std::string::npos)
+            return true;
+    return false;
+}
+
 /// Every action of an updatable mutator is a control at each class. Compact
 /// shows them on the details page, the rest inside MORE ▾. The Rules fact is
 /// whole, and the incompatible verdict is drawn in the danger colour.
@@ -4994,11 +5180,353 @@ void get_with_is_a_control() {
     }
 }
 
+/// An installed, updatable brain that is not the default, sees every unit,
+/// and has a verdict and a homepage.
+///
+/// @return the Library, on Brains, with Steady Commander selected
+lib::Library steady_commander_library() {
+    lib::Inputs inputs;
+    lib::Registry registry;
+    registry.id = std::string(fixture::core);
+    registry.name = "Fixture Core";
+    registry.built_in = true;
+    inputs.registries.push_back(std::move(registry));
+    inputs.engine = {0, 8, 0};
+    inputs.version_text = "v0.8.0";
+    lib::Listing made = fixture::listing(
+        fixture::core,
+        lib::Kind::brain,
+        "steady-commander",
+        "Steady Commander",
+        "2.0",
+        1024,
+        "Holds the line.",
+        {"classic"}
+    );
+    made.homepage = "https://example.test/steady-commander";
+    lib::BrainFacts facts;
+    facts.tags = {"classic"};
+    facts.full_awareness = true;
+    facts.works_with.push_back({"*", {}, {}});
+    facts.levels.push_back({"steady", "Steady", lib::BrainDifficulty::easy});
+    made.brain = facts;
+    lib::Installed copy = fixture::installed(made, "1.0", 1);
+    lib::Verdict verdict;
+    verdict.state = lib::Verdict::State::compatible;
+    verdict.summary = "it fits this game";
+    facts.verdict = std::move(verdict);
+    copy.brain = std::move(facts);
+    inputs.listings.push_back(std::move(made));
+    inputs.installed.push_back(std::move(copy));
+    lib::UpdateNote note;
+    note.registry = std::string(fixture::core);
+    note.kind = lib::Kind::brain;
+    note.key = "steady-commander";
+    note.to_release = 2;
+    note.to_version = "2.0";
+    note.to_revision = 1;
+    note.size = 1024;
+    inputs.updates.push_back(std::move(note));
+    lib::Library library;
+    lib::refresh(library, std::move(inputs));
+    lib::set_tab(library, lib::Tab::brains);
+    lib::select(library, {std::string(fixture::core), lib::Kind::brain, "steady-commander"});
+    lib::open_details(library);
+    return library;
+}
+
+/// Every action of an updatable brain is a control at each class. Compact
+/// shows them on the details page, the rest inside MORE ▾. Full awareness
+/// is drawn in the lock colour.
+void brain_actions_and_full_awareness() {
+    const lib::Library library = steady_commander_library();
+    const lib::Entry* steady = lib::selected_entry(library);
+    OA_CHECK(steady != nullptr);
+    if (steady == nullptr)
+        return;
+    const std::vector<lib::ActionButton> actions = lib::entry_actions(library, *steady);
+    OA_CHECK(actions.size() == 6);
+    if (actions.size() != 6)
+        return;
+    for (const fixture::NamedFrame& named : fixture::frames()) {
+        const kit::Frame& frame = named.frame;
+        const bool compact = frame.size_class == kit::SizeClass::compact;
+        const kit::Point window = lib::window_size(frame);
+        if (!compact) {
+            lib::ScreenState state;
+            const kit::DisplayList list = laid_out(library, state, frame);
+            OA_EXPECT_NONE(fixture::outside_window(list, window), named.name + " brain actions");
+            OA_EXPECT_NONE(meeting_controls(list), named.name + " brain actions");
+            OA_EXPECT_NONE(name_problems(list), named.name + " brain actions");
+            OA_EXPECT_NONE(
+                fixture::texts_not_fitting(list, fonts()), named.name + " brain actions"
+            );
+            OA_EXPECT_NONE(whole_fact_problems(library, list, true), named.name + " brain actions");
+            for (const lib::ActionButton& action : actions)
+                OA_CHECK(
+                    fixture::named(list, "library.action." + std::string(word_of(action.action))) !=
+                    nullptr
+                );
+            OA_CHECK(shows_lock(list, "unit on the map"));
+        } else {
+            lib::ScreenState page_state;
+            page_state.details_page = true;
+            const kit::DisplayList page = laid_out(library, page_state, frame);
+            OA_EXPECT_NONE(
+                fixture::outside_window(page, window), named.name + " brain details page"
+            );
+            OA_EXPECT_NONE(meeting_controls(page), named.name + " brain details page");
+            OA_EXPECT_NONE(name_problems(page), named.name + " brain details page");
+            OA_EXPECT_NONE(
+                fixture::texts_not_fitting(page, fonts()), named.name + " brain details page"
+            );
+            OA_EXPECT_NONE(
+                whole_fact_problems(library, page, false), named.name + " brain details page"
+            );
+            OA_CHECK(shows_lock(page, "unit on the map"));
+            for (std::size_t index = 0; index < 3; ++index)
+                OA_CHECK(
+                    fixture::named(
+                        page, "library.action." + std::string(word_of(actions[index].action))
+                    ) != nullptr
+                );
+            OA_CHECK(fixture::named(page, "library.action") != nullptr);
+            page_state.menu = lib::MenuKind::more;
+            const kit::DisplayList more = laid_out(library, page_state, frame);
+            for (const lib::ActionButton& action : actions)
+                OA_CHECK(
+                    fixture::named(more, "library.action." + std::string(word_of(action.action))) !=
+                    nullptr
+                );
+            OA_EXPECT_NONE(
+                fixture::outside_window(more, window), named.name + " brain details, MORE open"
+            );
+            OA_EXPECT_NONE(name_problems(more), named.name + " brain details, MORE open");
+            OA_EXPECT_NONE(
+                fixture::texts_not_fitting(more, fonts()), named.name + " brain details, MORE open"
+            );
+        }
+    }
+}
+
+/// A Library of made-up brains, on the Brains tab. The built-in player is
+/// the default. Wide Watch sees everything. Ridge Raider is made for Ridge.
+///
+/// @return the Library
+lib::Library brains_library() {
+    lib::Inputs inputs;
+    lib::Registry built_in;
+    built_in.id = "fixture-core";
+    built_in.name = "Fixture Core";
+    built_in.built_in = true;
+    inputs.registries.push_back(built_in);
+    inputs.engine = {0, 8, 0};
+    inputs.version_text = "v0.8.0";
+    const auto add = [&](std::string key, std::string name, lib::BrainFacts facts) {
+        lib::Listing made;
+        made.registry = "fixture-core";
+        made.kind = lib::Kind::brain;
+        made.key = std::move(key);
+        made.name = std::move(name);
+        made.version = "1.0";
+        made.author = "Fixture Author";
+        made.summary = "A made-up brain.";
+        made.size = 1024;
+        made.brain = facts;
+        inputs.listings.push_back(std::move(made));
+    };
+    lib::BrainFacts wide_facts;
+    wide_facts.tags = {"economy"};
+    wide_facts.full_awareness = true;
+    wide_facts.works_with.push_back({"*", {}, {}});
+    add("wide-watch", "Wide Watch", wide_facts);
+    lib::Installed wide = fixture::installed(inputs.listings.back(), "1.0", 1);
+    wide.brain = wide_facts;
+    inputs.installed.push_back(std::move(wide));
+    lib::BrainFacts ridge_facts;
+    ridge_facts.tags = {"rush"};
+    ridge_facts.works_with.push_back({"ridge", {}, "Ridge"});
+    add("ridge-raider", "Ridge Raider", ridge_facts);
+    lib::BrainFacts steady_facts;
+    steady_facts.tags = {"classic"};
+    steady_facts.works_with.push_back({"*", {}, {}});
+    add("steady-commander", "Steady Commander", steady_facts);
+    lib::Library library;
+    lib::refresh(library, std::move(inputs));
+    lib::set_tab(library, lib::Tab::brains);
+    return library;
+}
+
+/// Where a named brain row sits in the visible list, or -1.
+///
+/// @param library the Library
+/// @param key the brain's key
+/// @return the place
+int32_t brain_place(const lib::Library& library, std::string_view key) {
+    for (int32_t place = 0; place < static_cast<int32_t>(library.visible.size()); ++place) {
+        const lib::Entry& entry = library.entries[library.visible[static_cast<std::size_t>(place)]];
+        if (entry.id.key == key)
+            return place;
+    }
+    return -1;
+}
+
+/// Lays the list out with one brain row at the top, and returns its look.
+///
+/// @param library the Library
+/// @param frame the frame
+/// @param key the brain's key
+/// @param[out] list the display list
+/// @return the row's look; null when the row is not there
+const kit::ListRowLook* reveal_brain(
+    const lib::Library& library,
+    const kit::Frame& frame,
+    std::string_view key,
+    kit::DisplayList& list
+) {
+    lib::ScreenState state;
+    state.reveal_row = brain_place(library, key);
+    list = laid_out(library, state, frame);
+    std::string name = "library.row.";
+    if (key != lib::built_in_brain_key)
+        name += "fixture-core.";
+    name += std::string(key == lib::built_in_brain_key ? "built-in" : key);
+    return row_look_named(list, name);
+}
+
+/// Tells whether a row's chips include a text.
+///
+/// @param row the row
+/// @param text the chip's words
+/// @return the chip; null when the row has none
+const kit::ChipLook* chip_named(const kit::ListRowLook& row, std::string_view text) {
+    for (const kit::ChipLook& chip : row.tags)
+        if (chip.text == text)
+            return &chip;
+    return nullptr;
+}
+
+/// The Brains tab lays out at every frame. Its rows carry Default, Full
+/// awareness and the tags at Regular and Large, and the unfit words in the
+/// lock colour. Compact writes those words after the title. Tag pills and
+/// the filter pane label the tags and draw no mutator icon. An unfit row
+/// stays bright and its GET stays on.
+void brains_tab_holds_its_invariants() {
+    const lib::Library library = brains_library();
+    const std::string full(lib::words::search_brains);
+    for (const fixture::NamedFrame& named : fixture::frames()) {
+        const kit::DisplayList list = laid_out(library, {}, named.frame);
+        const kit::Point window = lib::window_size(named.frame);
+        OA_EXPECT_NONE(fixture::outside_window(list, window), named.name + " brains");
+        OA_EXPECT_NONE(meeting_controls(list), named.name + " brains");
+        OA_EXPECT_NONE(order_problems(list), named.name + " brains");
+        OA_EXPECT_NONE(name_problems(list), named.name + " brains");
+        OA_EXPECT_NONE(fixture::texts_not_fitting(list, fonts()), named.name + " brains");
+        const kit::Control* tab = fixture::named(list, "library.tab.brains");
+        OA_CHECK(tab != nullptr && tab->text.starts_with("Brains ("));
+        OA_CHECK(open_tab_is_shown(list));
+        const std::string placeholder = search_placeholder(list);
+        const bool whole = placeholder == full;
+        const bool cut = placeholder.size() >= 3 && placeholder.ends_with("...") &&
+                         full.starts_with(placeholder.substr(0, placeholder.size() - 3));
+        OA_CHECK(whole || cut);
+        if (named.frame.size_class != kit::SizeClass::compact)
+            OA_CHECK(whole);
+
+        const bool compact = named.frame.size_class == kit::SizeClass::compact;
+        const bool regular = named.frame.size_class == kit::SizeClass::regular;
+        const bool large = named.frame.size_class == kit::SizeClass::large;
+        kit::DisplayList shown;
+        const kit::ListRowLook* built_in =
+            reveal_brain(library, named.frame, lib::built_in_brain_key, shown);
+        OA_CHECK(built_in != nullptr && built_in->title == "Built-in computer player");
+        if (built_in != nullptr) {
+            if (compact) {
+                OA_CHECK(!built_in->lines.empty() && built_in->lines.front() == "Built in");
+            } else {
+                OA_CHECK(
+                    std::find(built_in->aside.begin(), built_in->aside.end(), "Built in") !=
+                    built_in->aside.end()
+                );
+                const kit::ChipLook* chip = chip_named(*built_in, "Default");
+                OA_CHECK(chip != nullptr && chip->state == kit::ChipState::installed);
+            }
+        }
+
+        const kit::ListRowLook* wide = reveal_brain(library, named.frame, "wide-watch", shown);
+        OA_CHECK(wide != nullptr);
+        if (wide != nullptr && !compact) {
+            const kit::ChipLook* awareness = chip_named(*wide, "Full awareness");
+            const kit::ChipLook* economy = chip_named(*wide, "Economy");
+            OA_CHECK(awareness != nullptr && awareness->state == kit::ChipState::update);
+            OA_CHECK(economy != nullptr && economy->state == kit::ChipState::filter);
+            OA_CHECK(chip_named(*wide, "Default") == nullptr);
+        }
+
+        const kit::ListRowLook* raider = reveal_brain(library, named.frame, "ridge-raider", shown);
+        const kit::Control* raider_row =
+            fixture::named(shown, "library.row.fixture-core.ridge-raider");
+        const kit::Control* raider_get =
+            fixture::named(shown, "library.row.fixture-core.ridge-raider.get");
+        OA_CHECK(raider != nullptr && raider_get != nullptr && raider_get->enabled);
+        OA_CHECK(raider != nullptr && raider->chip.has_value() && !raider->chip->disabled);
+        OA_CHECK(raider_row != nullptr && !row_is_dimmed(shown, raider_row->rect));
+        if (raider != nullptr && compact) {
+            OA_CHECK(raider->by == "· Made for Ridge");
+            OA_CHECK(raider->by_colour == kit::colour::lock);
+        }
+        if (raider != nullptr && !compact) {
+            const kit::ChipLook* unfit = chip_named(*raider, "Made for Ridge");
+            const kit::ChipLook* rush = chip_named(*raider, "Rush");
+            OA_CHECK(unfit != nullptr && unfit->state == kit::ChipState::update);
+            OA_CHECK(rush != nullptr && rush->state == kit::ChipState::filter);
+        }
+
+        if (regular) {
+            const kit::PillLook* economy = pill_named(list, "library.tag.economy");
+            const kit::PillLook* rush = pill_named(list, "library.tag.rush");
+            OA_CHECK(economy != nullptr && economy->text == "Economy" && !economy->tag.has_value());
+            OA_CHECK(rush != nullptr && rush->text == "Rush" && !rush->tag.has_value());
+        }
+        if (large) {
+            const kit::NavLook* nav = nullptr;
+            for (const kit::Item& item : list.items) {
+                if (item.role != kit::Role::nav)
+                    continue;
+                if (const auto* look = std::get_if<kit::NavLook>(&item.look);
+                    look != nullptr && !look->entries.empty())
+                    nav = look;
+            }
+            OA_CHECK(nav != nullptr);
+            if (nav != nullptr) {
+                bool economy = false;
+                for (const kit::NavEntry& entry : nav->entries) {
+                    if (!entry.caption.starts_with("Economy"))
+                        continue;
+                    economy = true;
+                    OA_CHECK(!entry.tag.has_value());
+                }
+                OA_CHECK(economy);
+            }
+        }
+    }
+
+    kit::Frame narrow;
+    narrow.area = {0, 0, 280, 480};
+    narrow.size_class = kit::SizeClass::compact;
+    narrow.scale_percent = 100;
+    const kit::DisplayList narrow_list = laid_out(library, {}, narrow);
+    OA_CHECK(open_tab_is_shown(narrow_list));
+    OA_EXPECT_NONE(fixture::texts_not_fitting(narrow_list, fonts()), "narrow brains");
+}
+
 int main() {
     every_frame_holds_its_invariants();
     mutators_tab_holds_its_invariants();
+    brains_tab_holds_its_invariants();
     mutator_rows_show_badges_chips_and_icons();
     mutator_actions_rules_and_danger();
+    brain_actions_and_full_awareness();
     get_with_is_a_control();
     wordy_tabs_take_the_row_over_the_search();
     larger_classes_show_more();
@@ -5026,6 +5554,7 @@ int main() {
     expansion_download_arrow_sits_inside_the_pill();
     locked_pill_shows_why();
     tabs_scroll_and_the_queue_shows_its_bar();
+    tabs_scroll_to_either_end_and_drag();
     the_base_chooser_names_its_rows();
     base_badge_is_nearest_and_tabs_are_bracketed();
     unload_mod_asks_switch_off();

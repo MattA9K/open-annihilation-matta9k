@@ -18,6 +18,7 @@
 #include "oa_layer.hpp"
 #include "package_paths.hpp"
 
+#include "oa/app/brain_seats.hpp"
 #include "oa/app/content/downloads.hpp"
 #include "oa/app/content/pictures.hpp"
 #include "oa/app/content/service.hpp"
@@ -45,7 +46,10 @@
 #include "oa/data/registry/descriptor.hpp"
 #include "oa/data/registry/trust.hpp"
 #include "oa/formats/hpi.hpp"
+#include "oa/data/brain_library/library.hpp"
 #include "oa/data/mutator_library/library.hpp"
+#include "oa/data/script_host/script_host.hpp"
+#include "oa/sim/brains/check.hpp"
 #include "oa/formats/oamod/package_keys.hpp"
 #include "oa/formats/oamut/manifest.hpp"
 #include "oa/formats/url.hpp"
@@ -146,6 +150,8 @@ library::Kind kind_of(data::catalogue::Kind kind) noexcept {
         return library::Kind::mod;
     case data::catalogue::Kind::oamut:
         return library::Kind::mutator;
+    case data::catalogue::Kind::oabrain:
+        return library::Kind::brain;
     }
     return library::Kind::mod;
 }
@@ -165,6 +171,8 @@ std::optional<library::Kind> kind_of(const package_install::PackageKind* kind) {
         return library::Kind::language;
     if (kind->name == "oamut")
         return library::Kind::mutator;
+    if (kind->name == "oabrain")
+        return library::Kind::brain;
     return std::nullopt;
 }
 
@@ -446,6 +454,52 @@ mutator_at(const data::mutator_library::Listing& listing, const std::filesystem:
     return nullptr;
 }
 
+/// Finds the installed brain whose folder is a package's folder.
+///
+/// @param listing the Brains folder
+/// @param folder the package's folder
+/// @return the brain, or null
+const data::brain_library::InstalledBrain*
+brain_at(const data::brain_library::Listing& listing, const std::filesystem::path& folder) {
+    for (const data::brain_library::InstalledBrain& brain : listing.brains) {
+        if (brain.folder == folder)
+            return &brain;
+        std::error_code error;
+        if (std::filesystem::equivalent(brain.folder, folder, error))
+            return &brain;
+    }
+    return nullptr;
+}
+
+/// Fills the names a player reads on a brain's works-with mods. `*` and the
+/// base game stay unnamed. Installed copies are tried before listings.
+///
+/// @param[in,out] inputs the Library's inputs, listings and installed filled
+void name_brain_facts(library::Inputs& inputs) {
+    const auto mod_name = [&](std::string_view id) -> std::string {
+        for (const library::Installed& item : inputs.installed)
+            if (item.kind == library::Kind::mod && item.key == id)
+                return item.name;
+        for (const library::Listing& listing : inputs.listings)
+            if (listing.kind == library::Kind::mod && listing.key == id)
+                return listing.name;
+        return {};
+    };
+    const auto name_one = [&](library::BrainFacts& facts) {
+        for (library::WorksWith& item : facts.works_with) {
+            if (!item.name.empty() || item.id == "*" || item.id == library::supported_base)
+                continue;
+            item.name = mod_name(item.id);
+        }
+    };
+    for (library::Listing& listing : inputs.listings)
+        if (listing.brain)
+            name_one(*listing.brain);
+    for (library::Installed& installed : inputs.installed)
+        if (installed.brain)
+            name_one(*installed.brain);
+}
+
 /// Fills the names a player reads on mutator facts: a prerequisite from a
 /// mutator of that id, a works-with mod from a mod of that id. `*` and the
 /// base game stay unnamed. Installed copies are tried before listings.
@@ -491,7 +545,8 @@ void name_mutator_facts(library::Inputs& inputs) {
 /// Searches for the installed packages and their updates on the worker:
 /// lists the player's folder, matches each package to the catalogues and
 /// adopts each file install a catalogue lists, finds the updates, and reads
-/// each installed mod's own picture and each installed mutator's icon.
+/// each installed mod's own picture and each installed mutator's and
+/// brain's icon.
 ///
 /// @param work the worker's state, whose results it fills under its lock
 /// @param snapshot the catalogues in effect
@@ -504,13 +559,19 @@ void search_updates(
     std::vector<content::Update> updates;
     std::vector<ModBadge> pictures;
     std::vector<std::optional<library::MutatorFacts>> mutator_facts;
+    std::vector<std::optional<library::BrainFacts>> brain_facts;
     data::mutator_library::Listing mutators;
+    data::brain_library::Listing brains;
     try {
         if (!folder.empty())
             installed = content::list_installed(folder);
         if (!folder.empty())
             mutators = data::mutator_library::list_installed(
                 folder / std::string(data::mutator_library::mutators_folder_name)
+            );
+        if (!folder.empty())
+            brains = data::brain_library::list_installed(
+                folder / std::string(data::brain_library::brains_folder_name)
             );
         // A folder with no package SHA-256 is read here, off the main thread,
         // so the rebuild after this search finds its digest kept.
@@ -529,6 +590,7 @@ void search_updates(
             const std::optional<library::Kind> kind = kind_of(package.kind);
             ModBadge badge;
             std::optional<library::MutatorFacts> facts;
+            std::optional<library::BrainFacts> one_brain;
             if (kind == library::Kind::mod)
                 badge = read_mod_summary(package.folder).badge;
             else if (kind == library::Kind::mutator) {
@@ -538,9 +600,17 @@ void search_updates(
                     if (!mutator->manifest.icon.empty())
                         badge = read_limited_badge(mutator->folder / mutator->manifest.icon);
                 }
+            } else if (kind == library::Kind::brain) {
+                if (const data::brain_library::InstalledBrain* found =
+                        brain_at(brains, package.folder)) {
+                    one_brain = brain_facts_of(found->manifest, found->network_bytes);
+                    if (!found->manifest.icon.empty())
+                        badge = read_limited_badge(found->folder / found->manifest.icon);
+                }
             }
             pictures.push_back(std::move(badge));
             mutator_facts.push_back(std::move(facts));
+            brain_facts.push_back(std::move(one_brain));
         }
         updates = content::find_updates(installed, snapshot, content::this_engine_rules());
     } catch (const std::exception& error) {
@@ -559,6 +629,8 @@ void search_updates(
     work.installed_badges = std::move(pictures);
     work.installed_mutators = std::move(mutator_facts);
     work.mutator_listing = std::move(mutators);
+    work.installed_brains = std::move(brain_facts);
+    work.brain_listing = std::move(brains);
     ++work.searches;
 }
 
@@ -612,16 +684,28 @@ void library_worker(void* argument) {
         if (check) {
             MutatorCheckOutcome outcome;
             outcome.id = check->id;
+            outcome.kind = check->kind;
             const bool stopped = match || work.check_cancel.load();
             outcome.key = check->key;
-            if (stopped || !check->work) {
+            outcome.brain_key = check->brain_key;
+            const bool brain = check->kind == CheckKind::brain;
+            const bool ready =
+                brain ? static_cast<bool>(check->brain_work) : static_cast<bool>(check->work);
+            if (stopped || !ready) {
                 outcome.cancelled = true;
             } else {
                 try {
-                    outcome.record = check->work(work.check_cancel);
-                    outcome.cancelled = !outcome.record.has_value() || work.check_cancel.load();
-                    if (outcome.cancelled)
-                        outcome.record.reset();
+                    if (brain) {
+                        outcome.brain = check->brain_work(work.check_cancel);
+                        outcome.cancelled = !outcome.brain.has_value() || work.check_cancel.load();
+                        if (outcome.cancelled)
+                            outcome.brain.reset();
+                    } else {
+                        outcome.record = check->work(work.check_cancel);
+                        outcome.cancelled = !outcome.record.has_value() || work.check_cancel.load();
+                        if (outcome.cancelled)
+                            outcome.record.reset();
+                    }
                 } catch (const std::exception& error) {
                     std::cerr << "open-annihilation: library: the check failed: " << error.what()
                               << '\n';
@@ -973,7 +1057,8 @@ void Runtime::LibraryHost::rebuild(Runtime& runtime) {
             if (installed.kind != library::Kind::mutator || !installed.mutator)
                 continue;
             library::Verdict verdict;
-            if (!checking_id.empty() && installed.key == checking_id) {
+            if (!checking_id.empty() && checking_kind == CheckKind::mutator &&
+                installed.key == checking_id) {
                 verdict.state = library::Verdict::State::checking;
             } else if (feed.remembered_verdict != nullptr) {
                 if (const std::optional<oa::data::mutators::VerdictRecord> record =
@@ -990,6 +1075,30 @@ void Runtime::LibraryHost::rebuild(Runtime& runtime) {
             installed.mutator->verdict = std::move(verdict);
         }
     }
+    // A brain check that is running is `checking`. Otherwise a remembered
+    // verdict for this copy and this game is shown, and a brain with none
+    // remembered is unchecked. With start_brain_check null every verdict
+    // stays unset. An installed brain with no facts is not given empty ones.
+    if (feed.start_brain_check != nullptr) {
+        for (library::Installed& installed : inputs.installed) {
+            if (installed.kind != library::Kind::brain || !installed.brain)
+                continue;
+            library::Verdict verdict;
+            if (!checking_id.empty() && checking_kind == CheckKind::brain &&
+                installed.key == checking_id) {
+                verdict.state = library::Verdict::State::checking;
+            } else if (feed.remembered_brain_verdict != nullptr) {
+                if (const std::optional<library::Verdict> remembered =
+                        feed.remembered_brain_verdict(feed.context, installed.key))
+                    verdict = *remembered;
+                else
+                    verdict.state = library::Verdict::State::unchecked;
+            } else {
+                verdict.state = library::Verdict::State::unchecked;
+            }
+            installed.brain->verdict = std::move(verdict);
+        }
+    }
     library::refresh(model, std::move(inputs));
     const std::size_t offered = library::update_count(model);
     if (offered != update_count)
@@ -1001,7 +1110,7 @@ void Runtime::LibraryHost::rebuild(Runtime& runtime) {
 
 void Runtime::LibraryHost::wait_turn(MutatorCheck waiting) {
     for (MutatorCheck& queued : work.checks_waiting) {
-        if (queued.id == waiting.id) {
+        if (queued.id == waiting.id && queued.kind == waiting.kind) {
             queued = std::move(waiting);
             return;
         }
@@ -1011,6 +1120,7 @@ void Runtime::LibraryHost::wait_turn(MutatorCheck waiting) {
 
 bool Runtime::LibraryHost::hand_to_worker(MutatorCheck prepared) {
     checking_id = prepared.id;
+    checking_kind = prepared.kind;
     check_open = true;
     {
         base::threads::LockGuard guard(work.mutex);
@@ -1030,6 +1140,7 @@ bool Runtime::LibraryHost::hand_to_worker(MutatorCheck prepared) {
         work.check_due = false;
     }
     checking_id.clear();
+    checking_kind = CheckKind::mutator;
     check_open = false;
     return false;
 }
@@ -1059,6 +1170,35 @@ void Runtime::LibraryHost::begin_mutator_check(Runtime& runtime, std::string_vie
     rebuild(runtime);
 }
 
+void Runtime::LibraryHost::begin_brain_check(Runtime& runtime, std::string_view id) {
+    if (feed.start_brain_check == nullptr || id.empty())
+        return;
+    {
+        base::threads::LockGuard guard(work.mutex);
+        if (check_open) {
+            MutatorCheck waiting;
+            waiting.kind = CheckKind::brain;
+            waiting.id = std::string(id);
+            wait_turn(std::move(waiting));
+            return;
+        }
+    }
+    prepared_brain_key.reset();
+    auto job = feed.start_brain_check(feed.context, id);
+    if (!job) {
+        prepared_brain_key.reset();
+        return;
+    }
+    MutatorCheck prepared;
+    prepared.kind = CheckKind::brain;
+    prepared.id = std::string(id);
+    prepared.brain_work = std::move(job);
+    prepared.brain_key = std::move(prepared_brain_key);
+    prepared_brain_key.reset();
+    hand_to_worker(std::move(prepared));
+    rebuild(runtime);
+}
+
 void Runtime::LibraryHost::enqueue_prepared_check(Runtime& runtime, MutatorCheck prepared) {
     if (prepared.id.empty() || !prepared.work)
         return;
@@ -1082,7 +1222,13 @@ bool Runtime::LibraryHost::finish_mutator_check() {
         outcome = std::move(*work.check_outcome);
         work.check_outcome.reset();
     }
-    if (!outcome->cancelled && outcome->record && feed.keep_verdict != nullptr) {
+    if (!outcome->cancelled && outcome->kind == CheckKind::brain) {
+        if (outcome->brain && feed.keep_brain_verdict != nullptr) {
+            delivered_brain_key = std::move(outcome->brain_key);
+            feed.keep_brain_verdict(feed.context, outcome->id, *outcome->brain);
+            delivered_brain_key.reset();
+        }
+    } else if (!outcome->cancelled && outcome->record && feed.keep_verdict != nullptr) {
         delivered_key = std::move(outcome->key);
         feed.keep_verdict(feed.context, outcome->id, *outcome->record);
         delivered_key.reset();
@@ -1090,6 +1236,7 @@ bool Runtime::LibraryHost::finish_mutator_check() {
 
     check_open = false;
     checking_id.clear();
+    checking_kind = CheckKind::mutator;
     // The oldest waiting check that can start goes to the worker. One whose
     // list no longer resolves starts nothing, and the next one is tried.
     for (;;) {
@@ -1106,6 +1253,29 @@ bool Runtime::LibraryHost::finish_mutator_check() {
         }
         if (!next)
             return true;
+        if (next->kind == CheckKind::brain) {
+            std::function<std::optional<library::Verdict>(const std::atomic<bool>&)> brain_job;
+            std::optional<BrainVerdictKey> brain_key;
+            if (next->brain_work) {
+                brain_job = std::move(next->brain_work);
+                brain_key = std::move(next->brain_key);
+            } else if (feed.start_brain_check != nullptr) {
+                prepared_brain_key.reset();
+                brain_job = feed.start_brain_check(feed.context, next->id);
+                brain_key = std::move(prepared_brain_key);
+                prepared_brain_key.reset();
+            }
+            if (!brain_job)
+                continue;
+            MutatorCheck prepared;
+            prepared.kind = CheckKind::brain;
+            prepared.id = std::move(next->id);
+            prepared.brain_work = std::move(brain_job);
+            prepared.brain_key = std::move(brain_key);
+            if (hand_to_worker(std::move(prepared)))
+                return true;
+            continue;
+        }
         std::function<std::optional<mutators::VerdictRecord>(const std::atomic<bool>&)> job;
         std::optional<mutators::VerdictKey> key;
         if (next->work) {
@@ -1444,7 +1614,10 @@ Runtime::LibraryHost& Runtime::library_host() {
             LibraryHost::own_built_in,
             LibraryHost::own_remembered_verdict,
             LibraryHost::own_start_check,
-            LibraryHost::own_keep_verdict
+            LibraryHost::own_keep_verdict,
+            LibraryHost::own_remembered_brain_verdict,
+            LibraryHost::own_start_brain_check,
+            LibraryHost::own_keep_brain_verdict
         };
         host.model.text = library::TextHooks{nullptr, shown_word};
         // The pictures are kept beside the cached catalogues.
@@ -1768,6 +1941,168 @@ void Runtime::LibraryHost::own_keep_verdict(
     keep_delivered(*static_cast<Runtime*>(context), record);
 }
 
+std::optional<BrainVerdictKey>
+Runtime::LibraryHost::brain_verdict_key(Runtime& runtime, std::string_view id) {
+    if (id.empty())
+        return std::nullopt;
+    std::optional<data::brain_library::Listing> copied;
+    {
+        base::threads::LockGuard guard(work.mutex);
+        if (work.searches > 0)
+            copied = work.brain_listing;
+    }
+    data::brain_library::Listing listed;
+    const data::brain_library::Listing* listing = nullptr;
+    if (copied) {
+        listing = &*copied;
+    } else {
+        listed = data::brain_library::list_installed(
+            runtime.user_folder() / std::string(brains_folder_name)
+        );
+        listing = &listed;
+    }
+    const data::brain_library::InstalledBrain* found = data::brain_library::find(*listing, id);
+    if (found == nullptr)
+        return std::nullopt;
+    const oa::data::brain_facts::GameFacts game = runtime.brain_game_facts();
+    BrainVerdictKey key;
+    key.id = std::string(id);
+    key.version = oa::formats::oamut::version_text(found->manifest.version);
+    key.package_sha256 = found->package_sha256;
+    key.mod_id = game.mod.id;
+    key.mod_version = game.mod.version;
+    return key;
+}
+
+std::optional<library::Verdict>
+Runtime::LibraryHost::own_remembered_brain_verdict(void* context, std::string_view id) {
+    Runtime& runtime = *static_cast<Runtime*>(context);
+    LibraryHost& host = runtime.library_host();
+    const std::optional<BrainVerdictKey> key = host.brain_verdict_key(runtime, id);
+    if (!key)
+        return std::nullopt;
+    for (const RememberedBrainVerdict& kept : host.brain_verdicts) {
+        if (kept.key == *key)
+            return kept.verdict;
+    }
+    return std::nullopt;
+}
+
+std::function<std::optional<library::Verdict>(const std::atomic<bool>&)>
+Runtime::LibraryHost::own_start_brain_check(void* context, std::string_view id) {
+    Runtime& runtime = *static_cast<Runtime*>(context);
+    LibraryHost& host = runtime.library_host();
+    const std::optional<BrainVerdictKey> key = host.brain_verdict_key(runtime, id);
+    if (!key)
+        return {};
+    host.prepared_brain_key = *key;
+    const oa::data::brain_facts::GameFacts facts = runtime.brain_game_facts();
+    const std::string summary(library::shown(host.model.text, library::words::fits_this_game));
+    const std::filesystem::path folder = runtime.user_folder() / std::string(brains_folder_name);
+    const std::string brain_id(id);
+    return [facts, summary, folder, brain_id](
+               const std::atomic<bool>& cancel
+           ) -> std::optional<library::Verdict> {
+        try {
+            if (cancel.load())
+                return std::nullopt;
+            std::string error;
+            const std::optional<InstalledBrain> installed =
+                read_installed_brain(folder, brain_id, error);
+            if (cancel.load())
+                return std::nullopt;
+            if (!installed) {
+                library::Verdict verdict;
+                verdict.state = library::Verdict::State::failed;
+                verdict.reason =
+                    error.empty() ? std::string("the brain could not be seated") : error;
+                return verdict;
+            }
+            BrainSeatChoice choice;
+            choice.id = brain_id;
+            ResolvedSeat resolved;
+            if (!resolve_seat(*installed, choice, resolved, error)) {
+                library::Verdict verdict;
+                verdict.state = library::Verdict::State::failed;
+                verdict.reason =
+                    error.empty() ? std::string("the brain could not be seated") : error;
+                return verdict;
+            }
+            std::vector<oa::sim::brains::PackageFile> files;
+            std::vector<oa::sim::brains::OptionValue> options;
+            std::vector<oa::sim::brains::NetworkFile> networks;
+            const oa::sim::brains::SeatSpec spec =
+                seat_spec(0, *installed, resolved, files, options, networks);
+            if (cancel.load())
+                return std::nullopt;
+            const oa::sim::brains::SeatOutcome outcome = oa::sim::brains::check_brain(spec, facts);
+            if (cancel.load())
+                return std::nullopt;
+            library::Verdict verdict;
+            switch (outcome.result) {
+            case oa::sim::brains::SeatResult::seated:
+                verdict.state = library::Verdict::State::compatible;
+                verdict.summary = summary;
+                break;
+            case oa::sim::brains::SeatResult::does_not_fit:
+                verdict.state = library::Verdict::State::incompatible;
+                if (outcome.reason[0] != '\0')
+                    verdict.reason = std::string(outcome.reason.data());
+                break;
+            case oa::sim::brains::SeatResult::refused:
+            case oa::sim::brains::SeatResult::failed:
+                verdict.state = library::Verdict::State::failed;
+                if (outcome.reason[0] != '\0')
+                    verdict.reason = std::string(outcome.reason.data());
+                else {
+                    const std::string described = oa::data::script_host::describe(outcome.error);
+                    verdict.reason = described.empty()
+                                         ? std::string("the brain could not be seated")
+                                         : described;
+                }
+                break;
+            }
+            return verdict;
+        } catch (const std::exception& thrown) {
+            if (cancel.load())
+                return std::nullopt;
+            library::Verdict verdict;
+            verdict.state = library::Verdict::State::failed;
+            verdict.reason = thrown.what();
+            if (verdict.reason.empty())
+                verdict.reason = "the brain could not be seated";
+            return verdict;
+        } catch (...) {
+            if (cancel.load())
+                return std::nullopt;
+            library::Verdict verdict;
+            verdict.state = library::Verdict::State::failed;
+            verdict.reason = "the brain could not be seated";
+            return verdict;
+        }
+    };
+}
+
+void Runtime::LibraryHost::own_keep_brain_verdict(
+    void* context, std::string_view id, const library::Verdict& verdict
+) {
+    Runtime& runtime = *static_cast<Runtime*>(context);
+    LibraryHost& host = runtime.library_host();
+    if (!host.delivered_brain_key)
+        return;
+    const BrainVerdictKey key = std::move(*host.delivered_brain_key);
+    host.delivered_brain_key.reset();
+    if (key.id != id)
+        return;
+    for (RememberedBrainVerdict& kept : host.brain_verdicts) {
+        if (kept.key == key) {
+            kept.verdict = verdict;
+            return;
+        }
+    }
+    host.brain_verdicts.push_back(RememberedBrainVerdict{key, verdict});
+}
+
 uint64_t Runtime::library_feed_generation() {
     LibraryHost& host = library_host();
     uint64_t searches = 0;
@@ -1908,6 +2243,19 @@ library::Inputs Runtime::library_inputs() {
                 listing.view_hacks = 0;
                 listing.mutator = facts_of(package);
             }
+            if (package.kind == data::catalogue::Kind::oabrain) {
+                // A brain's base, hacks and expansion list are not a mod's.
+                // Another base, a hack list or a required expansion would
+                // block GET, or replace the row's own fit words.
+                if (listing.base != library::supported_base)
+                    listing.base.clear();
+                listing.hack_ids.clear();
+                listing.game_hacks = 0;
+                listing.view_hacks = 0;
+                listing.required_expansions.clear();
+                listing.supported_games.clear();
+                listing.brain = brain_facts_of(package);
+            }
             const content::RegistryView* view = registry_view(*snapshot, entry.registry);
             for (const data::catalogue::MapEntry& map : package.maps) {
                 library::MapLine line;
@@ -1960,6 +2308,7 @@ library::Inputs Runtime::library_inputs() {
     std::vector<content::Update> updates;
     std::vector<ModBadge> pictures;
     std::vector<std::optional<library::MutatorFacts>> mutator_facts;
+    std::vector<std::optional<library::BrainFacts>> brain_facts;
     {
         base::threads::LockGuard guard(host.work.mutex);
         installed = host.work.installed;
@@ -1967,6 +2316,7 @@ library::Inputs Runtime::library_inputs() {
         updates = host.work.updates;
         pictures = host.work.installed_badges;
         mutator_facts = host.work.installed_mutators;
+        brain_facts = host.work.installed_brains;
         // searches starts at 0. One more keeps a named reading apart from
         // "the inputs do not say", which is 0.
         inputs.installed_generation = host.work.searches + 1;
@@ -2004,6 +2354,12 @@ library::Inputs Runtime::library_inputs() {
             shown.badge = badge_of(pictures[index]);
         if (index < mutator_facts.size())
             shown.mutator = std::move(mutator_facts[index]);
+        if (index < brain_facts.size())
+            shown.brain = std::move(brain_facts[index]);
+        if (*kind == library::Kind::brain) {
+            shown.required_expansions.clear();
+            shown.supported_games.clear();
+        }
         inputs.installed.push_back(std::move(shown));
     }
     // The mod folders the game offers, as the Library lists them beside
@@ -2096,6 +2452,7 @@ library::Inputs Runtime::library_inputs() {
         }
     }
     name_mutator_facts(inputs);
+    name_brain_facts(inputs);
     for (const content::Update& update : updates) {
         if (update.installed >= installed.size())
             continue;
@@ -2314,6 +2671,7 @@ library::Inputs Runtime::library_inputs() {
     const fs::path& game_folder =
         options_.game_folders.empty() ? options_.game_dir : options_.game_folders.back();
     inputs.base_game_badge = base_game_icon(game_folder);
+    inputs.default_brain = default_brain();
     return inputs;
 }
 
@@ -2734,6 +3092,7 @@ struct Runtime::LibraryScreen final : LayerScreen {
             return;
         LibraryHost& host = *runtime_.library_;
         host.state.drag = {};
+        host.state.tab_drag = {};
         host.state.menu = library::MenuKind::none;
         if (host.work.pictures)
             host.work.pictures->drop_all();
@@ -3245,8 +3604,20 @@ struct Runtime::LibraryScreen final : LayerScreen {
             ++host.model_revision;
             return false;
         case library::Action::check_with_mod:
-            if (entry != nullptr)
-                host.begin_mutator_check(runtime_, entry->id.key);
+            if (entry != nullptr) {
+                if (entry->id.kind == library::Kind::brain)
+                    host.begin_brain_check(runtime_, entry->id.key);
+                else
+                    host.begin_mutator_check(runtime_, entry->id.key);
+            }
+            return false;
+        case library::Action::use_by_default:
+            if (entry != nullptr) {
+                const std::string_view chosen =
+                    library::is_built_in_brain(entry->id) ? std::string_view{} : entry->id.key;
+                runtime_.set_default_brain(chosen);
+                host.rebuild(runtime_);
+            }
             return false;
         case library::Action::add_expansion:
             // G22 opens the locator. This press does not.

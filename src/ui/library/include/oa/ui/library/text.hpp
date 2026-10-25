@@ -33,6 +33,7 @@ inline constexpr std::string_view tab_active = "Active";
 inline constexpr std::string_view tab_mods = "Mods";
 inline constexpr std::string_view tab_maps = "Maps";
 inline constexpr std::string_view tab_mutators = "Mutators";
+inline constexpr std::string_view tab_brains = "Brains";
 inline constexpr std::string_view tab_languages = "Languages";
 inline constexpr std::string_view tab_languages_short = "Lang";
 inline constexpr std::string_view tab_updates = "Updates";
@@ -75,9 +76,12 @@ inline constexpr std::string_view action_switch_off = "SWITCH OFF";
 inline constexpr std::string_view action_unload_mod = "UNLOAD MOD";
 inline constexpr std::string_view action_open_folder = "OPEN FOLDER";
 inline constexpr std::string_view action_homepage = "HOMEPAGE";
-/// On an installed mutator whose verdict is set. It checks that copy, with
-/// its default options, against the mod being played.
+/// On an installed mutator whose verdict is set, or an installed brain whose
+/// verdict is set. It checks that copy against the mod being played.
 inline constexpr std::string_view action_check_with_mod = "CHECK WITH THIS MOD";
+/// On an installed brain that is not the default, and on the built-in
+/// computer player while it is not. It makes that player the default.
+inline constexpr std::string_view action_use_by_default = "USE BY DEFAULT";
 /// GET's place when one prerequisite is missing. `{name}` is that prerequisite.
 inline constexpr std::string_view action_get_with = "GET WITH {name}";
 /// GET's place when more than one package besides the mutator will download.
@@ -140,6 +144,10 @@ inline constexpr std::string_view action_uninstall = "UNINSTALL";
 
 // The Registries tab. The words are the ones Downloads' Registries part used.
 inline constexpr std::string_view registry_built_in = "Built in";
+/// The built-in computer player's name and the summary under it.
+inline constexpr std::string_view built_in_brain_name = "Built-in computer player";
+inline constexpr std::string_view built_in_brain_summary =
+    "Open Annihilation's own computer player. It plays as Total Annihilation's does.";
 inline constexpr std::string_view registry_add = "ADD REGISTRY…";
 inline constexpr std::string_view registry_add_mirror = "ADD MIRROR…";
 inline constexpr std::string_view registry_remove = "REMOVE";
@@ -322,11 +330,25 @@ inline constexpr std::string_view fact_maps = "Maps";
 inline constexpr std::string_view fact_coverage = "Coverage";
 inline constexpr std::string_view fact_from = "From";
 inline constexpr std::string_view fact_works_with = "Works with";
+inline constexpr std::string_view fact_levels = "Levels";
+/// The built-in computer player's three levels, joined with names_and.
+inline constexpr std::string_view level_easy = "Easy";
+inline constexpr std::string_view level_medium = "Medium";
+inline constexpr std::string_view level_hard = "Hard";
 inline constexpr std::string_view fact_checked = "Checked";
 inline constexpr std::string_view fact_options = "Options";
 inline constexpr std::string_view fact_changes = "Changes";
-/// Works with, when the mutator names no mod or names any mod.
+/// Works with, when the package names no mod or names any mod.
 inline constexpr std::string_view works_with_any = "Any mod";
+/// Full awareness, in a brain's facts. The chip uses chip_full_awareness.
+inline constexpr std::string_view full_awareness_sees =
+    "Sees every unit on the map, as Total Annihilation's own computer player does";
+/// A brain's Network fact.
+inline constexpr std::string_view fact_network = "Network";
+/// A brain that carries a learned network. `{size}` is size_text.
+inline constexpr std::string_view network_learned = "Uses a learned network ({size})";
+/// The summary a brain's compatible check keeps. The Checked fact fills it in.
+inline constexpr std::string_view fits_this_game = "it fits this game";
 inline constexpr std::string_view size_with_download = "{size} · {download} to download";
 inline constexpr std::string_view size_download_short = "{download} to download";
 inline constexpr std::string_view base_supported = "Total Annihilation 3.1c";
@@ -399,6 +421,11 @@ inline constexpr std::string_view status_version_available =
 /// An update that keeps the version and names no revision above 0.
 inline constexpr std::string_view status_update_available = "Update available · {size} to download";
 inline constexpr std::string_view status_installed = "Installed";
+/// An installed brain that is the default computer player.
+inline constexpr std::string_view status_installed_default = "Installed · Default";
+/// The built-in computer player while it is the default. While it is not,
+/// the status is registry_built_in.
+inline constexpr std::string_view status_built_in_default = "Built in · Default";
 inline constexpr std::string_view status_playing = "Playing";
 /// The status of a mod folder with no oamod.yaml, installed or played.
 inline constexpr std::string_view status_without_manifest = "No oamod.yaml present";
@@ -434,6 +461,19 @@ inline constexpr std::string_view chip_not_compatible = "Not compatible with thi
 inline constexpr std::string_view row_needs = "· needs {name}";
 /// After a Compact row's title when a mutator does not work with this mod.
 inline constexpr std::string_view row_not_compatible = "· not compatible with this mod";
+/// After a Compact row's title when a brain does not fit the game being
+/// played. `{reason}` is brain_unfit_reason. Information only.
+inline constexpr std::string_view row_brain_unfit = "· {reason}";
+/// The chip on the default computer player.
+inline constexpr std::string_view chip_default = "Default";
+/// The chip on a brain that sees every unit.
+inline constexpr std::string_view chip_full_awareness = "Full awareness";
+/// Why a brain does not work with the game being played. `{names}` is the
+/// mods it works with, joined with names_or.
+inline constexpr std::string_view made_for = "Made for {names}";
+/// UNINSTALL of the default brain, before the question's last paragraph.
+inline constexpr std::string_view uninstall_default_brain =
+    "It is your default computer player: new computer seats go back to the built-in player.";
 
 // The download queue in the footer.
 inline constexpr std::string_view queue_package = "{name} {version}";
@@ -475,6 +515,7 @@ inline constexpr std::string_view offline_mark = "offline";
 // The search and the filters.
 inline constexpr std::string_view search_mods = "Search mods, authors, tags";
 inline constexpr std::string_view search_mutators = "Search mutators, authors, tags";
+inline constexpr std::string_view search_brains = "Search brains, authors, tags";
 inline constexpr std::string_view search_maps = "Search maps, authors, tags";
 inline constexpr std::string_view search_languages = "Search languages";
 /// The Active tab's maps field, above the maps pane.
@@ -494,13 +535,24 @@ inline constexpr std::string_view tag_new_units = "New Units";
 inline constexpr std::string_view tag_disable = "Disable";
 inline constexpr std::string_view tag_gameplay = "Gameplay";
 inline constexpr std::string_view tag_ai = "AI";
+/// The nine brain tag ids, as a player reads them. Economy reuses tag_economy.
+/// Any other id is shown as written.
+inline constexpr std::string_view tag_classic = "Classic";
+inline constexpr std::string_view tag_rush = "Rush";
+inline constexpr std::string_view tag_turtle = "Turtle";
+inline constexpr std::string_view tag_air = "Air";
+inline constexpr std::string_view tag_naval = "Naval";
+inline constexpr std::string_view tag_learned = "Learned";
+inline constexpr std::string_view tag_teaching = "Teaching";
+inline constexpr std::string_view tag_experimental = "Experimental";
 /// The Compact details page's drop-down holding the actions after the first three.
 inline constexpr std::string_view more_menu = "MORE";
 /// How many updates the Updates tab shows.
 inline constexpr std::string_view update_count_one = "{count} update";
 inline constexpr std::string_view update_count_many = "{count} updates";
 /// How many packages the player has added, as the main menu's Library button says.
-/// A package is a mod, a map pack, a language pack, a mutator or a downloaded expansion.
+/// A package is a mod, a map pack, a language pack, a mutator or a downloaded
+/// expansion. An installed brain is not counted.
 inline constexpr std::string_view package_count_one = "{count} package";
 inline constexpr std::string_view package_count_many = "{count} packages";
 
@@ -757,6 +809,39 @@ using Place = std::pair<std::string_view, std::string_view>;
     return shown(text, english);
 }
 
+/// Returns the label a brain's tag id shows.
+///
+/// The nine ids give their words, looked up. Any other id, including a
+/// different case of one of those, is returned as written. Economy uses the
+/// mutators' word. The Brains tab's chips, pills, pane and menu use this.
+/// A brain's tag is not given a mutator's icon.
+///
+/// @param tag the catalogue id
+/// @param text how texts are looked up; empty shows the English label
+/// @return the label; a view of `tag` when the id is not one of the nine
+[[nodiscard]] inline std::string_view
+brain_tag_label(std::string_view tag, const TextHooks& text = {}) {
+    if (tag == "classic")
+        return shown(text, words::tag_classic);
+    if (tag == "economy")
+        return shown(text, words::tag_economy);
+    if (tag == "rush")
+        return shown(text, words::tag_rush);
+    if (tag == "turtle")
+        return shown(text, words::tag_turtle);
+    if (tag == "air")
+        return shown(text, words::tag_air);
+    if (tag == "naval")
+        return shown(text, words::tag_naval);
+    if (tag == "learned")
+        return shown(text, words::tag_learned);
+    if (tag == "teaching")
+        return shown(text, words::tag_teaching);
+    if (tag == "experimental")
+        return shown(text, words::tag_experimental);
+    return tag;
+}
+
 /// Looks a pattern up whole and fills its places.
 ///
 /// A place no value names stays as it is written. Values are not looked up.
@@ -784,6 +869,24 @@ join_names(const TextHooks& text, const std::vector<std::string>& names) {
         joined = filled(text, words::names_comma, {{"left", joined}, {"right", names[index]}});
     }
     return filled(text, words::names_and, {{"left", joined}, {"right", names.back()}});
+}
+
+/// Joins names with "or", through names_comma and names_or.
+///
+/// @param text how texts are looked up
+/// @param names the names, in order
+/// @return the list; empty when `names` is empty
+[[nodiscard]] inline std::string
+join_or(const TextHooks& text, const std::vector<std::string>& names) {
+    if (names.empty())
+        return {};
+    if (names.size() == 1)
+        return names.front();
+    std::string joined = names.front();
+    for (std::size_t index = 1; index + 1 < names.size(); ++index) {
+        joined = filled(text, words::names_comma, {{"left", joined}, {"right", names[index]}});
+    }
+    return filled(text, words::names_or, {{"left", joined}, {"right", names.back()}});
 }
 
 /// Writes a size in binary units.

@@ -566,8 +566,8 @@ cannot say.
   most, need it most.
 - **Applies to:** all engine code.
 - **Checked by:** review; `style-ratchet` counts functions declared in
-  headers without a `///` block, and with Clang the `oa-doc-check` build
-  target checks the form of the blocks in public headers (see
+  headers without a `///` block, and with Clang the `doc-check` test
+  checks the form of the blocks in public headers (see
   [Checks](#checks)).
 
 A worked example; the record is made up for the purpose:
@@ -790,13 +790,17 @@ ctest --test-dir build --output-on-failure \
 | `format-check` | every C, C++ and Objective-C source is laid out as `.clang-format` says; skips where the pinned clang-format is not installed | `tools/format_sources.py`, `tools/format/requirements.txt` |
 | `licensing-check` | every file states its copyright and licence | `tools/spdx_headers.py`, `REUSE.toml` |
 
-One more check is a build target rather than a test, and runs only with
-Clang: `cmake --build build --target oa-doc-check` compiles every public
-header with Clang's documentation warnings as errors. It fails on a
-`@param` that names no parameter, a `@return` on a function that returns
-nothing, an unknown command (`@quirk` is declared as one) or a malformed
-block. Build it when you change a public header; CI builds it on macOS. It
-is defined in `OaDocumentationCheck.cmake` in `cmake/`.
+One more check runs only with Clang: the test `doc-check` builds the
+target `oa-doc-check`, which compiles every public header with Clang's
+documentation warnings as errors. It fails on a `@param` that names no
+parameter, a `@return` on a function that returns nothing, an unknown
+command (`@quirk` is declared as one) or a malformed block. With another
+compiler the test skips. No other test runs beside it, since it builds in
+the build tree. The first run compiles every header, about a minute at
+eight jobs; a later one compiles again only what a changed header reaches.
+The same check alone is
+`cmake --build build --target oa-doc-check`. CI builds it on macOS. It is
+defined in `OaDocumentationCheck.cmake` in `cmake/`.
 
 Each script also runs on its own, for example `python3 tools/check_style.py`.
 A baseline holds the findings that predate a check, counted per path and

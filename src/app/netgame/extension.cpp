@@ -64,8 +64,9 @@
 // extension calls rather than hooks (extension.hpp lists them).
 // These hooks call none of them. Version 15 adds the OA UI kit, which these
 // hooks do not use. Version 16 adds run_mutators, which these hooks do not
-// call.
-constexpr uint32_t kExtensionApiVersionFollowed = 16;
+// call. Version 17 adds hear_remote_seat_chat, which the match's seat-chat
+// hook calls.
+constexpr uint32_t kExtensionApiVersionFollowed = 17;
 static_assert(
     oa::app::extension_api_version == kExtensionApiVersionFollowed,
     "the engine's extension table changed: follow its change, then raise "
@@ -1478,7 +1479,8 @@ struct RuntimeExtension {
     /// Adds network play's message-log hooks (Extension::message_hooks).
     ///
     /// Chat lines go to every player and to the match report, and an open
-    /// session makes the game kind multiplayer.
+    /// session makes the game kind multiplayer. A computer seat's line goes
+    /// out from that seat.
     ///
     /// @param context Extension context (unused).
     /// @param runtime The running app (unused; the hooks' context is the runtime).
@@ -1487,6 +1489,14 @@ struct RuntimeExtension {
     message_hooks(void* /*context*/, Runtime& /*runtime*/, oa::sim::messages::Hooks& hooks) {
         hooks.share_chat = [](void* context, const char* chat) {
             NetworkPlay::of(*static_cast<Runtime*>(context)).net_send_chat(chat);
+        };
+        hooks.share_seat_chat = [](void* context,
+                                   uint8_t seat,
+                                   const char* line,
+                                   uint8_t mode,
+                                   const uint8_t* targets) {
+            NetworkPlay::of(*static_cast<Runtime*>(context))
+                .net_send_seat_chat(seat, line, mode, targets);
         };
         hooks.shared_chat_line =
             [](void* context, const char* chat, std::size_t index) -> const char* {

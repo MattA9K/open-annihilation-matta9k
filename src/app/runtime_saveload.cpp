@@ -1090,6 +1090,7 @@ bool Runtime::write_saved_game(
         auto* runtime = static_cast<SummaryBindings*>(context)->runtime;
         runtime->save_mod_profile(bank);
         runtime->save_mutators(bank);
+        runtime->save_brains(bank);
     };
     summary.save_conditions = [](void* context, persist::Bank* bank) {
         auto* runtime = static_cast<SummaryBindings*>(context)->runtime;
@@ -1325,6 +1326,8 @@ bool Runtime::start_saved_game(std::string_view dialog_path) {
             title = path_to_utf8(path.stem());
         if (offer_content_switch(path, title, false))
             return false;
+        if (offer_builtin_brain_load(path))
+            return false;
         return load_saved_game(path);
     } catch (const std::exception& failure) {
         status_ = std::string("Saved game start: ") + failure.what();
@@ -1502,7 +1505,57 @@ bool Runtime::read_save_summary(const fs::path& path, ui::frontend::LoadSummary&
     return ui::frontend::savegame_read_load_summary(bank_summary_reader(), &guard.bank, summary);
 }
 
+namespace {
+
+/// The computer player a campaign mission seats, in slot 1.
+constexpr int32_t campaign_computer = 1;
+
+/// Makes the campaign's seat the brain a loaded save seated on player 1.
+///
+/// A save that seated no brain there leaves the built-in player. Version and
+/// package stay empty: a setup's memory does not keep them.
+///
+/// @param runtime the runtime
+void take_campaign_seat_from_load(Runtime& runtime) {
+    namespace brain = oa::data::brain_library;
+    brain::Seats& seats = runtime.setup_brain_seats(brain::Setup::campaign);
+    brain::Seat* own = nullptr;
+    for (brain::Seat& seat : seats.seats) {
+        if (seat.place == campaign_computer)
+            own = &seat;
+    }
+    if (own == nullptr) {
+        seats.seats.push_back({});
+        own = &seats.seats.back();
+    }
+    own->place = campaign_computer;
+    own->brain.clear();
+    own->level.clear();
+    own->options.clear();
+    own->version.clear();
+    own->package_sha256.clear();
+    own->name.clear();
+    for (const brain::Seat& loaded : runtime.loaded_brain_seats().seats) {
+        if (loaded.place != campaign_computer)
+            continue;
+        own->brain = loaded.brain;
+        own->level = loaded.level;
+        own->options = loaded.options;
+        break;
+    }
+}
+
+} // namespace
+
 bool Runtime::load_saved_game(const fs::path& path) {
+    // The built-in answer is for this load only. A stop before the brains are
+    // checked, including a throw, must not leave it set for a later load.
+    struct DropBuiltinAnswer {
+        Runtime& runtime;
+
+        ~DropBuiltinAnswer() { runtime.load_missing_brains_as_builtin_ = false; }
+    } drop_builtin_answer{*this};
+
     BankGuard guard;
     persist::Bank* bank = &guard.bank;
     persist::BankError error{};
@@ -1513,6 +1566,8 @@ bool Runtime::load_saved_game(const fs::path& path) {
     if (!check_saved_mod_profile(bank))
         return false;
     if (!check_saved_mutators(bank))
+        return false;
+    if (!check_saved_brains(bank))
         return false;
 
     // The save's mutators are chosen. A load that stops before its match
@@ -1528,6 +1583,22 @@ bool Runtime::load_saved_game(const fs::path& path) {
                 runtime.cancel_loadout_once();
         }
     } held_mutators{*this};
+
+    // The save's brains are held for the match this load starts. A load that
+    // stops before that match drops them, so a later start is not seated
+    // with this save's brains.
+    struct HeldBrains {
+        Runtime& runtime;
+        bool keep = false;
+        int exceptions = std::uncaught_exceptions();
+
+        ~HeldBrains() {
+            if (!keep || std::uncaught_exceptions() > exceptions) {
+                runtime.cancel_brain_seats_once();
+                runtime.loaded_brain_seats_ = {};
+            }
+        }
+    } held_brains{*this};
 
     // A campaign load that stops before it has worked must not change the
     // run's set. The destructor drops a set the success path did not take.
@@ -1547,7 +1618,13 @@ bool Runtime::load_saved_game(const fs::path& path) {
         const bool loaded = load_saved_campaign(path, bank, summary);
         if (loaded && saved_campaign_mutators_)
             campaign_mutators_ = std::move(*saved_campaign_mutators_);
+        // The missions after this save play the computer player it seated.
+        // A skirmish save does not come through here, so its load leaves the
+        // campaign seat as it is.
+        if (loaded)
+            take_campaign_seat_from_load(*this);
         held_mutators.keep = loaded;
+        held_brains.keep = loaded;
         return loaded;
     }
     if (summary.game_type != persist::game_type_skirmish) {
@@ -1630,6 +1707,7 @@ bool Runtime::load_saved_game(const fs::path& path) {
     status_ = "Loaded " + path_to_utf8(path.filename()) + " at tick " +
               std::to_string(match_timing_.tick);
     held_mutators.keep = true;
+    held_brains.keep = true;
     return true;
 }
 
@@ -1735,7 +1813,9 @@ void Runtime::finish_saved_game_start(bool restored_players) {
     match_tick_blocked_ = false;
     // The saved game is loaded, alliances and all; its players' pass runs at
     // the saved tick before the first tick, so until then the world stands as
-    // the save restored it.
+    // the save restored it. A shadow is seated before that pass, as a new
+    // game seats one before its own.
+    seat_shadow_brains();
     match_->finish_load();
 }
 
@@ -2193,6 +2273,7 @@ void Runtime::run_headless_saveload() {
         write_ppm(options_.snapshot, surface_);
     }
     print_memory_status();
+    print_shadow_reports();
 }
 
 } // namespace oa::app

@@ -15,6 +15,7 @@
 #include "oa/ui/frontend_state/skirmish_ui.hpp"
 #include "oa/ui/engine_settings.hpp"
 #include "oa/ui/screen_registry.hpp"
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -151,7 +152,9 @@ enum class Showcase {
     arm_first_mission,
     // From the main menu into a two-player skirmish whose armies fight for a
     // minute, reporting the ticks and frames a second it played at.
-    skirmish_battle
+    skirmish_battle,
+    // A commander and construction Kbot build a defended base.
+    base_construction
 };
 
 /// The part of the navigation check --check-navigation runs. Each group
@@ -208,6 +211,9 @@ enum class RenderFaultPoint : uint8_t {
     /// the memory guard refuses the Full tier's pages, then drops Full and
     /// then Basic; named alone, never part of the run of every case
     full_memory,
+    /// the effects pass fails on a Full match frame, which is drawn without
+    /// the effects while Full stays
+    effects,
 };
 
 /// The failure --render-fault forces and when.
@@ -351,6 +357,27 @@ struct Options {
     std::optional<std::size_t> benchmark_frames;
     // Headless in-match run: ticks to simulate, output size, per-side army.
     std::optional<std::size_t> match_ticks;
+    // Two seats of a headless brain match: installed ids, folders or builtin
+    // (--brain-match). Empty means this run is not a brain match.
+    std::string brain_match;
+    // Levels for those seats (--brain-levels). Empty selects each brain's
+    // first level, and hard for a built-in player.
+    std::string brain_levels;
+    // The map the brain match plays (--brain-map).
+    std::string brain_map;
+    // A brain that runs beside every computer seat (--brain-shadow). Empty
+    // means this run has no shadow. An id, or a folder path.
+    std::string brain_shadow;
+    // Sections the shadow compares (--brain-shadow-sections). Empty compares
+    // every section.
+    std::string brain_shadow_sections;
+    // Where the shadow writes its call logs (--brain-shadow-log). Empty
+    // writes none.
+    std::string brain_shadow_log;
+    // Where a brain log is written (--brain-trace). Empty writes none.
+    std::string brain_trace;
+    // Where training records are written (--brain-record). Empty writes none.
+    std::string brain_record;
     // Headless campaign run: the campaign's name and the mission index that
     // --headless-check starts through the briefing and ticks for match_ticks.
     std::string campaign;
@@ -505,6 +532,9 @@ struct Options {
     // loads the save and checks the loaded game runs, and that Pause and the
     // in-game menu still hold it and let it go.
     bool check_paused_save = false;
+    // Saves a skirmish a brain plays, loads that brain with its state, and
+    // asks to load with the built-in player when the brain is missing.
+    bool check_saved_brains = false;
     // Reads the simulation hash with no mod and under a mod, then after a
     // Developer Mode override that changes the simulation, without a new start.
     bool check_simulation_hash = false;
@@ -701,6 +731,19 @@ struct Options {
     // a feed of made-up mutators, and requires the rows, a download, the
     // turn-off question, a drag, the handed set and the verdict chip.
     bool check_mutator_picker = false;
+    // Opens the brain picker over the main menu at four window sizes, on
+    // a feed of made-up brains, and requires the rows, the level, the
+    // handed choice and the runtime's own feed.
+    bool check_brain_picker = false;
+    // On SKIRMISH at 640x480 and 1280x720, requires each computer row's
+    // brain button, the focus hand-over, the picker, the hover card and
+    // the brains a start seats. A scratch preferences file holds the seat.
+    bool check_brain_seat_buttons = false;
+    // On NEWGAME and Any Mission at 640x480 and 1280x720, requires the
+    // campaign's brain button, Tab, the picker and the brain a mission
+    // and a loaded campaign save seat. A scratch preferences file holds
+    // the seat.
+    bool check_brain_campaign = false;
     // A skirmish one made-up mutator stops, START WITHOUT IT and BACK, the
     // question after a crash, and Get mutators over the picker.
     bool check_mutator_prompts = false;
@@ -712,6 +755,10 @@ struct Options {
     // the remembered multiplayer set, the chat lines, and the button
     // disabled while the room's options are locked.
     bool check_mutator_room = false;
+    // Hosts a battle room alone and requires each computer row's brain
+    // button, the greyed difficulty, the picker, the card and the record
+    // this machine sends, at 640x480 and 1280x720.
+    bool check_brain_room = false;
     // Installs one map pack from the check's own registry while both map
     // lists already exist. Requires the map whose stem has a space, an
     // apostrophe and parentheses in both lists, under its index title,
@@ -730,7 +777,7 @@ struct Options {
     // and none for the second.
     bool check_mod_warning = false;
     // --open FILE and --install-mod FILE, repeated, and the bare arguments
-    // that name a .oamod, .oalang, .oamap, .oamut or .oareg file, any case: files to
+    // that name a .oamod, .oalang, .oamap, .oamut, .oabrain or .oareg file, any case: files to
     // open once the main menu shows; absolute, in the order given.
     std::vector<fs::path> open_files;
     // Installs made-up mod packages through each of the main menu's
@@ -785,6 +832,10 @@ struct Options {
     // waits to be reset, a changed floating-point setting, and textures
     // beyond the renderer's limit.
     bool check_renderer_ladder = false;
+    /// Draws the fixed terrain proof offscreen and compares it with the classic view.
+    bool check_renderer_proof{};
+    /// Checks the live experimental renderer in an offscreen skirmish.
+    bool check_live_renderer{};
     // --render-fault POINT[@FRAME]: --check-renderer-ladder forces only that
     // failure, at that presented frame of its case; unset for every case.
     std::optional<RenderFault> render_fault;
@@ -807,6 +858,12 @@ struct Options {
     // pictures (director_output.hpp), counted from 0, in increasing order;
     // empty for none.
     std::vector<uint64_t> director_stills;
+    // --effect NAME=PERCENT, once for each effect it sets: the percent
+    // --render-script draws an effect at in place of the run's settings,
+    // one entry for each of engine_settings::effect_sliders, in its order;
+    // unset for the settings'.
+    std::array<std::optional<uint32_t>, oa::ui::engine_settings::effect_sliders.size()>
+        director_effects{};
     bool trace_input = false;
     // Writes every game file and listing the run looks up, one a line, to
     // this file (--trace-lookups); empty for none.
@@ -824,6 +881,8 @@ struct Options {
     // setting for the run whatever the settings say, and is never saved;
     // empty when no flag was given.
     std::optional<oa::ui::engine_settings::HardwareAcceleration> hardware_acceleration;
+    /// Accepts the legacy 3D launch flag; Graphics settings now control camera access.
+    bool experimental_3d{};
     // --force-capable, which only --check-render-tiers, --check-build-preview,
     // --check-engine-settings and --check-kill-board take: the renderer
     // counts as one the graphics card could scale the frames on, so that the

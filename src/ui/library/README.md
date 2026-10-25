@@ -2,7 +2,7 @@
 
 The Library's model (`oa/ui/library/library.hpp`, `oa::ui::library`): one
 list of every package the player can get or has installed, mods, map packs,
-language packs and mutators together, searchable on the player's own machine and
+language packs, mutators and brains together, searchable on the player's own machine and
 honest about what each package does to the game. It turns plain inputs into
 the Library's state: the entries and their states, which of them show, the
 selection, the facts and buttons of the selected entry, and the footer's
@@ -49,7 +49,14 @@ translator finds them together. Every word passes through `Library::text`
     does not work with the mod being played is still listed, and GET and
     UPDATE stay on: `not_compatible` is information, and the details name
     the mods it works with (`details_note`). An unmet prerequisite is
-    recorded on `needs_missing` and does not block GET or dim the row.
+    recorded on `needs_missing` and does not block GET or dim the row. A
+    brain that does not fit the game being played is still listed, and GET
+    and UPDATE stay on. `brain_unfit_reason` names the first failure: the
+    engine range ("Needs Open Annihilation {range}"), then the mods it is
+    made for ("Made for {names}", the base game as its own words), then an
+    expansion that is off ("Needs {name}"). `not_compatible` carries that.
+    The row says it in the lock colour. It does not block and it does not
+    dim the row. The installed facts win, as a mutator's do;
     `works_with_played` reads the installed facts when they are set, even
     when that works-with list is empty (any mod), otherwise the listing's.
     An empty list or `*` works with any mod, `ta-3.1c` works while no mod
@@ -77,14 +84,22 @@ translator finds them together. Every word passes through `Library::text`
 - `set_tab`, `set_filter`, `set_tag`, `set_query`, `select`,
   `move_selection`, `open_details` and `close_details` browse; each
   recomputes `visible`, the entries shown in their order:
-  - the tabs are Active, Mods, Maps, Mutators, Languages, Updates and
-    Registries, in that order. A Library opens on Active (`Library::tab`),
+  - the tabs are Active, Mods, Maps, Mutators, Brains, Languages, Updates
+    and Registries, in that order. A Library opens on Active (`Library::tab`),
     which lists no entry and selects none: it shows the player's setup
     (`active_setup`, below). Registries lists the registries
     (`Inputs::registries`) and has no search, no filter and no package
     list. Mutators lists every mutator the player has or a registry lists,
-    and nothing there switches one on;
-  - Mods, Maps, Mutators and Languages show their kind and Updates every kind, under
+    and nothing there switches one on. Brains lists the built-in computer
+    player first, then every brain the player has or a registry lists.
+    The built-in entry (`@built-in`) is not a package: it shows on Brains
+    under All and Installed only, including when a search matches its name
+    or "default", and on no other tab or filter, and it is left out of
+    every count. It is marked Default unless `Inputs::default_brain` names
+    an installed brain. It reads Built in where a package reads its version.
+    While it is not the default it offers USE BY DEFAULT, and while it is
+    the default it offers nothing;
+  - Mods, Maps, Mutators, Brains and Languages show their kind and Updates every kind, under
     the tab's own filter (`Library::filters`, `shown_filter`) and, when that
     filter offers it, the tag. A tag left from another tab or filter is kept
     and hides nothing until a tab offers it again. The filters are:
@@ -110,22 +125,33 @@ translator finds them together. Every word passes through `Library::text`
     worst class among the words, then the sum of the classes, then names
     that start with the first word, then as with no search. The search is
     kept to 64 bytes, cut at a character boundary. Whenever the list keeps
-    the base game entry, it is moved to the front after that order;
+    the base game entry, it is moved to the front after that order, and
+    the built-in computer player is moved to the front of Brains the same
+    way. A brain's tag is matched by `brain_tag_label`. "default", and the
+    translated Default, find the built-in player and the installed brain
+    that is the default; that word is not one of the row's chips;
 - `tags_in_tab` counts the tags of the entries a tab shows under its
   filter. A mutator's tags are the ids on its facts, the listing's before
-  the installed copy's, and not the listing's own tag list as well. On
+  the installed copy's, and not the listing's own tag list as well. A
+  brain's tags are the ids on its facts, the installed manifest's when
+  it is installed and otherwise the listing's. On
   Mutators the eight ids come first, in the order statistics, economy,
   commanders, new-units, disable, gameplay, ai, maps, and any other id
-  after them in alphabetical order. On the other tabs the ids stay in
+  after them in alphabetical order. On Brains the nine ids come first,
+  classic, economy, rush, turtle, air, naval, learned, teaching and
+  experimental, and any other id after them. On the other tabs the ids stay in
   alphabetical order. A mutator's chips and detail pills, and the Mutators
   tab's filter pills, pane and menu, show the word of an id matched
-  exactly (`tag_label`). A mod's or a map pack's tag stays as written on
+  exactly (`tag_label`). Brains uses `brain_tag_label` in those places
+  and gives a brain's tag no mutator icon. Economy is the mutators' word.
+  A mod's or a map pack's tag stays as written on
   every tab, so `economy` stays `economy` and `maps` stays `maps`, and a
   different case such as `Economy` stays as written. The search still
-  matches a mutator's label. The list applies a stored tag only when that count includes it;
+  matches a mutator's label, and a brain's. The list applies a stored tag only when that count includes it;
   `filter_count` counts the packages a filter keeps on the tab
   shown before the tag and the search, so no count moves with them, and
-  leaves the base game entry out of every count, and
+  leaves the base game entry, the built-in languages and the built-in
+  computer player out of every count, and
   `filter_caption` writes it as the filters show it, "Installed (4)"
   (`words::filter_with_count`); `update_count` counts the updates that can
   be installed, the number on the Updates tab and the OA button, and
@@ -163,7 +189,15 @@ translator finds them together. Every word passes through `Library::text`
     when an installed copy's verdict is set (off during a game and while a
     check runs), then UNINSTALL, OPEN FOLDER and HOMEPAGE. It never offers
     ROLL BACK, PLAY NOW, SWITCH OFF, USE NOW or TURN ON, and an incompatible
-    verdict does not turn GET or UPDATE off;
+    verdict does not turn GET or UPDATE off. A brain offers GET or UPDATE
+    (CANCEL while queued, RETRY after a failure that can be retried; each
+    stays on when the brain does not fit), then USE BY DEFAULT when an
+    installed copy is not the default, then CHECK WITH THIS MOD when an
+    installed copy's verdict is set (off during a game and while a check
+    runs), then UNINSTALL, OPEN FOLDER and HOMEPAGE. The host's check loads
+    the brain on the Library's worker and runs fits against the game being
+    played. It does not seat the brain. USE BY DEFAULT writes
+    `open-annihilation.brain.default`, or erases it for the built-in player;
   - the facts Installed, Latest, Author, Size, Base, Games, Needs, Hacks, Rules,
     Maps, Coverage and From, in a long and a short form. Installed and
     Latest are the installed copy's and the listing's version and revision
@@ -187,7 +221,18 @@ translator finds them together. Every word passes through `Library::text`
     and then the engine's Needs,
     Options, Changes, Rules ("Changes the game: unranked on Core Prime",
     shown whole) and From. `verdict_of_record` maps a dry-run record; a
-    compatible summary counts the collections ("changes 2 units");
+    compatible summary counts the collections ("changes 2 units"). A brain
+    leaves out Base, Games, Hacks, Maps, Coverage, Options, Changes and
+    Rules. After Author it lists Levels (the level names joined as "Easy,
+    Medium and Hard"), Works with ("Any mod", or the names joined with "or",
+    marked when the brain does not fit), Needs (the engine's, then one per
+    required expansion: good when that expansion is on, a warning when it is
+    off), Full awareness only when the brain sees every unit (a warning),
+    Network only when it carries a learned network, and Checked when an
+    installed copy's verdict is set (the same words as a mutator's, a
+    compatible one reading "it fits this game"), then Size and From. The
+    built-in entry lists only Levels ("Easy, Medium and Hard") and Works
+    with ("Any mod");
   - the byline names the author, or the publisher when there is no author.
     A listing that names neither shows nothing more. The byline does not
     change an entry's state, order or search rank;
@@ -197,8 +242,11 @@ translator finds them together. Every word passes through `Library::text`
   - the status line says "No oamod.yaml present" for a mod folder without
     one (`Installed::without_manifest`), installed or played. A mutator that
     is not installed names its version, including a revision of 1
-    ("Not installed · 2.0 · rev 1"). Installed, update and queue lines stay
-    as they are for every kind.
+    ("Not installed · 2.0 · rev 1"). A brain to GET names its version the
+    same way. An installed brain reads Installed, and Installed · Default
+    while it is the default. The built-in entry reads Built in, and Built
+    in · Default while it is the default. An update's line and a queue's
+    line stay those lines while a brain is the default.
 - `entry_summary` gives the words under the details' status line: the
   listing's summary, else the installed manifest's description
   (`Installed::description`), as for a mod of the player's own.
@@ -311,8 +359,12 @@ app removes the folder (`Runtime::library_uninstall`,
   `oa.prompt.uninstall`. `uninstall_question(library, entry, folder)` is
   the same question, and for a mutator other installed mutators need it
   adds, before that last paragraph, that they stay installed and cannot
-  be switched on until it is back. The host uses this form. The answer
-  and the removal are unchanged.
+  be switched on until it is back. For the default brain it adds, before
+  that last paragraph, "It is your default computer player: new computer
+  seats go back to the built-in player." The host uses this form. After
+  the folder is removed, uninstalling the default erases
+  `open-annihilation.brain.default`. The answer and the removal are
+  unchanged.
 - `uninstall_notice(entry, step)` makes the notice for a package in use,
   and `uninstall_failed_notice(name, problem)` the one for an uninstall
   that removed nothing (busy, changed, a link, outside the player's
@@ -442,7 +494,9 @@ app removes the folder (`Runtime::library_uninstall`,
     refresh could not reach a registry),
     the tabs with their full names and All counts in brackets ("Active",
     "Mods (11)", "Maps (2)", "Languages (2)", "Updates (15)", "Registries (2)";
-    the strip scrolls sideways, with an arrow at an end, when the names do not fit), the search
+    the strip scrolls sideways, with an arrow at an end, when the names do not fit; it shows
+    the open tab when that tab opens, and then stays where an arrow, the wheel or a drag
+    leaves it, from the first tab to the last), the search
     field and the filter
     drop-down (All, New, Installed and Updates with their counts, "All
     (11)", then "Tag: balance (3)" for each tag of the tab), on the
@@ -498,6 +552,12 @@ app removes the folder (`Runtime::library_uninstall`,
   keep the version on the second line and, after the title, "· needs {name}"
   or "· not compatible with this mod" in the lock colour, the missing
   mutator first when both apply. Neither dims the row, and GET stays on.
+  A brain's row at Regular and Large, and on the Brains tab at Regular
+  where the row is the large form, carries Default on the default entry,
+  Full awareness, its tags, and, when it does not fit, the unfit words.
+  Those words use the lock colour. At Compact they follow the title as
+  "· {words}" in the lock colour. The built-in row reads Built in where a
+  package reads its version. An unfit brain is not dimmed, and GET stays on.
   On the Mutators tab the Regular tag pills, Large's filter pane and the
   details' tag pills show those eight icons beside the label. A tag outside
   the eight draws no icon, and a mod's, map pack's or language's tag never
@@ -552,9 +612,12 @@ app removes the folder (`Runtime::library_uninstall`,
     row. A finger reaches the nearest control
     within its reach (`kit::finger_down`); a finger that moves farther than
     its reach in the list or the details scrolls that pane and presses
-    nothing. A press outside an open drop-down only closes it. The wheel
-    over the tab strip scrolls the tabs when they do not fit, and otherwise
-    scrolls the pane under the pointer, or an open drop-down's items.
+    nothing. A press on tabs that do not fit that moves sideways, three
+    points for the mouse or past a finger's reach, drags the strip with the
+    pointer (`kit::tab_scroll_by`) and opens nothing. A press outside an
+    open drop-down only closes it. The wheel over the tab strip scrolls the
+    tabs when they do not fit, and otherwise scrolls the pane under the
+    pointer, or an open drop-down's items.
 - Every control is named for automation (the OA layer lists each as `oa.`
   and its name):
   - `library.tab.active`, `library.tab.mods`, `library.tab.maps`,
@@ -768,7 +831,8 @@ queue phase with its status line and button; every reason GET or UPDATE is
 off and their order; installed entries never blocked; built-in and added
 registries, two registries with one key, and a key installed from another
 registry; the Library opening on Active; tabs, Mutators between Maps and
-Languages and opening on All, each tab's own filter, the
+Brains and Brains between Mutators and Languages, each of those opening on
+All, each tab's own filter, the
 Updates tab's filters across every kind, and tags with their counts; the
 filters' counts unmoved by the tag and the search; New's ten newest by
 day, ties by name, never an undated listing, on Mods, Maps and Updates;
@@ -776,7 +840,14 @@ the Mutators tab's GET, INSTALLED and UPDATE rows, an update beside a
 mod's, a mutator that does not work with the mod being played still
 getting with its note naming the mods, an unmet prerequisite that does
 not block, the eight tags ahead of any other id, and each tag's label,
-an unknown id and a different case left as written; a mutator's badge at
+an unknown id and a different case left as written; the Brains tab's
+built-in computer player first, marked Default until Steady Commander is,
+left out of every count and off every other tab, a listing alone, a brain
+installed alone, one matched with an update and one without, an update
+beside a mod's, why a brain does not fit (Ridge with no mod and with
+ridge@28, Core Contingency off and on, an engine range, and one that
+fits) without blocking GET or dimming the row, and each brain tag's
+label, an unknown id left as written, and a lookup that translates; a mutator's badge at
 every class and window, its picture, else its first tag's icon, else its
 letters, Large's "Needs {name}" and "Not compatible with this mod" chips
 in the lock colour with the tag chips kept only while they fit, Compact's
@@ -840,8 +911,8 @@ and a different case of that id matching the id and not the label; the
 64-byte cap at a character boundary; and ties ordered by name and then registry.
 
 `ui-library-layout` lays the screens out over a fixture of fifteen
-packages of the three kinds, and over five made-up mutators on the
-Mutators tab, from a built-in and an added registry (an
+packages of the three kinds, over five made-up mutators on the
+Mutators tab, and over made-up brains on the Brains tab, from a built-in and an added registry (an
 update of the built-in Ridge that changes the rules, a blocked update, the
 mod being played, a GET blocked by three missing hacks, and four queue
 items: downloading, waiting, failed, and an installed update that changed
