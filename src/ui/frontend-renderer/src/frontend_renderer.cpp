@@ -490,10 +490,7 @@ void draw_button_text(
         x,
         y,
         active_palette,
-        {0,
-         0,
-         static_cast<int32_t>(surface.width) - 1,
-         static_cast<int32_t>(surface.height) - 1}
+        {0, 0, static_cast<int32_t>(surface.width) - 1, static_cast<int32_t>(surface.height) - 1}
     );
     const bool centred =
         (attributes & (align_left | align_right)) == 0 && (attributes & align_center) != 0;

@@ -520,8 +520,8 @@ const std::vector<uint8_t>& kept_capsule_coverage(
             capsule.radius_px == radius_px && capsule.hole_px == hole_px &&
             capsule.stepped == stepped && capsule.corners == corners)
             return capsule.coverage;
-    const std::size_t pixels =
-        static_cast<std::size_t>(std::max(columns, 0)) * static_cast<std::size_t>(std::max(rows, 0));
+    const std::size_t pixels = static_cast<std::size_t>(std::max(columns, 0)) *
+                               static_cast<std::size_t>(std::max(rows, 0));
     if (pixels > kMostKeptCapsulePixels) {
         unkept = capsule_coverage(columns, rows, radius_px, hole_px, stepped, corners);
         return unkept;
