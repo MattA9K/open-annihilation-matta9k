@@ -161,6 +161,10 @@ struct Runtime::FullPresentation {
     bool function_tested{};    ///< the Full function test ran on this executor and passed
     bool overflow_logged{};    ///< the sprite pages overflowing a frame has been logged
     bool stage_error_logged{}; ///< a model stage error has been logged
+    /// A failed effects pass has been logged; frames whose pass fails are
+    /// drawn without the effects, and Full stays.
+    bool effects_failure_logged{};
+    uint64_t effects_skipped{}; ///< frames drawn without the effects their pass failed on
 
     // The match's terrain atlas and what it was built from. Once the pages
     // are filled the atlas keeps its grid, its slots and its pages' sizes

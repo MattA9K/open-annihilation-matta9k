@@ -78,6 +78,9 @@ namespace wr = oa::present::world_renderer;
 /// What --render-fault card makes the card's frame fail with.
 constexpr std::string_view forced_card_failure =
     "the card refused the frame: forced by --render-fault card";
+/// What --render-fault effects makes the effects pass fail with.
+constexpr std::string_view forced_effects_failure =
+    "the effects readback failed: forced by --render-fault effects";
 /// Bytes a texel of a page or a target holds.
 constexpr uint64_t bytes_per_texel = card::texel_bytes;
 
@@ -2332,7 +2335,10 @@ bool Runtime::present_full_match_layers(bool dialogs) {
         // Process the actual GPU world before interface and order overlays.
         // The moved target keeps its extra border and density, so distortion
         // and lighting follow the same fractional camera move as the scene.
-        if (match_effects_enabled()) {
+        // The failure --check-renderer-ladder forces stands in for the
+        // effects pass's own.
+        const bool effects_fault = render_fault_due(RenderFaultPoint::effects);
+        if (effects_fault || match_effects_enabled()) {
             const auto place = match_view_place();
             const float effect_zoom = match_zoom();
             float left = static_cast<float>(battlefield.width);
@@ -2359,35 +2365,49 @@ bool Runtime::present_full_match_layers(bool dialogs) {
             const SDL_FRect effect_bounds{
                 left, top, std::max(0.0F, right - left), std::max(0.0F, bottom - top)
             };
-            const std::string failure = full_effects::compose(
-                sdl_.renderer,
-                full.effects_upload,
-                {battlefield.x, battlefield.y, battlefield.width, battlefield.height},
-                moved ? full.executor.target_texture(full.moved_target) : nullptr,
-                moved ? full.moved_target_factor : 1U,
-                [&](const full_effects::Pixels& image) {
-                    compose_match_effect_pixels(
-                        image.bytes,
-                        image.width,
-                        image.height,
-                        image.pitch,
-                        4,
-                        // The target is drawn at the rounded view; its resolver
-                        // adds this shift later. Sources use the exact view.
-                        image.origin_x +
-                            (moved ? static_cast<float>(accelerated_.frame_shift[0]) : 0.0F),
-                        image.origin_y +
-                            (moved ? static_cast<float>(accelerated_.frame_shift[1]) : 0.0F),
-                        image.scale_x,
-                        image.scale_y,
-                        false,
-                        static_cast<float>(image.row_offset)
-                    );
-                },
-                &effect_bounds
-            );
-            if (!failure.empty())
-                throw FullCardError(failure);
+            const auto process = [&](const full_effects::Pixels& image) {
+                compose_match_effect_pixels(
+                    image.bytes,
+                    image.width,
+                    image.height,
+                    image.pitch,
+                    4,
+                    // The target is drawn at the rounded view; its resolver
+                    // adds this shift later. Sources use the exact view.
+                    image.origin_x +
+                        (moved ? static_cast<float>(accelerated_.frame_shift[0]) : 0.0F),
+                    image.origin_y +
+                        (moved ? static_cast<float>(accelerated_.frame_shift[1]) : 0.0F),
+                    image.scale_x,
+                    image.scale_y,
+                    false,
+                    static_cast<float>(image.row_offset)
+                );
+            };
+            std::string failure(forced_effects_failure);
+            if (!effects_fault)
+                failure = full_effects::compose(
+                    sdl_.renderer,
+                    full.effects_upload,
+                    {battlefield.x, battlefield.y, battlefield.width, battlefield.height},
+                    moved ? full.executor.target_texture(full.moved_target) : nullptr,
+                    moved ? full.moved_target_factor : 1U,
+                    process,
+                    &effect_bounds,
+                    // The readback is a buffer the frame can do without.
+                    [this](uint64_t bytes) { return accelerated_buffer_fits(bytes); }
+                );
+            // A failed effects pass leaves the card's world as it drew it:
+            // the frame goes on without the effects, and Full stays.
+            if (!failure.empty()) {
+                ++full.effects_skipped;
+                if (!full.effects_failure_logged) {
+                    full.effects_failure_logged = true;
+                    std::cout << graphics_log_prefix << "full tier: " << failure
+                              << "; a frame whose effects pass fails is drawn without them\n"
+                              << std::flush;
+                }
+            }
         }
         // The frame counts towards the stage of Full's first frames.
         if (render_run_)

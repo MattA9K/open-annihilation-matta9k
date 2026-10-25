@@ -142,6 +142,7 @@ void renderer_ladder_options() {
         {"memory", oa::app::RenderFaultPoint::memory},
         {"card", oa::app::RenderFaultPoint::card},
         {"full-memory", oa::app::RenderFaultPoint::full_memory},
+        {"effects", oa::app::RenderFaultPoint::effects},
     };
     for (const auto& [name, point] : points) {
         const auto faulted = parse({"--check-renderer-ladder", "--render-fault", name});
@@ -161,8 +162,8 @@ void renderer_ladder_options() {
         );
     }
     const std::string usage =
-        "--render-fault takes create, present, reset, lost, stall, float, memory, card or "
-        "full-memory, optionally @FRAME";
+        "--render-fault takes create, present, reset, lost, stall, float, memory, card, "
+        "full-memory or effects, optionally @FRAME";
     for (const char* refused : {"present@0", "present@x", "present@", "reset@-1", "melt", "@5"})
         expect(rejection({"--check-renderer-ladder", "--render-fault", refused}) == usage, refused);
     expect(

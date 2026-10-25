@@ -10,6 +10,11 @@
 #include <optional>
 
 namespace oa::app::full_effects {
+namespace {
+/// Bytes a pixel of the readback, its RGBA copy and the upload holds.
+constexpr uint64_t pixel_bytes = 4;
+} // namespace
+
 Upload::~Upload() {
     reset();
 }
@@ -27,7 +32,8 @@ std::string compose(
     SDL_Texture* moved_target,
     uint32_t moved_factor,
     const std::function<void(const Pixels&)>& process,
-    const SDL_FRect* effect_bounds
+    const SDL_FRect* effect_bounds,
+    const std::function<bool(uint64_t bytes)>& fits
 ) {
     RenderState saved(renderer);
     std::optional<RenderState> moved_state;
@@ -119,6 +125,16 @@ std::string compose(
         origin_y += float(top) / scale_y;
     }
     if (area.w > 0 && area.h > 0) {
+        // The readback and its RGBA copy are held at once, with the upload
+        // when it must grow to take them.
+        const uint64_t area_bytes = uint64_t(area.w) * uint64_t(area.h) * pixel_bytes;
+        uint64_t held = 2 * area_bytes;
+        if (!upload.texture || upload.width < area.w || upload.height < area.h)
+            held += uint64_t(std::max(upload.width, area.w)) *
+                    uint64_t(std::max(upload.height, area.h)) * pixel_bytes;
+        if (fits && !fits(held))
+            return "the effects readback of " + std::to_string(area.w) + "x" +
+                   std::to_string(area.h) + " would leave too little memory";
         using SurfaceOwner = std::unique_ptr<SDL_Surface, decltype(&SDL_DestroySurface)>;
         SurfaceOwner read(SDL_RenderReadPixels(renderer, &area), SDL_DestroySurface);
         SurfaceOwner rgba(

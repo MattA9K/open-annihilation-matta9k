@@ -124,7 +124,7 @@ what each crash and failure counts for at the next start;
 `--render-fault POINT[@FRAME]` narrows it to one
 (`native-renderer-ladder-create` makes every driver but software refuse at
 start; `--render-fault card` fails a call of the Full tier's own on a
-Full match frame). Two cases switch the accelerated tier on and run
+Full match frame, and `--render-fault effects` its effects pass). Two cases switch the accelerated tier on and run
 only when named: `--render-fault memory` (`native-renderer-ladder-memory`),
 the memory guard refusing buffers and then dropping the tier, and
 `--render-fault full-memory` (`native-renderer-ladder-full-memory`), the
@@ -1995,7 +1995,11 @@ language and both sizes.
   the stages' `full::CardError`), or the failure `--render-fault card`
   forces, drops Full with the failing call struck against the driver as a
   `card` strike (`take_full_failure`), which the same failure in the next
-  run on the driver records `full-unusable`; a frame the executor refuses
+  run on the driver records `full-unusable`; a failed effects pass (its
+  readback, conversion or upload, which the memory guard counts before
+  they are made, or the failure `--render-fault effects` forces) drops
+  nothing: that frame is drawn without the effects, the failure logged
+  once (`full_effects::compose`, `FullPresentation::effects_skipped`); a frame the executor refuses
   before drawing anything of it, one the stages built wrong
   (`FullFrameRefusedError`, `card::Executor::frame_refused`), drops Full
   with nothing struck, since no driver caused it; a failed Full function

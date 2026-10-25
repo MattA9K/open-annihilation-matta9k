@@ -210,6 +210,9 @@ enum class RenderFaultPoint : uint8_t {
     /// the memory guard refuses the Full tier's pages, then drops Full and
     /// then Basic; named alone, never part of the run of every case
     full_memory,
+    /// the effects pass fails on a Full match frame, which is drawn without
+    /// the effects while Full stays
+    effects,
 };
 
 /// The failure --render-fault forces and when.
