@@ -1794,6 +1794,9 @@ bool Runtime::present_full_match_layers(bool dialogs) {
         // when the match cannot say, which draws every sprite in colour.
         auto& models = match_models();
         full::ModelFrameInputs model_inputs;
+        // Each of the frame's vertices' world height where the model stage
+        // drew it at one: what the ships' reflections mirror.
+        std::vector<float> vertex_heights;
         model_inputs.draws = &models.draws;
         model_inputs.world = &match_->world().record;
         model_inputs.library = &models.library;
@@ -1878,6 +1881,8 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                 water.disturbances = water_disturbances();
                 water.wind = water_wind();
                 water.art = &water_art;
+                vertex_heights.clear();
+                model_inputs.vertex_heights = water.reflections > 0 ? &vertex_heights : nullptr;
                 model_inputs.water_shimmer =
                     selected_tnt_->sea_level > 0
                         ? water.shimmer * std::clamp((zoom - 0.25F) / 0.25F, 0.0F, 1.0F)
@@ -1921,6 +1926,7 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                             full.models.emit_draw(model_inputs, scene, draw, full.executor, frame);
                             full.frame_vertices.models += frame.vertices.size() - before;
                         }
+                        water.vertex_heights = vertex_heights;
                         renderer_water_classic::objects(
                             frame, water, models.draws, draw, before, first_water_index
                         );

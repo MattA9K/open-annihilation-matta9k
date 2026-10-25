@@ -553,7 +553,9 @@ the game draws its text and how the modern fonts draw it.
     water are darkened and tinted blue as the game draws them at every
     other Hardware acceleration.
   - **Naval reflections** draw a faint, soft picture of each visible
-    surface ship on the water, fading as the view turns flat.
+    surface ship on the water, mirrored under its hull: each part of the
+    ship shows as far below its waterline as it stands above it, fainter
+    the higher it stands. They fade as the view turns flat.
 
   Fine detail fades as the view zooms out, and the reflections of distant
   fleets are kept few. These effects change only what your screen shows,

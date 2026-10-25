@@ -11,7 +11,9 @@
 #include <cmath>
 #include <chrono>
 #include <cstdio>
+#include <limits>
 #include <string_view>
+#include <vector>
 #include <utility>
 
 using namespace oa::app;
@@ -234,29 +236,68 @@ int main(int argc, char** argv) {
         batch.index_count = 6;
         frame.batches.push_back(batch);
     };
+    // A wall 32 map pixels high standing on the waterline: its top corners
+    // 64 high, 16 screen pixels above its foot at the sea's 32.
+    std::vector<float> heights{64, 64, 32, 32};
+    input.vertex_heights = heights;
     make_ship();
     renderer_water_classic::objects(frame, input, draws, draw, 0, 0);
     OA_CHECK(frame.vertices.size() > 4);
     OA_CHECK(frame.batches.size() == 3);
     OA_CHECK(input.reflected_vertices == frame.vertices.size() - 4);
     OA_CHECK(frame.vertices[0].y == 96);
-    // The reflected silhouette starts at the near hull edge and extends
-    // outside the original footprint, so the ship cannot paint it all over.
-    bool reflection_visible = false, reflection_faded = false;
+    // Mirrored in the water's surface right under the hull: each corner as
+    // far below the waterline as it stands above it, its foot on the
+    // waterline and its top 32 map pixels high shown 32 pixels down, fainter.
+    float nearest = 1000, furthest = 0;
     for (std::size_t i = 4; i < frame.vertices.size(); ++i) {
-        OA_CHECK(frame.vertices[i].y >= 112 && frame.vertices[i].y <= 115.841F);
-        OA_CHECK(frame.vertices[i].colour.alpha <= renderer_water_appearance::reflection_opacity);
-        reflection_visible = reflection_visible || frame.vertices[i].colour.alpha > 0.05F;
-        reflection_faded = reflection_faded || frame.vertices[i].colour.alpha < 0.001F;
+        const auto& corner = frame.vertices[i];
+        OA_CHECK(corner.y >= 112 - 1.0e-4F && corner.y <= 128 + 1.0e-4F);
+        OA_CHECK(corner.x >= 120 - 0.66F && corner.x <= 136 + 0.66F);
+        OA_CHECK(corner.colour.alpha <= renderer_water_appearance::reflection_opacity + 1.0e-6F);
+        if (std::abs(corner.y - 128) < 1.0e-3F)
+            OA_CHECK(
+                std::abs(
+                    corner.colour.alpha - renderer_water_appearance::reflection_opacity * 0.68F
+                ) < 1.0e-4F
+            );
+        nearest = std::min(nearest, corner.y);
+        furthest = std::max(furthest, corner.y);
     }
-    OA_CHECK(reflection_visible);
-    OA_CHECK(reflection_faded);
+    OA_CHECK(std::abs(nearest - 112) < 1.0e-4F && std::abs(furthest - 128) < 1.0e-4F);
     OA_CHECK(frame.batches[1].blend == card::Blend::alpha);
     const auto reflected_x = frame.vertices[4].x;
     make_ship();
     input.seconds += 0.5;
     renderer_water_classic::objects(frame, input, draws, draw, 0, 0);
     OA_CHECK(frame.vertices[4].x != reflected_x);
+    // What lies under the water mirrors nothing: a wall standing 16 below
+    // the waterline is cut there, at a third of its height up the screen.
+    heights = {64, 64, 16, 16};
+    input.vertex_heights = heights;
+    make_ship();
+    renderer_water_classic::objects(frame, input, draws, draw, 0, 0);
+    nearest = 1000, furthest = 0;
+    for (std::size_t i = 4; i < frame.vertices.size(); ++i) {
+        nearest = std::min(nearest, frame.vertices[i].y);
+        furthest = std::max(furthest, frame.vertices[i].y);
+    }
+    OA_CHECK(frame.vertices.size() > 4);
+    OA_CHECK(std::abs(nearest - (96 + 16 * 2 / 3.0F)) < 1.0e-3F);
+    OA_CHECK(std::abs(furthest - 128) < 1.0e-3F);
+    heights = {64, 64, 32, 32};
+    input.vertex_heights = heights;
+    // Corners the model stage gave no height mirror nothing.
+    heights.assign(heights.size(), std::numeric_limits<float>::quiet_NaN());
+    make_ship();
+    renderer_water_classic::objects(frame, input, draws, draw, 0, 0);
+    OA_CHECK(frame.vertices.size() == 4);
+    heights = {64, 64, 32, 32};
+    input.vertex_heights = {};
+    make_ship();
+    renderer_water_classic::objects(frame, input, draws, draw, 0, 0);
+    OA_CHECK(frame.vertices.size() == 4);
+    input.vertex_heights = heights;
     make_ship();
     // Deep hull origins still float at their definition's water line.
     definition.water_line = 20;

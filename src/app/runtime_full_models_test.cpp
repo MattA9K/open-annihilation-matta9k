@@ -664,6 +664,7 @@ struct Scene {
     std::array<uint8_t, full::team_colour_players> team_colors{};
     uint32_t tick{};
     float water_shimmer{};
+    std::vector<float>* vertex_heights{}; ///< where the stage keeps its vertices' heights
     uint32_t build_pulse_lag{};
 
     explicit Scene(
@@ -899,6 +900,7 @@ struct Scene {
         in.graphics_flags = world->game.graphics_flags;
         in.water_shimmer = water_shimmer;
         in.water_sea_level = world->game.sea_level;
+        in.vertex_heights = vertex_heights;
         in.water_seconds = tick / 30.0;
         in.build_pulse_tick = tick - build_pulse_lag;
         in.moving_pieces_once_built = renderer.moving_pieces_once_built;
@@ -1843,6 +1845,41 @@ void test_partial_water_model() {
         OA_CHECK(enabled.at(unit_x, unit_z + 30)[channel] == dry_tip[channel]);
     const auto* wet_foot = dry.at(unit_x, unit_z + 10);
     OA_CHECK(enabled.at(unit_x, unit_z + 10)[0] != wet_foot[0]);
+}
+
+/// Asked for them, the stage keeps beside the frame's vertices the world
+/// height each of a unit's polygons draws it at, NaN for the rest, and
+/// draws the same picture: the square four units up and the panel from
+/// four to twelve.
+void test_vertex_heights() {
+    Scene scene;
+    SceneUnit& own = scene.add_unit(resting_model(), 1, unit_x, unit_z);
+    own.unit->flags2 |= OA_UNIT_FLAG2_Z_BUFFER;
+    Card card(scene);
+    ProcessorPicture processor;
+    scene.begin_frame(processor, 0);
+    scene.plan_unit(own);
+    const auto plain = card.raster(scene);
+    OA_CHECK(!card.frame.vertices.empty());
+    std::vector<float> heights;
+    for (const float shimmer : {0.0F, 1.0F}) {
+        scene.water_shimmer = shimmer;
+        scene.vertex_heights = &heights;
+        heights.clear();
+        const auto measured = card.raster(scene);
+        if (shimmer == 0)
+            OA_CHECK(measured.rgba == plain.rgba);
+        OA_CHECK(!heights.empty() && heights.size() <= card.frame.vertices.size());
+        float lowest = 100, highest = -100;
+        for (const float height : heights)
+            if (std::isfinite(height)) {
+                lowest = std::min(lowest, height);
+                highest = std::max(highest, height);
+            }
+        OA_CHECK(std::abs(lowest - 4) < 0.01F);
+        OA_CHECK(highest > 8 && highest < 12.01F);
+        scene.vertex_heights = nullptr;
+    }
 }
 
 /// A face crossing the sea is cut before shading, so its dry half cannot inherit tint.
@@ -2958,6 +2995,7 @@ int main(int argc, char** argv) {
         test_mobile_nanoframe_once_built();
         test_underwater();
         test_water_shimmer();
+        test_vertex_heights();
         test_partial_water_model();
         test_waterline_face_split();
         test_water_attenuation_and_contact();

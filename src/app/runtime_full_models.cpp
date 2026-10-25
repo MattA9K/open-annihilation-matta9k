@@ -43,6 +43,7 @@
 #include <cmath>
 #include <cstring>
 #include <functional>
+#include <limits>
 #include <numeric>
 #include <span>
 #include <tuple>
@@ -192,6 +193,10 @@ struct Polygon {
     /// tinted as the blue table tints, halved, then lifted.
     bool underwater{};
     bool water_geometry{};
+    /// Its corners' world heights hold a plane over it (height_x, height_y,
+    /// height_origin), which Underwater shimmer shades by where the polygon
+    /// dips under the water and Naval reflections mirror its corners by.
+    bool height_plane{};
     float height_x{};
     float height_y{};
     float height_origin{};
@@ -241,6 +246,7 @@ void water_plane(Polygon& polygon, std::span<const Corner> corners) {
             determinant;
         polygon.height_origin = a.world_height - polygon.height_x * a.x - polygon.height_y * a.y;
         polygon.water_geometry = true;
+        polygon.height_plane = true;
         break;
     }
 }
@@ -2008,7 +2014,7 @@ void Emitter::add_piece_polygons(
             corner.x = placed.x;
             corner.y = placed.y;
             corner.depth = placed.depth;
-            if (in_.water_shimmer > 0 && model.unit) {
+            if ((in_.water_shimmer > 0 || in_.vertex_heights != nullptr) && model.unit) {
                 corner.world_height =
                     points[source].y / 65536.0F + model.unit->position.y / 65536.0F;
                 submerged_corner = submerged_corner || corner.world_height < in_.water_sea_level;
@@ -2045,11 +2051,16 @@ void Emitter::add_piece_polygons(
             continue;
         }
         polygon.depth = static_cast<int32_t>(depth_sum / run.corner_count);
-        if (in_.water_shimmer > 0 && model.unit && submerged_corner)
+        if (model.unit &&
+            ((in_.water_shimmer > 0 && submerged_corner) || in_.vertex_heights != nullptr)) {
             water_plane(
                 polygon,
                 std::span(impl_.corners.data() + polygon.first_corner, polygon.corner_count)
             );
+            // Shaded by the shimmer only where it dips under the water.
+            polygon.water_geometry =
+                polygon.water_geometry && in_.water_shimmer > 0 && submerged_corner;
+        }
         if (textured) {
             polygon.bright = highest_row >= first_bright_row;
             for (uint32_t k = 0; k < run.corner_count; ++k) {
@@ -2909,12 +2920,24 @@ void Emitter::leave_out_holes(const Canvas& surface, const Polygon& polygon) {
 void Emitter::append_body(const Canvas& surface, const Polygon& polygon, card::PageHandle page) {
     if (polygon.hole_count != 0)
         leave_out_holes(surface, polygon);
+    const auto height_of = [&](const card::Vertex& vertex) {
+        const float x = (vertex.x - surface.origin_x) / scale_;
+        const float y = (vertex.y - surface.origin_y) / scale_;
+        return polygon.height_origin + polygon.height_x * x + polygon.height_y * y;
+    };
+    // Each vertex's world height beside the frame's vertices, where they are
+    // asked for: NaN for the vertices other draws appended before these.
+    const auto record_heights = [&](std::span<const card::Vertex> vertices) {
+        if (in_.vertex_heights == nullptr)
+            return;
+        auto& heights = *in_.vertex_heights;
+        heights.resize(frame_.vertices.size(), std::numeric_limits<float>::quiet_NaN());
+        for (const card::Vertex& vertex : vertices)
+            heights.push_back(
+                polygon.height_plane ? height_of(vertex) : std::numeric_limits<float>::quiet_NaN()
+            );
+    };
     if (polygon.water_geometry && in_.water_shimmer > 0) {
-        const auto height_of = [&](const card::Vertex& vertex) {
-            const float x = (vertex.x - surface.origin_x) / scale_;
-            const float y = (vertex.y - surface.origin_y) / scale_;
-            return polygon.height_origin + polygon.height_x * x + polygon.height_y * y;
-        };
         renderer_water_shading::split(
             vertices_,
             indices_,
@@ -2935,8 +2958,10 @@ void Emitter::append_body(const Canvas& surface, const Polygon& polygon, card::P
                 );
             }
         );
+        record_heights(wet_vertices_);
         append(surface, page, card::Blend::alpha, wet_vertices_, wet_indices_);
     } else {
+        record_heights(vertices_);
         append(surface, page, card::Blend::alpha, vertices_, indices_);
     }
 }

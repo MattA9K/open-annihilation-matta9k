@@ -467,38 +467,56 @@ void objects(
     }
     const auto end_vertex = frame.vertices.size(), end_index = frame.indices.size();
     if (!naval || std::abs(y + hull_waterline - sea) > 12 || in.reflections <= 0 ||
+        in.vertex_heights.size() <= first_vertex ||
         end_vertex - first_vertex + in.reflected_vertices > maximum_reflected_vertices)
         return;
-    // The classic view has no per-pixel model depth. Attach its flattened
-    // silhouette to the near hull edge, rather than the unit centre where
-    // the original hull would cover almost the entire reflected picture.
-    float axis = screen(in, x, z - sea * 0.5F)[1];
-    float silhouette_top = axis;
-    for (std::size_t i = first_vertex; i < end_vertex; ++i) {
-        axis = std::max(axis, frame.vertices[i].y);
-        silhouette_top = std::min(silhouette_top, frame.vertices[i].y);
-    }
-    const float reflection_height = std::max(
-        1.0F, std::min((axis - silhouette_top) * 0.24F, 10 * in.view.zoom * in.view.scale)
-    );
-    std::vector<card::Vertex> reflected;
-    reflected.reserve(end_vertex - first_vertex);
-    for (std::size_t i = first_vertex; i < end_vertex; ++i) {
-        auto v = frame.vertices[i];
-        v.y = axis + (axis - v.y) * 0.4F;
-        v.x += std::sin((v.y - axis) * 0.16F + float(in.seconds) * 2) * 0.7F * in.view.scale *
-               in.view.zoom;
-        const float opacity = std::min(
-                                  renderer_water_appearance::reflection_cap,
-                                  renderer_water_appearance::reflection_opacity * in.reflections
-                              ) *
-                              detail(in);
+    // The hull mirrored in the water's surface: a point standing above the
+    // water shows as far below its waterline as it stands above it, which
+    // in the game's projection, where a point h higher shows h / 2 higher,
+    // is its height above the water down the screen. Each corner takes the
+    // height the model stage drew it at; the parts under the water are cut
+    // off at the waterline, as they mirror nothing.
+    const float scale = in.view.zoom * in.view.scale;
+    const float opacity = std::min(
+                              renderer_water_appearance::reflection_cap,
+                              renderer_water_appearance::reflection_opacity * in.reflections
+                          ) *
+                          detail(in);
+
+    struct Corner {
+        card::Vertex vertex{};
+        float height{};
+    };
+
+    const auto between = [](const Corner& a, const Corner& b, float t) {
+        const auto mix = [t](float from, float to) { return from + (to - from) * t; };
+        Corner corner = a;
+        corner.vertex.x = mix(a.vertex.x, b.vertex.x);
+        corner.vertex.y = mix(a.vertex.y, b.vertex.y);
+        corner.vertex.u = mix(a.vertex.u, b.vertex.u);
+        corner.vertex.v = mix(a.vertex.v, b.vertex.v);
+        corner.vertex.colour = {
+            mix(a.vertex.colour.red, b.vertex.colour.red),
+            mix(a.vertex.colour.green, b.vertex.colour.green),
+            mix(a.vertex.colour.blue, b.vertex.colour.blue),
+            mix(a.vertex.colour.alpha, b.vertex.colour.alpha)
+        };
+        corner.height = mix(a.height, b.height);
+        return corner;
+    };
+    const auto mirrored = [&](const Corner& corner) {
+        auto v = corner.vertex;
+        const float altitude = std::max(0.0F, corner.height - sea);
+        v.y += altitude * scale;
+        const auto water = water_position(in, v);
+        v.x += std::sin(water[1] * 0.12F + float(in.seconds) * 1.3F) * 0.65F * scale;
         v.colour.red *= renderer_water_appearance::reflection_brightness;
         v.colour.green *= renderer_water_appearance::reflection_brightness;
         v.colour.blue *= renderer_water_appearance::reflection_brightness;
-        v.colour.alpha *= opacity;
-        reflected.push_back(v);
-    }
+        // Fainter the higher the point it mirrors.
+        v.colour.alpha *= opacity * std::clamp(1 - altitude / 100, 0.0F, 1.0F);
+        return v;
+    };
     // Reject any triangle whose water footprint crosses a dry or unseen cell.
     // Conservative rejection leaves the original coast and fog entirely untouched.
     std::vector<card::Vertex> clipped_vertices;
@@ -525,47 +543,36 @@ void objects(
         copy.blend = card::Blend::alpha;
         copy.sampling = card::Sampling::linear;
         for (auto i = begin; i + 2 < end; i += 3) {
-            std::array<card::Vertex, 3> triangle{};
+            std::array<Corner, 3> triangle{};
             bool valid = true;
             for (int k = 0; k < 3; ++k) {
                 const auto index = frame.indices[i + k];
-                if (index < first_vertex || index >= end_vertex) {
+                if (index < first_vertex || index >= end_vertex ||
+                    index >= in.vertex_heights.size() || !std::isfinite(in.vertex_heights[index])) {
                     valid = false;
                     break;
                 }
-                triangle[k] = reflected[index - first_vertex];
+                triangle[k] = {frame.vertices[index], in.vertex_heights[index]};
             }
             if (!valid)
                 continue;
-            // Keep only a short band beside the near hull. Tall superstructure
-            // and the distant side cannot become a second complete ship.
-            std::array<card::Vertex, 5> clipped{};
+            // The part above the water.
+            std::array<card::Vertex, 4> clipped{};
             std::size_t count = 0;
-            const float limit = axis + reflection_height;
             for (int k = 0; k < 3; ++k) {
                 const auto& a = triangle[k];
                 const auto& b = triangle[(k + 1) % 3];
-                const bool inside_a = a.y <= limit, inside_b = b.y <= limit;
-                if (inside_a)
-                    clipped[count++] = a;
-                if (inside_a != inside_b) {
-                    const float t = (limit - a.y) / (b.y - a.y);
-                    auto v = a;
-                    v.x += (b.x - a.x) * t;
-                    v.y = limit;
-                    v.u += (b.u - a.u) * t;
-                    v.v += (b.v - a.v) * t;
-                    v.colour.red += (b.colour.red - a.colour.red) * t;
-                    v.colour.green += (b.colour.green - a.colour.green) * t;
-                    v.colour.blue += (b.colour.blue - a.colour.blue) * t;
-                    v.colour.alpha += (b.colour.alpha - a.colour.alpha) * t;
-                    clipped[count++] = v;
-                }
+                const bool dry_a = a.height >= sea, dry_b = b.height >= sea;
+                if (dry_a)
+                    clipped[count++] = mirrored(a);
+                if (dry_a != dry_b)
+                    clipped[count++] =
+                        mirrored(between(a, b, (sea - a.height) / (b.height - a.height)));
             }
             if (count < 3 || in.reflected_vertices + clipped_vertices.size() + count >
                                  maximum_reflected_vertices)
                 continue;
-            std::array<std::array<float, 2>, 5> p{};
+            std::array<std::array<float, 2>, 4> p{};
             for (std::size_t k = 0; k < count; ++k)
                 p[k] = water_position(in, clipped[k]);
             float left = p[0][0], right = left, top = p[0][1], bottom = top;
@@ -585,12 +592,9 @@ void objects(
                     }
             if (valid) {
                 const auto first = static_cast<card::Index>(end_vertex + clipped_vertices.size());
-                for (std::size_t k = 0; k < count; ++k) {
-                    auto v = clipped[k];
-                    const float fade = std::clamp(1 - (v.y - axis) / reflection_height, 0.0F, 1.0F);
-                    v.colour.alpha *= fade * fade;
-                    clipped_vertices.push_back(v);
-                }
+                clipped_vertices.insert(
+                    clipped_vertices.end(), clipped.begin(), clipped.begin() + std::ptrdiff_t(count)
+                );
                 for (uint32_t k = 1; k + 1 < count; ++k) {
                     frame.indices.push_back(first);
                     frame.indices.push_back(first + k);

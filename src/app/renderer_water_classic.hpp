@@ -25,6 +25,10 @@ struct Inputs {
     /// which moves what lies on the sea bed with it; null for none.
     const full_terrain::ArtMotion* art{};
     std::span<const renderer_water::Disturbance> disturbances{};
+    /// Each of the frame's vertices' world height, in map pixels, where the
+    /// model stage drew it at one (full::ModelFrameInputs::vertex_heights),
+    /// NaN elsewhere: the heights a ship's reflection mirrors.
+    std::span<const float> vertex_heights{};
     /// Vertices already spent on reflections in this scene.
     std::size_t reflected_vertices{};
     /// True only for currently visible projected map pixels.
