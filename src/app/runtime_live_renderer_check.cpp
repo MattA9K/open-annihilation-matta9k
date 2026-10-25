@@ -77,19 +77,18 @@ int Runtime::check_live_renderer() {
     require(SDL_InitSubSystem(SDL_INIT_VIDEO), "could not initialize windowless video");
     require(sdl_.window == nullptr, "the check must not own a visible window");
     options_.experimental_3d = false;
-    // The rotated view draws on Full, where the four effects are on by
-    // default; the check's named preferences file is Off, which reads them
-    // as off.
+    // The rotated view draws on Full, where each of the four effects is on
+    // at its own default; the check's named preferences file is Off, which
+    // reads them as off.
     require(engine_settings_ != nullptr, "the check has no graphics settings");
     {
         using oa::ui::engine_settings::HardwareAcceleration;
-        auto& settings = engine_settings_->current;
-        const uint32_t full =
-            oa::ui::engine_settings::default_effect_intensity(HardwareAcceleration::full);
-        settings.weapon_lighting = full;
-        settings.nanolathe_lighting = full;
-        settings.wreck_glow = full;
-        settings.heat_distortion = full;
+        for (const auto& slider : oa::ui::engine_settings::effect_sliders)
+            if (slider.follows_acceleration)
+                engine_settings_->current.*slider.percent =
+                    oa::ui::engine_settings::default_effect_intensity(
+                        slider.percent, HardwareAcceleration::full
+                    );
     }
     start_benchmark_skirmish();
     require(match_ != nullptr, "Skirmish did not create a match");
@@ -1093,12 +1092,13 @@ int Runtime::check_live_renderer() {
     // rotated view. Disabling their settings must leave composition inert.
     require(engine_settings_ != nullptr, "the effects check has no graphics settings");
     const auto saved_effect_settings = engine_settings_->current;
-    require(
-        oa::ui::engine_settings::default_effect_intensity(
-            oa::ui::engine_settings::HardwareAcceleration::full
-        ) == 100,
-        "the battlefield effects are not on by default with Full acceleration"
-    );
+    for (const auto& slider : oa::ui::engine_settings::effect_sliders)
+        require(
+            oa::ui::engine_settings::default_effect_intensity(
+                slider.percent, oa::ui::engine_settings::HardwareAcceleration::full
+            ) != 0,
+            "an effect is not on by default with Full acceleration"
+        );
     const auto effects_enabled = [&](bool enabled) {
         auto& settings = engine_settings_->current;
         settings.weapon_lighting = enabled ? 100 : 0;
