@@ -515,11 +515,14 @@ latched the closing key and drew a backdrop.
   (`tick_and_draw_cursor`). The layer is uploaded again only when a
   screen's drawing or place changes. A screen whose revision covers
   everything it draws (`revision_covers_drawing`: the Library, the
-  notices, the questions, the work dialog, the kit gallery and the
-  extensions' kit screens) is drawn again only when its revision, its
-  place, its scale, the screens darkening it, the fonts, the icon, the
-  interface's language or the text settings change (`KeptDrawing`); every
-  other screen, Settings among them, is drawn each frame. Without a renderer, and while
+  notices, the questions, the kit gallery and the extensions' kit
+  screens) is drawn again only when its revision, its place, its scale,
+  the screens darkening it, the fonts, the icon, the interface's language
+  or the text settings change (`KeptDrawing`); every other screen,
+  Settings among them, is drawn each frame. A check that reads what a
+  frame draws drops the kept drawings before it (`forget_kept_drawings`),
+  as the text-fit check does, since the kit records a text only while it
+  is drawn. Without a renderer, and while
   `frame_without_cursor` draws the picture, the screens are drawn into the
   frame instead (`compose_front_end`), each picture pixel taking the
   screen's pixel at its centre in the window, which is what the player sees

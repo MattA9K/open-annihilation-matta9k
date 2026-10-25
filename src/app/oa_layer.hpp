@@ -904,6 +904,13 @@ class OaLayer {
     /// @return the count
     [[nodiscard]] uint32_t front_darkenings() const;
 
+    /// Drops the drawings the front end keeps of the screens whose revision
+    /// covers what they draw, so that the next present draws every screen
+    /// again. A check that reads what a frame draws, as the text-fit check
+    /// reads the texts the kit records while they are drawn, calls it before
+    /// that frame.
+    void forget_kept_drawings() noexcept;
+
     /// The layer's overlay's input callback (OverlayDesc::event): take_input.
     ///
     /// @param context the screen context, with its input and the runtime as its host
@@ -1686,12 +1693,12 @@ class WorkScreen final : public LayerScreen {
 
   private:
 
-    OaLayer& layer_;                  ///< the layer it shows on
-    Screen over_{};                   ///< the screen of the game it shows over
-    oa::ui::kit::WorkDialog dialog_;  ///< the dialog
-    Host host_;                       ///< what its host does
-    uint32_t began_ms_{};             ///< when it was made, on the platform's clock
-    uint64_t revision_{};             ///< counts the changes to its look
+    OaLayer& layer_;                 ///< the layer it shows on
+    Screen over_{};                  ///< the screen of the game it shows over
+    oa::ui::kit::WorkDialog dialog_; ///< the dialog
+    Host host_;                      ///< what its host does
+    uint32_t began_ms_{};            ///< when it was made, on the platform's clock
+    uint64_t revision_{};            ///< counts the changes to its look
 };
 
 /// A question of Open Annihilation's own (kit::Question) as a screen of the

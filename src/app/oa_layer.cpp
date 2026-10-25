@@ -2962,6 +2962,10 @@ uint32_t OaLayer::front_darkenings() const {
     );
 }
 
+void OaLayer::forget_kept_drawings() noexcept {
+    front_drawings_.clear();
+}
+
 void OaLayer::darken_front_end(renderer::Surface& frame) const {
     // A blend of the frame itself, in 256ths, for each: the same picture the
     // window shows at every size. A match is left as it is.
