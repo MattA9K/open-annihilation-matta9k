@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "open-annihilation": {
-      "command": "python3",
-      "args": ["tools/mcp/oa_mcp_server.py"]
-    }
-  }
-}

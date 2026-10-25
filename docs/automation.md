@@ -455,10 +455,20 @@ starts the game with `--fark`, or attaches to one started so, and offers
 the endpoint's requests to an MCP client as tools: the screen and its
 controls, a click on a control by its name, a list's row by its text, keys,
 typed text, the pointer and the wheel, a picture of the frame, the
-preferences, the match, the battle room and the events. Claude Code finds
-it through `.mcp.json` at the repository's root. It drives the game only
-through the endpoint's requests, so what the endpoint
-[never does](#what-it-never-does) it never does either.
+preferences, the match, the battle room and the events. It is registered
+with the client by hand; the repository holds no project file that starts
+it.
+
+Unlike the endpoint, the server starts a program: Open Annihilation's own
+executable alone, with the command-line options it allows and a new
+preferences file in a scratch folder of its own unless told otherwise. It
+reads the endpoint file and the game's log, writes only that scratch
+folder, and connects only to the loopback address. The game it drives does
+what its input does, as a player's would: it can change and save the
+settings, install and fetch packages, write to the player's folders, and
+in a battle room send chat that the other players see.
+[tools/mcp](../tools/mcp/README.md#what-it-reads-writes-and-starts) says
+it all.
 
 ## Checks
 
