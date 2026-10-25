@@ -1717,7 +1717,12 @@ void water_surface_bounds() {
     fixture.inputs.water.ripples = fixture.inputs.water.coastal_waves = 0;
     OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
     OA_CHECK(fixture.scene.vertices.size() == fixture.scene.terrain_vertex_count);
+    // Water ripples lay no sheet over the water: the vertex stage moves the
+    // ground's own art.
     fixture.inputs.water.ripples = 1;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.vertices.size() == fixture.scene.terrain_vertex_count);
+    fixture.inputs.water.coastal_waves = 1;
     fixture.mapped[0] = fixture.coverage[0] = 0;
     OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
     for (const auto& vertex : fixture.scene.vertices)

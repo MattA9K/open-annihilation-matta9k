@@ -1,15 +1,18 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
-// Classic water geometry remains bounded, visible, optional and outside dry land.
+// Classic water geometry remains bounded, visible, optional and outside dry land,
+// and Water ripples move the map's own water art.
 #include "renderer_water_classic.hpp"
 #include "renderer_water_appearance.hpp"
 #include "renderer_water_surface.hpp"
 #include "renderer_water_effects.hpp"
 #include "oa/test/check.hpp"
+#include <array>
 #include <cmath>
 #include <chrono>
 #include <cstdio>
 #include <string_view>
+#include <utility>
 
 using namespace oa::app;
 
@@ -36,6 +39,9 @@ int main(int argc, char** argv) {
                 output.reset();
                 const auto start = std::chrono::steady_clock::now();
                 renderer_water_classic::surface(output, water);
+                const auto motion =
+                    renderer_water_classic::art_motion(water, 0, 0, 1920 / zoom, 1080 / zoom);
+                vertices = std::max(vertices, motion.offsets.size());
                 const double elapsed = std::chrono::duration<double, std::milli>(
                                            std::chrono::steady_clock::now() - start
                 )
@@ -45,8 +51,8 @@ int main(int argc, char** argv) {
                 vertices = std::max(vertices, output.vertices.size());
             }
             std::printf(
-                "classic water geometry zoom %.2f: 20 frames, mean %.4f ms, max %.4f ms, max %zu "
-                "vertices\n",
+                "classic water geometry and art motion zoom %.2f: 20 frames, mean %.4f ms, max "
+                "%.4f ms, max %zu vertices or motion points\n",
                 zoom,
                 total / 20,
                 maximum,
@@ -68,70 +74,129 @@ int main(int argc, char** argv) {
     input.coast = 1;
     input.wind.strength = 1;
     input.visible = [](float, float) { return true; };
+    // Water ripples wash no layer of their own over the water: they move
+    // the map's own water art (art_motion), and the surface keeps only the
+    // coast's foam and the shots' rings, none on this deep sea.
     card::CardFrame frame;
     renderer_water_classic::surface(frame, input);
-    OA_CHECK(!frame.vertices.empty());
-    OA_CHECK(frame.vertices.size() <= 4096 * 28);
-    const auto first_frame = frame.vertices;
-    OA_CHECK(std::any_of(frame.vertices.begin(), frame.vertices.end(), [](const auto& vertex) {
-        return vertex.colour.alpha > 0.05F;
-    }));
-    frame.reset();
-    input.seconds = 0.5;
-    input.wind.drift_x = 12;
-    renderer_water_classic::surface(frame, input);
-    OA_CHECK(!frame.vertices.empty());
-    bool travelled = frame.vertices.size() != first_frame.size();
-    for (std::size_t i = 0; i < std::min(frame.vertices.size(), first_frame.size()); ++i)
-        travelled = travelled || frame.vertices[i].colour.alpha != first_frame[i].colour.alpha;
-    OA_CHECK(travelled);
-    const renderer_water::Wind calm{};
+    OA_CHECK(frame.vertices.empty());
+    input.view.zoom = 1;
+    const auto motion = renderer_water_classic::art_motion(input, 0, 0, 320, 240);
+    OA_CHECK(motion.spacing == 16 && motion.first_x == 0 && motion.first_y == 0);
+    OA_CHECK(motion.columns == 21 && motion.rows == 16);
+    OA_CHECK(motion.offsets.size() == 21U * 16U && !motion.still());
+    // The grid's offsets are the shared waves' at the water plane each
+    // picture row shows, as the rotated view's stages compute them.
+    float largest = 0;
+    for (uint32_t row = 0; row < motion.rows; ++row)
+        for (uint32_t column = 0; column < motion.columns; ++column) {
+            const float x = float(column * motion.spacing), y = float(row * motion.spacing);
+            const auto expected = renderer_water_surface::art_offset(
+                x, y + map.sea_level * 0.5F, input.wind, renderer_water_surface::fine_detail(1)
+            );
+            const auto& offset = motion.offsets[row * motion.columns + column];
+            OA_CHECK(std::abs(offset[0] - expected[0]) < 1.0e-3F);
+            OA_CHECK(std::abs(offset[1] - expected[1]) < 1.0e-3F);
+            largest = std::max(largest, std::hypot(offset[0], offset[1]));
+        }
+    // A gentle motion of a pixel or two, never a jump across the art.
+    OA_CHECK(largest > 0.75F && largest < 4.75F);
+    // The grid keeps 8 to 16 window pixels between its points at any zoom.
+    for (const auto& [zoom, spacing] : std::array<std::pair<float, uint32_t>, 6>{
+             {{0.5F, 32}, {0.75F, 16}, {1.0F, 16}, {1.5F, 8}, {2.0F, 8}, {3.0F, 4}}
+         }) {
+        input.view.zoom = zoom;
+        OA_CHECK(renderer_water_classic::art_motion(input, 0, 0, 320, 240).spacing == spacing);
+    }
+    // Faded out as the view zooms out to 0.25, and doubled at 200%.
+    input.view.zoom = 0.25F;
+    OA_CHECK(renderer_water_classic::art_motion(input, 0, 0, 320, 240).offsets.empty());
+    input.view.zoom = 0.375F;
+    const auto faded = renderer_water_classic::art_motion(input, 0, 0, 320, 240);
+    input.view.zoom = 0.5F;
+    const auto whole = renderer_water_classic::art_motion(input, 0, 0, 320, 240);
+    OA_CHECK(faded.offsets.size() == whole.offsets.size());
+    for (std::size_t i = 0; i < std::min(faded.offsets.size(), whole.offsets.size()); ++i)
+        OA_CHECK(std::abs(faded.offsets[i][0] - whole.offsets[i][0] * 0.5F) < 1.0e-4F);
+    input.view.zoom = 1;
+    input.ripples = 2;
+    const auto doubled = renderer_water_classic::art_motion(input, 0, 0, 320, 240);
+    for (std::size_t i = 0; i < motion.offsets.size(); ++i)
+        OA_CHECK(std::abs(doubled.offsets[i][0] - motion.offsets[i][0] * 2) < 1.0e-4F);
+    input.ripples = 0;
+    OA_CHECK(renderer_water_classic::art_motion(input, 0, 0, 320, 240).offsets.empty());
+    input.ripples = 1;
+    // The coast stays where it is: no motion on land or at the waterline,
+    // which lies within the cell before the land's, and the whole of it
+    // from 12 map pixels deep.
+    for (uint32_t row = 0; row < map.attribute_height; ++row)
+        for (uint32_t column = 16; column < map.attribute_width; ++column)
+            map.attributes[row * map.attribute_width + column].height = 40;
+    const auto coast = renderer_water_classic::art_motion(input, 0, 0, 512, 512);
+    for (uint32_t row = 0; row < coast.rows; ++row)
+        for (uint32_t column = 0; column < coast.columns; ++column) {
+            const auto& offset = coast.offsets[row * coast.columns + column];
+            const float x = float(coast.first_x) + float(column * coast.spacing);
+            const float y = float(coast.first_y) + float(row * coast.spacing);
+            if (x >= 17 * 16)
+                OA_CHECK(offset[0] == 0 && offset[1] == 0);
+            if (x <= 13 * 16 && y + map.sea_level * 0.5F < 31 * 16) {
+                const auto expected =
+                    renderer_water_surface::art_offset(x, y + map.sea_level * 0.5F, input.wind, 0);
+                OA_CHECK(std::abs(offset[0] - expected[0]) < 1.0e-3F);
+            }
+        }
+    for (auto& attribute : map.attributes)
+        attribute.height = 64;
+    OA_CHECK(renderer_water_classic::art_motion(input, 0, 0, 320, 240).offsets.empty());
+    for (auto& attribute : map.attributes)
+        attribute.height = 0;
+    const renderer_water::Wind calm{1, 0, 0, 0, 0};
     const renderer_water::Wind east{1, 0, 1, 0, 0};
     const renderer_water::Wind north{0, 1, 1, 0, 0};
     const renderer_water::Wind drift_east{1, 0, 1, 12, 0};
     const renderer_water::Wind drift_north{0, 1, 1, 0, 12};
-    bool stronger = false, redirected = false;
+    // Calm water stays still; the map's flow turns and moves the motion.
+    input.wind = {1, 0, 0, 0, 0};
+    OA_CHECK(renderer_water_classic::art_motion(input, 0, 0, 320, 240).offsets.empty());
+    input.wind = east;
+    bool turned = false, travelled = false;
     for (int z = 0; z < 240; z += 17)
         for (int x = 0; x < 320; x += 19) {
-            const auto still = renderer_water_surface::ripple_alpha(float(x), float(z), calm);
-            const auto moving = renderer_water_surface::ripple_alpha(float(x), float(z), east);
-            stronger = stronger || moving > still;
-            OA_CHECK(moving == renderer_water_surface::ripple_alpha(float(x), float(z), north));
-            redirected = redirected ||
-                         renderer_water_surface::ripple_alpha(float(x), float(z), drift_east) !=
-                             renderer_water_surface::ripple_alpha(float(x), float(z), drift_north);
+            const float px = float(x), pz = float(z);
+            OA_CHECK(
+                (renderer_water_surface::art_offset(px, pz, calm, 1) == std::array<float, 2>{})
+            );
+            turned = turned || renderer_water_surface::art_offset(px, pz, east, 1) !=
+                                   renderer_water_surface::art_offset(px, pz, north, 1);
+            travelled = travelled || renderer_water_surface::art_offset(px, pz, drift_east, 1) !=
+                                         renderer_water_surface::art_offset(px, pz, east, 1);
+            OA_CHECK(
+                renderer_water_surface::art_offset(px, pz, drift_east, 1) !=
+                renderer_water_surface::art_offset(px, pz, drift_north, 1)
+            );
         }
-    OA_CHECK(stronger);
-    OA_CHECK(redirected);
+    OA_CHECK(turned && travelled);
+    // The fine ripples show only up close.
+    OA_CHECK(renderer_water_surface::fine_detail(1) == 0);
+    OA_CHECK(renderer_water_surface::fine_detail(1.5F) == 1);
     bool fine_detail = false;
     for (int x = 0; x < 320; x += 11)
-        fine_detail =
-            fine_detail || renderer_water_surface::ripple_alpha(float(x), 96, east, 0.5F) !=
-                               renderer_water_surface::ripple_alpha(float(x), 96, east, 1.25F);
+        fine_detail = fine_detail || renderer_water_surface::art_offset(float(x), 96, east, 0) !=
+                                         renderer_water_surface::art_offset(float(x), 96, east, 1);
     OA_CHECK(fine_detail);
-    // No single component's translation reproduces the whole evolving field.
-    for (float ratio : {0.28F, 0.65F, 1.0F, 1.35F}) {
+    // The swells and ripples travel at their own speeds: no translation of
+    // the still field reproduces the moving one.
+    for (float ratio : {0.28F, 0.45F, 0.65F, 1.0F, 1.1F, 1.35F}) {
         float difference = 0;
         for (int z = 24; z < 240; z += 31)
             for (int x = 24; x < 320; x += 37)
                 difference += std::abs(
-                    renderer_water_surface::ripple_alpha(float(x), float(z), drift_east, 1.25F) -
-                    renderer_water_surface::ripple_alpha(
-                        float(x) - 12 * ratio, float(z), east, 1.25F
-                    )
+                    renderer_water_surface::art_offset(float(x), float(z), drift_east, 1)[0] -
+                    renderer_water_surface::art_offset(float(x) - 12 * ratio, float(z), east, 1)[0]
                 );
         OA_CHECK(difference > 0.01F);
     }
-    input.wind = calm;
-    frame.reset();
-    renderer_water_classic::surface(frame, input);
-    const auto calm_vertices = frame.vertices;
-    input.seconds += 5;
-    frame.reset();
-    renderer_water_classic::surface(frame, input);
-    OA_CHECK(frame.vertices.size() == calm_vertices.size());
-    for (std::size_t i = 0; i < std::min(frame.vertices.size(), calm_vertices.size()); ++i)
-        OA_CHECK(frame.vertices[i].colour.alpha == calm_vertices[i].colour.alpha);
     input.wind = east;
     frame.reset();
     input.visible = [](float, float) { return false; };

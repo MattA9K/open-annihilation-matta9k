@@ -2456,9 +2456,11 @@ void water_disturbances(const Inputs& in, Scene& scene) {
     }
 }
 
-/// Adds a transparent water sheet only over the already visible wet ground triangles.
+/// Adds a transparent water sheet for the coastal waves only over the
+/// already visible wet ground triangles. Water ripples need none: they
+/// move the ground's own art (shaders/live_scene_vertex.glsl).
 void water_surface(const Inputs& in, Scene& scene) {
-    if (in.water.detail <= 0 || (in.water.ripples <= 0 && in.water.coastal_waves <= 0))
+    if (in.water.detail <= 0 || in.water.coastal_waves <= 0)
         return;
     constexpr std::size_t vertex_budget = 196608;
     const auto begin = scene.vertices.size();

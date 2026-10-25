@@ -588,117 +588,123 @@ void water_frames() {
     OA_CHECK(scene.pixels.empty());
 }
 
-/// Diffuse highlights follow integrated wind without moving calm water or grading dry pixels.
-void ripple_visible_contrast() {
+/// Water ripples move the ground's own art under the water and lay no
+/// colour of their own over it: every pixel keeps a colour of the art, dry
+/// ground stays, the art travels with the map's flow, and calm water,
+/// ripples at 0% and a distant view stay as drawn.
+void ripple_art_motion() {
     Context context;
-    constexpr uint32_t size = 192;
-    const std::array<uint8_t, 4> atlas{20, 60, 100, full_channel};
-    std::vector<Vertex> vertices;
-    const auto quad = [&](float right, float height, bool water_surface) {
-        std::array<Vertex, 6> faces{
-            Vertex{0, height, 0},
-            Vertex{right, height, 0},
-            Vertex{0, height, size},
-            Vertex{right, height, 0},
-            Vertex{right, height, size},
-            Vertex{0, height, size}
-        };
-        for (auto& vertex : faces) {
-            vertex.terrain_size = water_surface ? -2.0F : 0.0F;
-            vertex.terrain_x = water_surface ? 20.0F : 0.0F;
+    constexpr uint32_t atlas_size = 64;
+    constexpr uint32_t size = 128;
+    constexpr uint32_t cell = 16;
+    constexpr float sea = 20;
+    // Stripes three texels wide across the whole atlas, its levels too.
+    constexpr std::array<int, 3> dark{20, 40, 60};
+    constexpr std::array<int, 3> bright{200, 180, 160};
+    std::vector<uint8_t> atlas(atlas_size * atlas_size * channels, full_channel);
+    for (uint32_t y = 0; y < atlas_size; ++y)
+        for (uint32_t x = 0; x < atlas_size; ++x) {
+            const auto& colour = (x / 3) % 2 != 0 ? bright : dark;
+            for (uint32_t channel = 0; channel < 3; ++channel)
+                atlas[(size_t(y) * atlas_size + x) * channels + channel] =
+                    static_cast<uint8_t>(colour[channel]);
         }
-        vertices.insert(vertices.end(), faces.begin(), faces.end());
-    };
-    quad(size, 0, false);
-    quad(size / 2, 0.05F, true);
+    // Ground cells of half a tile each: under the sea left of x 64, dry
+    // ground above it from there on.
+    std::vector<Vertex> vertices;
+    for (uint32_t row = 0; row < size / cell; ++row)
+        for (uint32_t column = 0; column < size / cell; ++column) {
+            const float height = column < 4 ? 0.0F : 30.0F;
+            const float x = float(column * cell), z = float(row * cell);
+            const float u = float((column % 2) * cell), v = float((row % 2) * cell);
+            const auto corner = [&](float dx, float dz) {
+                Vertex vertex{x + dx, height, z + dz, (u + dx) / atlas_size, (v + dz) / atlas_size};
+                vertex.terrain_size = 32;
+                return vertex;
+            };
+            const std::array corners{
+                corner(0, 0), corner(cell, 0), corner(0, cell), corner(cell, cell)
+            };
+            vertices.insert(
+                vertices.end(),
+                {corners[0], corners[1], corners[2], corners[1], corners[3], corners[2]}
+            );
+        }
     WaterEffects water{};
+    water.sea_level = sea;
+    water.wind.strength = 1;
     std::vector<uint8_t> pixels;
     std::string error;
     const auto frame = [&] {
-        return render(
-            context,
-            vertices,
-            atlas,
-            1,
-            1,
-            1,
-            size,
-            size,
-            classic_projection,
-            pixels,
-            error,
-            1,
-            nullptr,
-            &water
+        OA_CHECK(
+            render(
+                context,
+                vertices,
+                atlas,
+                atlas_size,
+                atlas_size,
+                1,
+                size,
+                size,
+                classic_projection,
+                pixels,
+                error,
+                1,
+                nullptr,
+                &water
+            ) == Result::success
         );
+        return pixels;
     };
-    OA_CHECK(frame() == Result::success);
-    const auto disabled = pixels;
+    const auto still = frame();
     water.ripples = 1;
-    water.wind.strength = 1;
-    OA_CHECK(frame() == Result::success);
-    const auto first = pixels;
-    uint32_t contrast_sum{}, pronounced{}, peak{};
+    const auto moved = frame();
+    std::size_t changed{};
     for (uint32_t y = 0; y < size; ++y)
         for (uint32_t x = 0; x < size; ++x) {
-            const auto offset = (y * size + x) * channels;
-            if (x >= size / 2) {
-                for (uint32_t channel = 0; channel < channels; ++channel)
-                    OA_CHECK(pixels[offset + channel] == disabled[offset + channel]);
-                continue;
+            const size_t offset = (size_t(y) * size + x) * channels;
+            bool differs = false;
+            for (uint32_t channel = 0; channel < 3; ++channel)
+                differs = differs || moved[offset + channel] != still[offset + channel];
+            // Right of the wet ground's moved edge the dry ground stays.
+            if (x >= 72)
+                OA_CHECK(!differs);
+            changed += differs;
+            // Every pixel blends the art's two colours alone: no pale sheet.
+            // The ground's own edge moves off the picture's, so it is left out.
+            if (x >= 8 && x < 56 && y >= 8 && y < size - 8) {
+                std::array<float, 3> share{};
+                for (uint32_t channel = 0; channel < 3; ++channel)
+                    share[channel] = float(moved[offset + channel] - dark[channel]) /
+                                     float(bright[channel] - dark[channel]);
+                OA_CHECK(std::abs(share[0] - share[1]) < 0.04F);
+                OA_CHECK(std::abs(share[0] - share[2]) < 0.04F);
             }
-            const auto delta =
-                static_cast<uint32_t>(std::abs(int(pixels[offset]) - int(disabled[offset])));
-            contrast_sum += delta;
-            pronounced += delta >= 4;
-            peak = std::max(peak, delta);
         }
-    constexpr uint32_t water_pixels = size * size / 2;
-    OA_CHECK(contrast_sum >= water_pixels * 3 / 2);
-    OA_CHECK(pronounced >= water_pixels / 6);
-    OA_CHECK(peak >= 15);
-    water.fine_detail = 1;
-    OA_CHECK(frame() == Result::success);
-    OA_CHECK(pixels != first);
-    for (uint32_t y = 0; y < size; ++y)
-        for (uint32_t x = size / 2; x < size; ++x)
-            for (uint32_t channel = 0; channel < channels; ++channel)
-                OA_CHECK(
-                    pixels[(y * size + x) * channels + channel] ==
-                    disabled[(y * size + x) * channels + channel]
-                );
-    water.fine_detail = 0;
-    // Turning wind must not rotate the entire noise field around the map origin.
+    OA_CHECK(changed >= size * 64 / 8);
+    // The art travels downstream as the flow's travel grows, and turns with it.
+    water.wind.drift_x = 18;
+    const auto travelled = frame();
+    OA_CHECK(travelled != moved);
+    water.wind.drift_x = 0;
     water.wind.x = 0;
     water.wind.z = 1;
-    OA_CHECK(frame() == Result::success);
-    OA_CHECK(pixels == first);
-    water.wind.drift_z = 18;
-    OA_CHECK(frame() == Result::success);
-    const auto northward = pixels;
-    OA_CHECK(northward != first);
+    OA_CHECK(frame() != moved);
     water.wind.x = 1;
     water.wind.z = 0;
-    water.wind.drift_z = 0;
-    water.wind.drift_x = 18;
-    OA_CHECK(frame() == Result::success);
-    OA_CHECK(pixels != first && pixels != northward);
-    const auto fast = pixels;
-    water.wind.drift_x = 6;
-    OA_CHECK(frame() == Result::success);
-    OA_CHECK(pixels != fast);
-    water.wind = {};
-    water.wind.strength = 0; // Explicit calm fixture; default map flow remains moderate.
-    OA_CHECK(frame() == Result::success);
-    const auto calm = pixels;
-    water.seconds = 100;
-    OA_CHECK(frame() == Result::success);
-    OA_CHECK(pixels == calm);
-    uint32_t calm_contrast{};
-    for (std::size_t offset = 0; offset < pixels.size(); offset += channels)
-        calm_contrast +=
-            static_cast<uint32_t>(std::abs(int(pixels[offset]) - int(disabled[offset])));
-    OA_CHECK(calm_contrast < contrast_sum / 4);
+    // The fine ripples move it further up close.
+    water.fine_detail = 1;
+    OA_CHECK(frame() != moved);
+    water.fine_detail = 0;
+    // Calm water, a distant view and 0% leave the art as drawn.
+    water.wind.strength = 0;
+    OA_CHECK(frame() == still);
+    water.wind.strength = 1;
+    water.detail = 0;
+    OA_CHECK(frame() == still);
+    water.detail = 1;
+    water.ripples = 0;
+    OA_CHECK(frame() == still);
 }
 
 /// Seabed shimmer stays below a subtle contrast budget over the map's baked artwork.
@@ -945,7 +951,7 @@ int main() {
         crossing_waterline();
         underwater_billboard_depth();
         terrain_shimmer_contrast();
-        ripple_visible_contrast();
+        ripple_art_motion();
     }
     SDL_Quit();
     return result != 0 ? result : oa::test::check_exit_status();

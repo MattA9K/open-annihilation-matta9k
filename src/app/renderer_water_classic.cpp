@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <numbers>
 
 namespace oa::app::renderer_water_classic {
 namespace {
@@ -30,6 +31,30 @@ float depth(const Inputs& in, float x, float z) {
     return index < in.map->attributes.size()
                ? float(in.map->sea_level) - in.map->attributes[index].height
                : -1;
+}
+
+/// Water depth between the terrain attribute cells' centres, blended
+/// across them so that the art's motion grows evenly from the shore;
+/// negative outside the map.
+float smooth_depth(const Inputs& in, float x, float z) {
+    const auto width = int32_t(in.map->attribute_width);
+    const auto height = int32_t(in.map->attribute_height);
+    if (x < 0 || z < 0 || x >= width * cell || z >= height * cell ||
+        in.map->attributes.size() < std::size_t(width) * std::size_t(height))
+        return -1;
+    const float across = x / cell - 0.5F, down = z / cell - 0.5F;
+    const int32_t column = int32_t(std::floor(across)), row = int32_t(std::floor(down));
+    const float tx = across - float(column), ty = down - float(row);
+    const auto at = [&](int32_t c, int32_t r) {
+        c = std::clamp(c, 0, width - 1);
+        r = std::clamp(r, 0, height - 1);
+        return float(
+            in.map->attributes[std::size_t(r) * std::size_t(width) + std::size_t(c)].height
+        );
+    };
+    const float upper = at(column, row) + (at(column + 1, row) - at(column, row)) * tx;
+    const float lower = at(column, row + 1) + (at(column + 1, row + 1) - at(column, row + 1)) * tx;
+    return float(in.map->sea_level) - (upper + (lower - upper) * ty);
 }
 
 /// Require both water and current sight at the projected point.
@@ -73,6 +98,93 @@ card::Batch batch(const Inputs& in, std::size_t first) {
 }
 } // namespace
 
+full_terrain::ArtMotion
+art_motion(const Inputs& in, double left, double top, double right, double bottom) {
+    full_terrain::ArtMotion motion;
+    const float zoom = in.view.zoom;
+    if (!in.map || in.map->sea_level == 0 || !(in.ripples > 0) || detail(in) == 0 ||
+        !(in.wind.strength > 0) || !std::isfinite(zoom))
+        return motion;
+    // The grid's points 8 to 16 window pixels apart: the waves' shortest,
+    // 23 map pixels, keeps three points a wavelength wherever it shows.
+    uint32_t spacing = 32;
+    while (spacing > 4 && float(spacing) * zoom > 16)
+        spacing /= 2;
+    const double map_width = double(in.map->attribute_width) * cell;
+    const double map_height = double(in.map->attribute_height) * cell;
+    left = std::max(left, 0.0);
+    top = std::max(top, 0.0);
+    right = std::min(right, map_width);
+    bottom = std::min(bottom, map_height);
+    if (!(left < right) || !(top < bottom))
+        return motion;
+    motion.spacing = spacing;
+    motion.first_x = int32_t(std::floor(left / spacing)) * int32_t(spacing);
+    motion.first_y = int32_t(std::floor(top / spacing)) * int32_t(spacing);
+    motion.columns = uint32_t(std::ceil((right - motion.first_x) / spacing)) + 1;
+    motion.rows = uint32_t(std::ceil((bottom - motion.first_y) / spacing)) + 1;
+    motion.offsets.assign(std::size_t(motion.columns) * motion.rows, {});
+    // Each wave's sine splits into a part across and a part down, so the
+    // grid takes two sines a wave for each of its columns and rows, not for
+    // every point. The picture's row y shows the water plane at y + sea / 2.
+    const float sea = float(in.map->sea_level);
+    const float fine = renderer_water_surface::fine_detail(zoom);
+    constexpr std::size_t waves = renderer_water_surface::art_waves.size();
+    std::array<std::array<float, 2>, waves> headings{};
+    std::array<float, waves> amplitudes{};
+    std::vector<std::array<float, 2>> across(std::size_t(motion.columns) * waves);
+    std::vector<std::array<float, 2>> down(std::size_t(motion.rows) * waves);
+    for (std::size_t wave = 0; wave < waves; ++wave) {
+        const auto& form = renderer_water_surface::art_waves[wave];
+        headings[wave] = renderer_water_surface::art_heading(form, in.wind);
+        amplitudes[wave] = form.amplitude * in.wind.strength * (form.fine ? fine : 1.0F);
+        const double number = 2 * std::numbers::pi / form.wavelength;
+        const double travel = std::fmod(
+            number * form.speed *
+                (double(headings[wave][0]) * in.wind.drift_x +
+                 double(headings[wave][1]) * in.wind.drift_z),
+            2 * std::numbers::pi
+        );
+        for (uint32_t column = 0; column < motion.columns; ++column) {
+            const double x = double(motion.first_x) + double(column) * spacing;
+            const double phase = number * headings[wave][0] * x;
+            across[column * waves + wave] = {float(std::sin(phase)), float(std::cos(phase))};
+        }
+        for (uint32_t row = 0; row < motion.rows; ++row) {
+            const double z = double(motion.first_y) + double(row) * spacing + sea * 0.5;
+            const double phase = number * headings[wave][1] * z - travel;
+            down[row * waves + wave] = {float(std::sin(phase)), float(std::cos(phase))};
+        }
+    }
+    bool moves = false;
+    for (uint32_t row = 0; row < motion.rows; ++row) {
+        const float y = float(motion.first_y) + float(row * spacing);
+        for (uint32_t column = 0; column < motion.columns; ++column) {
+            const float x = float(motion.first_x) + float(column * spacing);
+            const float weight =
+                renderer_water_surface::art_depth_weight(smooth_depth(in, x, y + sea * 0.5F)) *
+                in.ripples * detail(in);
+            if (weight <= 0)
+                continue;
+            std::array<float, 2> offset{};
+            for (std::size_t wave = 0; wave < waves; ++wave) {
+                const auto& a = across[column * waves + wave];
+                const auto& b = down[row * waves + wave];
+                const float shift = amplitudes[wave] * (a[0] * b[1] + a[1] * b[0]);
+                offset[0] += headings[wave][0] * shift;
+                offset[1] += headings[wave][1] * shift;
+            }
+            motion.offsets[std::size_t(row) * motion.columns + column] = {
+                offset[0] * weight, offset[1] * weight
+            };
+            moves = true;
+        }
+    }
+    if (!moves)
+        motion = {};
+    return motion;
+}
+
 void surface(card::CardFrame& frame, const Inputs& in) {
     if (!in.map || in.map->sea_level == 0 || detail(in) == 0 || (in.ripples <= 0 && in.coast <= 0))
         return;
@@ -113,35 +225,6 @@ void surface(card::CardFrame& frame, const Inputs& in) {
             const float fetch = in.water_surface ? in.water_surface->fetch(x + 8, z + 8) : 0.25F;
             const float coastal = std::clamp(1 - d / 24, 0.0F, 1.0F) * fetch;
             const float coast_crest = 0.5F + 0.5F * std::sin(d * 0.7F + float(in.seconds) * 1.4F);
-            // Nine shared samples form broad, softly varying patches. Only
-            // wind drift moves them; calm water has no independent time animation.
-            if (in.ripples > 0) {
-                std::array<card::Vertex, 9> patch{};
-                float maximum_alpha = 0;
-                for (int rz = 0; rz < 3; ++rz) {
-                    for (int rx = 0; rx < 3; ++rx) {
-                        const float px = x + rx * 8, pz = z + rz * 8;
-                        const float alpha =
-                            renderer_water_surface::ripple_alpha(px, pz, in.wind, in.view.zoom) *
-                            in.ripples * detail(in);
-                        const auto point = screen(in, px, pz - sea * 0.5F);
-                        patch[rz * 3 + rx] = {
-                            point[0], point[1], {0.72F, 0.86F, 0.90F, alpha}, 0, 0
-                        };
-                        maximum_alpha = std::max(maximum_alpha, alpha);
-                    }
-                }
-                if (maximum_alpha >= 0.002F) {
-                    const auto first = static_cast<card::Index>(frame.vertices.size());
-                    frame.vertices.insert(frame.vertices.end(), patch.begin(), patch.end());
-                    for (uint32_t rz = 0; rz < 2; ++rz)
-                        for (uint32_t rx = 0; rx < 2; ++rx) {
-                            const auto corner = first + rz * 3 + rx;
-                            for (const auto offset : {0U, 1U, 4U, 0U, 4U, 3U})
-                                frame.indices.push_back(corner + offset);
-                        }
-                }
-            }
             const float foam = detail(in) * 0.070F * in.coast * coastal *
                                (0.12F + 0.88F * in.wind.strength) *
                                static_cast<float>(std::pow(coast_crest, 6));

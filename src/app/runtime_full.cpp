@@ -1743,6 +1743,52 @@ bool Runtime::present_full_match_layers(bool dialogs) {
             );
         };
 
+        // Water ripples move the map's own water art: wherever the terrain
+        // is drawn below, its passes are drawn again where the art moves,
+        // before the fog's passes over them.
+        ft::ArtMotion water_art;
+        {
+            renderer_water_classic::Inputs ripples;
+            ripples.map = &*selected_tnt_;
+            ripples.view.zoom = zoom;
+            ripples.ripples = engine_settings().water_ripples / 100.0F;
+            ripples.wind = water_wind();
+            const double reach = 2.0 * oa::present::gpu_world::tile_edge;
+            water_art = renderer_water_classic::art_motion(
+                ripples,
+                view.camera_x - reach,
+                view.camera_y - reach,
+                view.camera_x + bf_w / zoom + reach,
+                view.camera_y + bf_h / zoom + reach
+            );
+        }
+        const auto append_moved_art = [&](const ft::TerrainView& where,
+                                          std::span<const ft::TerrainPass> passes,
+                                          card::TargetHandle target,
+                                          const card::Rect* scissor) {
+            if (water_art.offsets.empty())
+                return;
+            for (const ft::TerrainPass& pass : passes) {
+                const std::size_t mosaic = pass.level - ft::first_mosaic_level;
+                if (pass.level >= ft::first_mosaic_level && mosaic < ft::mosaic_level_count &&
+                    !full.mosaic_pages[mosaic].empty())
+                    ft::append_moved_terrain_mosaic(
+                        frame,
+                        full.mosaics[mosaic],
+                        full.mosaic_pages[mosaic],
+                        where,
+                        pass,
+                        water_art,
+                        target,
+                        scissor
+                    );
+                else
+                    ft::append_moved_terrain_tiles(
+                        frame, full.atlas, full.pages, where, pass, water_art, target, scissor
+                    );
+            }
+        };
+
         // The stages, over the last list the planner built: what they read,
         // and the sight the sprite stage tells the fog's state from; none
         // when the match cannot say, which draws every sprite in colour.
@@ -2169,6 +2215,7 @@ bool Runtime::present_full_match_layers(bool dialogs) {
             quads += ft::append_terrain_tiles(
                 frame, full.atlas, full.pages, target_view, pass, full.world_target, nullptr
             );
+            append_moved_art(target_view, {&pass, 1}, full.world_target, nullptr);
             const std::array<full_fog::GreyedLevel, 1> levels{{{pass.level, pass.sampling, 1.0F}}};
             append_unseen(target_view, levels, full.world_target, nullptr);
             // Size pixels per layout pixel, so that the texture holds the
@@ -2212,6 +2259,7 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                 quads += ft::append_terrain_tiles(
                     frame, full.atlas, full.pages, target_view, pass, full.target, nullptr
                 );
+                append_moved_art(target_view, {&pass, 1}, full.target, nullptr);
                 const std::array<full_fog::GreyedLevel, 1> levels{
                     {{pass.level, pass.sampling, 1.0F}}
                 };
@@ -2238,6 +2286,7 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                 quads += ft::append_terrain_tiles(
                     frame, full.atlas, full.pages, view, pass, card::TargetHandle{}, &battlefield
                 );
+                append_moved_art(view, {&pass, 1}, card::TargetHandle{}, &battlefield);
                 const std::array<full_fog::GreyedLevel, 1> levels{
                     {{pass.level, pass.sampling, 1.0F}}
                 };
@@ -2304,6 +2353,12 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                     );
                 levels[index] = {pass.level, pass.sampling, 1.0F};
             }
+            append_moved_art(
+                over_view,
+                {full.plan.passes.data(), full.plan.pass_count},
+                over_target,
+                over_scissor
+            );
             // The second pass is blended over the first at its alpha, so it
             // carries that share of the picture and the first the rest.
             if (full.plan.pass_count == 2) {

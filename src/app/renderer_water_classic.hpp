@@ -3,6 +3,7 @@
 #pragma once
 
 #include "runtime_full.hpp"
+#include "full_terrain.hpp"
 #include "oa/formats/tnt.hpp"
 #include "renderer_water.hpp"
 #include <functional>
@@ -26,6 +27,17 @@ struct Inputs {
     /// True only for currently visible projected map pixels.
     std::function<bool(float, float)> visible;
 };
+
+/// Water ripples' motion of the map's own water art over the terrain's
+/// picture from map pixel left, top to right, bottom: at each point of a
+/// grid 8 to 16 window pixels apart, the broad swells and, up close, the
+/// fine ripples of renderer_water_surface::art_offset at the water plane
+/// the picture shows there, at the ripples' percent, none at the shore and
+/// on land and all of it in deep water, faded out as the view zooms out
+/// to 0.25. full_terrain draws the terrain's passes again moved by it.
+/// Empty where the ripples are off or nothing would move.
+full_terrain::ArtMotion
+art_motion(const Inputs& in, double left, double top, double right, double bottom);
 
 /// Append bounded water highlights before objects and the fog passes.
 void surface(card::CardFrame& frame, const Inputs& in);
