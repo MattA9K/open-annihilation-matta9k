@@ -1128,6 +1128,12 @@ int Runtime::check_live_renderer() {
             require(
                 lit.rgb != plain.rgb, (effect_context + " did not light the battlefield").c_str()
             );
+            // Light alone only adds to the battlefield, which Full's effects
+            // pass does without reading the world back.
+            require(
+                !match_effects_distort(),
+                (effect_context + " counted light alone as heat distortion").c_str()
+            );
             if (live) {
                 std::vector<uint8_t> terrain_visibility;
                 std::vector<float> terrain_depth;
@@ -1163,6 +1169,10 @@ int Runtime::check_live_renderer() {
             save_picture((stem + "-on.png").c_str(), lit);
             if (kind != renderer_effect_sources::Kind::nanolathe) {
                 settings.heat_distortion = 100;
+                require(
+                    match_effects_distort(),
+                    (effect_context + " did not count its heat distortion").c_str()
+                );
                 const auto shimmer = snapshot();
                 require(
                     shimmer.rgb != lit.rgb,
@@ -1172,6 +1182,15 @@ int Runtime::check_live_renderer() {
                     snapshot().rgb == shimmer.rgb, "paused heat distortion changed between frames"
                 );
                 save_picture((stem + "-heat.png").c_str(), shimmer);
+            } else {
+                // A nanolathe is never hot: its glow alone reaches the view
+                // whatever Heat distortion is set to.
+                settings.heat_distortion = 100;
+                require(
+                    !match_effects_distort(),
+                    (effect_context + " counted the nanolathe glow as heat distortion").c_str()
+                );
+                settings.heat_distortion = 0;
             }
         }
     };

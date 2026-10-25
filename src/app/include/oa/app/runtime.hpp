@@ -7101,6 +7101,18 @@ class Runtime final : public menu::Host,
     void reset_match_effect_sources();
     /// Reports whether a collected source has an enabled visual contribution.
     bool match_effects_enabled();
+    /// Reports whether a collected source's heat distortion may reach the
+    /// view: the one effect that moves the battlefield's own pixels, where
+    /// the others only add light to them. A source counts at its strength
+    /// before the water over it lessens it, so one the water calms still
+    /// counts.
+    bool match_effects_distort();
+    /// Reports whether a collected source's enabled contribution reaches
+    /// the view.
+    ///
+    /// @param distortion_only true to count heat distortion alone
+    /// @return true when one does
+    bool match_effects_in_view(bool distortion_only);
     /// Applies effects before battlefield overlays and HUD are drawn.
     void compose_match_effects(renderer::Surface& surface, bool live);
     /// Composes an RGB or RGBA battlefield at its output scale and local origin.

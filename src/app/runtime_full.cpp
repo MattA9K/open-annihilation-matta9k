@@ -2457,6 +2457,11 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                     static_cast<float>(image.row_offset)
                 );
             };
+            // Light only adds to the world, which the card adds it to as it
+            // is; heat distortion moves the world's pixels, which are read
+            // back, the processor waiting for the card to finish the world.
+            const full_effects::Pass pass =
+                match_effects_distort() ? full_effects::Pass::world : full_effects::Pass::light;
             std::string failure(forced_effects_failure);
             if (!effects_fault)
                 failure = full_effects::compose(
@@ -2467,9 +2472,10 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                     moved ? full.moved_target_factor : 1U,
                     process,
                     &effect_bounds,
-                    // The readback is a buffer the frame can do without.
+                    // The readback or the light is a buffer the frame can do without.
                     [this](uint64_t bytes) { return accelerated_buffer_fits(bytes); },
-                    full.final_target
+                    full.final_target,
+                    pass
                 );
             // A failed effects pass leaves the card's world as it drew it:
             // the frame goes on without the effects, and Full stays.

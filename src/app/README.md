@@ -2027,7 +2027,18 @@ language and both sizes.
   dialogs, the cursor and the present follow as in Basic, and the readers
   that keep a picture, the capture and the checks among them, get the
   standard tier's draw (`ensure_screen_world`), since the world layer
-  holds no picture.
+  holds no picture. Between the frame and the overlay, the effects pass
+  (`full_effects::compose`) works within the lights' bounds. Light alone,
+  the weapons', the nanolathes' and the wrecks', is painted over opaque
+  black on the processor and added by the card (`full_effects::Pass::light`),
+  which reads nothing back, so the processor never waits for the card to
+  finish the world: a readback waits as long as the card takes to draw
+  it, which anti-aliasing lengthens. Heat distortion moves the world's
+  own pixels, so on a frame where it reaches the view
+  (`match_effects_distort`) they are read back, processed and drawn back
+  in place (`full_effects::Pass::world`). Light raises a channel by its
+  whole steps whatever the channel held (`renderer_effects::compose`), so
+  the two passes give the same pixels for light alone (`app-full-effects`).
   Full falls back to Basic, which falls back to the standard tier, each
   for the rest of the run (`drop_full`, `TierInputs::full_drop`, a kind
   for each cause): a call of the card's own that fails (`FullCardError`,
@@ -2035,8 +2046,9 @@ language and both sizes.
   forces, drops Full with the failing call struck against the driver as a
   `card` strike (`take_full_failure`), which the same failure in the next
   run on the driver records `full-unusable`; a failed effects pass (its
-  readback, conversion or upload, which the memory guard counts before
-  they are made, or the failure `--render-fault effects` forces) drops
+  readback and conversion or its light, or its upload, which the memory
+  guard counts before they are made, or the failure
+  `--render-fault effects` forces) drops
   nothing: that frame is drawn without the effects, the failure logged
   once (`full_effects::compose`, `FullPresentation::effects_skipped`); a frame the executor refuses
   before drawing anything of it, one the stages built wrong
