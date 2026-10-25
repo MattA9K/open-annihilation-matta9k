@@ -1369,7 +1369,7 @@ struct ModelStage::Impl {
     std::unordered_map<const void*, bool> keyed_texels;
     std::unordered_map<const Model*, MeshEntry> meshes;
 
-    /// Cached blurred aircraft silhouettes; at most 256 pages of 256 square texels.
+    /// Cached soft-edged aircraft silhouettes; at most 256 pages of 256 square texels.
     struct AircraftShadow {
         card::PageHandle page{};
         uint32_t width{}, height{}, radius{}, image_builds{};
@@ -1736,7 +1736,8 @@ class Emitter {
         const ModelDraw& drawn, const Canvas& surface, card::Blend blend, bool unfinished_pass
     );
     void shadow_of_projectile(const ProjectileDraw& shot, const Canvas& surface);
-    /// Emits a cached, padded silhouette with altitude-dependent blur and opacity.
+    /// Emits a cached, padded silhouette at the shadows' own darkness and
+    /// place, its edge softened a little more at altitude.
     bool aircraft_shadow(
         const Unit& unit,
         const draw::ModelState& state,
@@ -3580,9 +3581,9 @@ bool Emitter::aircraft_shadow(
     const Sprite& image = state.image.sprite;
     constexpr uint32_t edge = 256;
     constexpr std::size_t capacity = 256;
-    const auto style = renderer_aircraft_shadow::style(altitude);
+    const uint32_t radius = renderer_aircraft_shadow::edge_radius(altitude);
     const uint32_t width = image.width, height = image.height;
-    const uint32_t padding = style.radius * 2;
+    const uint32_t padding = radius * 2;
     if (width == 0 || height == 0 || width + padding * 2 > edge || height + padding * 2 > edge ||
         image.data == nullptr)
         return false;
@@ -3612,7 +3613,7 @@ bool Emitter::aircraft_shadow(
     cached.used_frame = impl_.aircraft_shadow_frame;
     if (cached.page == card::PageHandle{} || cached.image_builds != state.image_builds ||
         cached.image_data != image.data || cached.width != width || cached.height != height ||
-        cached.radius != style.radius) {
+        cached.radius != radius) {
         std::vector<uint8_t> mask(static_cast<std::size_t>(width) * height);
         const auto* pixels = static_cast<const uint8_t*>(image.data);
         for (std::size_t i = 0; i < mask.size(); ++i)
@@ -3621,7 +3622,7 @@ bool Emitter::aircraft_shadow(
             cached.page = executor_.create_page({edge, edge, 1});
         if (cached.page == card::PageHandle{})
             return false;
-        const auto alpha = renderer_aircraft_shadow::soften(mask, width, height, style.radius);
+        const auto alpha = renderer_aircraft_shadow::soften(mask, width, height, radius);
         std::vector<uint8_t> rgba(edge * edge * card::texel_bytes);
         const uint32_t columns = width + padding * 2, rows = height + padding * 2;
         for (uint32_t row = 0; row < rows; ++row)
@@ -3631,15 +3632,15 @@ bool Emitter::aircraft_shadow(
             return false;
         cached.width = width;
         cached.height = height;
-        cached.radius = style.radius;
+        cached.radius = radius;
         cached.image_builds = state.image_builds;
         cached.image_data = image.data;
         ++counts_.page_uploads;
     }
     const float centre_x = static_cast<float>(x - image.origin_x) + width * 0.5F;
     const float centre_y = static_cast<float>(y - image.origin_y) + height * 0.5F;
-    const float half_width = (width * 0.5F + padding) * style.spread;
-    const float half_height = (height * 0.5F + padding) * style.spread;
+    const float half_width = width * 0.5F + padding;
+    const float half_height = height * 0.5F + padding;
     vertices_.clear();
     for (const auto& [sx, sy] : {std::pair{0, 0}, {1, 0}, {1, 1}, {0, 1}}) {
         card::Vertex vertex;
@@ -3647,7 +3648,7 @@ bool Emitter::aircraft_shadow(
         vertex.y = surface.origin_y + (centre_y + (sy * 2 - 1) * half_height) * scale_;
         vertex.u = static_cast<float>(sx * (width + padding * 2)) / edge;
         vertex.v = static_cast<float>(sy * (height + padding * 2)) / edge;
-        vertex.colour = {1, 1, 1, shadow_alpha() * style.opacity};
+        vertex.colour = {1, 1, 1, shadow_alpha()};
         vertices_.push_back(vertex);
     }
     constexpr std::array<card::Index, 6> quad{0, 1, 2, 0, 2, 3};
@@ -3699,10 +3700,13 @@ void Emitter::shadow_of_model(
     const int32_t dz = wrap_sub(unit.position.z, camera_z_);
     const int32_t shadow_x = hi(dx) + draw::shadow_offset_x;
     const int32_t shadow_y = hi(dz) - (plan.model.ground >> 1);
+    // An aircraft's shadow lies where every unit's does, at the ground's
+    // place, the bed's under water, as the processor lays it; only its
+    // soft edge follows the height above the ground or water under it.
     const int32_t receiver = std::max<int32_t>(plan.model.ground, game.sea_level);
     const float altitude = static_cast<float>(unit_height - receiver);
     if ((flags & OA_UNIT_DEF_FLAG_CAN_FLY) != 0 && vehicle_shadow && altitude > 0 &&
-        aircraft_shadow(unit, *model.state, surface, shadow_x, hi(dz) - (receiver >> 1), altitude))
+        aircraft_shadow(unit, *model.state, surface, shadow_x, shadow_y, altitude))
         return;
     const int32_t base = vertex_depth_base(model);
     const uint8_t team = in_.team_colors[unit.owner_index % team_colour_players];

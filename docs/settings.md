@@ -560,9 +560,10 @@ the game draws its text and how the modern fonts draw it.
   Fine detail fades as the view zooms out, and the reflections of distant
   fleets are kept few. These effects change only what your screen shows,
   never the water's depth, movement or what any player can see. With
-  shadows on and Full hardware acceleration, an aircraft's shadow also
-  grows wider, softer and fainter the higher it flies above the ground or
-  water under it.
+  shadows on and Full hardware acceleration, an aircraft's shadow also has
+  a soft edge, a little wider once it climbs to cruise height above the
+  ground or water under it; it keeps the place and the darkness it has at
+  every other Hardware acceleration.
 
 ![The end of the Graphics section: the Water ripples, Coastal waves, Underwater shimmer and Naval reflections sliders, each at 100%.](images/settings/graphics-2.png)
 

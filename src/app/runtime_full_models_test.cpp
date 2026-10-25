@@ -2131,8 +2131,11 @@ void test_shadows() {
     OA_CHECK(d.far == 0 && d.far_coverage == 0 && d.shadowed > 0);
 }
 
-// Aircraft retain their silhouette as altitude broadens its transparent blur.
-// Terrain and water heights determine clearance, and stable poses reuse uploads.
+// Aircraft shadows: low and high, over land, a plateau and water, the
+// processor's shadow at the processor's place and at the game's darkness,
+// and past it only a soft edge a few pixels wide, a little wider high up;
+// stable poses reuse their uploads, and a landed aircraft's shadow is the
+// processor's.
 void test_aircraft_shadows() {
     Scene scene;
     SceneUnit& aircraft = scene.add_unit(square_model(), 1, unit_x, 128);
@@ -2140,55 +2143,97 @@ void test_aircraft_shadows() {
     constexpr uint16_t flags = draw::graphics_shadows | draw::graphics_vehicle_shadows;
     Card card(scene);
     ProcessorPicture processor;
+
+    /// What the card draws of an aircraft's shadow against the processor.
+    struct Shadow {
+        std::size_t matched{};   ///< the processor's shadow pixels the card shades as dark
+        std::size_t wrong{};     ///< the processor's shadow pixels the card shades otherwise
+        std::size_t edge{};      ///< the card's shadow pixels past the processor's shadow
+        std::size_t dark_edge{}; ///< of them, as dark as the shadow itself
+        int reach{};             ///< the farthest of them from the processor's shadow, in pixels
+    };
+
     const auto render = [&](int altitude, int ground, int sea) {
         scene.ground = ground;
         scene.world->game.sea_level = static_cast<uint8_t>(sea);
         aircraft.unit->position.y = (std::max(ground, sea) + altitude) * unit;
         scene.begin_frame(processor, flags);
         scene.plan_unit(aircraft);
-        return card.raster(scene);
-    };
-
-    struct Extent {
-        int left{frame_width}, right{}, peak{}, soft{};
-    };
-
-    const auto extent = [](const CardPicture& picture) {
-        Extent result;
+        scene.raster_processor(processor);
+        const CardPicture drawn = card.raster(scene);
+        // The processor's shadow: what it draws where the card draws no body.
+        const auto shaded = [&](int x, int y) {
+            if (x < 0 || y < 0 || x >= frame_width || y >= frame_height)
+                return false;
+            const auto ux = static_cast<uint32_t>(x), uy = static_cast<uint32_t>(y);
+            return drawn_by_processor(processor.at(ux, uy), scene.key) &&
+                   drawn.at(ux, uy)[3] != 255;
+        };
+        constexpr int farthest = 8;
+        Shadow result;
         for (int y = 0; y < frame_height; ++y)
             for (int x = 0; x < frame_width; ++x) {
-                const auto* pixel = picture.at(x, y);
-                if (pixel[0] != 0 || pixel[1] != 0 || pixel[2] != 0 || pixel[3] == 0)
+                const uint8_t* pixel = drawn.at(static_cast<uint32_t>(x), static_cast<uint32_t>(y));
+                const bool black = pixel[0] == 0 && pixel[1] == 0 && pixel[2] == 0;
+                if (shaded(x, y)) {
+                    if (black && pixel[3] >= 126 && pixel[3] <= 129)
+                        ++result.matched;
+                    else
+                        ++result.wrong;
                     continue;
-                result.left = std::min(result.left, x);
-                result.right = std::max(result.right, x);
-                result.peak = std::max(result.peak, int{pixel[3]});
-                result.soft += pixel[3] < 40;
+                }
+                if (!black || pixel[3] == 0 || pixel[3] == 255)
+                    continue;
+                ++result.edge;
+                result.dark_edge += pixel[3] >= 126;
+                int distance = farthest + 1;
+                for (int dy = -farthest; dy <= farthest; ++dy)
+                    for (int dx = -farthest; dx <= farthest; ++dx)
+                        if (shaded(x + dx, y + dy))
+                            distance = std::min(distance, std::max(std::abs(dx), std::abs(dy)));
+                result.reach = std::max(result.reach, distance);
             }
         return result;
     };
-    const auto low = extent(render(48, 0, 0));
-    const auto high = extent(render(192, 0, 0));
-    OA_CHECK(high.right - high.left > low.right - low.left);
-    OA_CHECK(high.peak > 0 && high.peak < low.peak);
-    OA_CHECK(high.soft > low.soft);
+    const auto check_soft = [](const char* what, const Shadow& shadow, int reach) {
+        std::printf(
+            "%s: matched %zu, wrong %zu, edge %zu, dark edge %zu, reach %d\n",
+            what,
+            shadow.matched,
+            shadow.wrong,
+            shadow.edge,
+            shadow.dark_edge,
+            shadow.reach
+        );
+        OA_CHECK(shadow.matched > 0 && shadow.wrong == 0);
+        OA_CHECK(shadow.edge > 0 && shadow.dark_edge == 0);
+        OA_CHECK(shadow.reach <= reach);
+    };
+    // Low, the edge fades over two pixels; at cruise height, over four.
+    const auto low = render(48, 0, 0);
+    check_soft("aircraft shadow low", low, 2);
+    const auto high = render(192, 0, 0);
+    check_soft("aircraft shadow high", high, 4);
+    OA_CHECK(high.matched == low.matched);
+    OA_CHECK(high.edge > low.edge);
     std::size_t shadow_indices = 0;
     for (const auto& batch : card.frame.batches)
         if (batch.operation == card::Operation::draw && batch.target != card::TargetHandle{})
             shadow_indices += batch.index_count;
     OA_CHECK(shadow_indices == 6);
     const auto uploads = card.stage.counts().page_uploads;
-    const auto again = extent(render(192, 0, 0));
+    const auto again = render(192, 0, 0);
     OA_CHECK(card.stage.counts().page_uploads == uploads);
-    OA_CHECK(again.peak == high.peak);
-    const auto plateau = extent(render(192, 32, 0));
-    OA_CHECK(plateau.peak == high.peak);
-    OA_CHECK(plateau.right - plateau.left == high.right - high.left);
-    const auto water = extent(render(192, 0, 32));
-    OA_CHECK(water.peak == plateau.peak);
-    OA_CHECK(water.right - water.left == plateau.right - plateau.left);
+    OA_CHECK(again.matched == high.matched && again.edge == high.edge);
+    // Over a plateau and over water the shadow lies where the processor's
+    // does: at the ground's place, the bed's under the water.
+    const auto plateau = render(192, 32, 0);
+    check_soft("aircraft shadow over a plateau", plateau, 4);
+    OA_CHECK(plateau.matched == high.matched && plateau.edge == high.edge);
+    const auto water = render(192, 0, 32);
+    check_soft("aircraft shadow over water", water, 4);
+    OA_CHECK(water.matched == high.matched && water.edge == high.edge);
     std::ignore = render(0, 0, 0);
-    scene.raster_processor(processor);
     const auto grounded = compare(card.raster(scene), processor, scene);
     OA_CHECK(grounded.far == 0 && grounded.far_coverage == 0);
 }

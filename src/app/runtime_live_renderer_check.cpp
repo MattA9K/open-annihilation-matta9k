@@ -2114,13 +2114,17 @@ int Runtime::check_live_renderer() {
         }
 
         constexpr std::array<int, 3> flight_heights{32, 112, 224};
+        // How far the darkest shading of an aircraft's shadow may differ
+        // between heights: its silhouette keeps the vehicles' darkness, and
+        // only its edge widens.
+        constexpr int darkness_tolerance = 2;
         for (const bool water_receiver : {false, true}) {
             const int x = water_receiver ? water_x : dry_x;
             const int z = water_receiver ? water_z : dry_z;
             const int receiver = std::max(sea, match_->map_height(x * 65536, z * 65536));
             for (std::size_t angle = 0; angle < diagnostic_angles.size(); ++angle) {
                 std::size_t previous_area{};
-                int previous_darkness = 256;
+                int first_darkness = -1;
                 for (const int altitude : flight_heights) {
                     WorldDrawList draws;
                     draws.shadow_level = 0;
@@ -2166,12 +2170,14 @@ int Runtime::check_live_renderer() {
                     save_picture((prefix + "-off.png").c_str(), plain);
                     save_picture((prefix + "-on.png").c_str(), shadowed);
                     require(area > 0, "an aircraft has no visible terrain/water shadow");
+                    if (first_darkness < 0)
+                        first_darkness = darkest;
                     require(
-                        area >= previous_area && darkest <= previous_darkness,
-                        "aircraft shadows do not widen and soften with altitude"
+                        area >= previous_area &&
+                            std::abs(darkest - first_darkness) <= darkness_tolerance,
+                        "aircraft shadows do not keep their darkness as their edge widens"
                     );
                     previous_area = area;
-                    previous_darkness = darkest;
                 }
             }
         }

@@ -1668,24 +1668,31 @@ void cached_unit_shadows() {
     OA_CHECK(fixture.scene.shadow_count == 0);
 }
 
-/// Aircraft shadows broaden and fade with altitude, retain silhouette alpha and receive on water.
+/// Aircraft shadows keep their silhouette at full alpha at every altitude,
+/// soften only their edge, a pixel more high up, and receive on water at
+/// the vehicles' own shadow opacity.
 void aircraft_shadow_altitude() {
     namespace shadow = oa::app::renderer_aircraft_shadow;
-    auto previous = shadow::style(0);
-    for (const float height : {16.0F, 48.0F, 96.0F, 192.0F, 512.0F}) {
-        const auto current = shadow::style(height);
-        OA_CHECK(current.spread >= previous.spread && current.spread <= 1.45F);
-        OA_CHECK(current.opacity <= previous.opacity && current.opacity >= 0.29F);
-        OA_CHECK(current.radius >= previous.radius && current.radius <= 8);
-        previous = current;
-    }
+    for (const float height : {0.0F, 16.0F, 48.0F, 95.0F})
+        OA_CHECK(shadow::edge_radius(height) == shadow::narrow_edge_radius);
+    for (const float height : {96.0F, 110.0F, 220.0F, 4096.0F})
+        OA_CHECK(shadow::edge_radius(height) == shadow::wide_edge_radius);
+    OA_CHECK(shadow::edge_radius(std::nanf("")) == shadow::narrow_edge_radius);
     const std::array<uint8_t, 9> mask{0, 1, 0, 1, 1, 1, 0, 1, 0};
     const auto soft = shadow::soften(mask, 3, 3, 2);
     OA_CHECK(soft.size() == 11 * 11);
-    OA_CHECK(std::any_of(soft.begin(), soft.end(), [](uint8_t alpha) {
-        return alpha > 0 && alpha < 255;
-    }));
+    // Every pixel of the cross, its one-pixel arms too, stays opaque; the
+    // pixel above its top arm and the one between two arms take part of
+    // the edge.
+    for (std::size_t i = 0; i < mask.size(); ++i)
+        if (mask[i] != 0)
+            OA_CHECK(soft[(i / 3 + 4) * 11 + i % 3 + 4] == 255);
+    const uint8_t beside = soft[3 * 11 + 5];
+    const uint8_t corner = soft[4 * 11 + 4];
+    OA_CHECK(beside > 0 && beside < 255);
+    OA_CHECK(corner > 0 && corner < 255);
     OA_CHECK(soft.front() == 0 && soft.back() == 0);
+    OA_CHECK(shadow::soften(mask, 3, 3, 1).size() == 7 * 7);
     Fixture fixture;
     oa::present::model::ModelState state{};
     state.image = oa::present::create_sprite(8, 8);
@@ -1713,7 +1720,7 @@ void aircraft_shadow_altitude() {
          ++i) {
         const auto& vertex = fixture.scene.vertices[i];
         OA_CHECK(std::abs(vertex.height - 8.05F) < tolerance);
-        OA_CHECK(vertex.opacity < 0.5F && vertex.opacity > 0.1F);
+        OA_CHECK(std::abs(vertex.opacity - 0.5F) < tolerance);
         OA_CHECK(vertex.terrain_size == -1);
     }
     const auto revision = fixture.scene.texture_revision;

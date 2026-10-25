@@ -947,21 +947,20 @@ void unit_shadows(const Inputs& in, Scene& scene) {
         const float altitude = std::max(0.0F, position.y / fixed_scale - receiver);
         const bool aircraft = (flags & OA_UNIT_DEF_FLAG_CAN_FLY) != 0 && altitude > 0;
         if (aircraft && image.width <= 256 && image.height <= 256) {
-            const auto style = renderer_aircraft_shadow::style(altitude);
+            const uint32_t radius = renderer_aircraft_shadow::edge_radius(altitude);
             uint64_t key = hash_start;
             const auto hash = [&](uint64_t value) { key = (key ^ value) * hash_multiplier; };
             hash(image.width);
             hash(image.height);
-            hash(style.radius);
+            hash(radius);
             for (const auto value : coverage)
                 hash(value);
             auto cached = scene.aircraft_shadow_materials.find(key);
             if (cached == scene.aircraft_shadow_materials.end()) {
-                auto alpha = renderer_aircraft_shadow::soften(
-                    coverage, image.width, image.height, style.radius
-                );
-                const uint32_t width = image.width + style.radius * 4;
-                const uint32_t height = image.height + style.radius * 4;
+                auto alpha =
+                    renderer_aircraft_shadow::soften(coverage, image.width, image.height, radius);
+                const uint32_t width = image.width + radius * 4;
+                const uint32_t height = image.height + radius * 4;
                 std::vector<uint8_t> black(alpha.size());
                 const auto rectangle = material(
                     scene,
@@ -980,24 +979,12 @@ void unit_shadows(const Inputs& in, Scene& scene) {
                     scene.aircraft_shadow_materials.clear();
                 cached = scene.aircraft_shadow_materials.emplace(key, rectangle).first;
             }
-            const float padding = static_cast<float>(style.radius) * 2.0F;
-            const float left = position.x / fixed_scale + model::shadow_offset_x -
-                               (image.origin_x + padding) * style.spread;
-            const float top = position.z / fixed_scale - receiver * height_lift -
-                              (image.origin_y + padding) * style.spread;
-            decal(
-                in,
-                scene,
-                cached->second,
-                left,
-                top,
-                opacity * style.opacity,
-                true,
-                nullptr,
-                style.spread,
-                true,
-                style.radius > 0
-            );
+            const float padding = static_cast<float>(radius) * 2.0F;
+            const float left =
+                position.x / fixed_scale + model::shadow_offset_x - (image.origin_x + padding);
+            const float top =
+                position.z / fixed_scale - receiver * height_lift - (image.origin_y + padding);
+            decal(in, scene, cached->second, left, top, opacity, true, nullptr, 1, true, true);
         } else {
             const auto rect = material(
                 scene, *in.palette, image.width, image.height, pixels, coverage, -1, Fog::black
