@@ -5,6 +5,8 @@
 #include "oa/present/polygon.hpp"
 #include "oa/present/surface.hpp"
 
+#include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -161,6 +163,55 @@ void test_outline_polygon() {
     CHECK(outline_depth_polygon(s.sprite, flat, 0, ink) == 0);
 }
 
+// A sprite whose planes lie in buffers with room past their ends, as a
+// composite cut to its limits lies in a larger buffer: the room must keep
+// what it held.
+struct RoomySprite {
+    Sprite sprite{};
+    std::vector<uint8_t> pixels;
+    std::vector<uint8_t> depth;
+    std::size_t size{};
+};
+
+constexpr uint8_t room_fill = 0xEE;
+
+RoomySprite roomy_sprite(int w, int h, std::size_t room, uint8_t depth_fill) {
+    RoomySprite s;
+    s.size = static_cast<std::size_t>(w * h);
+    s.pixels.assign(s.size + room, room_fill);
+    std::fill_n(s.pixels.begin(), s.size, uint8_t{0});
+    s.depth.assign(s.size + room, 0);
+    std::fill_n(s.depth.begin(), s.size, depth_fill);
+    s.sprite.width = static_cast<uint16_t>(w);
+    s.sprite.height = static_cast<uint16_t>(h);
+    s.sprite.data = s.pixels.data();
+    s.sprite.aux = s.depth.data();
+    return s;
+}
+
+bool room_kept(const RoomySprite& s) {
+    for (std::size_t i = s.size; i < s.pixels.size(); ++i)
+        if (s.pixels[i] != room_fill || s.depth[i] != 0)
+            return false;
+    return true;
+}
+
+// An outline reaching past the sprite's right and bottom edges plots only
+// the ends inside it: none past its rows, none wrapped into the next row.
+void test_outline_past_the_sprite() {
+    auto s = roomy_sprite(8, 6, 256, 0x10);
+    const DepthVertex square[] = {{2, 1, 0x20}, {14, 1, 0x20}, {14, 9, 0x20}, {2, 9, 0x20}};
+    CHECK(outline_depth_polygon(s.sprite, square, 4, ink) == 1);
+    for (int y = 0; y < 6; ++y)
+        for (int x = 0; x < 8; ++x) {
+            const bool end = x == 2 && y >= 1;
+            const auto at = static_cast<std::size_t>(y * 8 + x);
+            CHECK(s.pixels[at] == (end ? ink : 0));
+            CHECK(s.depth[at] == (end ? 0x20 : 0x10));
+        }
+    CHECK(room_kept(s));
+}
+
 void test_depth_span_clip() {
     auto s = make_sprite(8, 2, true, 0);
     PolygonSpanRow row{};
@@ -235,6 +286,7 @@ int main() {
     test_range_rings();
     test_depth_polygon();
     test_outline_polygon();
+    test_outline_past_the_sprite();
     test_depth_span_clip();
     test_shaded_polygon();
     test_span_rows_after_a_taller_polygon();
