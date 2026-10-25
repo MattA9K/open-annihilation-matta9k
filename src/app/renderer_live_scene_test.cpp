@@ -774,6 +774,78 @@ void planned_model_visibility() {
     OA_CHECK(fixture.scene.vertices.size() == fixture.scene.terrain_vertex_count);
 }
 
+/// A pictured unit's walls of the image key draw nothing, as its picture
+/// leaves them clear, while a unit drawn flat keeps them as a colour; a
+/// cloaked unit, or every unit under the debug overlay, is drawn at half
+/// opacity after the opaque units, and keeps its range for picking.
+void model_key_walls_and_cloak() {
+    Fixture fixture;
+    namespace models = oa::formats::objects3d;
+    namespace drawing = oa::present::model;
+    auto source = std::make_shared<models::Model>();
+    source->objects.resize(1);
+    constexpr int32_t fixed = models::kThreeDoUnitsPerWorldUnit;
+    source->objects[0].vertices = {{0, 0, 0}, {fixed, 0, 0}, {0, fixed, 0}};
+    source->objects[0].primitives.resize(1);
+    source->objects[0].primitives[0].vertex_indices = {0, 1, 2};
+    auto instance = oa::sim::model_runtime::make_instance(source);
+    instance.rebuild_transforms();
+    drawing::PreparedModel wall{};
+    wall.objects.resize(1);
+    wall.objects[0].primitives.resize(1);
+    wall.objects[0].primitives[0].flags = drawing::primitive_colored;
+    wall.objects[0].primitives[0].color = drawing::image_key;
+    drawing::ModelState state{};
+    state.image = oa::present::create_sprite(8, 8);
+    oa::Unit unit{};
+    unit.position = {8 * fixed, 0, 8 * fixed};
+    unit.id = 7;
+    fixture.draws.models.resize(1);
+    auto& draw = fixture.draws.models[0];
+    draw.model.instance = &instance;
+    draw.model.prepared = &wall;
+    draw.model.unit = &unit;
+    draw.model.state = &state;
+    draw.plan.linked.drawn = true;
+    draw.plan.model.from_image = true;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.model_count == 1);
+    OA_CHECK(fixture.scene.vertices.size() == fixture.scene.terrain_vertex_count);
+    draw.plan.model.from_image = false;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.vertices.size() == fixture.scene.terrain_vertex_count + 3);
+
+    // A cloaked unit first in the plan, an opaque one after it.
+    drawing::PreparedModel solid = wall;
+    solid.objects[0].primitives[0].color = alternate_index;
+    draw.model.prepared = &solid;
+    unit.state_flags = OA_UNIT_STATE_CLOAKED;
+    oa::Unit other = unit;
+    other.id = 8;
+    other.state_flags = 0;
+    other.position.x += 2 * fixed;
+    fixture.draws.models.push_back(draw);
+    fixture.draws.models[1].model.unit = &other;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.unit_ranges.size() == 2);
+    const auto range_of = [&](uint16_t id) {
+        for (const auto& range : fixture.scene.unit_ranges)
+            if (range.unit_id == id)
+                return range;
+        return live::UnitRange{};
+    };
+    const auto cloaked = range_of(7);
+    const auto opaque = range_of(8);
+    OA_CHECK(cloaked.vertex_count == 3 && opaque.vertex_count == 3);
+    OA_CHECK(cloaked.first_vertex > opaque.first_vertex);
+    OA_CHECK(std::abs(fixture.scene.vertices[cloaked.first_vertex].opacity - 0.5F) < tolerance);
+    OA_CHECK(fixture.scene.vertices[opaque.first_vertex].opacity == 1);
+    OA_CHECK(std::abs(fixture.scene.vertices[cloaked.first_vertex].x - 8) < tolerance);
+    fixture.inputs.translucent_units = true;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(std::abs(fixture.scene.vertices[range_of(8).first_vertex].opacity - 0.5F) < tolerance);
+}
+
 /// Team textures share only matching frames, and the next build observes edits.
 void model_material_lifetime() {
     Fixture fixture;
@@ -1896,8 +1968,16 @@ void model_shade_parity() {
     OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
     OA_CHECK(triangle_color(fixture.scene, first)[0] == 120);
     fixture.inputs.graphics_flags = drawing::graphics_shading;
+    // The ground's colour at an index other than the image key, which a
+    // pictured unit's polygons leave clear.
+    constexpr uint8_t model_index = 3;
+    std::copy_n(
+        fixture.palette.begin() + ground_index * oa::palette_entry_bytes,
+        oa::palette_entry_bytes,
+        fixture.palette.begin() + model_index * oa::palette_entry_bytes
+    );
     prepared.objects[0].primitives[0].flags = drawing::primitive_colored;
-    prepared.objects[0].primitives[0].color = ground_index;
+    prepared.objects[0].primitives[0].color = model_index;
     OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
     const auto& vertex = fixture.scene.vertices[first];
     OA_CHECK(triangle_color(fixture.scene, first)[0] == 30);
@@ -2014,6 +2094,7 @@ int main() {
     atlas_repack_rows();
     terrain_material_repack();
     planned_model_visibility();
+    model_key_walls_and_cloak();
     model_material_lifetime();
     animated_frames_follow_classic_tiers();
     terrain_decals();

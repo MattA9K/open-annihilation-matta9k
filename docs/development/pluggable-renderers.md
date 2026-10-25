@@ -286,7 +286,8 @@ over units. Order markers remain overlays, as in the classic view.
 | Dithered fog | Uses the classic grey palette for mapped-but-unseen terrain; live boundaries remain smoothly interpolated. |
 | Smooth motion | Uses the existing presentation fraction for model movement and animated pieces. |
 | Gamma | Uses the existing presentation conversion. |
-| Classic model shading and cloak blending | Still incomplete in the live path. |
+| Classic model shading | Buildings drawn from their picture take the classic shade rows, the bright page above the unlit row and the shade table's colours, as the classic Full view shades them; mobile units and moving pieces stay unshaded, as there. A pictured unit's polygons of the image key, the walls that hide its pieces below the ground, draw nothing: the terrain hides those pieces. |
+| Cloak blending | A cloaked unit, or every unit under the debug overlay, is drawn at half opacity, as the classic view blends its picture, after the opaque scene so that its depth hides nothing behind it, and stays pickable. Its own faces blend one by one, where the classic view blends its whole picture once. |
 
 The preview draws through SDL's GPU interface on Metal or Vulkan: SDL
 chooses Metal on Apple systems and Vulkan elsewhere, and `SDL_GPU_DRIVER`
@@ -316,8 +317,9 @@ edges. Ground features retain their canonical world anchors. Effect sprites
 face the camera at their actual altitude. Light-table flashes
 are translucent terrain decals, approximating classic relighting. Construction
 starts with polygon-edge nanoframes, then fades in textured faces as work
-finishes. Model shading, cloak transparency and some projectile/effect types
-remain incomplete. Oblique views expose stretched artwork on surfaces missing
+finishes. Some projectile and effect types remain incomplete, and textured
+faces are drawn as triangles rather than as the classic view's strips.
+Oblique views expose stretched artwork on surfaces missing
 from the original painted view. The rotated view does not meet the classic
 parity gate.
 

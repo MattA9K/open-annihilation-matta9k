@@ -63,6 +63,11 @@ struct Scene {
     uint32_t nano_particle_count{};
     /// Reuse the previous ground buffer while splitting presentation foundations.
     std::vector<renderer_live_gpu::Vertex> foundation_vertices{};
+    /// Half-transparent units held back while the opaque scene is built, then
+    /// drawn over it so that their depth hides nothing drawn after them;
+    /// their ranges count from the start of this buffer until then.
+    std::vector<renderer_live_gpu::Vertex> translucent_vertices{};
+    std::vector<UnitRange> translucent_ranges{};
 };
 
 /// Read-only frame inputs. The planner owns all model and sprite references.
@@ -107,6 +112,9 @@ struct Inputs {
     /// show their running texture frames, as a building does
     /// (ModelRenderer::moving_pieces_once_built).
     bool moving_pieces_once_built{};
+    /// Every unit drawn half transparent, as the debug overlay draws them;
+    /// a cloaked unit is drawn so whatever this says.
+    bool translucent_units{};
 };
 
 /// Rebuilds live terrain, visible models and GAF cutouts from a frame's plan.

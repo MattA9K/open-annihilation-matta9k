@@ -524,6 +524,42 @@ int Runtime::check_live_renderer() {
         );
         require(status_ == "1 selected", "the rotated drag box did not report its selection");
     }
+    // A cloaked unit is blended at half its opacity, as the classic view
+    // blends it, over the opaque scene, and can still be picked.
+    {
+        clear_local_selection();
+        const auto solid = snapshot();
+        auto& record = match_->world().record.units[commander];
+        const uint8_t kept_state = record.state_flags;
+        record.state_flags = static_cast<uint8_t>(record.state_flags | OA_UNIT_STATE_CLOAKED);
+        const auto cloaked = snapshot();
+        const auto cloaked_bounds = live_unit_bounds(commander);
+        const auto cloaked_pick = live_unit_under((*commander_pixel)[0], (*commander_pixel)[1]);
+        record.state_flags = kept_state;
+        save_picture("cloaked-commander.png", cloaked);
+        require(cloaked.rgb != solid.rgb, "a cloaked unit drew as it does uncloaked");
+        require(cloaked_bounds.has_value(), "a cloaked unit lost its projected bounds");
+        require(cloaked_pick == commander, "a cloaked unit could not be picked");
+        // Only the unit's own pixels change.
+        bool outside = false;
+        for (uint32_t y = 0; y < cloaked.height && !outside; ++y)
+            for (uint32_t x = 0; x < cloaked.width && !outside; ++x) {
+                const std::size_t at = (static_cast<std::size_t>(y) * cloaked.width + x) * 3;
+                if (std::equal(
+                        cloaked.rgb.begin() + static_cast<std::ptrdiff_t>(at),
+                        cloaked.rgb.begin() + static_cast<std::ptrdiff_t>(at + 3),
+                        solid.rgb.begin() + static_cast<std::ptrdiff_t>(at)
+                    ))
+                    continue;
+                const int32_t frame_x = static_cast<int32_t>(x) + match_layout_.left;
+                const int32_t frame_y = static_cast<int32_t>(y) + match_layout_.top;
+                outside = frame_x < cloaked_bounds->x1 - 1 || frame_x > cloaked_bounds->x2 + 1 ||
+                          frame_y < cloaked_bounds->y1 - 1 || frame_y > cloaked_bounds->y2 + 1;
+            }
+        require(!outside, "cloaking a unit changed the picture away from it");
+        select_match_unit((*commander_pixel)[0], (*commander_pixel)[1], 1);
+        require(selected_match_unit_ == commander, "the commander could not be selected again");
+    }
     std::optional<oa::sim::ground_orders::Point> destination;
     std::optional<oa::sim::ground_orders::Point> destination_hit;
     std::array<float, 2> destination_pixel{};

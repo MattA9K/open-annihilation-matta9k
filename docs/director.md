@@ -480,9 +480,9 @@ bundles.
   a graphics device; a turned camera needs the live renderer's device, on
   Metal or Vulkan, and frames of at most 4096 pixels a side
   ([drawing on the graphics card](#drawing-on-the-graphics-card)).
-- **A turned camera** shows what the live 3D renderer draws: its model
-  shading and cloaked units are not yet the classic view's, and the
-  original art shows its painted sides at steep angles.
+- **A turned camera** shows what the live 3D renderer draws: some
+  projectiles and effects are not drawn yet, and the original art shows
+  its painted sides at steep angles.
 - **Unit speech** comes from what the game asks its units to say; units of
   a recorded game are not given orders, so they say little: in one
   23-minute two-player game, 127 announcements against 968 other sounds.

@@ -1600,6 +1600,11 @@ void models(const Inputs& in, Scene& scene) {
             unit = &in.draws->stand_ins[static_cast<std::size_t>(draw.stand_in)];
         if (unit == nullptr || reference.instance == nullptr || reference.prepared == nullptr)
             continue;
+        // A cloaked unit, or every unit under the debug overlay, is blended
+        // at half its opacity, as the classic view blends its picture.
+        constexpr float translucent_opacity = 0.5F;
+        const bool translucent =
+            in.translucent_units || (unit->state_flags & model::unit_state_cloaked) != 0;
         const auto position = draw.shown_position.value_or(unit->position);
         const float x = position.x / fixed_scale;
         const float h = position.y / fixed_scale;
@@ -1743,6 +1748,16 @@ void models(const Inputs& in, Scene& scene) {
                 const bool bright = !colored && rows &&
                                     *std::max_element(shade_rows.begin(), shade_rows.end()) >= 16;
                 const bool shaded_color = colored && rows && in.shade_table.size() >= 32 * 256;
+                // A polygon of the image key at every corner is clear in a
+                // unit's picture: a wall that hides the pieces sunk below the
+                // ground, which the terrain hides here, so it draws nothing.
+                // Drawn flat, it is a colour like any other.
+                if (colored && image &&
+                    std::all_of(shade_rows.begin(), shade_rows.end(), [&](int32_t row) {
+                        return (shaded_color ? in.shade_table[row * 256 + primitive.color]
+                                             : primitive.color) == model::image_key;
+                    }))
+                    continue;
                 AtlasRect rect{};
                 if (shaded_color) {
                     if (!white_material) {
@@ -1871,6 +1886,8 @@ void models(const Inputs& in, Scene& scene) {
                     vertex.emission_g = std::min(1.0F, visible_glow);
                     vertex.emission_b = std::min(1.0F, visible_glow * 0.25F);
                     vertex.opacity = detail * detail * (3 - 2 * detail);
+                    if (translucent)
+                        vertex.opacity *= translucent_opacity;
                 }
                 if (detail > 0)
                     polygon(scene, corners);
@@ -1879,7 +1896,19 @@ void models(const Inputs& in, Scene& scene) {
             }
         }
         ++scene.model_count;
-        if (!draw.on_map && unit->id != 0 && scene.vertices.size() > first_vertex)
+        if (translucent && scene.vertices.size() > first_vertex) {
+            // Held back, to be drawn over the opaque scene.
+            const std::size_t held = scene.translucent_vertices.size();
+            const auto first = scene.vertices.begin() + static_cast<std::ptrdiff_t>(first_vertex);
+            scene.translucent_vertices.insert(
+                scene.translucent_vertices.end(), first, scene.vertices.end()
+            );
+            scene.vertices.erase(first, scene.vertices.end());
+            if (!draw.on_map && unit->id != 0)
+                scene.translucent_ranges.push_back(
+                    {unit->id, held, scene.translucent_vertices.size() - held}
+                );
+        } else if (!draw.on_map && unit->id != 0 && scene.vertices.size() > first_vertex)
             scene.unit_ranges.push_back(
                 {unit->id, first_vertex, scene.vertices.size() - first_vertex}
             );
@@ -2486,6 +2515,8 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
         for (uint32_t attempt = 0; attempt < 2; ++attempt) {
             scene.vertices.clear();
             scene.unit_ranges.clear();
+            scene.translucent_vertices.clear();
+            scene.translucent_ranges.clear();
             scene.shadow_count = 0;
             scene.model_count = 0;
             scene.sprite_count = 0;
@@ -2504,6 +2535,17 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
                 sprites(inputs, scene, false);
                 if (!inputs.draws->spatial_particles.empty())
                     particles(inputs, scene);
+                // The half-transparent units over everything opaque, under
+                // the water's surface.
+                for (auto range : scene.translucent_ranges) {
+                    range.first_vertex += scene.vertices.size();
+                    scene.unit_ranges.push_back(range);
+                }
+                scene.vertices.insert(
+                    scene.vertices.end(),
+                    scene.translucent_vertices.begin(),
+                    scene.translucent_vertices.end()
+                );
                 water_surface(inputs, scene);
                 water_disturbances(inputs, scene);
                 break;

@@ -365,6 +365,7 @@ bool Runtime::render_live_match_surface() {
         inputs.nanolathe_lighting = engine_settings().nanolathe_lighting > 0;
         inputs.nanolathe_intensity = engine_settings().nanolathe_lighting / 100.0F;
         inputs.tick = match_->simulation().tick;
+        inputs.translucent_units = match_->state().game.debug_overlay != 0;
         inputs.view_direction = {live.projection[8], live.projection[9], live.projection[10]};
         inputs.clip_projection = live.projection;
         inputs.clip_width = match_world_cpu_.width;
@@ -656,11 +657,12 @@ uint16_t Runtime::live_unit_under(float x, float y) const {
         );
         const auto alpha_index =
             (static_cast<std::size_t>(row) * live.scene.texture_width + column) * 4 + 3;
-        // Smoke and translucent ground overlays do not block gameplay picks.
-        if (alpha_index >= live.scene.texture_rgba.size() ||
-            live.scene.texture_rgba[alpha_index] * opacity < 128)
-            continue;
+        // Smoke and translucent ground overlays do not block gameplay picks;
+        // a unit is picked wherever its texels cover, a cloaked one too.
         const auto id = live.triangle_units[index / 3];
+        if (alpha_index >= live.scene.texture_rgba.size() ||
+            live.scene.texture_rgba[alpha_index] * (id != 0 ? 1.0F : opacity) < 128)
+            continue;
         if (id != 0 && !live_unit_bounds(id))
             continue;
         best_depth = depth;
