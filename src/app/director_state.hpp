@@ -77,6 +77,10 @@ struct Runtime::DirectorState {
     Card card{};
     oa::media::director::EngineView view{};
     bool view_set{}; ///< set_director_view has set `view`
+    /// The view being drawn as the script places it, with the camera's turn:
+    /// a turned frame on the graphics card is drawn from its exact centre.
+    oa::media::director::View aim{};
+    bool live_turned{}; ///< the live renderer's camera was turned for a frame
 
     // What director mode replaced, put back as it leaves.
     oa::ui::display_layout::MatchLayout layout{};

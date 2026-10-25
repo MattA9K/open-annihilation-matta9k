@@ -6956,6 +6956,13 @@ class Runtime final : public menu::Host,
     void apply_live_camera_settings(bool allowed, bool unlocked);
     /// Restores classic orientation while retaining reusable GPU resources.
     void reset_live_renderer();
+    /// Turns the live camera for a director's frame, with the wider angles of
+    /// Unlocked camera: the yaw taken modulo a turn and the pitch held within
+    /// the unlocked range. Clears a failure, so that the frame is tried.
+    /// @param yaw_degrees turn about the vertical from the classic view
+    /// @param pitch_degrees elevation change from the classic view
+    /// @return true when the camera is turned from the classic view
+    bool turn_live_camera(float yaw_degrees, float pitch_degrees);
     /// Picks the drawn terrain beneath a frame point in the rotated view:
     /// where the pointer's ray meets the terrain's mesh, between map pixels
     /// and at the mesh's height, as the camera anchors on it.

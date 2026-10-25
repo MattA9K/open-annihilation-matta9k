@@ -14,7 +14,7 @@ namespace oa::app::renderer_live_gpu {
 namespace {
 
 constexpr uint32_t channels = 4;
-constexpr uint32_t max_dimension = 4096;
+constexpr uint32_t max_dimension = largest_edge;
 constexpr size_t max_vertices = 3 * 1024 * 1024;
 constexpr float coordinate_limit = 32768.0f;
 constexpr float projection_limit = 131072.0f;

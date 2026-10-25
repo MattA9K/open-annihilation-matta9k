@@ -15,6 +15,7 @@
 #include "renderer_effect_events.hpp"
 #include "director_state.hpp"
 #include "engine_settings_state.hpp"
+#include "renderer_live_gpu.hpp"
 #include "match_models.hpp"
 
 #include "oa/app/director_output.hpp"
@@ -95,6 +96,8 @@ struct Runtime::DirectorRender {
     std::vector<ChunkSummary> chunks{};
     sha256::Digest pcm_digest{}; ///< of every written chunk's PCM, in order
     uint64_t frames_drawn{};
+    /// Frames drawn from a turned camera, by the live renderer on the card.
+    uint64_t turned_frames{};
     uint64_t sounds_started{};
     std::vector<std::string> clip_errors{};
     RecordingStatus last_status{}; ///< the replay's, after the last tick stepped
@@ -528,6 +531,30 @@ void Runtime::render_director_frames(DirectorRender& render, const ReplayHooks& 
     for (size_t index = 0; index < settings::effect_sliders.size(); ++index)
         if (render.effects[index])
             current.*settings::effect_sliders[index].percent = *render.effects[index];
+    // A turned camera is drawn by the live renderer on the graphics card;
+    // on the processor the frames show the classic view in its place.
+    const bool turns =
+        std::any_of(shots.shots.begin(), shots.shots.end(), [](const director::CompiledShot& shot) {
+            return director::turned(shot.start) || director::turned(shot.end);
+        });
+    if (turns && !director_draws_on_card())
+        warn(
+            "the script turns the camera, which only a render on the graphics card draws "
+            "(--hardware-acceleration=full); the processor draws the classic view"
+        );
+    else if (turns && !renderer_live_gpu::shaders_built())
+        throw std::runtime_error(
+            "the script turns the camera, which the 3D renderer draws, and this build has no "
+            "shaders for it on this system"
+        );
+    else if (
+        turns && (output_size.width > renderer_live_gpu::largest_edge ||
+                  output_size.height > renderer_live_gpu::largest_edge)
+    )
+        throw std::runtime_error(
+            "the script turns the camera, and the 3D renderer draws frames of at most " +
+            std::to_string(renderer_live_gpu::largest_edge) + " pixels a side"
+        );
     if (director_draws_on_card() && !render.quiet) {
         std::string drawn;
         for (const auto& slider : settings::effect_sliders)
@@ -638,10 +665,13 @@ void Runtime::render_director_frames(DirectorRender& render, const ReplayHooks& 
                 chunk_start = std::chrono::steady_clock::now();
             }
             set_director_view(view);
+            director_->aim = cameras.camera;
             set_presentation_alpha(
                 between ? static_cast<float>(place.fraction) / director::tick_parts : 1.0F
             );
             draw_director_frame(incoming);
+            if (director_draws_on_card() && director::turned(cameras.camera))
+                ++render.turned_frames;
             std::span<const uint8_t> picture = incoming;
             if (cameras.transition) {
                 outgoing.resize(frame_bytes);
@@ -649,6 +679,7 @@ void Runtime::render_director_frames(DirectorRender& render, const ReplayHooks& 
                 set_director_view(
                     placed_view(director::engine_view(cameras.outgoing, output_size))
                 );
+                director_->aim = cameras.outgoing;
                 draw_director_frame(outgoing);
                 set_presentation_alpha(1.0F);
                 if (!director::blend_transition(
@@ -1242,15 +1273,19 @@ constexpr uint64_t kRenderCheckChunkFrames =
     kRenderCheckChunkTicks * kRenderCheckFramerate / kRenderCheckTickrate;
 
 /// Returns the check's script: two shots over the fight, a spring and a
-/// cut with a dissolve, in two chunks.
+/// cut with a dissolve, in two chunks; the second turns the camera when
+/// asked.
 ///
 /// @param first_tick the tick the script starts on
 /// @param centre_x the fight's centre, map pixels across
 /// @param centre_z its map-image row
+/// @param turned the second shot turns the camera
 /// @return the script's YAML text
 [[nodiscard]] std::string
-render_check_script(uint32_t first_tick, int32_t centre_x, int32_t centre_z) {
+render_check_script(uint32_t first_tick, int32_t centre_x, int32_t centre_z, bool turned) {
     const auto number = [](int64_t value) { return std::to_string(value); };
+    const std::string start_turn = turned ? ", orientation: { yaw: -20, pitch: -10 }" : "";
+    const std::string end_turn = turned ? ", orientation: { yaw: 25, pitch: 5 }" : "";
     return "oascript: 1\n"
            "input:\n"
            "  demo: skirmish.rec\n"
@@ -1278,11 +1313,11 @@ render_check_script(uint32_t first_tick, int32_t centre_x, int32_t centre_z) {
            number(first_tick + kRenderCheckCutTicks) +
            "\n"
            "      cameraStart: { position: { x: " +
-           number(centre_x + 40) + ", y: 270, z: " + number(centre_z - 20) +
-           " } }\n"
+           number(centre_x + 40) + ", y: 270, z: " + number(centre_z - 20) + " }" + start_turn +
+           " }\n"
            "      cameraEnd: { position: { x: " +
-           number(centre_x - 40) + ", y: 360, z: " + number(centre_z + 20) +
-           " } }\n"
+           number(centre_x - 40) + ", y: 360, z: " + number(centre_z + 20) + " }" + end_turn +
+           " }\n"
            "      transition: { type: dissolve, duration: 0.25 }\n"
            "  endTick: " +
            number(first_tick + kRenderCheckTicks) + "\n";
@@ -1308,6 +1343,9 @@ int Runtime::check_director_render() {
     // processor, the frames only for being pictures.
     const bool card =
         options_.hardware_acceleration == oa::ui::engine_settings::HardwareAcceleration::full;
+    // On the card, where this build has the live renderer's shaders, the
+    // second shot turns the camera: the live renderer draws its frames.
+    const bool turn = card && renderer_live_gpu::shaders_built();
     const auto require = [](bool ok, const std::string& what) {
         if (!ok)
             throw std::runtime_error("director render check: " + what);
@@ -1354,7 +1392,7 @@ int Runtime::check_director_render() {
     const auto render_pass = [&](uint32_t first_chunk, uint32_t last_chunk, const char* name) {
         const auto centre = start_fight();
         const uint32_t first_tick = match_->state().game.tick;
-        const auto text = render_check_script(first_tick, centre.first, centre.second);
+        const auto text = render_check_script(first_tick, centre.first, centre.second, turn);
         oascript::Script script{};
         oascript::DecodeReport report{};
         require(
@@ -1471,6 +1509,13 @@ int Runtime::check_director_render() {
         card ? "the run manifest does not say the graphics card drew the frames"
              : "the run manifest says the graphics card drew the processor's frames"
     );
+    // The second shot's frames, each drawn from a turned camera on the card.
+    constexpr uint64_t turned_frames =
+        (kRenderCheckTicks - kRenderCheckCutTicks) * kRenderCheckFramerate / kRenderCheckTickrate;
+    require(
+        full->turned_frames == (turn ? turned_frames : 0),
+        "the render drew " + std::to_string(full->turned_frames) + " frames from a turned camera"
+    );
     if (card) {
         // A frame the card failed to draw or to read back reads as the same
         // picture every time; the camera moves and dissolves on every frame.
@@ -1565,7 +1610,10 @@ int Runtime::check_director_render() {
         frames_alike ? "the same" : "other"
     );
     if (card)
-        std::printf("director render: drawn by the graphics card's Full tier, not pinned\n");
+        std::printf(
+            "director render: drawn by the graphics card's Full tier, not pinned%s\n",
+            turn ? "; the second shot turned by the live renderer" : ""
+        );
     std::fflush(stdout);
     if (options_.snapshot.empty())
         fs::remove_all(directory, removed);

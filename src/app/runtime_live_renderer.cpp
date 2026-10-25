@@ -4,6 +4,7 @@
 // Live match camera and GPU battlefield composition.
 #include "oa/app/runtime.hpp"
 #include "oa/app/frame_coordinates.hpp"
+#include "director_state.hpp"
 #include "match_models.hpp"
 #include "engine_settings_state.hpp"
 #include "renderer_live_camera.hpp"
@@ -51,9 +52,29 @@ void Runtime::destroy_live_renderer(LiveRenderer* renderer) noexcept {
 }
 
 bool Runtime::live_renderer_active() const noexcept {
-    return (!engine_settings_ || engine_settings_->current.allow_full_3d) &&
+    // A director's turned frame on the graphics card asks for the turn
+    // itself, whatever Allow Full 3D Mode says.
+    return (!engine_settings_ || engine_settings_->current.allow_full_3d ||
+            director_draws_on_card()) &&
            (full_presentation() || options_.headless_check) && live_renderer_ &&
            (live_renderer_->camera.yaw_degrees != 0 || live_renderer_->camera.pitch_degrees != 0);
+}
+
+bool Runtime::turn_live_camera(float yaw_degrees, float pitch_degrees) {
+    if (!live_renderer_)
+        live_renderer_.reset(new LiveRenderer{});
+    auto& live = *live_renderer_;
+    live.camera.yaw_degrees = yaw_degrees;
+    live.camera.pitch_degrees = pitch_degrees;
+    // Held within the unlocked range by the camera's own limits, so that
+    // the projection takes the angles as they are.
+    renderer_live_camera::set_unlocked(live.camera, true);
+    live.dragging = false;
+    live.drag_button = 0;
+    live.pivot_held = false;
+    live.failed = false;
+    live.unavailable = false;
+    return live.camera.yaw_degrees != 0 || live.camera.pitch_degrees != 0;
 }
 
 bool Runtime::live_renderer_unlocked() const noexcept {
@@ -267,7 +288,8 @@ bool Runtime::live_renderer_take_event(SDL_Event& event) {
 }
 
 bool Runtime::render_live_match_surface() {
-    if (!engine_settings().allow_full_3d || !match_ || !selected_tnt_)
+    if ((!engine_settings().allow_full_3d && !director_draws_on_card()) || !match_ ||
+        !selected_tnt_)
         return true;
     if (!live_renderer_)
         live_renderer_.reset(new LiveRenderer{});
@@ -428,10 +450,14 @@ bool Runtime::render_live_match_surface() {
     }
     if (!live_renderer_active())
         return true;
+    // A director's frame without the interface is the world alone.
+    const bool bare = director_ != nullptr && !director_->presentation.show_interface;
     if (!live.failed) {
-        draw_live_overlays();
-        draw_live_selection();
-        draw_live_unit_overlays();
+        if (!bare) {
+            draw_live_overlays();
+            draw_live_selection();
+            draw_live_unit_overlays();
+        }
         rebuild_on_screen_units();
     }
     return true;

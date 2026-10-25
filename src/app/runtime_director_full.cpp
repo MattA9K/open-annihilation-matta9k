@@ -123,6 +123,11 @@ void Runtime::open_director_card() {
 
 void Runtime::close_director_card(DirectorState& state) noexcept {
     auto& card = state.card;
+    // The live renderer that drew turned frames holds a device of its own
+    // on SDL's video, which goes before the video stops.
+    if (state.live_turned)
+        live_renderer_.reset();
+    state.live_turned = false;
     if (card.renderer != nullptr) {
         if (full_)
             full_->final_target = nullptr;
@@ -157,6 +162,66 @@ void Runtime::draw_director_card_frame(std::span<uint8_t> rgb) {
     const auto width = static_cast<int>(presentation.width);
     const auto height = static_cast<int>(presentation.height);
     namespace layout = oa::ui::display_layout;
+    const auto* gamma = director.gamma_identity ? nullptr : &director.gamma_table;
+    const size_t row_bytes = static_cast<size_t>(width) * kPixelBytes;
+    // A turned camera is the live renderer's rotated view, as the game draws
+    // it on Full: drawn at the frame's own size, centred on the script's
+    // exact centre and zoom, with the yaw and pitch the script gives.
+    const auto& aim = director.aim;
+    const bool turned =
+        oa::media::director::turned(aim) &&
+        turn_live_camera(static_cast<float>(aim.yaw), static_cast<float>(aim.pitch));
+    if (turned) {
+        director.live_turned = true;
+        match_layout_ = presentation.show_interface
+                            ? lay_out_match(width, height)
+                            : layout::make_battlefield_layout(width, height);
+        set_director_view(view);
+        // The view's place, which the live renderer centres on, from the
+        // script's centre rather than the whole map pixel at its corner.
+        exact_view_ = {
+            true,
+            aim.x - static_cast<double>(match_layout_.battlefield_width()) / (2.0 * view.zoom),
+            aim.z - static_cast<double>(match_layout_.battlefield_height()) / (2.0 * view.zoom),
+            match_camera_x_,
+            match_camera_z_
+        };
+        refresh_filtered_terrain();
+        render_match_surface();
+        exact_view_.held = false;
+        if (!live_renderer_active() || live_renderer_failed())
+            throw std::runtime_error(
+                live_renderer_unavailable()
+                    ? "the turned camera needs the 3D renderer, which this graphics card or "
+                      "build cannot draw"
+                    : "the 3D renderer did not draw the turned frame"
+            );
+        renderer::Surface composed;
+        const renderer::Surface* picture = &match_world_cpu_;
+        if (presentation.show_interface) {
+            compose_match_layers(composed);
+            picture = &composed;
+        }
+        if (picture->width < presentation.width || picture->height < presentation.height ||
+            picture->rgb.size() <
+                static_cast<size_t>(picture->width) * picture->height * kPixelBytes)
+            throw std::logic_error("the turned frame does not cover the director's frame");
+        for (int row = 0; row < height; ++row) {
+            const uint8_t* from =
+                picture->rgb.data() + static_cast<size_t>(row) * picture->width * kPixelBytes;
+            uint8_t* to = rgb.data() + static_cast<size_t>(row) * row_bytes;
+            if (gamma == nullptr) {
+                std::memcpy(to, from, row_bytes);
+                continue;
+            }
+            for (size_t byte = 0; byte < row_bytes; ++byte)
+                to[byte] = (*gamma)[from[byte]];
+        }
+        return;
+    }
+    // A classic frame after a turned one draws on the card again.
+    if (director.live_turned)
+        reset_live_renderer();
     // The frame read back: the whole frame with the interface, else the
     // battlefield drawn larger from the whole map pixel at the view's corner
     // and cut at the view's offset, as the processor's frame is cut.
@@ -211,8 +276,6 @@ void Runtime::draw_director_card_frame(std::span<uint8_t> rgb) {
         throw std::runtime_error(
             std::string("the director's frame could not be read back: ") + SDL_GetError()
         );
-    const auto* gamma = director.gamma_identity ? nullptr : &director.gamma_table;
-    const size_t row_bytes = static_cast<size_t>(width) * kPixelBytes;
     for (int row = 0; row < height; ++row) {
         const auto* from =
             static_cast<const uint8_t*>(frame->pixels) + static_cast<ptrdiff_t>(row) * frame->pitch;

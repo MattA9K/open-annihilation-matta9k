@@ -884,7 +884,9 @@ bool Runtime::draw_match_surface() {
                             !far && !live_renderer_active();
     // The live renderer consumes the draw list directly. Its GPU picture replaces
     // the whole battlefield, so a classic terrain, model and fog raster is unused.
-    const bool live_world = !directed && live_renderer_active() && !live_renderer_failed();
+    // A director's turned frame on the graphics card is the live renderer's.
+    const bool live_world = (!directed || director_draws_on_card()) && live_renderer_active() &&
+                            !live_renderer_failed();
     // How far between map pixels the frame draws the view: an accelerated
     // frame the card draws, magnifies or the area pass reduces may, and so
     // may a scene the processor draws at a zoom below 1, which lays its
@@ -2329,10 +2331,14 @@ bool Runtime::draw_match_surface() {
     // label, message, board or overlay is painted over it.
     drawn_health_bars_.clear();
     if (bare) {
+        // A turned director frame is the rotated view's picture, drawn here
+        // as the frame with the interface draws it below; one the card
+        // cannot draw ends the frame, as there.
+        const bool drawn = !live_world || render_live_match_surface();
         overlay_target_ = nullptr;
         hud_source_space_ = false;
         paint_origin_ = {};
-        return true;
+        return drawn;
     }
     // The HUD overlay: resource bars, bottom panel, then radar at
     // Game.radar_offset_x and radar_offset_y, then the GUI's child gadgets last.

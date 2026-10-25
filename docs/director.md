@@ -232,11 +232,18 @@ since Basic presents frames the processor drew; `=off`, or
 `--no-hardware-acceleration`, draws on the processor. `--generate-script`
 draws nothing, and the option changes nothing there.
 
-The camera does not turn: Full 3D Mode's rotated view is not drawn, since
-a script holds no angles (`orientation` is read and ignored), and the
-frames come from the Full tier's classic view. Like the game's, the card's
-water moves at the tick rate, so the frames between two ticks show the
-later tick's water. Drawing on the card is not always faster than on the
+A camera the script turns ([the script](#the-script)) is drawn as Full 3D
+Mode draws the game's rotated view: by the live 3D renderer on the card,
+with the same terrain, units, water and effects, at the frame's own size
+and centred on the script's exact centre and zoom. Allow Full 3D Mode does
+not stop it; the script asks for the turn. The live renderer's shaders are
+in this build only on Apple systems, so elsewhere a script that turns the
+camera stops the render before its first frame, as does one whose frames
+are wider or taller than the live renderer's 4096 pixels. A frame whose
+camera does not turn is the Full tier's classic view, and a shot may move
+from one to the other. Like the game's, the card's water moves at the
+tick rate, so the frames between two ticks show the later tick's water.
+Drawing on the card is not always faster than on the
 processor: each frame waits for its read-back. On one laptop, a stage of
 ships and tanks fighting across a canal rendered 300 frames at 1280x720 in
 about 5 s on the card against 2.4 s on the processor, and 240 frames at
@@ -314,14 +321,27 @@ Each shot:
 A camera is `{ position: { x: X, y: Y, z: Z } }`: `x` and `z` are the centre
 of the view on the ground, in map pixels (`z` is the row of the map's image:
 a point's height is already folded in), and `y` is the height of the map the
-view shows, in map pixels, so a larger `y` shows more of the map. The game's
-view cannot turn: an `orientation: { pitch, yaw, roll }` is read, ignored,
-and a non-zero angle is a warning. A view is kept on the map: its height
+view shows, in map pixels, so a larger `y` shows more of the map.
+`orientation: { yaw: Y, pitch: P }` turns the camera about the ground at
+the centre, in degrees: `yaw` from the classic view, above 0 turning the
+picture clockwise, and `pitch` in elevation from the classic view's, which
+looks down at about 63.4 degrees, above 0 looking down more steeply and
+below 0 lower towards the horizon. A camera without `orientation` looks as
+the classic view does. Any yaw is taken as it is, so a shot from 0 to 360
+goes once round; the pitch is held so that the camera looks down at 10 to
+85 degrees, the game's range with Unlocked camera on, and a pitch held is a
+warning. A camera does not roll: `roll` is read and ignored, and one that
+is not zero is a warning. Only a render [on the graphics
+card](#drawing-on-the-graphics-card) draws a turned camera; on the
+processor the frames show the classic view, with a warning. A view is kept on the map: its height
 between 270 map pixels and the height at which the whole map fits the frame,
 its centre so that the view shows nothing past the map's edges; a camera
 that has to be moved for that is a warning. The zoom (frame height over view
-height) is not limited to the player's range. `linear` moves `x`, `z` and
-`1 / y` evenly, so the zoom changes at an even rate.
+height) is not limited to the player's range, and a turned view is kept on
+the map as an unturned one is, so it may show past the map's edges.
+`linear` moves `x`, `z`, `1 / y`, the yaw and the pitch evenly, so the zoom
+changes at an even rate, and `spring` moves each of them alike. Sounds are
+placed from `x` and `z` alone, as for a camera that does not turn.
 
 A shot runs from the first frame that shows its tick to the first frame of
 the next shot; frame *f* shows the game after tick `first shot tick + floor(f
@@ -423,9 +443,11 @@ stage, twice, with two stills, and checks that both renders draw the same
 frames; `native-director-render-relative` renders it with
 its files and preferences named relative to the working directory and pins
 the same hashes; `native-director-render-full` renders it on the graphics
-card's Full tier, pins the same sound, checks that the run manifest says
-the card drew the frames and that most frames differ from one another, and
-skips where no renderer on a graphics card can be made;
+card's Full tier, with its second shot turning the camera where this build
+has the live renderer's shaders, pins the same sound, checks that the run
+manifest says the card drew the frames, that most frames differ from one
+another and that the live renderer drew every frame of the turned shot,
+and skips where no renderer on a graphics card can be made;
 `native-director-view` checks the frames director mode
 draws; `app-director-output` checks the files, the encoder's arguments and
 bundles.
@@ -454,9 +476,13 @@ bundles.
   of milliseconds late in it at a view of the whole map, at any size;
   transition frames are drawn twice. On the graphics card each frame also
   waits for its read-back.
-- **Frames drawn on the graphics card** are not pinned, need SDL 3.4 and a
-  graphics device, and show the classic view only
-  ([drawing on the graphics card](#drawing-on-the-graphics-card)).
+- **Frames drawn on the graphics card** are not pinned and need SDL 3.4 and
+  a graphics device; a turned camera needs the live renderer's shaders,
+  which this build has only on Apple systems, and frames of at most 4096
+  pixels a side ([drawing on the graphics card](#drawing-on-the-graphics-card)).
+- **A turned camera** shows what the live 3D renderer draws: its model
+  shading and cloaked units are not yet the classic view's, and the
+  original art shows its painted sides at steep angles.
 - **Unit speech** comes from what the game asks its units to say; units of
   a recorded game are not given orders, so they say little: in one
   23-minute two-player game, 127 announcements against 968 other sounds.

@@ -2964,11 +2964,13 @@ if(OA_BUILD_PLATFORM)
         PASS_REGULAR_EXPRESSION "${oa_director_render_hashes}"
         FAIL_REGULAR_EXPRESSION "director render check:|filesystem error")
       # The same render drawn by the graphics card's Full tier
-      # (--hardware-acceleration=full) on a renderer with no window: the
-      # sound and the world are the processor's render's, pinned as above,
-      # the run manifest says the card drew the frames, and the frames are
-      # pictures, whose hashes differ from one driver to the next and are
-      # not pinned. SDL's GPU renderer needs the system's own video driver;
+      # (--hardware-acceleration=full) on a renderer with no window, its
+      # second shot turning the camera where the build has the live
+      # renderer's shaders: the sound and the world are the processor's
+      # render's, pinned as above, the run manifest says the card drew the
+      # frames, the live renderer draws every frame of the turned shot, and
+      # the frames are pictures, whose hashes differ from one driver to the
+      # next and are not pinned. SDL's GPU renderer needs the system's own video driver;
       # where it cannot be made the check skips.
       set(oa_director_render_full_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/director-render-full")
       file(MAKE_DIRECTORY "${oa_director_render_full_dir}")

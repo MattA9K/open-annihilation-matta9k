@@ -33,6 +33,10 @@ struct Vertex {
 
 using Result = renderer_proof_gpu::Result;
 
+/// The widest and tallest picture render() draws, and atlas it takes, in
+/// pixels.
+inline constexpr uint32_t largest_edge = 4096;
+
 /// Tells whether this build carries shaders the rotated view can draw with:
 /// only Metal's, so only on Apple platforms. Elsewhere render() answers
 /// unavailable to every frame.
