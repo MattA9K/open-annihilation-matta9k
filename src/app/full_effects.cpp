@@ -43,8 +43,7 @@ std::string compose(
     float scale_x = 1.0F;
     float scale_y = 1.0F;
     if (moved_target != nullptr) {
-        SDL_Texture* target = moved_target;
-        if (target == nullptr || !SDL_SetRenderTarget(renderer, target))
+        if (!SDL_SetRenderTarget(renderer, moved_target))
             return ("the effects world target: " + std::string(SDL_GetError()));
         moved_state.emplace(renderer);
         scale_x = scale_y = static_cast<float>(moved_factor);
