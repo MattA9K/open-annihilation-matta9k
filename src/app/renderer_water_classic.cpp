@@ -58,6 +58,43 @@ float smooth_depth(const Inputs& in, float x, float z) {
     return float(in.map->sea_level) - (upper + (lower - upper) * ty);
 }
 
+/// Water depth smoothed over the four by four terrain attribute cells
+/// around a point by cubic B-spline weights: no corner where the cells
+/// step, so the coastal foam's crests run along the shore's line rather than
+/// each cell's edge. Its shoreline lies a little off the cells' own, so the
+/// foam's wash and dry ground keep smooth_depth.
+float wave_depth(const Inputs& in, float x, float z) {
+    const auto width = int32_t(in.map->attribute_width);
+    const auto height = int32_t(in.map->attribute_height);
+    if (x < 0 || z < 0 || x >= width * cell || z >= height * cell ||
+        in.map->attributes.size() < std::size_t(width) * std::size_t(height))
+        return -1;
+    const float across = x / cell - 0.5F, down = z / cell - 0.5F;
+    const int32_t column = int32_t(std::floor(across)), row = int32_t(std::floor(down));
+    const auto weights = [](float t) {
+        const float s = 1 - t;
+        return std::array<float, 4>{
+            s * s * s / 6,
+            (3 * t * t * t - 6 * t * t + 4) / 6,
+            (-3 * t * t * t + 3 * t * t + 3 * t + 1) / 6,
+            t * t * t / 6
+        };
+    };
+    const auto wx = weights(across - float(column)), wz = weights(down - float(row));
+    float total = 0;
+    for (int32_t j = 0; j < 4; ++j)
+        for (int32_t i = 0; i < 4; ++i) {
+            const int32_t c = std::clamp(column - 1 + i, 0, width - 1);
+            const int32_t r = std::clamp(row - 1 + j, 0, height - 1);
+            total +=
+                wx[std::size_t(i)] * wz[std::size_t(j)] *
+                float(
+                    in.map->attributes[std::size_t(r) * std::size_t(width) + std::size_t(c)].height
+                );
+        }
+    return float(in.map->sea_level) - total;
+}
+
 /// Require both water and current sight at the projected point.
 bool wet(const Inputs& in, float x, float z) {
     return depth(in, x, z) > 0 && in.visible && in.visible(x, z - in.map->sea_level * 0.5F);
@@ -272,9 +309,10 @@ void surface(card::CardFrame& frame, const Inputs& in) {
     // by their depth alone, and the shore's foam never breaks into a cell
     // here and there as the view zooms out. A cell of the shore is cut into
     // squares at least 4 window pixels a side, each corner taking the foam's
-    // cover at its own depth and the water's fetch blended there, so that
-    // the crests show as bands running in to the shore and the foam changes
-    // evenly from cell to cell. A corner on dry ground takes no foam, as the
+    // cover at its own depth, its crests along the smoother wave_depth, and
+    // the water's fetch blended there, so that the crests show as bands
+    // running in along the shore and the foam changes evenly from cell to
+    // cell. A corner on dry ground takes no foam, as the
     // waterline does, so the foam thins out to the shore however it runs
     // across the squares; a square with a corner on unseen ground is left
     // out.
@@ -342,15 +380,19 @@ void surface(card::CardFrame& frame, const Inputs& in) {
                     corner.shown = in.visible && in.visible(px, pz - sea * 0.5F);
                     const float fetch =
                         in.water_surface ? in.water_surface->smooth_fetch(px, pz) : 0.25F;
-                    corner.alpha = corner.shown ? renderer_water_surface::foam_alpha(
-                                                      renderer_water_surface::foam_cover(
-                                                          corner_depth, float(in.seconds)
-                                                      ),
-                                                      in.coast,
-                                                      fetch,
-                                                      in.wind.strength
-                                                  ) * detail(in)
-                                                : 0;
+                    corner.alpha =
+                        corner.shown
+                            ? renderer_water_surface::foam_alpha(
+                                  renderer_water_surface::foam_cover(
+                                      corner_depth,
+                                      corner_depth > 0 ? wave_depth(in, px, pz) : corner_depth,
+                                      float(in.seconds)
+                                  ),
+                                  in.coast,
+                                  fetch,
+                                  in.wind.strength
+                              ) * detail(in)
+                            : 0;
                     most = std::max(most, corner.alpha);
                 }
             if (most < 0.002F)

@@ -84,9 +84,11 @@ inline constexpr float foam_depth = 24.0F;
 /// How much of Coastal waves' foam covers water `depth` map pixels deep,
 /// `seconds` into the match, from 0 to 1: a wash along the shore and two
 /// trains of crests running in towards it, none at the waterline itself
-/// and none from foam_depth out. The rotated view's fragment stage
-/// (shaders/live_scene_fragment.glsl) repeats it.
-inline float foam_cover(float depth, float seconds) {
+/// and none from foam_depth out. The crests lie along `wave_depth`, a
+/// smoother depth where one is known, so that they follow the shore's run
+/// rather than each step of its cells. The rotated view's fragment stage
+/// (shaders/live_scene_fragment.glsl) repeats it with one depth.
+inline float foam_cover(float depth, float wave_depth, float seconds) {
     if (!(depth > 0) || !(depth < foam_depth))
         return 0;
     const auto smooth = [](float from, float to, float value) {
@@ -96,10 +98,15 @@ inline float foam_cover(float depth, float seconds) {
     const float shore = (1 - smooth(3, foam_depth, depth)) * smooth(0, 1, depth);
     // A crest stands where its phase is a quarter turn: as the time grows,
     // that place lies shallower, so the crests run in to the shore.
-    const float crest = 0.5F + 0.5F * std::sin(depth * 0.8F + seconds * 1.2F);
-    const float following = 0.5F + 0.5F * std::sin(depth * 0.55F + seconds * 0.9F + 1.4F);
+    const float crest = 0.5F + 0.5F * std::sin(wave_depth * 0.8F + seconds * 1.2F);
+    const float following = 0.5F + 0.5F * std::sin(wave_depth * 0.55F + seconds * 0.9F + 1.4F);
     return shore * (0.3F + 0.7F * (0.65F * crest * crest * crest +
                                    0.35F * following * following * following));
+}
+
+/// foam_cover with the crests along the same depth.
+inline float foam_cover(float depth, float seconds) {
+    return foam_cover(depth, depth, seconds);
 }
 
 /// The foam's opacity for a cover (foam_cover) at a Coastal waves percent

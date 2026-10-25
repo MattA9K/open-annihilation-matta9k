@@ -667,20 +667,31 @@ int main(int argc, char** argv) {
                 at(column, row + 1) + (at(column + 1, row + 1) - at(column, row + 1)) * tx;
             return upper + (lower - upper) * tz;
         };
+        // The wash's share at a depth, which the crests raise from 0.3 to 1 of.
+        const auto wash = [](float depth) {
+            const auto smooth = [](float from, float to, float value) {
+                const float share = std::clamp((value - from) / (to - from), 0.0F, 1.0F);
+                return share * share * (3 - 2 * share);
+            };
+            return depth > 0 && depth < renderer_water_surface::foam_depth
+                       ? (1 - smooth(3, renderer_water_surface::foam_depth, depth)) *
+                             smooth(0, 1, depth)
+                       : 0.0F;
+        };
         std::size_t reached = 0;
         for (int z = 32; z <= 224; z += 4)
             for (int x = 16; x <= 300; x += 4) {
-                const float expected = renderer_water_surface::foam_alpha(
-                    renderer_water_surface::foam_cover(blended(float(x), float(z)), 5.2117F),
-                    1,
-                    0.25F,
-                    1
-                );
-                if (expected < 0.01F)
+                const float shore = wash(blended(float(x), float(z)));
+                const float least = renderer_water_surface::foam_alpha(shore * 0.3F, 1, 0.25F, 1);
+                const float most = renderer_water_surface::foam_alpha(shore, 1, 0.25F, 1);
+                if (least < 0.01F)
                     continue;
                 ++reached;
                 const auto found = drawn.find({x, z});
-                OA_CHECK(found != drawn.end() && std::abs(found->second - expected) < 1.0e-3F);
+                OA_CHECK(
+                    found != drawn.end() && found->second >= least - 1.0e-3F &&
+                    found->second <= most + 1.0e-3F
+                );
             }
         OA_CHECK(reached > 100);
     }
