@@ -288,6 +288,21 @@ latched the closing key and drew a backdrop.
   under it asked. The saves notice, the mod warning and the found folder's
   notice are made by `UserFolderState::show_notice`, and the installs'
   prompts by `ModInstallState::show`.
+- **The work dialog.** `WorkScreen`, named `work`, holds a
+  `kit::WorkDialog`: a title and one line as given, no buttons, its
+  spinner turning with the time it has shown. It shows over one screen of
+  the game, laid out at the view's size class and centred at its scale,
+  modal over a backdrop, takes every input and does nothing with it, and
+  closes when its host's tick says so (`WorkScreen::Host`). Automation
+  lists it as `oa.work`, its one part the label `oa.progress.body` with
+  its line. The one the engine shows is a
+  Library switch's, over the main menu after the soft restart while the
+  Library waits to open again
+  ([the soft restart](#mod-profile-and-mod-folders)), for at most five
+  seconds. It stands for the Library the player asked for, so it is
+  pushed rather than queued, but only where that Library could open
+  (`Runtime::kept_library_may_show`), and it closes as soon as it could
+  not: a message box, a notice or a frame a package owns comes first.
 - **Registered pages, screens, notices and prompts.** Code outside the
   engine's own screens registers them for this runtime: a settings page in
   the layer's registry (`registered_settings`), a kit screen in the
@@ -679,7 +694,12 @@ runtime goes).
   Library (`library::switch_refused_note`); SWITCH OFF, on the mod played,
   asks the Switch Mod question of No Mod (`library::switch_off_question`),
   pushed over the Library at once, CANCEL marked, whose SWITCH plays no mod
-  through the same switch; ROLL BACK asks the Roll Back Mod question
+  through the same switch. Either switch notes what the Library shows
+  first (`keep_library_for_restart`, a `LibraryReturn`) and the line its
+  progress dialog says (`restart_line`), and the next run opens the
+  Library again as it showed
+  ([the soft restart](#mod-profile-and-mod-folders)); ROLL BACK asks the
+  Roll Back Mod question
   (`library::roll_back_question`, with the reload line for the mod being
   played), pushed and marked the same way, and its ROLL BACK rolls the
   folder back (`roll_back_mod_folder`), the feed looking again afterwards,
@@ -797,6 +817,14 @@ runtime goes).
   and PLAY NOW from the Library, and an update to the mod played held,
   named by `pending_change_target`. CANCEL on that line drops it, the
   update is taken again and held, and it is made as the mod is switched.
+  The second and third runs, which PLAY NOW began, check the Library
+  opened again: the work dialog waiting for a notice raised at the start,
+  then saying "Switching on Ridge…" until the fixture lists the installed
+  packages, the Library on Mods with the mod played selected, before the
+  fixture lists that mod and once it does, its scroll kept or its row
+  brought into view, and a Library the run before kept never kept for the
+  next run, dropped once the wait is over and not opened when the notice
+  holding it back closes.
   The third run also checks UNINSTALL: off for a map pack during a game, a
   notice for the language pack in use and for the mod being played, the
   question for a built-in registry's mod and for one of the player's own,
@@ -3792,7 +3820,39 @@ stored mod and resolves its profile, sets the data layout again, mounts the
 archives again and builds a new Runtime on the same window and renderer, with
 the full-screen state Alt+Enter left and the intro movies skipped
 (`Options::restarts`), which opens on the main menu playing the new mod. The
-player never exits the game. `--check-mod-switch` (`native-mod-switch`,
+player never exits the game.
+
+A switch made in the Library, PLAY NOW or the SWITCH of the question SWITCH
+OFF and UNLOAD MOD ask, also opens the Library again in the next run as it
+showed. Before switching, `Runtime::keep_library_for_restart` notes what it
+shows in a `Runtime::LibraryReturn`: the tab, each tab's filter, the tag,
+the search, the selected entry and its place in the list, the list's scroll
+and the details. `restart_line` is what the progress dialog says while the
+switch applies, "Switching on Ridge…" or "Switching off Ridge…" in the
+language shown (`switching_line`); a refused switch forgets both. `run_once`
+hands them to the next run: the line as `Options::restart_line`, which the
+reload's dialogs say in place of "Applying your changes" (the frame
+`show_work_frame` leaves on the window as the run ends, then the mount's and
+the new Runtime's `run_long_work`, which shows a line its catalogue does not
+hold as given), and the Library through `take_library_return`.
+`library_return` gives only what the run that ends noted, never what it was
+handed: a run whose reopen did not happen hands nothing on. The new run's
+`reopen_kept_library`, from `tick_library`, opens the Library once the main
+menu lets it open (`library_can_open`, as `open_library` is guarded) with no
+other screen of the OA layer showing (`kept_library_may_show`), and once its
+feed lists the installed packages (`LibraryFeed::installed_listed`, the
+worker's first search for the runtime's own feed), so that no entry moves
+as they arrive. Until then the switch's work dialog shows over the main menu
+where the Library could. The wait is `kept_library_wait_ms`, five seconds
+from the run's first frame on the main menu: then the Library opens with
+what is listed if it can, and is dropped if it cannot, whichever screen
+shows, so that it never opens later on a main menu that became free. It
+opens over the work dialog, which then closes under it, so a screen waiting
+in the layer's queue waits for the Library. The chosen entry is selected
+once its feed lists it, unless the player has chosen another
+(`LibraryHost::select_kept`), and the list keeps its scroll while that
+entry is where it was; otherwise its row is brought into view
+(`ScreenState::reveal_row`). `--check-mod-switch` (`native-mod-switch`,
 `runtime_mod_switch_check.cpp`) switches ten times between No Mod and two
 test profiles through that same path, on the dummy video driver's window,
 and requires what the host heap holds in live allocations as the last

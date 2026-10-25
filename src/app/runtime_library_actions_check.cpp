@@ -916,8 +916,10 @@ void Runtime::check_library_install() {
         );
         tap(SDLK_RETURN);
         frames();
+        const std::optional<AutomationControl> said = named("oa.progress.body");
         require(
-            top_is(WorkScreen::screen_name) && options_.restart_line == line &&
+            top_is(WorkScreen::screen_name) && options_.restart_line == line && said &&
+                said->dialog == "oa.work" && said->text.find(line) != std::string::npos &&
                 oa_layer().find(library_screen_name) == nullptr,
             "the switch's work dialog did not show what was switched before the feed listed the "
             "installed packages"

@@ -316,6 +316,13 @@ entry is not a package. Its key is `@base-game`, and the row is
 `oa.library.row.base-game`: the `@` is not a letter or a digit, so the
 row's name does not keep it.
 
+PLAY NOW and the Switch Mod question's `oa.prompt.switch` end the run
+with a soft restart, and the next run opens the Library again as it
+showed ([after a switch](library.md#after-a-switch)). Until it does, for
+at most five seconds, the switch's work dialog, `oa.work`, may show over
+the main menu, its one part the label `oa.progress.body` with its words,
+such as "Switching on Ridge…": a journey waits for `oa.library` there.
+
 ## Input
 
 `input` carries `events`: `key_down` and `key_up` with the key's SDL
