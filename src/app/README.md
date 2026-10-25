@@ -1578,8 +1578,8 @@ language and both sizes.
   images and silhouettes and those of the units they carry
   (`plan_unit_supersampled`), the texture animations, the projectiles'
   models, the GAF frames decoded for the particles (each once, kept from
-  frame to frame), the selection boxes' lines and the frame's statistics. Before them the frame's
-  shadows are set from the zoom (`set_frame_shadows`, `shadow_fade.hpp` of
+  frame to frame), the selection boxes' lines and the frame's statistics.
+  Before them the frame's shadows are set from the zoom (`set_frame_shadows`, `shadow_fade.hpp` of
   the model module): at zoom 1 and closer the game's own; zoomed out
   lighter, easing down to none at a quarter, the models' silhouettes and
   the projectiles' shadow sprite blended through a faded alpha table
