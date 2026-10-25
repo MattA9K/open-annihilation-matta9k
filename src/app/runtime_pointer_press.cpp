@@ -198,7 +198,9 @@ void Runtime::handle_match_right_press(float x, float y) {
     // command, the pointer area and the ground under it.
     update_pointer(x, y);
     // A press on the unit info panel is the panel's, as a left click is: OK
-    // closes it, and its face takes the press with nothing done.
+    // closes it, and its face takes the press with nothing done. A mouse's
+    // press there goes to the panel before it gets here (unit_info_pointer);
+    // a touch tap in the right-click interface comes here directly.
     if (click_unit_info(x, y))
         return;
     // The pick is wanted for what it writes into the Game block, which the

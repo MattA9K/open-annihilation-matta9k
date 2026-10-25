@@ -2607,7 +2607,8 @@ class Runtime final : public menu::Host,
     void zoom_match_about(float factor, float x, float y);
 
     /// Takes back an armed order or a pending building (reloading the panel's page), else clears
-    /// the selection: the Escape key's first two steps, never the in-game menu.
+    /// the selection and closes an open unit info panel: the Escape key's first two steps, never
+    /// the in-game menu.
     /// [runtime_hotkeys.cpp, extracted by the Interfaces stage]
     void clear_or_cancel_match_command();
 
@@ -12258,8 +12259,9 @@ class Runtime final : public menu::Host,
     /// command, starts mouse look, drops the selection, moves the view to the
     /// point under it on the radar (starting a radar scroll in the left-click
     /// interface) or gives the default order to the unit and ground under the
-    /// pointer. Dropping the selection also closes an open in-game menu, which
-    /// resumes a match it held, as F2 does.
+    /// pointer. Dropping the selection also closes the unit info panel and an
+    /// open in-game menu, which resumes a match it held, as F2 does. A press on
+    /// the unit info panel is the panel's (click_unit_info).
     ///
     /// @param x canvas column
     /// @param y canvas row
@@ -12314,7 +12316,7 @@ class Runtime final : public menu::Host,
     ///
     /// An order cursor gives each selected unit its default order at the ground
     /// under the pointer, a highlight cursor (the right-click interface) drops the
-    /// selection, any other does nothing.
+    /// selection and closes the unit info panel, any other does nothing.
     ///
     /// @param x canvas column
     /// @param y canvas row
@@ -12558,9 +12560,9 @@ class Runtime final : public menu::Host,
 
     /// Handles a left click over a unit, dispatched through the cursor as the game does.
     ///
-    /// The select cursor picks the unit, a highlight cursor is left to the
-    /// caller, and an order cursor issues each selected unit's resolved order
-    /// with the pointer unit as its target.
+    /// The select cursor picks the unit, a highlight cursor drops the selection
+    /// and closes the unit info panel, and an order cursor issues each selected
+    /// unit's resolved order with the pointer unit as its target.
     ///
     /// @param x canvas column
     /// @param y canvas row
@@ -13366,7 +13368,7 @@ class Runtime final : public menu::Host,
     /// Game.drag_start and drag_end, and selection::select_units_in_box selects or, with shift,
     /// toggles the units there and visits the local units on screen for 'n'. The rotated view
     /// tests each unit where it drew it (selection::select_units_where), with the same speech,
-    /// sound and visits.
+    /// sound and visits. A box that leaves nothing selected closes the unit info panel.
     ///
     /// @param x0 one corner's column
     /// @param y0 one corner's row
@@ -13499,12 +13501,37 @@ class Runtime final : public menu::Host,
     ///         phone layout places it
     [[nodiscard]] std::optional<oa::ui::display_layout::Rect> unit_info_area() const;
 
-    /// Handles a left click while the unit info panel is open: DONE closes it.
+    /// Returns the point of the canvas in the unit info panel's own pixels, through where
+    /// unit_info_area() shows it or, on the phone layout, through its placed region.
+    ///
+    /// @param x canvas column
+    /// @param y canvas row
+    /// @return the point in the panel's pixels, or nothing when the panel is not open or the
+    ///         point is off it
+    [[nodiscard]] std::optional<oa::ui::display_layout::Point>
+    unit_info_point(float x, float y) const;
+
+    /// Handles a click on the open unit info panel, of either button: DONE closes it.
     ///
     /// @param x canvas column
     /// @param y canvas row
     /// @return true when the click was on the panel
     bool click_unit_info(float x, float y);
+
+    /// Gives the pointer to the open unit info panel, as 3.1c's panel over the order panel takes
+    /// it.
+    ///
+    /// A left or right press on the panel is the panel's: it starts no drag box and gives no
+    /// order. The release that ends it is the panel's wherever it comes up and clicks the panel
+    /// when over it (click_unit_info). A press on the side column's buttons does nothing while
+    /// the panel is open; the battlefield and the radar take theirs. Nothing is taken while the
+    /// in-game menu is open over the panel.
+    ///
+    /// @param event a mouse event, in canvas coordinates
+    /// @param x canvas column
+    /// @param y canvas row
+    /// @return true when the panel took the event
+    bool unit_info_pointer(const SDL_Event& event, float x, float y);
 
     /// Draws the unit info panel over the battlefield where unit_info_area() puts it: its face,
     /// its controls, the statistic labels and the unit's picture at HOTR at the picture's own size.
@@ -18492,6 +18519,9 @@ class Runtime final : public menu::Host,
     };
 
     std::optional<UnitInfoPanel> unit_info_panel_{};
+    // The mouse button whose press the unit info panel took, until its
+    // release; zero for none (unit_info_pointer).
+    uint8_t unit_info_pressed_button_ = 0;
     bool chat_composing_ = false;
     // The quick key, lowercase, that pressed a button of a panel over the
     // match at the last key press; zero for none. The character it types

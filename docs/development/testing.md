@@ -726,7 +726,9 @@ pressed look of a resting finger and a finger sliding off), the two-finger
 tap, pinch and pan keeping the map under the fingers, the order wheel
 (Patrol, its QUEUE hub ending PATROL with its pick, latched QUEUE
 keeping the 3.1c PATROL button lit until QUEUE goes off, Info, a greyed
-place), building placement (a drag moving the ghost under the finger, a
+place), the unit info panel taking the finger (the side column's ATTACK
+doing nothing under it, a drag from it drawing no box even with ATTACK
+armed, a box that selects nothing and OK closing it), building placement (a drag moving the ghost under the finger, a
 hold near the ghost placing it there, a double tap or a hold away from it
 placing where the finger is, a refused site staying armed, QUEUE keeping the
 placement for the next site, CANCEL, CLEAR and a two-finger tap ending

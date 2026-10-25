@@ -3518,7 +3518,11 @@ endforeach()
       # closing it and resuming the game, the Pause key's pause kept, a
       # group's moves and patrols in its shape, a solar collector selected
       # with it given no patrol, and a factory build button's right click
-      # taking its type off the queue;
+      # taking its type off the queue; the unit info panel in both interface
+      # types: right and left clicks on it and beside it, its keys, a drag
+      # from it starting no box, the side column's buttons and quick keys
+      # doing nothing under it, the radar still moving the view, and a box
+      # that selects nothing closing it;
       # and the system's pointer in place of the game's cursor without the focus.
       set(oa_pointer_check_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/pointer-interfaces")
       file(MAKE_DIRECTORY "${oa_pointer_check_dir}")
@@ -3580,8 +3584,9 @@ endforeach()
         WORKING_DIRECTORY "${oa_radar_orders_check_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # --check-touch-controls: the touch controls, driven by finger events through the
-      # dispatcher, on a skirmish: taps, boxes, latches, the radial, placement, the
-      # minimap, pinch and pan, the lifecycle pause, and the tablet (1180x820) or
+      # dispatcher, on a skirmish: taps, boxes, latches, the radial, the unit info
+      # panel taking the finger, placement, the minimap, pinch and pan, the
+      # lifecycle pause, and the tablet (1180x820) or
       # phone (852x393) layout; it writes touch-<case>.ppm snapshots for people.
       set(oa_touch_check_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/touch-controls")
       file(MAKE_DIRECTORY "${oa_touch_check_dir}")

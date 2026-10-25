@@ -338,12 +338,13 @@ void TouchDispatchAccess::drag_began(Runtime& runtime, const gestures::Gesture& 
         return;
     // The recogniser already saw a drag, so the release reads as a box
     // however short or quick; an order that takes an area (the engine
-    // starts no box with one armed) gets its box here.
+    // starts no box with one armed) gets its box here, unless the press was
+    // the unit info panel's.
     const uint32_t tick = runtime.frontend_tick();
     const uint32_t pressed = tick >= kDragClickWindow ? tick - kDragClickWindow : 0;
     if (runtime.match_drag_)
         runtime.match_drag_->pressed_tick = pressed;
-    else if (area_command(runtime.match_command_))
+    else if (area_command(runtime.match_command_) && runtime.unit_info_pressed_button_ == 0)
         if (const auto ground = runtime.match_pointer_ground(gesture.start_x, gesture.start_y))
             runtime.match_drag_ = Runtime::MatchDragBox{*ground, *ground, pressed};
     send_mouse(runtime, SDL_EVENT_MOUSE_MOTION, gesture.x, gesture.y, 0);
