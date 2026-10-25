@@ -12,6 +12,7 @@
 #include <chrono>
 #include <cstdio>
 #include <limits>
+#include <map>
 #include <string_view>
 #include <vector>
 #include <utility>
@@ -564,6 +565,124 @@ int main(int argc, char** argv) {
             return deepest;
         };
         OA_CHECK(crest_depth(0.5F) < crest_depth(0));
+    }
+    // Along a shore that runs across the cells, the foam reaches every
+    // square to the waterline and changes evenly from cell to cell: no steps
+    // of whole squares or cells by the beach.
+    {
+        oa::formats::tnt::Map diagonal;
+        diagonal.attribute_width = diagonal.attribute_height = 32;
+        diagonal.sea_level = 32;
+        diagonal.attributes.resize(32 * 32);
+        // Water east of the diagonal, 3 map pixels deeper a cell each way.
+        for (int row = 0; row < 32; ++row)
+            for (int column = 0; column < 32; ++column)
+                diagonal.attributes[std::size_t(row) * 32 + std::size_t(column)].height =
+                    uint8_t(std::clamp(32 + (row - column) * 3, 0, 64));
+        renderer_water::SurfaceCache fetches;
+        fetches.reset(diagonal);
+        renderer_water_classic::Inputs beach_waves;
+        beach_waves.map = &diagonal;
+        beach_waves.view.width = 320;
+        beach_waves.view.height = 240;
+        beach_waves.coast = 1;
+        beach_waves.wind.strength = 1;
+        beach_waves.seconds = 5.2117;
+        beach_waves.water_surface = &fetches;
+        beach_waves.visible = [](float, float) { return true; };
+        card::CardFrame foam;
+        renderer_water_classic::surface(foam, beach_waves);
+        OA_CHECK(card::check_frame(foam).empty() && !foam.indices.empty());
+        // At zoom 1 a corner at map pixel x of the water plane's row z lands
+        // at x, z less half the sea; the waterline runs where x is z.
+        std::map<std::pair<int, int>, float> alphas;
+        std::map<int, int> nearest_shore;
+        bool even = true;
+        for (const auto index : foam.indices) {
+            const auto& vertex = foam.vertices[index];
+            const std::pair<int, int> place{
+                int(std::lround(vertex.x)), int(std::lround(vertex.y + diagonal.sea_level * 0.5F))
+            };
+            const auto [kept, added] = alphas.emplace(place, vertex.colour.alpha);
+            even = even && (added || std::abs(kept->second - vertex.colour.alpha) < 1.0e-6F);
+            auto& shore_start = nearest_shore.try_emplace(place.second, place.first).first->second;
+            shore_start = std::min(shore_start, place.first);
+        }
+        OA_CHECK(even);
+        // Every row of squares the view shows the shore on starts at it.
+        std::size_t rows = 0;
+        for (const auto& [z, x] : nearest_shore)
+            if (z >= 32 && z <= 200) {
+                OA_CHECK(x <= z);
+                ++rows;
+            }
+        OA_CHECK(rows >= 40);
+        // Each corner is drawn by every cell it bounds at the same alpha,
+        // with the water's fetch blended across the coarse cells.
+        for (float x = 16; x < 496; x += 16) {
+            OA_CHECK(
+                std::abs(
+                    fetches.smooth_fetch(x - 0.01F, 300) - fetches.smooth_fetch(x + 0.01F, 300)
+                ) < 0.01F
+            );
+        }
+        // No hard outer edge: among blocks of deep sea and high land, every
+        // corner the foam reaches is drawn with its foam, however deep or
+        // high the cells around it lie, so the foam thins out to nothing
+        // within what is drawn.
+        oa::formats::tnt::Map blocks;
+        blocks.attribute_width = blocks.attribute_height = 32;
+        blocks.sea_level = 32;
+        blocks.attributes.resize(32 * 32);
+        for (int row = 0; row < 32; ++row)
+            for (int column = 0; column < 32; ++column)
+                blocks.attributes[std::size_t(row) * 32 + std::size_t(column)].height =
+                    (column / 3 + row / 3) % 2 == 0 ? 64 : 0;
+        beach_waves.map = &blocks;
+        beach_waves.water_surface = nullptr;
+        card::CardFrame block_foam;
+        renderer_water_classic::surface(block_foam, beach_waves);
+        std::map<std::pair<int, int>, float> drawn;
+        for (const auto index : block_foam.indices) {
+            const auto& vertex = block_foam.vertices[index];
+            drawn[{
+                int(std::lround(vertex.x)), int(std::lround(vertex.y + blocks.sea_level * 0.5F))
+            }] = vertex.colour.alpha;
+        }
+        // The depth blended between the cells' centres, as the foam takes it.
+        const auto blended = [&](float x, float z) {
+            const float across = x / 16 - 0.5F, down = z / 16 - 0.5F;
+            const int column = int(std::floor(across)), row = int(std::floor(down));
+            const auto at = [&](int c, int r) {
+                return float(blocks.sea_level) -
+                       float(blocks
+                                 .attributes
+                                     [std::size_t(std::clamp(r, 0, 31)) * 32 +
+                                      std::size_t(std::clamp(c, 0, 31))]
+                                 .height);
+            };
+            const float tx = across - float(column), tz = down - float(row);
+            const float upper = at(column, row) + (at(column + 1, row) - at(column, row)) * tx;
+            const float lower =
+                at(column, row + 1) + (at(column + 1, row + 1) - at(column, row + 1)) * tx;
+            return upper + (lower - upper) * tz;
+        };
+        std::size_t reached = 0;
+        for (int z = 32; z <= 224; z += 4)
+            for (int x = 16; x <= 300; x += 4) {
+                const float expected = renderer_water_surface::foam_alpha(
+                    renderer_water_surface::foam_cover(blended(float(x), float(z)), 5.2117F),
+                    1,
+                    0.25F,
+                    1
+                );
+                if (expected < 0.01F)
+                    continue;
+                ++reached;
+                const auto found = drawn.find({x, z});
+                OA_CHECK(found != drawn.end() && std::abs(found->second - expected) < 1.0e-3F);
+            }
+        OA_CHECK(reached > 100);
     }
     // The coast's foam lies on every shallow cell the view shows, at any
     // zoom: a wide view far out draws as many cells' foam as it shows, not

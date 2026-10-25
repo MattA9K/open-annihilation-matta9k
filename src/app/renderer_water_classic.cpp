@@ -272,8 +272,11 @@ void surface(card::CardFrame& frame, const Inputs& in) {
     // by their depth alone, and the shore's foam never breaks into a cell
     // here and there as the view zooms out. A cell of the shore is cut into
     // squares at least 4 window pixels a side, each corner taking the foam's
-    // cover at its own depth, so that the crests show as bands running in
-    // to the shore; a square with a corner on dry or unseen ground is left
+    // cover at its own depth and the water's fetch blended there, so that
+    // the crests show as bands running in to the shore and the foam changes
+    // evenly from cell to cell. A corner on dry ground takes no foam, as the
+    // waterline does, so the foam thins out to the shore however it runs
+    // across the squares; a square with a corner on unseen ground is left
     // out.
     using renderer_water_surface::foam_depth;
     int spacing = 4;
@@ -293,15 +296,42 @@ void surface(card::CardFrame& frame, const Inputs& in) {
         renderer_water_appearance::foam_blue,
         1
     };
+    // Each cell's depth once, a cell past the view's on each side too: the
+    // depths blended at a cell's corners lie between those of the cells
+    // around it, so a cell takes foam only where they hold some water
+    // shallower than the foam's depth.
+    const int map_width = int(in.map->attribute_width);
+    const int map_height = int(in.map->attribute_height);
+    const int depths_across = right - left + 2;
+    std::vector<float> depths(
+        in.coast > 0
+            ? std::size_t(std::max(0, depths_across)) * std::size_t(std::max(0, bottom - top + 2))
+            : 0
+    );
+    for (std::size_t k = 0; k < depths.size(); ++k) {
+        const int c = std::clamp(left - 1 + int(k % std::size_t(depths_across)), 0, map_width - 1);
+        const int r = std::clamp(top - 1 + int(k / std::size_t(depths_across)), 0, map_height - 1);
+        depths[k] = depth(in, float(c) * cell + 8, float(r) * cell + 8);
+    }
+    const auto may_foam = [&](int col, int row) {
+        float shallowest = foam_depth, deepest = 0;
+        for (int dr = 0; dr < 3; ++dr)
+            for (int dc = 0; dc < 3; ++dc) {
+                const float d = depths
+                    [std::size_t(row - top + dr) * std::size_t(depths_across) +
+                     std::size_t(col - left + dc)];
+                shallowest = std::min(shallowest, d);
+                deepest = std::max(deepest, d);
+            }
+        return shallowest < foam_depth && deepest > 0;
+    };
     std::size_t foam_cells = 0;
     for (int row = top; row < bottom && in.coast > 0; ++row) {
         for (int col = left; col < right && foam_cells < maximum_foam_cells; ++col) {
             const float x = col * cell;
             const float z = row * cell;
-            const float d = depth(in, x + 8, z + 8);
-            if (!(d > -foam_depth && d < foam_depth + 8))
+            if (!may_foam(col, row))
                 continue;
-            const float fetch = in.water_surface ? in.water_surface->fetch(x + 8, z + 8) : 0.25F;
             float most = 0;
             for (int down = 0; down <= across; ++down)
                 for (int along = 0; along <= across; ++along) {
@@ -309,8 +339,9 @@ void surface(card::CardFrame& frame, const Inputs& in) {
                     const float pz = z + float(down * spacing);
                     const float corner_depth = smooth_depth(in, px, pz);
                     auto& corner = corners[std::size_t(down) * (across + 1) + along];
-                    corner.shown =
-                        corner_depth > 0 && in.visible && in.visible(px, pz - sea * 0.5F);
+                    corner.shown = in.visible && in.visible(px, pz - sea * 0.5F);
+                    const float fetch =
+                        in.water_surface ? in.water_surface->smooth_fetch(px, pz) : 0.25F;
                     corner.alpha = corner.shown ? renderer_water_surface::foam_alpha(
                                                       renderer_water_surface::foam_cover(
                                                           corner_depth, float(in.seconds)
