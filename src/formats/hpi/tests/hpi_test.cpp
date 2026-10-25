@@ -1306,6 +1306,41 @@ void hpi_lookups_follow_the_records() {
     check(!archive.lookup("sub/c.gui"), "a name holding a separator is not a folder");
 }
 
+/// A directory of many records keeps the last record of each name ignoring
+/// ASCII case, as a walk of the records does, and opens in far less time
+/// than a cost growing with the square of its records would take.
+void hpi_large_directory_keeps_the_last_of_each_name() {
+    TempDir dir;
+    constexpr int kNames = 40'000;
+    // Every name in lower case, then in upper case, then every even one in
+    // mixed case: the last spelling of each name holds its round.
+    std::vector<oa::HpiWriteFile> files;
+    files.reserve(3 * kNames);
+    for (int round = 0; round < 3; ++round)
+        for (int number = 0; number < kNames; ++number) {
+            if (round == 2 && number % 2 != 0)
+                continue;
+            const std::string digits = std::to_string(number);
+            const std::string name = round == 0   ? "unit" + digits + ".fbi"
+                                     : round == 1 ? "UNIT" + digits + ".FBI"
+                                                  : "Unit" + digits + ".Fbi";
+            files.push_back({name, text(std::to_string(round)), 0});
+        }
+    const auto path = dir.write("large.hpi", archive_of(files));
+    const auto start = std::chrono::steady_clock::now();
+    const auto archive = opened(path);
+    const auto took = std::chrono::steady_clock::now() - start;
+    check(archive.entries().size() == files.size(), "a large directory keeps every record");
+    check(took < std::chrono::seconds(10), "a directory of 100000 records opens quickly");
+    std::vector<std::string> paths;
+    for (int number = 0; number < kNames; number += 997)
+        for (const int sample : {number, number + 1})
+            paths.push_back("unit" + std::to_string(sample) + ".FBI");
+    check_lookups_match_walk(archive, paths);
+    check(archive.read("UNIT0.fbi").value == text("2"), "the mixed-case last record is read");
+    check(archive.read("unit1.fbi").value == text("1"), "the upper-case last record is read");
+}
+
 /// Every directory of the installed game's archives lists as the full scan
 /// of the archives does.
 ///
@@ -1382,6 +1417,7 @@ int main(int argc, char** argv) {
         asset_store_loose_listings();
         asset_store_lists_archive_folders();
         hpi_lookups_follow_the_records();
+        hpi_large_directory_keeps_the_last_of_each_name();
         asset_store_names_in_any_script();
         asset_store_loose_links();
         asset_store_loose_junctions();

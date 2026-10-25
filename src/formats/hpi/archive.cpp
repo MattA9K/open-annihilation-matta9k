@@ -17,7 +17,6 @@
 #include <new>
 #include <string>
 #include <string_view>
-#include <unordered_map>
 #include <unordered_set>
 
 namespace oa {
@@ -95,24 +94,28 @@ uint64_t folded_hash(uint64_t hash, std::string_view text) noexcept {
     return hash;
 }
 
-/// Hashes an archive path as path_fold() folds it, so that paths a lookup
-/// takes as the same hash alike.
-struct FoldedPathHash {
-    using is_transparent = void;
-
-    /// Hashes a path.
-    ///
-    /// @param path the path
-    /// @return its hash: 64-bit FNV-1a over the folded characters
-    std::size_t operator()(std::string_view path) const noexcept {
-        return static_cast<std::size_t>(folded_hash(kFnvOffsetBasis, path));
+/// Orders archive paths by their characters as path_fold() folds them, a
+/// shorter path before a longer one it begins.
+///
+/// @param left one path
+/// @param right the other
+/// @return negative when left comes first, zero when they fold alike,
+///         positive when right comes first
+int folded_compare(std::string_view left, std::string_view right) noexcept {
+    const std::size_t common = std::min(left.size(), right.size());
+    for (std::size_t i = 0; i < common; ++i) {
+        const auto a = static_cast<unsigned char>(path_fold(left[i]));
+        const auto b = static_cast<unsigned char>(path_fold(right[i]));
+        if (a != b)
+            return a < b ? -1 : 1;
     }
-};
+    if (left.size() == right.size())
+        return 0;
+    return left.size() < right.size() ? -1 : 1;
+}
 
 /// Compares archive paths as path_fold() folds them.
 struct FoldedPathEqual {
-    using is_transparent = void;
-
     /// Tells whether two paths fold alike.
     ///
     /// @param left one path
@@ -401,22 +404,31 @@ struct HpiArchive::Impl {
     /// @param hash folded_hash of the directory's path; unused for the root
     void index_paths(uint32_t directory, uint64_t hash) {
         const ArchiveNode& parent = nodes[directory];
-        // The last record of each name, ignoring ASCII case.
-        std::unordered_map<std::string_view, uint32_t, FoldedPathHash, FoldedPathEqual> last;
+        // The records of each name sit together, ignoring ASCII case, the
+        // last of them at the end. Sorting keeps the cost of a directory
+        // the same whatever its names hash to.
+        std::vector<uint32_t> named;
+        named.reserve(parent.child_count);
         for (uint32_t i = 0; i < parent.child_count; ++i) {
             const uint32_t index = parent.first_child + i;
             parents[index] = directory;
-            const std::string& name = nodes[index].name;
-            if (name.find_first_of("\\/") == std::string::npos)
-                last.insert_or_assign(std::string_view(name), index);
+            if (nodes[index].name.find_first_of("\\/") == std::string::npos)
+                named.push_back(index);
         }
+        std::sort(named.begin(), named.end(), [this](uint32_t a, uint32_t b) {
+            const int order = folded_compare(nodes[a].name, nodes[b].name);
+            return order < 0 || (order == 0 && a < b);
+        });
+        // The last record of each name, in the directory's order.
+        std::vector<uint32_t> last;
+        for (std::size_t at = 0; at < named.size(); ++at)
+            if (at + 1 == named.size() ||
+                !FoldedPathEqual{}(nodes[named[at]].name, nodes[named[at + 1]].name))
+                last.push_back(named[at]);
+        std::sort(last.begin(), last.end());
         const uint64_t prefix = directory == 0 ? kFnvOffsetBasis : folded_hash(hash, "/");
-        for (uint32_t i = 0; i < parent.child_count; ++i) {
-            const uint32_t index = parent.first_child + i;
+        for (const uint32_t index : last) {
             const ArchiveNode& node = nodes[index];
-            const auto found = last.find(std::string_view(node.name));
-            if (found == last.end() || found->second != index)
-                continue;
             const uint64_t path_hash = folded_hash(prefix, node.name);
             paths.push_back({path_hash, index});
             if (node.directory())
