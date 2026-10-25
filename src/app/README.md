@@ -2309,7 +2309,12 @@ language and both sizes.
   selection, which loads the idle page again, takes no frame's time
   reading the archives again; the pointer interface check
   (`native-pointer-interfaces`) counts what the pages a selection and two
-  right presses open read.
+  right presses open read. A unit's page or the order page that opens is
+  drawn into the HUD layer alone (`compose_match_hud`, the HUD part of
+  `draw_match_surface`): the bars widened to the window, the panel and what
+  goes over it, so that the pointer meets the page where the next frame
+  shows it (`match_hud_strips`), and that frame draws the whole match once,
+  as every frame does.
 - `runtime_scroll_bars.cpp`: the scroll bars of the frontend screen's panel
   and of the match HUD's panel (`renderer::LayoutScrolls`), bound as each
   panel's first draw binds them, drawn over it, driven by the pointer and

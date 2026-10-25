@@ -8870,6 +8870,16 @@ class Runtime final : public menu::Host,
     ///         undrawn past the battlefield, with the view put back classic
     [[nodiscard]] bool draw_match_surface();
 
+    /// Draws the HUD layer of the match frame (match_hud_cpu_) as
+    /// draw_match_surface draws it, without the battlefield or what the
+    /// frame paints over the HUD after it: the loaded panel with its
+    /// buttons, scroll bars, the panels below a dialog and the dialog, on
+    /// the bars widened to the window (extend_match_bars), or the side
+    /// chrome alone. A panel just loaded is so measured and hit where the
+    /// next frame draws it (match_hud_strips) before that frame draws the
+    /// whole match.
+    void compose_match_hud();
+
     /// Returns the 3DO renderer state of the current match, built on first use.
     ///
     /// Building it begins every unit's and 3D feature's draw state afresh.

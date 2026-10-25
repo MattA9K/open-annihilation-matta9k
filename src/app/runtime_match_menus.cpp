@@ -2007,7 +2007,9 @@ void Runtime::show_match_orders_page() {
     hud::order_panel_store(game, state);
     match_build_page_ = 0;
     status_ = "Orders";
-    render_match_surface();
+    // The HUD layer takes the page at once; the frame draws the match, the
+    // page with it, once.
+    compose_match_hud();
 }
 
 void Runtime::show_match_pause_menu() {

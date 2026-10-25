@@ -239,7 +239,9 @@ void Runtime::open_match_build_page(int page) {
     if (state.unit_id == unit->id) {
         hud::order_panel_store(game, state);
         status_ = "Build page " + std::to_string(page);
-        render_match_surface();
+        // The HUD layer takes the page at once; the frame draws the match,
+        // the page with it, once.
+        compose_match_hud();
     } else {
         match_build_page_ = previous_page;
         match_build_page_unit_ = previous_page_unit;
