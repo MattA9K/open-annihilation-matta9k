@@ -3816,6 +3816,15 @@ endforeach()
           --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
           --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
         set_tests_properties(native-stage PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        # Buildings created by name on the chat line stand on their build
+        # grid at their yard's height: a shipyard floats its waterline below
+        # the sea, a solar collector on a hill stands on its lowest corner.
+        add_test(NAME native-spawn-heights COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_spawn_heights.py"
+          --native $<TARGET_FILE:oa-game> --oa-tool $<TARGET_FILE:oa-tool>
+          --game-dir "${OA_GAME_DIR}"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-spawn-heights PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
         # The trace skirmish, the stage and the director render, each played
         # again with Classic in the computer seat. The director's pass and
         # fail lines are the pinned render's.

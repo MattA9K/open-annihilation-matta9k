@@ -1293,6 +1293,13 @@ scratch mod folder whose ARMCOM unit file, taken from the installation with
 `oa-tool asset-extract`, carries the same values: a match without mutators
 steers as 3.1c does, so there a commander must step more than a cell past
 its point.
+`native-spawn-heights` (`tools/check_native_spawn_heights.py`) points at
+markers a stage places on Coast To Coast and enters unit names on the chat
+line: a shipyard, a floating torpedo launcher and a floating metal maker
+on the deep water must stand on their build grid at the sea level less
+their waterlines, a solar collector on a hill at the lowest corner under
+its footprint, read from the map with `oa-tool asset-extract`, and a patrol
+boat at a placed one's height, each to the end of the run.
 
 ## Writing a test
 

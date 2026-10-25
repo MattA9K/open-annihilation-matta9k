@@ -1699,6 +1699,17 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     uint8_t
     footprint_height(uint16_t type, int32_t cell_x, int32_t cell_z, uint8_t facing = 0) const;
 
+    /// Places a building created finished where 3.1c places one, as a
+    /// mission's units and the unit-name cheat place theirs: the point snaps
+    /// to the footprint's grid (snap_build_position) and stands at the height
+    /// its yard takes there (footprint_height), so a shipyard on water stands
+    /// its waterline below the sea. Any other type keeps the point; its
+    /// creation fits its height.
+    ///
+    /// @param type Type index; 0 or one past the table keeps the point.
+    /// @param[in,out] position Signed 16.16 point.
+    void snap_to_build_grid(uint16_t type, FixedVec3& position) const;
+
     /// Returns the facing a building of a type may be placed in
     /// (units.build-rotation).
     ///

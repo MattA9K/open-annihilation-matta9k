@@ -85,6 +85,14 @@ cannot be selected, ordered or counted. The builder's order still ends with
 "Building complete". A wall created already finished is marked the same way
 as it is placed.
 
+A building created finished, among a mission's units or by the unit-name
+cheat, is placed as 3.1c places it (`Match::snap_to_build_grid`): its point
+snaps to its footprint's grid and it stands at the height its yard takes
+there (`footprint_height`), the height a builder's frame takes on that site.
+A yard with no level cell, such as a shipyard's or a floating torpedo
+launcher's, floats its waterline below the sea. Any other type keeps its
+point, and its creation fits its height to the ground or the water.
+
 ## Rules
 
 A mod's profile reaches the match through `OfflineInputs`: `limits` (the
