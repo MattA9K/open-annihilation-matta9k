@@ -22,6 +22,7 @@
 #include <SDL3/SDL.h>
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -55,6 +56,42 @@ constexpr int32_t kSiteFarthest = 40;
 
 [[noreturn]] void fail(std::string_view what) {
     throw std::runtime_error("pointer interface check: " + std::string(what));
+}
+
+/// The files of the side column's art, which every page is drawn with.
+constexpr std::array<std::string_view, 8> kSideColumnArt{
+    "commongui.gaf",
+    "guipal.pal",
+    "logos.gaf",
+    "hattfont11.gaf",
+    "hattfont12.gaf",
+    "guisidetile.pcx",
+    "palette.lht",
+    "palette.shd"
+};
+
+/// The files a stretch of the check reads: the side column's art and GUI files.
+struct PanelReads {
+    int art = 0;
+    int pages = 0;
+};
+
+/// Counts a file the asset store is asked for into PanelReads.
+///
+/// @param context the PanelReads
+/// @param path the file's path, as its reader wrote it
+void count_panel_read(void* context, std::string_view path) {
+    auto& reads = *static_cast<PanelReads*>(context);
+    std::string name(path);
+    std::transform(name.begin(), name.end(), name.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    if (std::any_of(kSideColumnArt.begin(), kSideColumnArt.end(), [&](std::string_view art) {
+            return name.ends_with(art);
+        }))
+        ++reads.art;
+    if (name.ends_with(".gui"))
+        ++reads.pages;
 }
 
 void require(bool ok, std::string_view what) {
@@ -347,6 +384,26 @@ void Runtime::check_pointer_interfaces() {
         !selected(peewee) && !has_local_selection() && moves_to(peewee, {a}),
         "left-click interface: a right press did not deselect without an order"
     );
+    // The left click that selects and the right presses that drop the
+    // selection, and find none to drop, open the unit's page and the side's
+    // idle page again; each reads only its GUI file, never the side column's
+    // art, read once a match (match_hud_art), which cost every right press a
+    // frame's time.
+    {
+        PanelReads reads;
+        assets_.observe_lookups({&reads, count_panel_read});
+        select_only(peewee);
+        std::tie(px, py) = screen_of(peewee);
+        click(SDL_BUTTON_RIGHT, px, py + kPointOffset);
+        click(SDL_BUTTON_RIGHT, px, py + kPointOffset);
+        assets_.observe_lookups({});
+        require(
+            reads.art == 0 && reads.pages >= 2 && !has_local_selection(),
+            "left-click interface: the pages a selection and the right presses opened read the "
+            "side column's art " +
+                std::to_string(reads.art) + " times"
+        );
+    }
 
     select_only(peewee);
     std::tie(px, py) = screen_of(peewee);
@@ -980,7 +1037,8 @@ void Runtime::check_pointer_interfaces() {
                  "the in-game menu, the settings and the save page and after something else "
                  "showed the system's; left-click interface clicks, shift cancels, Shift let "
                  "go ending build mode after a queued building, right "
-                 "press deselect/cancel/radar scroll/mouse look and build-site cancel; "
+                 "press deselect/cancel/radar scroll/mouse look and build-site cancel, the "
+                 "pages they opened reading only their GUI files; "
                  "right-click interface deselect, default orders, guard, cancels and radar; "
                  "right clicks beside the in-game menu: an order with it kept open, nothing on "
                  "its panel, the radar's view, and a deselect closing it and resuming, and "

@@ -1043,9 +1043,39 @@ void draw_list_box(
     }
 }
 
+/// Lays a GUI layout out over a screen's art, its texts in the game's
+/// language, and binds its buttons as the panel's first draw does.
+///
+/// @param[in,out] screen The art; it takes the layout
+/// @param name The layout's name, for an error
+/// @param layout The layout's GUI file
+/// @throws std::runtime_error when the layout is malformed
+void lay_out_screen(
+    ScreenResources& screen, const std::string& name, std::span<const uint8_t> layout
+) {
+    // The panel's texts in the game's language, as 3.1c's GUI loader
+    // translates them.
+    auto parsed_layout = ui::gui_layout::parse(layout, ui::gui_layout::game_translation_lookup());
+    if (!parsed_layout.ok()) {
+        throw std::runtime_error(
+            "cannot parse GUI layout '" + name + "': " + parsed_layout.error->message
+        );
+    }
+    screen.layout = std::move(*parsed_layout.layout);
+    bind_screen_buttons(screen, 0);
+}
+
 ScreenResources load_screen_with_layout(
     AssetStore& assets, const ScreenAssetNames& names, std::span<const uint8_t> layout
 ) {
+    ScreenResources result = load_screen_art(assets, names);
+    lay_out_screen(result, names.layout, layout);
+    return result;
+}
+
+} // namespace
+
+ScreenResources load_screen_art(AssetStore& assets, const ScreenAssetNames& names) {
     ScreenResources result;
     if (!names.background.empty()) {
         // The background in the language's folder when the game data has it
@@ -1063,16 +1093,6 @@ ScreenResources load_screen_with_layout(
         throw std::runtime_error("GUI palette must contain 256 four-byte RGB entries");
     }
     std::copy(palette.begin(), palette.end(), result.gui_palette.begin());
-
-    // The panel's texts in the game's language, as 3.1c's GUI loader
-    // translates them.
-    auto parsed_layout = ui::gui_layout::parse(layout, ui::gui_layout::game_translation_lookup());
-    if (!parsed_layout.ok()) {
-        throw std::runtime_error(
-            "cannot parse GUI layout '" + names.layout + "': " + parsed_layout.error->message
-        );
-    }
-    result.layout = std::move(*parsed_layout.layout);
 
     if (!names.sprites.empty()) {
         auto parsed_sprites = formats::gaf::parse(assets.read(names.sprites).bytes);
@@ -1115,11 +1135,16 @@ ScreenResources load_screen_with_layout(
         result.game_palette.emplace();
         std::copy(game.begin(), game.end(), result.game_palette->begin());
     }
-    bind_screen_buttons(result, 0);
     return result;
 }
 
-} // namespace
+ScreenResources
+load_screen_layout(AssetStore& assets, const ScreenResources& art, const std::string& layout) {
+    const auto bytes = assets.read(layout).bytes;
+    ScreenResources result = art;
+    lay_out_screen(result, layout, bytes);
+    return result;
+}
 
 std::string_view staged_caption(std::string_view text, std::size_t stage) noexcept {
     if (text.find('|') == std::string_view::npos)

@@ -326,6 +326,8 @@ void Runtime::press_match_panel_page(oa::ui::hud::BuildPanelClick press, bool cy
 void Runtime::load_match_chrome() {
     match_chrome_ = {};
     match_hud_.reset();
+    // The side column's art is read again for each match, from its own files.
+    match_hud_art_.reset();
     const auto prefix = match_side_prefix();
     try {
         const auto path = "bitmaps/" + prefix + "guisidetile.pcx";

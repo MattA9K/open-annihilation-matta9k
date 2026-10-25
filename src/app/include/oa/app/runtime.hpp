@@ -3328,10 +3328,38 @@ class Runtime final : public menu::Host,
         renderer::Surface darkened{};        ///< `pixels` darkened, made when first needed
     };
 
+    /// The art every page of the match's side column is drawn with, read
+    /// once a match (match_hud_art).
+    struct MatchHudArt {
+        std::string tile;       ///< the side tile it was read for
+        std::string panel;      ///< the side's interface GAF it was read for
+        std::string font;       ///< the side's SIDEDATA font it was read for
+        std::string read_panel; ///< the interface GAF read; empty when it could not be
+        /// load_screen_art's resources, with no layout, captioned in the
+        /// shown language.
+        renderer::ScreenResources screen;
+        /// The side's font; none when the side names none or it cannot be read.
+        std::optional<oa::formats::fnt::Font> side_font;
+    };
+
+    /// Returns the art the side column's pages are drawn with: the side tile,
+    /// the GUI palettes and tables, commongui.gaf's icons and the side's
+    /// interface GAF in the shown language's captions, and the side's font.
+    ///
+    /// The art is read from the game's files as the match's first page
+    /// loads, and again only when the side's files are others, so that a
+    /// page reads only its own GUI file and GAF (load_match_hud_layout).
+    ///
+    /// @param layout the page it is wanted for, named in a report of art that
+    ///        cannot be read
+    /// @return the art; null when it cannot be read even without the side's
+    ///         interface GAF, which is reported on stderr
+    const MatchHudArt* match_hud_art(const std::string& layout);
     /// Loads an in-match panel layout as the match HUD with the viewed side's chrome.
     ///
     /// The panel's buttons keep their states and their GUI file's quick keys;
-    /// the side's interface GAF, side tile and commongui.gaf supply the art.
+    /// the side's interface GAF, side tile and commongui.gaf supply the art,
+    /// read once a match (match_hud_art).
     /// The panel takes the keyboard focus its loader gives it
     /// (match_hud_focus_), and is placed at its own position with no panel
     /// kept under it until open_match_dialog() says otherwise. A unit's page
@@ -17760,6 +17788,9 @@ class Runtime final : public menu::Host,
     oa::Image match_chrome_{};
     std::optional<renderer::ScreenResources> match_hud_;
     std::string match_hud_panel_; // GUI file of match_hud_, as its loader named it
+    /// The side column's art (match_hud_art); dropped as a match loads and
+    /// ends and as the language shown or its packs change.
+    std::optional<MatchHudArt> match_hud_art_;
     /// Where draw_match_bars repeats the top bar's art right of PANELTOP.
     oa::ui::hud::TopBarPieces top_bar_pieces_{};
     // How place_match_panel placed match_hud_ (panel_flag::beside_hud or

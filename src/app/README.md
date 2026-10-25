@@ -2290,7 +2290,19 @@ language and both sizes.
   Escape is CANCEL, as in the save dialog: Escape leaves either dialog as
   its CANCEL does (`leave_load_dialog`), for the screen it was opened over,
   as in 3.1c: Single Player, the in-game menu or the end-of-mission panel,
-  with saves listed or none.
+  with saves listed or none. Every panel the match HUD loads, a unit's
+  page, the general or idle page, the in-game menu or a dialog, is laid out
+  over the side column's art (`load_match_hud_layout`, `match_hud_art`):
+  the side tile, the GUI palettes and tables, `commongui.gaf`'s icons and
+  the side's interface GAF in the shown language's captions, and the side's
+  font, read from the game's files as the match's first panel loads and
+  again only for another side's files, the next match, or a change of the
+  language shown or its packs. A panel reads only its own GUI file and GAF,
+  so that the right press of the left-click interface that drops the
+  selection, which loads the idle page again, takes no frame's time
+  reading the archives again; the pointer interface check
+  (`native-pointer-interfaces`) counts what the pages a selection and two
+  right presses open read.
 - `runtime_scroll_bars.cpp`: the scroll bars of the frontend screen's panel
   and of the match HUD's panel (`renderer::LayoutScrolls`), bound as each
   panel's first draw binds them, drawn over it, driven by the pointer and
