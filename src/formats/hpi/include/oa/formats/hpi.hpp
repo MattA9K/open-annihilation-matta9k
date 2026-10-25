@@ -792,7 +792,11 @@ class AssetStore {
     /// those listings: a file added, removed or renamed afterwards is seen only
     /// after mark_loose_shadows() or discover(), which drop the listings. Once
     /// the listings would hold more than loose_index_limit entries, the store
-    /// drops them and lists every folder on every lookup instead.
+    /// drops them and lists every folder on every lookup instead. Where a
+    /// file found leads is checked as its path is at the lookup, not as it
+    /// was listed: a file reached through a link, a junction or another
+    /// reparse point that leads outside the game directory is not a loose
+    /// file.
     ///
     /// @param loose_root game directory; loose files are resolved below it
     /// @param loose_index_limit most folder entries the kept listings may hold

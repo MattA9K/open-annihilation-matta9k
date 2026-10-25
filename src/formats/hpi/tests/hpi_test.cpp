@@ -938,6 +938,51 @@ void asset_store_loose_links() {
     check(store.read("units/loop/units/inside.fbi").bytes == text("inside"), "a loop resolves");
 }
 
+/// A loose folder or file that becomes a link leading outside after the
+/// store listed it is not read, so the archive's file is, as when it was a
+/// link before the listing; a plain file beside it still is.
+void asset_store_loose_links_made_after_listing() {
+    TempDir dir;
+    dir.write("game/maps/near.tnt", text("near"));
+    dir.write("game/units/a.fbi", text("a"));
+    dir.write("game/units/b.fbi", text("b"));
+    dir.write("outside/maps/near.tnt", text("far"));
+    dir.write("outside/secret.fbi", text("secret"));
+    const auto archive = dir.write("game.hpi", archive_of({{"units/a.fbi", text("archived"), 0}}));
+    const auto game = dir.path() / "game";
+    oa::AssetStore store(game);
+    store.mount(archive);
+    check(store.read("maps/near.tnt").bytes == text("near"), "a plain folder is read");
+    check(store.read("units/a.fbi").bytes == text("a"), "a plain file wins over the archive");
+    std::error_code error;
+    fs::remove_all(game / "maps", error);
+    if (!error)
+        fs::create_directory_symlink(dir.path() / "outside" / "maps", game / "maps", error);
+    if (!error)
+        fs::remove(game / "units" / "a.fbi", error);
+    if (!error)
+        fs::create_symlink(dir.path() / "outside" / "secret.fbi", game / "units" / "a.fbi", error);
+    // Some systems report a link made and make none.
+    std::error_code status_error;
+    for (const auto& link : {game / "maps", game / "units" / "a.fbi"})
+        if (!error && !fs::is_symlink(fs::symlink_status(link, status_error)))
+            error = std::make_error_code(std::errc::no_such_file_or_directory);
+    if (error) {
+        std::cout << "skipped the loose links made after listing: " << error.message() << '\n';
+        return;
+    }
+    check(
+        throws([&] { (void)store.read("maps/near.tnt"); }, "asset not found"),
+        "a folder that became a link outside is not read"
+    );
+    check(
+        store.read("units/a.fbi").bytes == text("archived"),
+        "a file that became a link outside gives way"
+    );
+    check(!store.loose_file("units/a.fbi").has_value(), "and is no loose file");
+    check(store.read("units/b.fbi").bytes == text("b"), "a plain file beside it is read");
+}
+
 /// A file over the entry limit is refused before its buffer is made, by
 /// every way the store reads a whole file; one at the limit's size is not.
 void asset_store_refuses_files_over_the_entry_limit() {
@@ -1420,6 +1465,7 @@ int main(int argc, char** argv) {
         hpi_large_directory_keeps_the_last_of_each_name();
         asset_store_names_in_any_script();
         asset_store_loose_links();
+        asset_store_loose_links_made_after_listing();
         asset_store_loose_junctions();
         asset_store_refuses_files_over_the_entry_limit();
         resource_file_semantics();

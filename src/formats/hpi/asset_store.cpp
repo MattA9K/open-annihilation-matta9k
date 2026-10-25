@@ -23,6 +23,16 @@
 #include <unordered_set>
 #include <utility>
 
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 namespace oa {
 namespace {
 
@@ -161,6 +171,46 @@ bool stays_inside(const std::filesystem::path& root, const std::filesystem::path
         if (!at.has_relative_path())
             return false;
     }
+}
+
+/// Tells whether a host entry, as it is now, is a plain file or folder: not
+/// a link, a junction or, on Windows, any other reparse point, which the
+/// system may follow elsewhere.
+///
+/// @param path the entry
+/// @return false for a link or an entry whose kind cannot be read
+bool plain_entry(const std::filesystem::path& path) noexcept {
+#if defined(_WIN32)
+    const DWORD attributes = ::GetFileAttributesW(path.c_str());
+    return attributes != INVALID_FILE_ATTRIBUTES &&
+           (attributes & FILE_ATTRIBUTE_REPARSE_POINT) == 0;
+#else
+    std::error_code error;
+    const auto own = std::filesystem::symlink_status(path, error).type();
+    return !error && (own == std::filesystem::file_type::regular ||
+                      own == std::filesystem::file_type::directory);
+#endif
+}
+
+/// Tells whether a file a lookup found below a folder lies inside it, as
+/// the file system is now.
+///
+/// When the file and every folder between it and the root are plain, the
+/// path lies inside the root as it names it; otherwise it is resolved and
+/// compared with the root, as stays_inside() does.
+///
+/// @param root the folder
+/// @param path the file: the root joined with the names of the parts
+/// @param parts how many names the path adds to the root
+/// @return true when the file lies inside the folder
+bool found_inside(
+    const std::filesystem::path& root, const std::filesystem::path& path, std::size_t parts
+) {
+    auto at = path;
+    for (std::size_t part = 0; part < parts; ++part, at = at.parent_path())
+        if (!plain_entry(at))
+            return stays_inside(root, path);
+    return true;
 }
 
 std::vector<uint8_t> read_loose(const std::filesystem::path& path) {
@@ -1699,10 +1749,6 @@ struct AssetStore::LooseIndex {
         bool regular = false;       // a regular file, following links, when listed
         bool directory = false;     // a folder, following links, when listed
         bool ambiguous = false;     // several entries fold to this name
-        // Neither a plain file nor a plain folder when listed: a link, or an
-        // entry whose kind the listing could not tell. A path through one is
-        // checked to stay inside its root.
-        bool link = false;
     };
 
     // Hashes a folded name, so that a part of a key finds it without a copy.
@@ -1766,10 +1812,6 @@ AssetStore::LooseIndex::listing(const std::string& key, const std::filesystem::p
         slot->second.path = item.path();
         slot->second.regular = item.is_regular_file(status_error);
         slot->second.directory = item.is_directory(status_error);
-        std::error_code link_error;
-        const auto own = item.symlink_status(link_error).type();
-        slot->second.link = link_error || (own != std::filesystem::file_type::regular &&
-                                           own != std::filesystem::file_type::directory);
     }
     if (error)
         return nullptr;
@@ -2082,9 +2124,9 @@ AssetStore::loose_path_in(std::size_t root, const std::string& key) const {
     // folders never answer for each other.
     std::string folder = std::to_string(root) + '|';
     const std::size_t tag = folder.size();
-    // A path with no link on it lies inside its root, as it names it; one
-    // through a link is resolved to check where the link leads.
-    bool through_link = false;
+    // Whether a file found lies inside the root is checked as its path is
+    // now, not as it was listed: a folder on it may since have become a link.
+    std::size_t parts = 0;
     for (std::size_t begin = 0; begin < key.size();) {
         const auto end = key.find('/', begin);
         const auto part = std::string_view(key).substr(
@@ -2100,10 +2142,10 @@ AssetStore::loose_path_in(std::size_t root, const std::string& key) const {
             return std::nullopt;
         if (child->second.ambiguous)
             fail("ambiguous loose asset case: " + key);
-        through_link = through_link || child->second.link;
+        ++parts;
         if (end == std::string::npos)
             return child->second.regular &&
-                           (!through_link || stays_inside(loose_roots_[root], child->second.path))
+                           found_inside(loose_roots_[root], child->second.path, parts)
                        ? std::optional(child->second.path)
                        : std::nullopt;
         if (!child->second.directory)
