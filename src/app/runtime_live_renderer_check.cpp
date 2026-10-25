@@ -461,6 +461,10 @@ int Runtime::check_live_renderer() {
         selected_match_unit_ == commander, "rotated triangle click did not select the commander"
     );
     clear_local_selection();
+    // A rotated box selection speaks and visits for 'n' as a classic one does.
+    oa::sim::selection::clear_cycle_marks(match_->state());
+    for (std::size_t pump = 0; pump < oa::audio::game_audio::AnnouncementQueue::capacity; ++pump)
+        (void)offline_services_.pump_announcements();
     box_select_units(
         commander_bounds->x1 - 4,
         commander_bounds->y1 - 4,
@@ -469,7 +473,25 @@ int Runtime::check_live_renderer() {
         false
     );
     require(selected_match_unit_ == commander, "rotated drag box did not select the commander");
+    {
+        std::size_t select_lines = 0;
+        for (std::size_t pump = 0; pump < oa::audio::game_audio::AnnouncementQueue::capacity;
+             ++pump)
+            for (const auto& event : offline_services_.pump_announcements())
+                select_lines += event.unit_index == commander &&
+                                        event.category ==
+                                            oa::audio::game_audio::UnitAnnouncementCategory::select
+                                    ? 1
+                                    : 0;
+        require(select_lines == 1, "the rotated drag box's commander did not speak its line once");
+        require(
+            (match_->world().slots[commander].record.flags & OA_UNIT_FLAG_CYCLE_VISITED) != 0,
+            "the rotated drag box did not visit the commander for 'n'"
+        );
+        require(status_ == "1 selected", "the rotated drag box did not report its selection");
+    }
     std::optional<oa::sim::ground_orders::Point> destination;
+    std::optional<oa::sim::ground_orders::Point> destination_hit;
     std::array<float, 2> destination_pixel{};
     for (int offset = 80; offset <= 240 && !destination; offset += 40) {
         for (const int sign : {-1, 1}) {

@@ -13192,7 +13192,9 @@ class Runtime final : public menu::Host,
 
     /// Selects the local units whose position lies in a drag box: the canvas corners go back to
     /// Game.drag_start and drag_end, and selection::select_units_in_box selects or, with shift,
-    /// toggles the units there and visits the local units on screen for 'n'.
+    /// toggles the units there and visits the local units on screen for 'n'. The rotated view
+    /// tests each unit where it drew it (selection::select_units_where), with the same speech,
+    /// sound and visits.
     ///
     /// @param x0 one corner's column
     /// @param y0 one corner's row
@@ -13200,6 +13202,17 @@ class Runtime final : public menu::Host,
     /// @param y1 the other corner's row
     /// @param add true (shift) to toggle the units in the box instead of replacing the selection
     void box_select_units(int x0, int y0, int x1, int y1, bool add);
+
+    /// The classic view's part of box_select_units: the box as map points
+    /// in Game.drag_start and drag_end, which selection::select_units_in_box selects in.
+    ///
+    /// @param x0 one corner's column
+    /// @param y0 one corner's row
+    /// @param x1 the other corner's column
+    /// @param y1 the other corner's row
+    /// @param add true (shift) to toggle the units in the box instead of replacing the selection
+    /// @return true when anything ends up selected
+    bool select_units_in_classic_box(int x0, int y0, int x1, int y1, bool add);
 
     /// Gives the selection an order on each unit whose projected position lies in a canvas box.
     ///
