@@ -973,7 +973,8 @@ std::vector<ServedHeader> served_unit_headers(const oa::AssetStore& assets) {
 /// @param units the unit table
 /// @param unit_count entries in the table
 /// @return one checksum per entry; the stored content checksum where the
-///         files cannot be read
+///         files cannot be read, and for entry 0, the reserved empty type,
+///         which names no unit's files
 std::vector<uint32_t> unit_content_checksums(
     const oa::AssetStore* assets, const mp::LobbyUnit* units, int32_t unit_count
 ) {
@@ -984,7 +985,7 @@ std::vector<uint32_t> unit_content_checksums(
         return checksums;
     const oa::netgame::sync::StoreUnitFiles files(*assets);
     const auto pages = oa::netgame::sync::list_unit_gui_pages(files);
-    for (int32_t index = 0; units != nullptr && index < unit_count; ++index) {
+    for (int32_t index = 1; units != nullptr && index < unit_count; ++index) {
         const auto& unit = units[index];
         // A failed listing leaves every stored checksum, as each unit's own
         // listing would.
