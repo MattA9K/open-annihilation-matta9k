@@ -707,6 +707,51 @@ void ripple_art_motion() {
     OA_CHECK(frame() == still);
 }
 
+/// Coastal waves' foam on the water's sheet shows plainly at 100%, as a
+/// gentle wash at 30% and up to its cap at 200%, and fades out with distance.
+void coastal_foam_strength() {
+    Scene scene;
+    for (auto& vertex : scene.vertices) {
+        vertex.height = 0.05F;
+        vertex.terrain_size = -2;
+        vertex.terrain_x = 2;
+        vertex.terrain_y = 1;
+    }
+    WaterEffects water{};
+    water.wind.strength = 1;
+    // A crest over water 2 map pixels deep.
+    water.seconds = 5.2117F;
+    const auto red = [&](float coast, float detail) {
+        water.coastal_waves = coast;
+        water.detail = detail;
+        OA_CHECK(
+            render(
+                scene.context,
+                scene.vertices,
+                scene.atlas,
+                1,
+                1,
+                1,
+                small_target,
+                small_target,
+                scene.projection,
+                scene.pixels,
+                scene.error,
+                1,
+                nullptr,
+                &water
+            ) == Result::success
+        );
+        return scene.pixels.size() >= channels ? int{scene.pixels[0]} : -1;
+    };
+    const int gentle = red(0.3F, 1), plain = red(1, 1), strong = red(2, 1);
+    OA_CHECK(gentle >= 40 && gentle <= 90);
+    OA_CHECK(plain >= 150);
+    OA_CHECK(strong >= plain && strong <= 200);
+    OA_CHECK(red(1, 0.5F) < plain && red(1, 0.5F) >= plain / 2 - 2);
+    OA_CHECK(red(1, 0) == 0);
+}
+
 /// Seabed shimmer stays below a subtle contrast budget over the map's baked artwork.
 void terrain_shimmer_contrast() {
     Context context;
@@ -952,6 +997,7 @@ int main() {
         underwater_billboard_depth();
         terrain_shimmer_contrast();
         ripple_art_motion();
+        coastal_foam_strength();
     }
     SDL_Quit();
     return result != 0 ? result : oa::test::check_exit_status();

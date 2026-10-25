@@ -509,6 +509,62 @@ int main(int argc, char** argv) {
         water.view.zoom = 0.25F;
         OA_CHECK(!renderer_water_classic::surface_drawn(water));
     }
+    // Coastal waves' foam shows plainly at 100%, as a gentle wash at 30%,
+    // stronger at 200% up to its cap, and fades out as the view zooms out.
+    {
+        oa::formats::tnt::Map beach;
+        beach.attribute_width = beach.attribute_height = 32;
+        beach.sea_level = 32;
+        beach.attributes.resize(32 * 32);
+        for (auto& attribute : beach.attributes)
+            attribute.height = 30;
+        renderer_water_classic::Inputs waves;
+        waves.map = &beach;
+        waves.view.width = 320;
+        waves.view.height = 240;
+        waves.wind.strength = 1;
+        // A crest over water 2 map pixels deep.
+        waves.seconds = 5.2117;
+        waves.visible = [](float, float) { return true; };
+        const auto strongest = [&](float coast, float zoom) {
+            waves.coast = coast;
+            waves.view.zoom = zoom;
+            card::CardFrame foam;
+            renderer_water_classic::surface(foam, waves);
+            OA_CHECK(card::check_frame(foam).empty());
+            float alpha = 0;
+            for (const auto& vertex : foam.vertices)
+                alpha = std::max(alpha, vertex.colour.alpha);
+            return alpha;
+        };
+        const float gentle = strongest(0.3F, 1), plain = strongest(1, 1), strong = strongest(2, 1);
+        OA_CHECK(gentle > 0.1F && gentle < 0.2F);
+        OA_CHECK(plain > 0.4F && std::abs(plain - gentle / 0.3F) < 1.0e-3F);
+        OA_CHECK(strong > plain && strong <= renderer_water_appearance::foam_cap);
+        OA_CHECK(std::abs(strongest(1, 0.375F) - plain * 0.5F) < 1.0e-3F);
+        OA_CHECK(strongest(1, 0.25F) == 0);
+        OA_CHECK(strongest(0, 1) == 0);
+        // Gentler on the most sheltered water, never more than on the open sea.
+        OA_CHECK(
+            renderer_water_surface::foam_alpha(1, 1, 0, 1) <
+            renderer_water_surface::foam_alpha(1, 1, 1, 1)
+        );
+        OA_CHECK(renderer_water_surface::foam_cover(0, 1) == 0);
+        OA_CHECK(renderer_water_surface::foam_cover(renderer_water_surface::foam_depth, 1) == 0);
+        // The crests run in to the shore: a crest's depth lessens with time.
+        const auto crest_depth = [](float seconds) {
+            float deepest = 0, best = 0;
+            for (float depth = 6; depth < 14; depth += 0.01F) {
+                const float cover = renderer_water_surface::foam_cover(depth, seconds);
+                if (cover > best) {
+                    best = cover;
+                    deepest = depth;
+                }
+            }
+            return deepest;
+        };
+        OA_CHECK(crest_depth(0.5F) < crest_depth(0));
+    }
     // The coast's foam lies on every shallow cell the view shows, at any
     // zoom: a wide view far out draws as many cells' foam as it shows, not
     // one cell in a few.

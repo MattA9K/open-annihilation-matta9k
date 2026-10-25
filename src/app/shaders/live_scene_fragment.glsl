@@ -85,14 +85,24 @@ void main() {
     if (in_terrain.z == -4.0) {
         colour = vec4(0.66, 0.85, 0.92, 1.0);
     } else if (in_terrain.z == -2.0) {
+        // Coastal waves' foam, as renderer_water_surface.hpp's foam_cover
+        // and foam_alpha give it: a wash along the shore and two trains of
+        // crests running in to it, gentler on sheltered water.
         const float depth = in_terrain.x;
         const float shore = (1.0 - smoothstep(3.0, 24.0, depth)) * smoothstep(0.0, 1.0, depth);
-        const float crest = pow(max(0.0, sin(depth * 0.9 + time * 1.1)), 8.0);
-        const float following = pow(max(0.0, sin(depth * 0.67 + time * 0.83 + 1.4)), 8.0);
-        const float foam =
-            shore * (crest * 0.7 + following * 0.3) * camera.water.y * in_terrain.y * 0.090;
+        const float crest = 0.5 + 0.5 * sin(depth * 0.8 + time * 1.2);
+        const float following = 0.5 + 0.5 * sin(depth * 0.55 + time * 0.9 + 1.4);
+        const float cover =
+            depth < 24.0 ? shore * (0.3 + 0.7 * (0.65 * crest * crest * crest +
+                                                 0.35 * following * following * following))
+                         : 0.0;
+        const float shelter = 0.35 + 0.65 * clamp(in_terrain.y, 0.0, 1.0);
+        const float foam = min(
+            0.85,
+            camera.water.y * shelter * (0.12 + 0.88 * camera.water_wind.z) * cover
+        );
         const float visibility = in_attenuation.x;
-        colour = vec4(vec3(0.72, 0.86, 0.90), foam * visibility * detail);
+        colour = vec4(vec3(0.88, 0.94, 0.97), foam * visibility * detail);
     } else if (in_terrain.z > 0.0) {
         const vec2 local = in_uv * atlas_size - in_terrain.xy;
         const float footprint =

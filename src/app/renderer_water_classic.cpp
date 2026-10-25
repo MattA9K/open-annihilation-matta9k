@@ -13,10 +13,8 @@ namespace oa::app::renderer_water_classic {
 namespace {
 constexpr float cell = 16;
 constexpr float fixed = 65536;
-/// Coastal foam lies on water shallower than this, in map pixels.
-constexpr float foam_depth = 24;
-/// Most foam quads a frame holds: far more shore than any view shows.
-constexpr std::size_t maximum_foam_quads = 16384;
+/// Most cells of foam a frame holds: far more shore than any view shows.
+constexpr std::size_t maximum_foam_cells = 16384;
 constexpr std::size_t maximum_reflected_vertices = 24576;
 
 /// Fade effects before water detail becomes smaller than a screen pixel.
@@ -270,42 +268,94 @@ void surface(card::CardFrame& frame, const Inputs& in) {
         int((in.view.camera_y + sea * 0.5F + in.view.height / in.view.zoom) / cell) + 2
     );
     // Every cell the view shows, however far out: the foam lies only on
-    // the shallows, so the cells under deep water and land are passed over
+    // the shallows, so the cells under deep water and inland are passed over
     // by their depth alone, and the shore's foam never breaks into a cell
-    // here and there as the view zooms out.
-    std::size_t foam_quads = 0;
+    // here and there as the view zooms out. A cell of the shore is cut into
+    // squares at least 4 window pixels a side, each corner taking the foam's
+    // cover at its own depth, so that the crests show as bands running in
+    // to the shore; a square with a corner on dry or unseen ground is left
+    // out.
+    using renderer_water_surface::foam_depth;
+    int spacing = 4;
+    while (spacing < 16 && float(spacing) * scale < 4)
+        spacing *= 2;
+    const int across = int(cell) / spacing;
+
+    struct FoamCorner {
+        float alpha{};
+        bool shown{};
+    };
+
+    std::vector<FoamCorner> corners(std::size_t(across + 1) * std::size_t(across + 1));
+    const card::Colour foam_colour{
+        renderer_water_appearance::foam_red,
+        renderer_water_appearance::foam_green,
+        renderer_water_appearance::foam_blue,
+        1
+    };
+    std::size_t foam_cells = 0;
     for (int row = top; row < bottom && in.coast > 0; ++row) {
-        for (int col = left; col < right && foam_quads < maximum_foam_quads; ++col) {
+        for (int col = left; col < right && foam_cells < maximum_foam_cells; ++col) {
             const float x = col * cell;
             const float z = row * cell;
             const float d = depth(in, x + 8, z + 8);
-            if (!(d > 0 && d < foam_depth) || !wet(in, x, z) || !wet(in, x + 15.999F, z) ||
-                !wet(in, x, z + 15.999F) || !wet(in, x + 15.999F, z + 15.999F))
+            if (!(d > -foam_depth && d < foam_depth + 8))
                 continue;
-            const float phase = float(in.seconds) * 1.8F + x * 0.045F + z * 0.073F;
-            const float wave = 0.5F + 0.5F * std::sin(phase);
             const float fetch = in.water_surface ? in.water_surface->fetch(x + 8, z + 8) : 0.25F;
-            const float coastal = std::clamp(1 - d / foam_depth, 0.0F, 1.0F) * fetch;
-            const float coast_crest = 0.5F + 0.5F * std::sin(d * 0.7F + float(in.seconds) * 1.4F);
-            const float foam = detail(in) * 0.070F * in.coast * coastal *
-                               (0.12F + 0.88F * in.wind.strength) *
-                               static_cast<float>(std::pow(coast_crest, 6));
-            if (foam >= 0.002F) {
-                const auto p = screen(in, x + 2, z + 4 + wave * 6 - sea * 0.5F);
-                card::append_quad(
-                    frame,
-                    p[0],
-                    p[1],
-                    12 * scale,
-                    (0.6F + coastal) * scale,
-                    0,
-                    0,
-                    1,
-                    1,
-                    {0.65F, 0.86F, 0.95F, std::min(foam, 0.3F)}
-                );
-                ++foam_quads;
-            }
+            float most = 0;
+            for (int down = 0; down <= across; ++down)
+                for (int along = 0; along <= across; ++along) {
+                    const float px = x + float(along * spacing);
+                    const float pz = z + float(down * spacing);
+                    const float corner_depth = smooth_depth(in, px, pz);
+                    auto& corner = corners[std::size_t(down) * (across + 1) + along];
+                    corner.shown =
+                        corner_depth > 0 && in.visible && in.visible(px, pz - sea * 0.5F);
+                    corner.alpha = corner.shown ? renderer_water_surface::foam_alpha(
+                                                      renderer_water_surface::foam_cover(
+                                                          corner_depth, float(in.seconds)
+                                                      ),
+                                                      in.coast,
+                                                      fetch,
+                                                      in.wind.strength
+                                                  ) * detail(in)
+                                                : 0;
+                    most = std::max(most, corner.alpha);
+                }
+            if (most < 0.002F)
+                continue;
+            ++foam_cells;
+            const auto first = static_cast<card::Index>(frame.vertices.size());
+            for (int down = 0; down <= across; ++down)
+                for (int along = 0; along <= across; ++along) {
+                    const auto point = screen(
+                        in, x + float(along * spacing), z + float(down * spacing) - sea * 0.5F
+                    );
+                    auto colour = foam_colour;
+                    colour.alpha = corners[std::size_t(down) * (across + 1) + along].alpha;
+                    frame.vertices.push_back({point[0], point[1], colour, 0, 0});
+                }
+            for (int down = 0; down < across; ++down)
+                for (int along = 0; along < across; ++along) {
+                    const auto corner = [&](int a, int b) {
+                        return std::size_t(down + b) * (across + 1) + std::size_t(along + a);
+                    };
+                    const std::array<std::size_t, 4> square{
+                        corner(0, 0), corner(1, 0), corner(1, 1), corner(0, 1)
+                    };
+                    if (!std::all_of(
+                            square.begin(),
+                            square.end(),
+                            [&](std::size_t k) { return corners[k].shown; }
+                        ) ||
+                        std::all_of(square.begin(), square.end(), [&](std::size_t k) {
+                            return corners[k].alpha < 0.002F;
+                        }))
+                        continue;
+                    constexpr std::array<std::size_t, 6> triangles{0, 1, 2, 0, 2, 3};
+                    for (const std::size_t k : triangles)
+                        frame.indices.push_back(first + static_cast<card::Index>(square[k]));
+                }
         }
     }
     // Local impacts leave expanding, shallow rings; every segment is clipped

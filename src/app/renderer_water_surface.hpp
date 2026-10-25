@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #pragma once
 #include "renderer_water.hpp"
+#include "renderer_water_appearance.hpp"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -75,5 +76,44 @@ art_offset(float x, float z, const renderer_water::Wind& wind, float fine) {
         offset[1] += heading[1] * wave_shift;
     }
     return offset;
+}
+
+/// Coastal waves' foam lies on water shallower than this, in map pixels.
+inline constexpr float foam_depth = 24.0F;
+
+/// How much of Coastal waves' foam covers water `depth` map pixels deep,
+/// `seconds` into the match, from 0 to 1: a wash along the shore and two
+/// trains of crests running in towards it, none at the waterline itself
+/// and none from foam_depth out. The rotated view's fragment stage
+/// (shaders/live_scene_fragment.glsl) repeats it.
+inline float foam_cover(float depth, float seconds) {
+    if (!(depth > 0) || !(depth < foam_depth))
+        return 0;
+    const auto smooth = [](float from, float to, float value) {
+        const float share = std::clamp((value - from) / (to - from), 0.0F, 1.0F);
+        return share * share * (3 - 2 * share);
+    };
+    const float shore = (1 - smooth(3, foam_depth, depth)) * smooth(0, 1, depth);
+    // A crest stands where its phase is a quarter turn: as the time grows,
+    // that place lies shallower, so the crests run in to the shore.
+    const float crest = 0.5F + 0.5F * std::sin(depth * 0.8F + seconds * 1.2F);
+    const float following = 0.5F + 0.5F * std::sin(depth * 0.55F + seconds * 0.9F + 1.4F);
+    return shore * (0.3F + 0.7F * (0.65F * crest * crest * crest +
+                                   0.35F * following * following * following));
+}
+
+/// The foam's opacity for a cover (foam_cover) at a Coastal waves percent
+/// (1 for 100%) on water of a fetch (renderer_water::SurfaceCache::fetch,
+/// 0 for the most sheltered, 1 for open sea) in a wind: in proportion to the
+/// percent up to renderer_water_appearance::foam_cap.
+inline float foam_alpha(float cover, float coast, float fetch, float wind_strength) {
+    namespace appearance = renderer_water_appearance;
+    const float shelter = appearance::foam_sheltered +
+                          (1 - appearance::foam_sheltered) * std::clamp(fetch, 0.0F, 1.0F);
+    return std::min(
+        appearance::foam_cap,
+        appearance::foam_strength * std::max(coast, 0.0F) * shelter *
+            (0.12F + 0.88F * std::clamp(wind_strength, 0.0F, 1.0F)) * cover
+    );
 }
 } // namespace oa::app::renderer_water_surface
