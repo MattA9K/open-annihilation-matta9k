@@ -332,6 +332,7 @@ See [what a game reports as it is played](multiplayer/status.md).
 | `--output PATH` | Where `--generate-script` writes its script or bundle, or the folder `--render-script` renders into. |
 | `--chunks A-B` | The chunks `--render-script` draws, counted from 0. |
 | `--stills F,F...` | The frames `--render-script` also writes as pictures, counted from 0. |
+| `--effect NAME=PERCENT` | The percent `--render-script` draws an effect at, such as `heat-distortion=0`, in place of the run's settings; once for each effect ([the effects](director.md#drawing-on-the-graphics-card)). |
 
 `--play-demo` and `--net-record` are under [Network play](#network-play).
 

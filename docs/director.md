@@ -162,19 +162,34 @@ every effect, follow the [Graphics settings](settings.md#graphics) of the
 run's preferences, the player's own or those of `--preferences-file`, so
 a preferences file can set each one, or turn it off at 0%, for a render.
 
-The option draws on the card without changing the stored Hardware
-acceleration setting, and Coloured weapon lighting, Nanolathe glow, Wreck
-glow and Heat distortion take their unset percent from that setting: 100%
-where it is Full, 0% below. A fresh `--preferences-file` stores Off, so a
-render on the card with one draws the water, whose sliders are 100% by
-default whatever the setting, and the softer aircraft shadows, but none of
-those four. A preferences file draws them by storing Full, which sets all
-four to 100%, or by setting each one's percent
-(`open-annihilation.weapon-lighting.intensity` and the like):
+Each effect's percent comes from `--effect NAME=PERCENT` on the command
+line where it names the effect, else from the run's preferences, else from
+its default. On the card the default is Full's, since the card draws the
+render on Full whatever Hardware acceleration the preferences store: 100%
+for Coloured weapon lighting, Nanolathe glow, Wreck glow and Heat
+distortion, as for the water's four. A render on the card with a fresh
+`--preferences-file` therefore draws every effect at 100%, and an effect
+the file stores (`open-annihilation.weapon-lighting.intensity` and the
+like, or its earlier On or Off key) keeps the file's percent. On the
+processor an unstored effect follows the stored Hardware acceleration, as
+in the game: 100% with Full, 0% below it. The run changes nothing the
+preferences store, and its first lines say the percents the card draws at:
 
 ```text
-open-annihilation-preferences 1
-"open-annihilation.hardware-acceleration" "full"
+director: the graphics card draws its effects at weapon-lighting 100%, nanolathe-lighting 100%, ...
+```
+
+`--effect` takes an effect's name, `weapon-lighting`,
+`nanolathe-lighting`, `wreck-glow`, `heat-distortion`, `water-ripples`,
+`coastal-waves`, `underwater-shimmer` or `naval-reflections` (the words of
+their preferences keys), and a percent from 0 to 200 in steps of 10, as
+the slider sets it; it is given once for each effect it sets, and only
+with `--render-script`. On the processor it sets the four effects the
+processor draws; the water's four are the card's alone.
+
+```sh
+open-annihilation --render-script videos/game.oascript --hardware-acceleration=full \
+  --effect heat-distortion=0 --effect water-ripples=150
 ```
 
 The four are drawn by Full's own pass on the card's picture; the

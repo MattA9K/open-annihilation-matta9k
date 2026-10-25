@@ -2091,6 +2091,59 @@ int main() {
                     .hardware_acceleration == oa::ui::engine_settings::HardwareAcceleration::off,
         "a render is drawn by the card's Full tier or by the processor"
     );
+    // --effect sets an effect's percent for a render, once for each effect.
+    {
+        const auto effects = parse({"--render-script",
+                                    "game.oascript",
+                                    "--effect",
+                                    "heat-distortion=0",
+                                    "--effect",
+                                    "water-ripples=150"})
+                                 .director_effects;
+        std::size_t set = 0;
+        for (std::size_t index = 0; index < effects.size(); ++index) {
+            const auto name = oa::ui::engine_settings::effect_sliders[index].name;
+            if (name == "heat-distortion")
+                expect(effects[index] == 0U, "--effect heat-distortion=0 sets 0%");
+            else if (name == "water-ripples")
+                expect(effects[index] == 150U, "--effect water-ripples=150 sets 150%");
+            else
+                expect(!effects[index], "--effect leaves the effects it does not name");
+            set += effects[index] ? 1 : 0;
+        }
+        expect(set == 2, "--effect sets the two effects named");
+    }
+    for (const auto* value :
+         {"heat-distortion",
+          "heat-distortion=",
+          "heat-distortion=210",
+          "heat-distortion=15",
+          "heat-distortion=-10",
+          "sparkles=100",
+          "=100",
+          "heat-distortion=1e2"})
+        expect(
+            rejection({"--render-script", "game.oascript", "--effect", value})
+                .starts_with("--effect expects NAME=PERCENT: NAME one of weapon-lighting, "),
+            value
+        );
+    expect(
+        rejection(
+            {"--render-script",
+             "game.oascript",
+             "--effect",
+             "wreck-glow=50",
+             "--effect",
+             "wreck-glow=60"}
+        ) == "--effect names wreck-glow twice",
+        "an effect is set once"
+    );
+    expect(
+        rejection({"--effect", "wreck-glow=50"}) == "--effect needs --render-script" &&
+            rejection({"--generate-script", "game.rec", "--effect", "wreck-glow=50"}) ==
+                "--effect needs --render-script",
+        "--effect belongs to a render"
+    );
     const std::vector<std::vector<const char*>> refused_with_scripts{
         {"--seed", "5"},
         {"--capture-video", "game.mp4"},

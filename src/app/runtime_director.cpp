@@ -14,6 +14,7 @@
 #include "oa/app/runtime.hpp"
 #include "renderer_effect_events.hpp"
 #include "director_state.hpp"
+#include "engine_settings_state.hpp"
 #include "match_models.hpp"
 
 #include "oa/app/director_output.hpp"
@@ -32,6 +33,7 @@
 #include "oa/sim/match_runtime.hpp"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -81,6 +83,10 @@ struct Runtime::DirectorRender {
     /// The frames are drawn by the graphics card's Full tier
     /// (DirectorPresentation::full); the run manifest says so.
     bool full{};
+    /// The percent each effect is drawn at in place of the run's settings
+    /// (--effect), in engine_settings::effect_sliders' order; unset for the
+    /// settings'.
+    std::array<std::optional<uint32_t>, oa::ui::engine_settings::effect_sliders.size()> effects{};
     /// The frames also written as stills (write_still), in increasing order;
     /// each lies in a chunk drawn.
     std::vector<uint64_t> stills{};
@@ -502,6 +508,34 @@ void Runtime::render_director_frames(DirectorRender& render, const ReplayHooks& 
     ScopeExit leave{[this]() noexcept { leave_director_mode(); }};
     if (director_draws_on_card())
         render.run.graphics_card = director_->card.driver;
+    // The effects the frames are drawn with: each the command line names at
+    // its percent, else the run's settings, in which an effect the
+    // preferences store no percent for takes its default; on the card that
+    // is Full's, whose frames these are, whatever acceleration is stored.
+    // They are put back as the render ends.
+    namespace settings = oa::ui::engine_settings;
+    auto& current = engine_settings_state().current;
+    const settings::EngineSettings kept_settings = current;
+    ScopeExit kept_effects{[this, &kept_settings]() noexcept {
+        if (engine_settings_)
+            for (const auto& slider : settings::effect_sliders)
+                engine_settings_->current.*slider.percent = kept_settings.*slider.percent;
+    }};
+    if (director_draws_on_card())
+        settings::follow_acceleration_with_unset_effects(
+            current, preference_values_, settings::HardwareAcceleration::full
+        );
+    for (size_t index = 0; index < settings::effect_sliders.size(); ++index)
+        if (render.effects[index])
+            current.*settings::effect_sliders[index].percent = *render.effects[index];
+    if (director_draws_on_card() && !render.quiet) {
+        std::string drawn;
+        for (const auto& slider : settings::effect_sliders)
+            drawn += (drawn.empty() ? "" : ", ") + std::string(slider.name) + ' ' +
+                     std::to_string(current.*slider.percent) + '%';
+        std::printf("director: the graphics card draws its effects at %s\n", drawn.c_str());
+        std::fflush(stdout);
+    }
     DirectorOutput output(render.output);
     director::CameraRig rig(shots);
     const size_t frame_bytes =
@@ -898,6 +932,7 @@ int Runtime::run_render_script() {
         render.mute = silent;
         render.full =
             options_.hardware_acceleration == oa::ui::engine_settings::HardwareAcceleration::full;
+        render.effects = options_.director_effects;
         render.run.engine_version = OA_ENGINE_VERSION;
         render.run.script_name = script_name;
         render.run.recording_name = recording_name;
