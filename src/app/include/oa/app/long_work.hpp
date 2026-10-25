@@ -153,7 +153,10 @@ void show_work_frame(
 /// the job has finished and the dialog has been up for long_work_stay_ms.
 /// The line and the title are English keys of the interface catalogue,
 /// read before the job starts and again once it has finished, since a job
-/// may change the language the catalogue shows. The job may replace the
+/// may change the language the catalogue shows. A text the catalogue does
+/// not hold shows as it is given, so the line may instead be one already in
+/// the language shown, such as a soft restart's that names the mod switched
+/// (Options::restart_line). The job may replace the
 /// line while it runs (LongWork::use_line); the new line is read when it
 /// changes, so a job that does must leave the language alone. Input is
 /// discarded, and the window's events with it, though the pointer's hold in
@@ -171,7 +174,7 @@ void show_work_frame(
 /// @param renderer the window's renderer; null runs the job inline
 /// @param host told of each presented frame; null is left untold
 /// @param title the header's English key
-/// @param line the line's English key
+/// @param line the line's English key, or the line as shown
 /// @param behind paints the picture the dialog lies on; it runs on the drawing thread
 /// @param job the work; it may store how far it has come
 /// @param show_after_ms how long the work runs before the dialog appears;

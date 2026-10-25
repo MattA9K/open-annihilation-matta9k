@@ -77,9 +77,9 @@ constexpr std::string_view kNameHole = "{name}";
 /// @param name the mod's name
 /// @return the line, such as "Switching on Ridge…"
 std::string switching_line(bool on, std::string_view name) {
-    std::string line(oa::data::languages::interface_text(
-        on ? "Switching on {name}…" : "Switching off {name}…"
-    ));
+    std::string line(
+        oa::data::languages::interface_text(on ? "Switching on {name}…" : "Switching off {name}…")
+    );
     if (const std::size_t hole = line.find(kNameHole); hole != std::string::npos)
         line.replace(hole, kNameHole.size(), name);
     return line;
@@ -231,7 +231,7 @@ void Runtime::library_entry_action(library::Action action, const library::EntryI
         restart_line_ = switching_line(true, library::entry_name(*found));
         std::string refusal;
         if (!switch_to_mod_folder(folder, refusal)) {
-            library_return_.reset();
+            library_kept_.reset();
             restart_line_.clear();
             status_ = refusal;
             library_log("PLAY NOW: " + refusal);
@@ -274,7 +274,7 @@ void Runtime::library_entry_action(library::Action action, const library::EntryI
             restart_line_ = switching_line(false, played_name);
             std::string refusal;
             if (!switch_to_mod_folder({}, refusal)) {
-                library_return_.reset();
+                library_kept_.reset();
                 restart_line_.clear();
                 status_ = refusal;
                 library_log("SWITCH OFF: " + refusal);

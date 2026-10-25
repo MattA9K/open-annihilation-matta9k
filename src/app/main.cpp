@@ -1972,7 +1972,7 @@ int run_once(
         // A folder dialog stays on this thread. A run nobody watches can look
         // aside, and the progress dialog covers a look that lasts.
         const std::string_view folder_line =
-            options.restarts == 0            ? std::string_view("Loading the game's archives")
+            options.restarts == 0          ? std::string_view("Loading the game's archives")
             : options.restart_line.empty() ? std::string_view("Applying your changes")
                                            : std::string_view(options.restart_line);
         std::ignore = run_long_work(
@@ -2155,7 +2155,7 @@ int run_once(
     const uint32_t mount_began = oa::platform::tick_ms();
     const bool mount_shown = display.window != nullptr && !options.headless_check;
     const std::string_view mount_line =
-        options.restarts == 0            ? std::string_view("Loading the game's archives")
+        options.restarts == 0          ? std::string_view("Loading the game's archives")
         : options.restart_line.empty() ? std::string_view("Applying your changes")
                                        : std::string_view(options.restart_line);
     std::ignore = run_long_work(

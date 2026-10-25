@@ -621,17 +621,19 @@ class Runtime final : public menu::Host,
     }
 
     /// What the Library showed when a switch of the mod from it ended the
-    /// run: its tab, filters, tag, search, selection and details.
+    /// run: its tab, filters, tag, search, selection, scroll and details.
     struct LibraryReturn;
 
     /// Returns what the Library showed when a switch of the mod from it
     /// ended the run, which a runtime built after the soft restart takes
-    /// over (take_library_return).
+    /// over (take_library_return). What the run before left is not handed
+    /// on: this run opened it again, or dropped it.
     ///
     /// @return the Library's tab, search and selection; null when the switch
-    ///     was not made from the Library, or the run did not end for one
+    ///     was not made from the Library in this run, or the run did not end
+    ///     for one
     [[nodiscard]] std::shared_ptr<const LibraryReturn> library_return() const {
-        return library_return_;
+        return library_kept_;
     }
 
     /// Returns what the progress dialog says while the switch of the mod in
@@ -1094,7 +1096,8 @@ class Runtime final : public menu::Host,
 
     /// Hands the runtime the Library a switch of the mod from it left in the
     /// run before: once the main menu shows, the Library opens again on the
-    /// same tab, filter, tag and search, with the same entry selected.
+    /// same tab, filter, tag and search, with the same entry selected, within
+    /// kept_library_wait_ms (reopen_kept_library).
     ///
     /// @param shown what the Library showed; null opens nothing
     void take_library_return(std::shared_ptr<const LibraryReturn> shown) noexcept;
@@ -6458,7 +6461,7 @@ class Runtime final : public menu::Host,
     /// allows, outside unattended runs.
     /// Refused, as the settings are, off the main menu, while a package owns
     /// the frame, over a message box, while the saves notice shows, or
-    /// without the dialog's fonts.
+    /// without the dialog's fonts (library_can_open).
     ///
     /// @param tab the tab; nothing opens it on Active
     void open_library(std::optional<oa::ui::library::Tab> tab);
@@ -6574,11 +6577,30 @@ class Runtime final : public menu::Host,
     void keep_library_for_restart();
 
     /// Opens the Library again as the run before left it
-    /// (take_library_return), once the main menu lets it open and its
-    /// worker has found the installed packages, so that no entry moves as
-    /// they arrive; at most kept_library_wait_ms after the first try. Until
-    /// then the switch's work dialog shows over the main menu.
+    /// (take_library_return), once the main menu lets it open
+    /// (kept_library_may_show) and its feed lists the installed packages
+    /// (LibraryFeed::installed_listed), so that no entry moves as they
+    /// arrive; the chosen entry's row is in view. Until then the switch's
+    /// work dialog (WorkScreen) shows over the main menu where the Library
+    /// could. The wait is kept_library_wait_ms from the first frame on the
+    /// main menu: then the Library opens unlisted if it can, and is dropped
+    /// if it cannot, on whichever screen shows.
     void reopen_kept_library();
+
+    /// Tells whether open_library opens the Library now.
+    ///
+    /// @return false off the main menu, while a package owns the frame,
+    ///     over a message box, while the saves notice shows, or without the
+    ///     dialog's fonts
+    [[nodiscard]] bool library_can_open();
+
+    /// Tells whether the Library kept over a soft restart, or the switch's
+    /// work dialog while it waits, may show now: where the player could open
+    /// the Library (library_can_open), with no screen of the OA layer but
+    /// that work dialog.
+    ///
+    /// @return true when it may
+    [[nodiscard]] bool kept_library_may_show();
 
     /// Runs --check-library: the main menu's OA button, its dot and the
     /// Library over a feed of fixtures, its actions, Settings over it and it
@@ -9589,10 +9611,12 @@ class Runtime final : public menu::Host,
 
     /// Shows the progress dialog while `job` runs, when this run has a window
     /// and is not a headless check. The title is Open Annihilation. `line`
-    /// is an English key of the interface catalogue. With no window, or while
-    /// a dialog is already up, `job` runs on this thread and nothing is drawn.
+    /// is an English key of the interface catalogue, or a line already in the
+    /// language shown, such as a switch's (Options::restart_line), which
+    /// shows as it is (run_long_work). With no window, or while a dialog is
+    /// already up, `job` runs on this thread and nothing is drawn.
     ///
-    /// @param line the line's English key
+    /// @param line the line's English key, or the line as shown
     /// @param job the work; it may store how far it has come
     void run_progress(std::string_view line, const std::function<void(LongWork&)>& job);
 
@@ -19135,13 +19159,17 @@ class Runtime final : public menu::Host,
         void* context, std::string_view id, const oa::ui::mutator_picker::Chosen& chosen
     );
 
-    // What the Library showed as a switch of the mod from it ended this run,
-    // or the run before while this run has not opened it again yet; null
-    // for none.
+    // What the Library showed as a switch of the mod from it ended the run
+    // before, while this run has not opened it again or dropped it; null for
+    // none.
     std::shared_ptr<const LibraryReturn> library_return_{};
     // When this run first tried to open the kept Library again, in
     // milliseconds of the platform's clock; none before.
     std::optional<uint32_t> library_return_since_{};
+    // What the Library showed as a switch of the mod from it ended this run
+    // (keep_library_for_restart), for the next (library_return); null for
+    // none.
+    std::shared_ptr<const LibraryReturn> library_kept_{};
     // What the progress dialog says while a switch of the mod in the Library
     // applies (restart_line); empty for none.
     std::string restart_line_{};

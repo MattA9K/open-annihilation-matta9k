@@ -968,6 +968,7 @@ void Runtime::LibraryHost::look_again(Runtime& runtime) {
 void Runtime::LibraryHost::select_kept() {
     if (!kept_selection)
         return;
+    const std::optional<library::EntryId> before = model.selected;
     const auto visible = [this](const library::EntryId& id) {
         for (const std::size_t index : model.visible)
             if (model.entries[index].id == id)
@@ -978,16 +979,27 @@ void Runtime::LibraryHost::select_kept() {
         library::select(model, *kept_selection);
         kept_selection.reset();
         kept_selection_shown.reset();
-        return;
-    }
-    for (const std::size_t index : model.visible) {
-        const library::EntryId& id = model.entries[index].id;
-        if (id.kind == kept_selection->kind && id.key == kept_selection->key) {
-            library::select(model, id);
-            break;
+    } else {
+        for (const std::size_t index : model.visible) {
+            const library::EntryId& id = model.entries[index].id;
+            if (id.kind == kept_selection->kind && id.key == kept_selection->key) {
+                library::select(model, id);
+                break;
+            }
         }
+        kept_selection_shown = model.selected;
     }
-    kept_selection_shown = model.selected;
+    if (model.selected != before)
+        state.reveal_row = selected_row();
+}
+
+int32_t Runtime::LibraryHost::selected_row() const {
+    if (!model.selected)
+        return -1;
+    for (std::size_t place = 0; place < model.visible.size(); ++place)
+        if (model.entries[model.visible[place]].id == *model.selected)
+            return static_cast<int32_t>(place);
+    return -1;
 }
 
 void Runtime::LibraryHost::rebuild(Runtime& runtime) {
@@ -1650,7 +1662,8 @@ Runtime::LibraryHost& Runtime::library_host() {
             LibraryHost::own_keep_verdict,
             LibraryHost::own_remembered_brain_verdict,
             LibraryHost::own_start_brain_check,
-            LibraryHost::own_keep_brain_verdict
+            LibraryHost::own_keep_brain_verdict,
+            LibraryHost::own_installed_listed
         };
         host.model.text = library::TextHooks{nullptr, shown_word};
         // The pictures are kept beside the cached catalogues.
@@ -1721,6 +1734,12 @@ bool Runtime::LibraryHost::own_built_in(void* context, std::string_view registry
         return false;
     const content::RegistryView* view = registry_view(*snapshot, registry);
     return view != nullptr && view->registry.origin == data::registry::Origin::built_in;
+}
+
+bool Runtime::LibraryHost::own_installed_listed(void* context) {
+    LibraryHost& host = static_cast<Runtime*>(context)->library_host();
+    base::threads::LockGuard guard(host.work.mutex);
+    return host.work.searches > 0;
 }
 
 namespace {
@@ -3728,12 +3747,16 @@ struct Runtime::LibraryScreen final : LayerScreen {
 // ---------------------------------------------------------------------------------------------
 // Opening and closing the Library
 
-void Runtime::open_library(std::optional<library::Tab> tab) {
+bool Runtime::library_can_open() {
     // Nothing opens over a message box or a frame a package owns, off the
     // main menu, or while the saves notice shows.
-    if (screen_ != Screen::main_menu || frame_owned_by_package() ||
-        oa::ui::frontend_dialogs::dialog_count() != 0 || saves_notice_shown() ||
-        engine_settings_fonts() == nullptr)
+    return screen_ == Screen::main_menu && !frame_owned_by_package() &&
+           oa::ui::frontend_dialogs::dialog_count() == 0 && !saves_notice_shown() &&
+           engine_settings_fonts() != nullptr;
+}
+
+void Runtime::open_library(std::optional<library::Tab> tab) {
+    if (!library_can_open())
         return;
     begin_screen_change("library");
     LibraryHost& host = library_host();
@@ -3789,17 +3812,13 @@ bool Runtime::library_registry_built_in(std::string_view registry) {
     return host.feed.built_in != nullptr && host.feed.built_in(host.feed.context, registry);
 }
 
-/// The longest a run a switch of the mod in the Library began waits for the
-/// Library's worker to list the installed packages before it opens the
-/// Library again anyway, in milliseconds.
-constexpr uint32_t kept_library_wait_ms = 5000;
-
 void Runtime::take_library_return(std::shared_ptr<const LibraryReturn> shown) noexcept {
     library_return_ = std::move(shown);
+    library_return_since_.reset();
 }
 
 void Runtime::keep_library_for_restart() {
-    library_return_.reset();
+    library_kept_.reset();
     if (!library_ || oa_layer().find(library_screen_name) == nullptr)
         return;
     const LibraryHost& host = *library_;
@@ -3809,32 +3828,51 @@ void Runtime::keep_library_for_restart() {
     shown->tag = host.model.tag;
     shown->query = host.model.query;
     shown->selected = host.model.selected;
+    shown->selected_row = host.selected_row();
+    shown->list_scroll = host.state.list_scroll;
     shown->details_open = host.model.details_open;
     shown->details_page = host.state.details_page;
-    library_return_ = std::move(shown);
+    library_kept_ = std::move(shown);
+}
+
+bool Runtime::kept_library_may_show() {
+    // Where the player could open it, and over no other screen of the layer.
+    if (!library_can_open())
+        return false;
+    const LayerScreen* top = oa_layer().top();
+    return top == nullptr || top->name() == WorkScreen::screen_name;
 }
 
 void Runtime::reopen_kept_library() {
     LibraryHost& host = library_host();
     OaLayer& layer = oa_layer();
     const uint32_t now = oa::platform::tick_ms();
-    // The first try asks the worker to list them.
+    // The wait begins on the main menu, and the first try asks the worker
+    // to list the installed packages.
     if (!library_return_since_) {
+        if (screen_ != Screen::main_menu)
+            return;
         library_return_since_ = now;
         host.look_again(*this);
     }
-    // The worker lists the installed packages once the run starts. Until it
-    // has, the mods would show as not installed and move as they arrive.
-    bool listed = !host.own_feed;
-    if (!listed) {
-        base::threads::LockGuard guard(host.work.mutex);
-        listed = host.work.searches > 0;
+    const bool waited = now - *library_return_since_ >= kept_library_wait_ms;
+    // A Library that could not open by the end of the wait is dropped, so
+    // that it does not open later, whenever the main menu is free.
+    if (!kept_library_may_show()) {
+        if (waited)
+            library_return_.reset();
+        return;
     }
-    if (!listed && now - *library_return_since_ < kept_library_wait_ms) {
-        // The switch's work dialog says what is being done meanwhile.
-        if (!options_.restart_line.empty() && layer.find(WorkScreen::screen_name) == nullptr) {
+    // Until the feed lists the installed packages, the mods would show as
+    // not installed and move as they arrive.
+    const bool listed =
+        host.feed.installed_listed == nullptr || host.feed.installed_listed(host.feed.context);
+    if (!listed && !waited) {
+        // The switch's work dialog says what is being done meanwhile. It
+        // gives way to whatever the Library would not open over.
+        if (!options_.restart_line.empty() && layer.top() == nullptr) {
             WorkScreen::Host waiting;
-            waiting.tick = [this] { return !library_return_ || screen_ != Screen::main_menu; };
+            waiting.tick = [this] { return !library_return_ || !kept_library_may_show(); };
             layer.push(
                 std::make_unique<WorkScreen>(
                     layer,
@@ -3847,17 +3885,17 @@ void Runtime::reopen_kept_library() {
         }
         return;
     }
-    if (const LayerScreen* work = layer.find(WorkScreen::screen_name))
-        layer.close(work);
     if (listed)
         host.rebuild(*this);
-    // Until the Library opens, as it does once the main menu is free, it is
-    // tried again each frame.
-    open_library(library_return_->tab);
-    if (layer.find(library_screen_name) == nullptr)
-        return;
+    // The Library opens over the work dialog, which then closes under it:
+    // a screen waiting to be shown waits for the Library.
     const LibraryReturn shown = *library_return_;
     library_return_.reset();
+    open_library(shown.tab);
+    if (const LayerScreen* work = layer.find(WorkScreen::screen_name))
+        layer.close(work);
+    if (layer.find(library_screen_name) == nullptr)
+        return;
     for (std::size_t index = 0; index < library::tab_total; ++index) {
         library::set_tab(host.model, static_cast<library::Tab>(index));
         library::set_filter(host.model, shown.filters[index]);
@@ -3870,6 +3908,13 @@ void Runtime::reopen_kept_library() {
     host.kept_selection = shown.selected;
     host.kept_selection_shown = host.model.selected;
     host.select_kept();
+    // The list is scrolled as it was while the entry chosen is where it was;
+    // otherwise its row is brought into view.
+    host.state.list_scroll = shown.list_scroll;
+    host.state.reveal_row =
+        host.model.selected == shown.selected && host.selected_row() == shown.selected_row
+            ? -1
+            : host.selected_row();
     if (shown.details_open && host.model.selected == shown.selected) {
         library::open_details(host.model);
         host.state.details_page = shown.details_page;
@@ -3910,12 +3955,13 @@ void Runtime::tick_library() {
         if (check_ended && screen_ != Screen::main_menu)
             host.refreshed = false;
     }
+    // A run a switch of the mod from the Library began shows it again on
+    // the main menu, or drops it once the wait is over on any screen.
+    if (library_return_ && !soft_restart_requested_)
+        reopen_kept_library();
     // The Library and its dot are the main menu's.
     if (screen_ != Screen::main_menu)
         return;
-    // A run a switch of the mod from the Library began shows it again.
-    if (library_return_ && !soft_restart_requested_)
-        reopen_kept_library();
     if (host.own_feed) {
         // A catalogue that moved on, or a package the queue installed,
         // sends the worker to search for updates again.
