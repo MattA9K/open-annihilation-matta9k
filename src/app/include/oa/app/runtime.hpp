@@ -6917,7 +6917,17 @@ class Runtime final : public menu::Host,
     void apply_live_camera_settings(bool allowed, bool unlocked);
     /// Restores classic orientation while retaining reusable GPU resources.
     void reset_live_renderer();
-    /// Picks the drawn terrain beneath a frame point in the rotated view.
+    /// Picks the drawn terrain beneath a frame point in the rotated view:
+    /// where the pointer's ray meets the terrain's mesh, between map pixels
+    /// and at the mesh's height, as the camera anchors on it.
+    /// @param x frame column in pixels
+    /// @param y frame row in pixels
+    /// @return fixed-point world position, or no terrain intersection
+    std::optional<oa::sim::ground_orders::Point> live_ground_hit(float x, float y) const;
+    /// Picks the ground beneath a frame point in the rotated view as orders
+    /// and placement take it, as a classic pick gives it: the whole map
+    /// pixel the drawn terrain is hit in (live_ground_hit), at the
+    /// simulation's terrain height there, never below the sea.
     /// @param x frame column in pixels
     /// @param y frame row in pixels
     /// @return fixed-point world position, or no terrain intersection

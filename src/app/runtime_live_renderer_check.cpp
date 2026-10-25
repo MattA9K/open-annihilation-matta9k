@@ -11,6 +11,7 @@
 #include "renderer_effect_sources.hpp"
 #include "renderer_live_scene.hpp"
 #include "renderer_live_camera.hpp"
+#include "oa/sim/unit_movement/terrain.hpp"
 #include "oa/present/model/shadow_fade.hpp"
 #include "renderer_water.hpp"
 #include "presentation_interpolation.hpp"
@@ -538,20 +539,41 @@ int Runtime::check_live_renderer() {
                 continue;
             if (const auto ground = live_ground_point(x, y)) {
                 destination = ground;
+                destination_hit = live_ground_hit(x, y);
                 destination_pixel = {x, y};
                 break;
             }
         }
     }
-    require(destination.has_value(), "no terrain destination was visible in the rotated view");
+    require(
+        destination.has_value() && destination_hit.has_value(),
+        "no terrain destination was visible in the rotated view"
+    );
     const auto projected_ground = live_project_world(
-        (*destination)[0] / 65536.0F, (*destination)[1] / 65536.0F, (*destination)[2] / 65536.0F
+        (*destination_hit)[0] / 65536.0F,
+        (*destination_hit)[1] / 65536.0F,
+        (*destination_hit)[2] / 65536.0F
     );
     require(
         std::abs(projected_ground.x - destination_pixel[0]) <= 1 &&
             std::abs(projected_ground.y - destination_pixel[1]) <= 1,
         "terrain ray intersection did not project back to the order click"
     );
+    // The order takes the hit's whole map pixel at the simulation's terrain
+    // height, as a classic pick does, never the mesh's height between cells.
+    {
+        const int32_t pixel_x = (*destination_hit)[0] >> 16;
+        const int32_t pixel_z = (*destination_hit)[2] >> 16;
+        const oa::sim::unit_movement::Terrain terrain(*selected_tnt_);
+        const int32_t height = std::max<int32_t>(
+            terrain.sea_level(), terrain.height(pixel_x * 65536, pixel_z * 65536)
+        );
+        require(
+            (*destination)[0] == pixel_x * 65536 && (*destination)[2] == pixel_z * 65536 &&
+                (*destination)[1] == height * 65536,
+            "the rotated ground pick was not a whole map pixel at the terrain's height"
+        );
+    }
     SDL_Event ordinary{};
     ordinary.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
     ordinary.button.button = SDL_BUTTON_LEFT;

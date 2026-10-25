@@ -9,8 +9,10 @@
 #include "renderer_live_camera.hpp"
 #include "renderer_live_gpu.hpp"
 #include "renderer_live_scene.hpp"
+#include "oa/sim/unit_movement/terrain.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <iostream>
 #include <limits>
@@ -239,7 +241,7 @@ bool Runtime::live_renderer_take_event(SDL_Event& event) {
         event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED ? -event.wheel.y : event.wheel.y;
     if (!std::isfinite(turned) || turned == 0)
         return true;
-    const auto anchor = live_ground_point(x, y);
+    const auto anchor = live_ground_hit(x, y);
     constexpr float fixed_scale = 65536;
     const float anchor_height =
         anchor ? static_cast<float>((*anchor)[1]) / fixed_scale : live.view.focus_y;
@@ -528,6 +530,26 @@ Runtime::live_project_world(float x, float height, float z) const {
 }
 
 std::optional<oa::sim::ground_orders::Point> Runtime::live_ground_point(float x, float y) const {
+    const auto hit = live_ground_hit(x, y);
+    if (!hit)
+        return std::nullopt;
+    // The map pixel the hit lies in, at the height the simulation gives that
+    // pixel and never below the sea, as terrain_intersection takes it for a
+    // classic pick; the mesh's height between cells and the fraction of the
+    // pixel are the drawing's alone.
+    const auto whole = [](int32_t fixed) {
+        return std::bit_cast<int32_t>(static_cast<uint32_t>(fixed) & 0xffff0000U);
+    };
+    const int32_t map_x = whole((*hit)[0]);
+    const int32_t map_z = whole((*hit)[2]);
+    const oa::sim::unit_movement::Terrain terrain(*selected_tnt_);
+    const int32_t height = std::max<int32_t>(terrain.sea_level(), terrain.height(map_x, map_z));
+    return oa::sim::ground_orders::Point{
+        map_x, std::bit_cast<int32_t>(static_cast<uint32_t>(height) << 16U), map_z
+    };
+}
+
+std::optional<oa::sim::ground_orders::Point> Runtime::live_ground_hit(float x, float y) const {
     if (!live_renderer_ || live_renderer_->failed || !battlefield_contains(x, y))
         return std::nullopt;
     const auto& live = *live_renderer_;
