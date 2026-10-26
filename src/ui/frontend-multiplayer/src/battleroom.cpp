@@ -438,8 +438,8 @@ void set_option_bit(uint16_t& options, uint16_t bit, bool on) noexcept {
 ///
 /// A faction becomes the player's side and a watcher watches instead; a team
 /// 1 to 5 becomes the player's team, which is sent with the alliances
-/// refreshed; a colour 1 to 10 is asked for as a click on the player's logo
-/// asks, and a colour another player has gives the next free one. A field
+/// refreshed; a colour the launch names is asked for as a click on the player's
+/// logo asks, and a colour another player has gives the next free one. A field
 /// that is 0 leaves its setting alone.
 ///
 /// @param[in,out] lobby Lobby state; its launch must be active.

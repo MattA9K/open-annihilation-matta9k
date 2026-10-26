@@ -4,6 +4,7 @@
 #pragma once
 
 #include "oa/data/match_rules.hpp"
+#include "oa/present/player_colors.hpp"
 #include "oa/ui/frontend_state/initialization.hpp"
 
 namespace oa::ui::frontend_state::skirmish_ui {
@@ -12,7 +13,9 @@ using Settings = game_entry::SkirmishSettings;
 using Preferences = initialization::Preferences;
 inline constexpr uint32_t active_cursor_index = 19, transition_cursor_index = 20;
 inline constexpr int32_t resource_step = 500, resource_minimum = 200, resource_maximum = 10000;
-inline constexpr int32_t alliance_count = 6, color_search_limit = 10;
+inline constexpr int32_t alliance_count = 6;
+/// Colours a free slot may be given, the same count the menus offer.
+inline constexpr int32_t color_search_limit = oa::present::player_color_count;
 
 // Panel state; the first two fields are kept in the skirmish settings block.
 struct UiState {

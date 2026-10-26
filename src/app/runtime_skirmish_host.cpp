@@ -3,6 +3,7 @@
 
 // Skirmish menu and map-selection modal host services.
 #include "oa/app/runtime.hpp"
+#include "oa/ui/frontend_renderer.hpp"
 #include "map_packs.hpp"
 #include "map_picture_state.hpp"
 #include "oa/data/map_pack/map_name.hpp"
@@ -281,6 +282,8 @@ void Runtime::load_logo_textures() {
     if (!parsed.ok())
         return;
     logo_textures_ = std::move(*parsed.archive);
+    if (const auto gui_palette = read("palettes/guipal.pal"))
+        oa::ui::frontend_renderer::append_extra_player_colors(logo_textures_, *gui_palette);
     logo_sequence_ = gaf_sequence(logo_textures_, "32xlogos");
 }
 

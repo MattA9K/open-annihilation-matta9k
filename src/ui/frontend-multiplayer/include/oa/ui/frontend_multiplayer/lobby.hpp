@@ -17,6 +17,7 @@
 #include "oa/netgame/presence.hpp"
 #include "oa/netgame/recorder_session.hpp"
 #include "oa/netgame/wire_rules.hpp"
+#include "oa/present/player_colors.hpp"
 #include "oa/ui/frontend_multiplayer/launch_block.hpp"
 #include "oa/ui/frontend_multiplayer/lobby_net.hpp"
 #include "oa/ui/frontend_multiplayer/panel.hpp"
@@ -39,7 +40,8 @@ inline constexpr uint8_t kNoSlot = 10;
 inline constexpr uint8_t kNoTeam = 5; // Player.team of a player on no team
 inline constexpr int32_t kTeamCount = 5;
 inline constexpr uint8_t kNoColor = 0xff; // PlayerSetupInfo.color before a colour is chosen
-inline constexpr int32_t kColorCount = 10;
+/// How many colours a player may take (oa::present::player_colors).
+inline constexpr int32_t kColorCount = oa::present::player_color_count;
 inline constexpr int16_t kRowPitch = 0x14; // cloned row spacing in pixels
 /// The player timeout of a game that names none, in seconds; the -t switch
 /// sets 30 to 300.

@@ -76,6 +76,8 @@ void Runtime::load_radar_sprites() {
             const auto status = oa::present::relocate_gaf(assets_.read(fx_path).bytes, radar.fx);
             if (status != oa::present::GafStatus::ok)
                 std::cerr << fx_path << ": " << oa::present::gaf_status_text(status) << '\n';
+            else
+                oa::present::append_extra_radar_colors(radar.fx);
         } catch (const std::exception& error) {
             std::cerr << fx_path << " unavailable: " << error.what() << '\n';
         }

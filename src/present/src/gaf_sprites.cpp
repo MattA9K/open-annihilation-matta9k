@@ -2,8 +2,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "oa/present/gaf_sprites.hpp"
+#include "oa/present/player_colors.hpp"
+#include "oa/present/rle.hpp"
 
 #include <algorithm>
+#include <cstdint>
 #include <utility>
 #include <cstring>
 
@@ -342,6 +345,129 @@ const GafSequence* find_gaf_sequence(const GafSprites& gaf, const char* name) no
         }
     }
     return nullptr;
+}
+
+namespace {
+
+/// Fills `opaque` with 1 where the frame draws a pixel and 0 where it is transparent.
+///
+/// @param gaf the archive the frame was relocated from
+/// @param first the sequence's first frame
+/// @param[out] opaque one byte per pixel
+/// @return false when the frame is not raw or row-compressed, or its rows do not decode
+bool frame_opacity(const GafSprites& gaf, const Sprite& first, std::vector<uint8_t>& opaque) {
+    const size_t count = static_cast<size_t>(first.width) * first.height;
+    opaque.assign(count, 0);
+    if (first.child_count != 0 || first.data == nullptr)
+        return false;
+    if (first.encoding == OA_SPRITE_RAW) {
+        const auto* source = static_cast<const uint8_t*>(first.data);
+        for (size_t pixel = 0; pixel < count; ++pixel)
+            opaque[pixel] = source[pixel] != first.key ? 1 : 0;
+        return true;
+    }
+    if (first.encoding != OA_SPRITE_ROW_RLE)
+        return false;
+    const auto* bytes = static_cast<const uint8_t*>(first.data);
+    const auto* file = gaf.bytes.data();
+    const auto address = reinterpret_cast<uintptr_t>(bytes);
+    const auto start = reinterpret_cast<uintptr_t>(file);
+    if (file == nullptr || address < start || address >= start + gaf.bytes.size())
+        return false;
+    std::vector<uint8_t> decoded(count, first.key);
+    const Rect32 rect{
+        0, 0, static_cast<int32_t>(first.width) - 1, static_cast<int32_t>(first.height) - 1
+    };
+    const std::span<const uint8_t> stream(
+        bytes, static_cast<size_t>(start + gaf.bytes.size() - address)
+    );
+    if (!decode_rle_rows(decoded.data(), first.width, rect, stream, rect))
+        return false;
+    for (size_t pixel = 0; pixel < count; ++pixel)
+        opaque[pixel] = decoded[pixel] != first.key ? 1 : 0;
+    return true;
+}
+
+} // namespace
+
+void append_extra_radar_colors(GafSprites& gaf) {
+    struct Pending {
+        GafSequence* sequence = nullptr;
+        const Sprite* first = nullptr;
+        std::vector<uint8_t> opaque;
+    };
+
+    Pending pending[2]{};
+    int pending_count = 0;
+    for (const char* name : {"radlogo", "nuclogo"}) {
+        GafSequence* sequence = nullptr;
+        for (GafSequence& candidate : gaf.sequences) {
+            if (name_matches(candidate.name, name)) {
+                sequence = &candidate;
+                break;
+            }
+        }
+        if (sequence == nullptr || sequence->frames == nullptr ||
+            sequence->frame_count != static_cast<uint16_t>(shipped_player_color_count))
+            continue;
+        const Sprite* first = sequence->frames[0].frame;
+        if (first == nullptr || first->width == 0 || first->height == 0 || first->width > 256 ||
+            first->height > 256)
+            continue;
+        if (!frame_opacity(gaf, *first, pending[pending_count].opaque))
+            continue;
+        pending[pending_count].sequence = sequence;
+        pending[pending_count].first = first;
+        ++pending_count;
+    }
+    if (pending_count == 0)
+        return;
+    const int extra = player_color_count - shipped_player_color_count;
+    size_t pixel_bytes = 0;
+    size_t slot_count = 0;
+    for (int index = 0; index < pending_count; ++index) {
+        pixel_bytes += pending[index].opaque.size() * static_cast<size_t>(extra);
+        slot_count +=
+            static_cast<size_t>(pending[index].sequence->frame_count) + static_cast<size_t>(extra);
+    }
+    gaf.added_pixels.clear();
+    gaf.added_sprites.clear();
+    gaf.added_slots.clear();
+    gaf.added_pixels.reserve(pixel_bytes);
+    gaf.added_sprites.reserve(static_cast<size_t>(pending_count) * static_cast<size_t>(extra));
+    gaf.added_slots.reserve(slot_count);
+    for (int index = 0; index < pending_count; ++index) {
+        GafSequence& sequence = *pending[index].sequence;
+        const Sprite& first = *pending[index].first;
+        const size_t start = gaf.added_slots.size();
+        const uint32_t duration = sequence.frames[0].duration;
+        for (uint16_t frame = 0; frame < sequence.frame_count; ++frame)
+            gaf.added_slots.push_back(sequence.frames[frame]);
+        const std::vector<uint8_t>& opaque = pending[index].opaque;
+        for (int color = shipped_player_color_count; color < player_color_count; ++color) {
+            const uint8_t dot = player_colors[static_cast<size_t>(color)].dot;
+            const size_t offset = gaf.added_pixels.size();
+            gaf.added_pixels.resize(offset + opaque.size());
+            uint8_t* pixels = gaf.added_pixels.data() + offset;
+            for (size_t pixel = 0; pixel < opaque.size(); ++pixel)
+                pixels[pixel] = opaque[pixel] != 0 ? dot : first.key;
+            Sprite sprite{};
+            sprite.width = first.width;
+            sprite.height = first.height;
+            sprite.origin_x = first.origin_x;
+            sprite.origin_y = first.origin_y;
+            sprite.key = first.key;
+            sprite.encoding = OA_SPRITE_RAW;
+            sprite.data = pixels;
+            gaf.added_sprites.push_back(sprite);
+            GafFrameSlot slot;
+            slot.frame = &gaf.added_sprites.back();
+            slot.duration = duration;
+            gaf.added_slots.push_back(slot);
+        }
+        sequence.frames = &gaf.added_slots[start];
+        sequence.frame_count = static_cast<uint16_t>(player_color_count);
+    }
 }
 
 } // namespace oa::present

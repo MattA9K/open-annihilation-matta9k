@@ -1147,8 +1147,8 @@ constexpr LaunchField kFields[] = {
      Reader::network_play,
      store_team},
     {"player.colour",
-     "--colour 1-10",
-     "The player's colour, from 1 through 10 in the order the battle room steps through them. A "
+     "--colour 1-20",
+     "The player's colour, from 1 through 20 in the order the battle room steps through them. A "
      "colour another player has gives the next free one.",
      Reader::network_play,
      store_colour},

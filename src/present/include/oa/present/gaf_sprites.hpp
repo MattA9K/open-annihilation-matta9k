@@ -55,6 +55,11 @@ struct GafSprites {
     std::vector<GafFrameSlot> slots;
     std::vector<Sprite> sprites;   // frame and child headers
     std::vector<Sprite*> children; // composite child tables
+    // Frames added for player colours past the ten shipped radar pictures.
+    // A sequence that gained them points its frame list and pixels here.
+    std::vector<uint8_t> added_pixels;
+    std::vector<Sprite> added_sprites;
+    std::vector<GafFrameSlot> added_slots;
 };
 
 enum class GafStatus : uint8_t {
@@ -116,5 +121,18 @@ enum class GafStatus : uint8_t {
 /// @return the first matching sequence, or null
 [[nodiscard]] const GafSequence*
 find_gaf_sequence(const GafSprites& gaf, const char* name) noexcept;
+
+/// Adds radar blips for the player colours past the ten shipped frames.
+///
+/// When radlogo or nuclogo holds exactly those ten frames, and its first frame
+/// is raw or row-compressed, it gains one raw frame per later colour. The new
+/// frame keeps the first frame's size, origin and transparent index. A pixel
+/// that is transparent on the first frame stays transparent; every other pixel
+/// takes that colour's dot index from player_colors. A sequence with another
+/// frame count, or a first frame that does not decode, is left as loaded. The
+/// added frames belong to `gaf` and stay valid when `gaf` is moved.
+///
+/// @param[in,out] gaf relocated anims/FX.GAF
+void append_extra_radar_colors(GafSprites& gaf);
 
 } // namespace oa::present

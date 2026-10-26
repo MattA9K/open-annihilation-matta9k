@@ -9,6 +9,8 @@
 // (LaunchLink::launch_active).
 #pragma once
 
+#include "oa/present/player_colors.hpp"
+
 #include <cstddef>
 #include <cstdint>
 
@@ -45,9 +47,10 @@ inline constexpr std::size_t kLaunchBrainIdBytes = 65;
 /// The teams a launch names, 1 through 5, which the battle room shows as its five team icons.
 inline constexpr int32_t kLaunchTeamFirst = 1;
 inline constexpr int32_t kLaunchTeamLast = 5;
-/// The colours a launch names, 1 through 10, in the order the battle room steps through them.
+/// The first colour a launch names. Colours run from here through kLaunchColourLast.
 inline constexpr int32_t kLaunchColourFirst = 1;
-inline constexpr int32_t kLaunchColourLast = 10;
+/// The last colour a launch names, in the order the battle room steps through them.
+inline constexpr int32_t kLaunchColourLast = oa::present::player_color_count;
 
 /// LaunchComputer::difficulty: how well a computer player plays; none leaves the room's own.
 namespace difficulty {
@@ -76,7 +79,7 @@ struct LaunchRestriction {
 struct LaunchComputer {
     int32_t faction{};    ///< faction values; none leaves the battle room's side
     int32_t team{};       ///< 1 to 5; 0 seats it on no team
-    int32_t color{};      ///< 1 to 10; 0 takes the next free colour
+    int32_t color{};      ///< 1 through kLaunchColourLast; 0 takes the next free colour
     int32_t difficulty{}; ///< difficulty values
     /// A kebab-case id of at most 64 bytes. Empty seats the built-in player.
     char brain[kLaunchBrainIdBytes]{};
@@ -111,7 +114,7 @@ struct LaunchBlock {
     int32_t tournament{};                // nonzero for a tournament game
     int32_t faction{};                   // faction values
     int32_t team{};
-    int32_t color{};          // 1 to 10, the player's colour; 0 leaves it to the battle room
+    int32_t color{};          // 1 through kLaunchColourLast; 0 leaves it to the battle room
     uint32_t watcher{};       // 1: the player watches instead of playing
     int32_t computer_count{}; // computer players seated from computers, in order
     LaunchComputer computers[kLaunchComputerLimit]{};

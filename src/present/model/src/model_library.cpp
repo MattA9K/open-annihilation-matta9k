@@ -6,6 +6,8 @@
 
 #include "oa/formats/hpi.hpp"
 #include "oa/present/palette_tables.hpp"
+#include "oa/present/player_colors.hpp"
+#include "oa/present/team_textures.hpp"
 #include "oa/present/span_sample.hpp"
 
 #include <algorithm>
@@ -32,6 +34,18 @@ std::string folded(std::string_view text) {
 bool readable_frame(const formats::gaf::Frame& frame) noexcept {
     return !frame.compressed && frame.layers.empty() && frame.width != 0 && frame.height != 0 &&
            frame.pixels.size() >= static_cast<std::size_t>(frame.width) * frame.height;
+}
+
+/// Reads the game palette, or returns nothing when the game has none.
+///
+/// @param assets asset store to read palettes/palette.pal from
+/// @return the palette's bytes, empty when no palette is provided
+std::vector<uint8_t> game_palette(AssetStore& assets) {
+    try {
+        return assets.read("palettes/palette.pal").bytes;
+    } catch (const std::runtime_error&) {
+        return {};
+    }
 }
 
 /// Returns the mean vertex Y of a primitive, the load-time sort key.
@@ -108,6 +122,8 @@ TextureLibrary load_texture_library(AssetStore& assets) {
             throw std::runtime_error(
                 "cannot parse texture archive '" + path + "': " + parsed.error->message
             );
+        if (team)
+            present::append_extra_team_frames(*parsed.archive, game_palette(assets));
         library.archives.push_back(
             std::make_unique<formats::gaf::Archive>(std::move(*parsed.archive))
         );
@@ -134,7 +150,9 @@ TextureLibrary load_texture_library(AssetStore& assets) {
                 continue;
             TextureSequence entry;
             entry.sequence = &sequence;
-            entry.team_archive = team && sequence.frames.size() == team_frame_count;
+            entry.team_archive =
+                team && (sequence.frames.size() == team_frame_count ||
+                         sequence.frames.size() == static_cast<std::size_t>(player_color_count));
             for (const auto& frame : sequence.frames) {
                 Sprite sprite{};
                 if (readable_frame(frame)) {

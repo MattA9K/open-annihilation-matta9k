@@ -990,7 +990,7 @@ setting the file leaves out keeps the battle room's own choice.
 joins needs `game.address`, or `--join ADDRESS`.
 
 Each item of `computer-players` is a group of `side` (`arm` or `core`),
-`team` (`1` to `5`, or `none`), `colour` (`1` to `10`), `difficulty`
+`team` (`1` to `5`, or `none`), `colour` (`1` to `20`), `difficulty`
 (`easy`, `medium` or `hard`) and `brain`, an installed brain's id. Any but
 the side may be left out, and the battle room then chooses it as it does
 for a computer player a click seats: no team, the next free colour, hard,
@@ -1158,7 +1158,7 @@ settings in src/app/netgame/launch_file.cpp, word for word. -->
 | `player.name` | `--player-name NAME` | The player's name, at most 16 characters. |
 | `player.side` | `--side arm\|core\|watcher` | The player's side, or `watcher` to watch instead of play. |
 | `player.team` | `--team 1-5\|none` | The player's team, from 1 through 5, or `none`. |
-| `player.colour` | `--colour 1-10` | The player's colour, from 1 through 10 in the order the battle room steps through them. A colour another player has gives the next free one. |
+| `player.colour` | `--colour 1-20` | The player's colour, from 1 through 20 in the order the battle room steps through them. A colour another player has gives the next free one. |
 | `map` | `--map NAME` | The map the host plays: the name the list shows, or its key (`name@package` for a pack map). At most 63 characters. |
 | `rules.commander-death` | `--commander-death continues\|ends\|deathmatch` | What a commander's death does: the game `continues`, the player's game `ends`, or `deathmatch`. |
 | `rules.metal` | `--metal N` | Starting metal, from 0 through 10000. 0 leaves the battle room's own amount. |
@@ -1182,7 +1182,7 @@ settings in src/app/netgame/launch_file.cpp, word for word. -->
 | `status.quit-after-game` | `--quit-after-game[=after-score]` | Leaves when the game ends (`on`), stays (`off`), or leaves after the score (`after-score`). |
 
 `--computer-player` takes the computer player's side, then, after a colon
-each, its team (`1` to `5`, or `none`), its colour (`1` to `10`), its
+each, its team (`1` to `5`, or `none`), its colour (`1` to `20`), its
 difficulty (`easy`, `medium` or `hard`) and a brain's id. A part left out
 or left empty is chosen by the battle room: `core:2::hard` is Core on team
 2, in the next free colour, playing hard, with the room's own brain.

@@ -3,6 +3,8 @@
 
 #include "oa/present/world_renderer/unit_renderer.hpp"
 #include "oa/base/game_math.hpp"
+#include "oa/present/player_colors.hpp"
+#include "oa/present/team_textures.hpp"
 
 #include <algorithm>
 #include <array>
@@ -1237,17 +1239,27 @@ TextureCatalog load_texture_catalog(AssetStore& assets) {
         // 4.1): a mod hides an archive's texture GAF with one.
         if (data.bytes.empty())
             return;
-        const auto parsed = formats::gaf::parse(data.bytes);
+        auto parsed = formats::gaf::parse(data.bytes);
         if (!parsed.ok())
             throw std::runtime_error(
                 "cannot parse texture archive '" + path + "': " + parsed.error->message
             );
+        if (team_archive) {
+            std::vector<uint8_t> palette;
+            try {
+                palette = assets.read("palettes/palette.pal").bytes;
+            } catch (const std::runtime_error&) {
+            }
+            present::append_extra_team_frames(*parsed.archive, palette);
+        }
         for (const auto& sequence : parsed.archive->sequences) {
             const auto key = folded(sequence.name);
             if (!seen.emplace(key).second)
                 continue;
             TextureMaterial material;
-            if (team_archive && sequence.frames.size() == 10)
+            if (team_archive &&
+                (sequence.frames.size() == 10 ||
+                 sequence.frames.size() == static_cast<std::size_t>(present::player_color_count)))
                 material.mode = MaterialFrameMode::owner_team;
             else if (sequence.frames.size() >= 2)
                 material.mode = MaterialFrameMode::animated;

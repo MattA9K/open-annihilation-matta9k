@@ -5,6 +5,7 @@
 #include "oa/present/model/model_library.hpp"
 #include "oa/present/display.hpp"
 #include "oa/present/palette_tables.hpp"
+#include "oa/present/player_colors.hpp"
 #include "oa/test/game_assets.hpp"
 
 #include <chrono>
@@ -394,7 +395,15 @@ void test_texture_library_assets(oa::AssetStore& assets) {
     const auto logo = library.sequences.find("armlogo");
     if (logo != library.sequences.end()) {
         CHECK(logo->second.team_archive);
-        CHECK(logo->second.frames.size() == 10);
+        // The ten shipped colours, then a frame for each later one drawn in
+        // that colour's team pixels.
+        const auto& frames = logo->second.frames;
+        CHECK(frames.size() == static_cast<std::size_t>(oa::present::player_color_count));
+        if (frames.size() > 10) {
+            CHECK(frames[10].data != nullptr);
+            CHECK(frames[10].width == frames[0].width || frames[10].width == frames[1].width);
+            CHECK(frames[10].data != frames[0].data && frames[10].data != frames[1].data);
+        }
     }
     std::size_t readable = 0;
     for (const auto& [name, sequence] : library.sequences)

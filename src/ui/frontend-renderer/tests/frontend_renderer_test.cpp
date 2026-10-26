@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
+#include "oa/present/player_colors.hpp"
 #include "oa/ui/frontend_renderer.hpp"
 #include "oa/ui/frontend_renderer/game_text.hpp"
 #include "oa/ui/frontend_renderer/scroll_bars.hpp"
@@ -922,7 +923,84 @@ void test_label_lines_keep_characters_whole() {
     CHECK(red_at(drawn, 1, 7) == 50 && red_at(drawn, 3, 7) == 52);
 }
 
+/// The ten shipped 32xlogos frames gain one shaded square per extra colour.
+void test_extra_player_colors() {
+    namespace colors = oa::present;
+    oa::formats::gaf::Archive archive;
+    oa::formats::gaf::Sequence logos;
+    logos.name = "32XLOGOS";
+    for (int index = 0; index < colors::shipped_player_color_count; ++index) {
+        oa::formats::gaf::Frame frame;
+        frame.width = 1;
+        frame.height = 1;
+        frame.pixels = {static_cast<uint8_t>(index + 1)};
+        frame.coverage = {1};
+        logos.frames.push_back(std::move(frame));
+    }
+    archive.sequences.push_back(std::move(logos));
+    oa::formats::gaf::Sequence team;
+    team.name = "armlogo";
+    team.frames.resize(static_cast<std::size_t>(colors::shipped_player_color_count));
+    archive.sequences.push_back(std::move(team));
+
+    // A palette of black with the five entries the first new colour (0x39FF14)
+    // shades to, so each square pixel names the entry it was meant to.
+    std::vector<uint8_t> palette(256 * 4, 0);
+    const auto set_entry = [&](std::size_t index, int r, int g, int b) {
+        palette[index * 4] = static_cast<uint8_t>(r);
+        palette[index * 4 + 1] = static_cast<uint8_t>(g);
+        palette[index * 4 + 2] = static_cast<uint8_t>(b);
+    };
+    set_entry(100, 57, 255, 20);   // the colour itself, the face
+    set_entry(101, 25, 114, 9);    // 45 percent of it, the rim
+    set_entry(102, 156, 255, 137); // half way to white, the top-left edge
+    set_entry(103, 41, 183, 14);   // 72 percent of it, the bottom-right edge
+
+    oa::ui::frontend_renderer::append_extra_player_colors(archive, std::vector<uint8_t>(1020, 0));
+    CHECK(
+        archive.sequences[0].frames.size() ==
+        static_cast<std::size_t>(colors::shipped_player_color_count)
+    );
+    oa::ui::frontend_renderer::append_extra_player_colors(archive, palette);
+    CHECK(
+        archive.sequences[0].frames.size() == static_cast<std::size_t>(colors::player_color_count)
+    );
+    CHECK(
+        archive.sequences[0].frames[0].pixels.size() == 1 &&
+        archive.sequences[0].frames[0].pixels[0] == 1
+    );
+    CHECK(
+        archive.sequences[1].frames.size() ==
+        static_cast<std::size_t>(colors::shipped_player_color_count)
+    );
+    const auto& added =
+        archive.sequences[0].frames[static_cast<std::size_t>(colors::shipped_player_color_count)];
+    CHECK(added.width == 32 && added.height == 32);
+    CHECK(added.pixels.size() == 32U * 32U && added.coverage.size() == added.pixels.size());
+    CHECK(added.pixels[0] == 101);
+    CHECK(added.pixels[1U * 32U + 1U] == 102);
+    CHECK(added.pixels[30U * 32U + 30U] == 103);
+    CHECK(added.pixels[16U * 32U + 16U] == 100);
+    bool covered = true;
+    for (const uint8_t bit : added.coverage)
+        covered = covered && bit == 1;
+    CHECK(covered);
+    oa::ui::frontend_renderer::append_extra_player_colors(archive, palette);
+    CHECK(
+        archive.sequences[0].frames.size() == static_cast<std::size_t>(colors::player_color_count)
+    );
+
+    oa::formats::gaf::Archive shorter;
+    oa::formats::gaf::Sequence short_logos;
+    short_logos.name = "32xlogos";
+    short_logos.frames.resize(9);
+    shorter.sequences.push_back(std::move(short_logos));
+    oa::ui::frontend_renderer::append_extra_player_colors(shorter, palette);
+    CHECK(shorter.sequences[0].frames.size() == 9);
+}
+
 int main() {
+    test_extra_player_colors();
     check_translated_stage_captions();
     test_label_lines_keep_characters_whole();
     test_caption_shrinks_to_button();

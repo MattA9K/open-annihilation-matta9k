@@ -5796,7 +5796,7 @@ void test_add_player_and_description() {
     );
     expect(
         !mp::lobby_color_available(lobby, 0x300, 4) && mp::lobby_color_available(lobby, 0x100, 4) &&
-            !mp::lobby_color_available(lobby, 0x300, 10) &&
+            !mp::lobby_color_available(lobby, 0x300, oa::present::player_color_count) &&
             !mp::lobby_color_available(lobby, 0x300, 0xff),
         "a colour is taken by any other seated player only"
     );

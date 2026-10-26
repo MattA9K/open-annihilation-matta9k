@@ -8,6 +8,7 @@
 #include "oa/formats/gaf.hpp"
 #include "oa/present/blit.hpp"
 #include "oa/present/gaf_sprites.hpp"
+#include "oa/present/player_colors.hpp"
 #include "oa/present/surface.hpp"
 #include "oa/test/game_assets.hpp"
 
@@ -438,6 +439,111 @@ void test_radar_logos(const oa::AssetStore& assets) {
     CHECK(marker != nullptr && marker->width == 6 && marker->origin_x == 2);
     const Sprite* icon = oa::present::gaf_frame(weapons, 0);
     CHECK(icon != nullptr && icon->width == 7 && icon->origin_x == 3);
+    oa::present::append_extra_radar_colors(fx);
+    CHECK(units->frame_count == oa::present::player_color_count);
+    CHECK(weapons->frame_count == oa::present::player_color_count);
+    CHECK(cursor->frame_count == 1);
+    const Sprite* extra = oa::present::gaf_frame(units, oa::present::shipped_player_color_count);
+    CHECK(
+        extra != nullptr && extra->encoding == OA_SPRITE_RAW && extra->width == 4 &&
+        extra->height == 4 && extra->origin_x == 1 && extra->origin_y == 1 &&
+        extra->key == blip->key && extra->data != nullptr
+    );
+    if (extra != nullptr && extra->data != nullptr) {
+        const auto* added = static_cast<const uint8_t*>(extra->data);
+        const uint8_t dot = oa::present::player_colors[static_cast<std::size_t>(
+                                                           oa::present::shipped_player_color_count
+                                                       )]
+                                .dot;
+        bool coloured = false;
+        bool only_those = true;
+        for (int pixel = 0; pixel < 16; ++pixel) {
+            coloured = coloured || added[pixel] == dot;
+            only_those = only_those && (added[pixel] == extra->key || added[pixel] == dot);
+        }
+        CHECK(coloured && only_those);
+    }
+}
+
+/// radlogo and nuclogo of ten raw frames gain the extra player colours.
+void test_extra_radar_colors() {
+    namespace colors = oa::present;
+    uint8_t rad_pixels[16];
+    for (int pixel = 0; pixel < 16; ++pixel)
+        rad_pixels[pixel] = (pixel == 5 || pixel == 6 || pixel == 9 || pixel == 10) ? 227 : 9;
+    uint8_t nuke_pixels[4] = {9, 40, 40, 9};
+    Sprite rad_frames[10]{};
+    Sprite nuke_frames[10]{};
+    oa::present::GafFrameSlot rad_slots[10]{};
+    oa::present::GafFrameSlot nuke_slots[10]{};
+    for (int index = 0; index < 10; ++index) {
+        rad_frames[index].width = 4;
+        rad_frames[index].height = 4;
+        rad_frames[index].origin_x = 1;
+        rad_frames[index].origin_y = 1;
+        rad_frames[index].key = 9;
+        rad_frames[index].encoding = OA_SPRITE_RAW;
+        rad_frames[index].data = rad_pixels;
+        rad_slots[index].frame = &rad_frames[index];
+        rad_slots[index].duration = 3;
+        nuke_frames[index].width = 2;
+        nuke_frames[index].height = 2;
+        nuke_frames[index].key = 9;
+        nuke_frames[index].encoding = OA_SPRITE_RAW;
+        nuke_frames[index].data = nuke_pixels;
+        nuke_slots[index].frame = &nuke_frames[index];
+    }
+    GafSprites fx;
+    fx.sequences.resize(3);
+    std::memcpy(fx.sequences[0].name, "radlogo", sizeof "radlogo");
+    fx.sequences[0].frame_count = 10;
+    fx.sequences[0].frames = rad_slots;
+    std::memcpy(fx.sequences[1].name, "NUClogo", sizeof "NUClogo");
+    fx.sequences[1].frame_count = 10;
+    fx.sequences[1].frames = nuke_slots;
+    std::memcpy(fx.sequences[2].name, "other", sizeof "other");
+    fx.sequences[2].frame_count = 10;
+    fx.sequences[2].frames = rad_slots;
+
+    oa::present::append_extra_radar_colors(fx);
+    CHECK(fx.sequences[0].frame_count == colors::player_color_count);
+    CHECK(fx.sequences[1].frame_count == colors::player_color_count);
+    CHECK(fx.sequences[2].frame_count == 10);
+    GafSprites short_logo;
+    short_logo.sequences.resize(1);
+    std::memcpy(short_logo.sequences[0].name, "radlogo", sizeof "radlogo");
+    short_logo.sequences[0].frame_count = 4;
+    short_logo.sequences[0].frames = rad_slots;
+    oa::present::append_extra_radar_colors(short_logo);
+    CHECK(short_logo.sequences[0].frame_count == 4);
+    CHECK(oa::present::gaf_frame(&fx.sequences[0], 0) == &rad_frames[0]);
+    const Sprite* extra =
+        oa::present::gaf_frame(&fx.sequences[0], colors::shipped_player_color_count);
+    const uint8_t dot =
+        colors::player_colors[static_cast<std::size_t>(colors::shipped_player_color_count)].dot;
+    CHECK(extra != nullptr && extra->width == 4 && extra->origin_x == 1 && extra->key == 9);
+    CHECK(extra != nullptr && extra->data != nullptr);
+    if (extra != nullptr && extra->data != nullptr) {
+        const auto* pixels = static_cast<const uint8_t*>(extra->data);
+        CHECK(pixels[0] == 9 && pixels[5] == dot && extra == fx.sequences[0].frames[10].frame);
+        CHECK(fx.sequences[0].frames[10].duration == 3);
+    }
+    const Sprite* nuke = oa::present::gaf_frame(&fx.sequences[1], colors::player_color_count - 1);
+    const uint8_t last =
+        colors::player_colors[static_cast<std::size_t>(colors::player_color_count - 1)].dot;
+    CHECK(nuke != nullptr && nuke->width == 2 && nuke->data != nullptr);
+    if (nuke != nullptr && nuke->data != nullptr) {
+        const auto* pixels = static_cast<const uint8_t*>(nuke->data);
+        CHECK(pixels[0] == 9 && pixels[1] == last && pixels[2] == last && pixels[3] == 9);
+    }
+    oa::present::append_extra_radar_colors(fx);
+    CHECK(fx.sequences[0].frame_count == colors::player_color_count);
+    GafSprites moved = std::move(fx);
+    const Sprite* still =
+        oa::present::gaf_frame(&moved.sequences[0], colors::shipped_player_color_count);
+    CHECK(still != nullptr && still->data != nullptr);
+    if (still != nullptr && still->data != nullptr)
+        CHECK(static_cast<const uint8_t*>(still->data)[5] == dot);
 }
 
 } // namespace
@@ -452,6 +558,7 @@ int main(int argc, char** argv) {
         test_file_taken_over();
         test_sequence_count_word();
         test_rejected_files();
+        test_extra_radar_colors();
     }
     if (failures != 0) {
         std::fprintf(stderr, "%d check(s) failed\n", failures);

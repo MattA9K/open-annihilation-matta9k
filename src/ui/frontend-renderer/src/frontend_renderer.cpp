@@ -10,6 +10,7 @@
 
 #include "oa/ui/frontend_renderer/gadget_draw.hpp"
 #include "oa/ui/frontend_renderer/scroll_bars.hpp"
+#include "oa/present/player_colors.hpp"
 #include "oa/ui/gui_layout/gui_gadget.hpp"
 
 #include <algorithm>
@@ -1026,6 +1027,7 @@ ScreenResources load_screen_with_layout(
             "cannot parse global LOGOS.GAF sprites: " + parsed_global.error->message
         );
     result.global_sprites = std::move(*parsed_global.archive);
+    append_extra_player_colors(result.global_sprites, result.gui_palette);
     result.light_table = assets.read(default_light_table).bytes;
     if (result.light_table.size() != 32U * palette_color_count)
         throw std::runtime_error("PALETTE.LHT must contain 32x256 entries");
@@ -1043,6 +1045,83 @@ ScreenResources load_screen_with_layout(
 }
 
 } // namespace
+
+void append_extra_player_colors(
+    formats::gaf::Archive& logos, std::span<const uint8_t> gui_palette
+) {
+    formats::gaf::Sequence* sequence = nullptr;
+    for (formats::gaf::Sequence& candidate : logos.sequences) {
+        if (ascii_equal(candidate.name, "32xlogos")) {
+            sequence = &candidate;
+            break;
+        }
+    }
+    if (sequence == nullptr ||
+        sequence->frames.size() !=
+            static_cast<std::size_t>(oa::present::shipped_player_color_count) ||
+        gui_palette.size() != palette_color_count * 4)
+        return;
+    constexpr int side = 32;
+    constexpr int ramp = 8;
+    // How far each of the eight steps lies from the colour, brightest first.
+    // Steps 0 to 4 move toward white by that percent, step 5 is the colour,
+    // and steps 6 and 7 keep that percent of it.
+    constexpr std::array<int, ramp> lighten{50, 35, 20, 10, 4, 0, 0, 0};
+    constexpr std::array<int, ramp> keep{100, 100, 100, 100, 100, 100, 72, 45};
+    for (int color = oa::present::shipped_player_color_count;
+         color < oa::present::player_color_count;
+         ++color) {
+        const uint32_t wanted = oa::present::player_colors[static_cast<std::size_t>(color)].rgb;
+        std::array<uint8_t, ramp> steps{};
+        for (std::size_t step = 0; step < steps.size(); ++step) {
+            int channels[3];
+            for (int channel = 0; channel < 3; ++channel) {
+                const int value = static_cast<int>((wanted >> (16 - 8 * channel)) & 0xff);
+                channels[channel] =
+                    (value + (255 - value) * lighten[step] / 100) * keep[step] / 100;
+            }
+            int best_distance = 0;
+            std::size_t best = 1;
+            for (std::size_t index = 1; index < palette_color_count; ++index) {
+                int distance = 0;
+                for (int channel = 0; channel < 3; ++channel) {
+                    const int off =
+                        static_cast<int>(gui_palette[index * 4 + channel]) - channels[channel];
+                    distance += off * off;
+                }
+                if (index == 1 || distance < best_distance) {
+                    best_distance = distance;
+                    best = index;
+                }
+            }
+            steps[step] = static_cast<uint8_t>(best);
+        }
+        formats::gaf::Frame frame;
+        frame.width = static_cast<uint16_t>(side);
+        frame.height = static_cast<uint16_t>(side);
+        const std::size_t count = static_cast<std::size_t>(side) * static_cast<std::size_t>(side);
+        frame.pixels.resize(count);
+        frame.coverage.assign(count, 1);
+        for (int y = 0; y < side; ++y) {
+            for (int x = 0; x < side; ++x) {
+                const int from_right = side - 1 - x;
+                const int from_bottom = side - 1 - y;
+                const int inset = std::min(std::min(x, y), std::min(from_right, from_bottom));
+                int step = 3;
+                if (inset == 0)
+                    step = ramp - 1;
+                else if (x + y < from_right + from_bottom)
+                    step = inset == 1 ? 0 : 2;
+                else
+                    step = inset == 1 ? ramp - 2 : 5;
+                frame.pixels
+                    [static_cast<std::size_t>(y) * static_cast<std::size_t>(side) +
+                     static_cast<std::size_t>(x)] = steps[static_cast<std::size_t>(step)];
+            }
+        }
+        sequence->frames.push_back(std::move(frame));
+    }
+}
 
 std::string_view staged_caption(std::string_view text, std::size_t stage) noexcept {
     if (text.find('|') == std::string_view::npos)

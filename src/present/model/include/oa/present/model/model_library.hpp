@@ -38,7 +38,7 @@ inline constexpr uint8_t missing_texture_color = 0xd1;
 struct TextureSequence {
     const formats::gaf::Sequence* sequence{};
     std::vector<Sprite> frames;
-    bool team_archive{}; // found only in logos.gaf with ten frames
+    bool team_archive{}; // found only in logos.gaf with ten frames, or twenty once extended
 };
 
 // Texture archives in search order. Frame pixels live in one arena padded so
@@ -123,8 +123,9 @@ void sort_object_primitives(const formats::objects3d::Object& object, std::vecto
 ///
 /// A primitive whose texture is not found becomes a coloured primitive of
 /// missing_texture_color. Textures of two or more frames animate; team
-/// textures (ten frames in logos.gaf) pick their frame by team colour and are
-/// not stepped. A model is prepared once and then returned from the library
+/// textures (ten frames in logos.gaf, twenty when load_texture_library has
+/// given the later player colours theirs) pick their frame by team colour and
+/// are not stepped. A model is prepared once and then returned from the library
 /// to every handle that reaches it while it lives. An entry left at the
 /// model's address by a freed model is erased with its cursors first.
 ///

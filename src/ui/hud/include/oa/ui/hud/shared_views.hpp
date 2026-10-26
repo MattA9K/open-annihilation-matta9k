@@ -9,6 +9,7 @@
 #pragma once
 
 #include "oa/core/world.h"
+#include "oa/present/player_colors.hpp"
 
 #include <array>
 #include <cstdint>
@@ -74,10 +75,8 @@ void take_reported_cameras(
 
 /// The palette index a player's colour is drawn in on the minimap, the
 /// megamap, whiteboard marks and camera rectangles, by the colour's number
-/// (PlayerSetupInfo.color).
-inline constexpr std::array<uint8_t, OA_PLAYER_COUNT> kPlayerDotColors{
-    227, 212, 80, 235, 108, 219, 208, 93, 130, 67
-};
+/// (PlayerSetupInfo.color). The indexes are oa::present::player_colors.
+inline constexpr auto kPlayerDotColors = oa::present::player_dot_colors;
 
 /// Returns a player's dot colour.
 ///
