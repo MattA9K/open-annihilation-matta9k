@@ -11,6 +11,7 @@
 #include "oa/base/game_math.hpp"
 #include "oa/sim/world_environment/wind.hpp"
 #include <bit>
+#include <thread>
 #include <cmath>
 #include <cstddef>
 #include <cstdlib>
@@ -497,6 +498,9 @@ Match::Match(const OfflineInputs& input, OfflineServices& services)
     else
         note_wind(sim::world_environment::initialize_wind(environment_wind_, wind_random));
     effects_ = std::make_unique<sim::effect_particles::EffectWorld>();
+    // One worker per processor past the caller, clamped by the pool.
+    contact_pool_ =
+        std::make_unique<sim::job::Pool>(std::max(1u, std::thread::hardware_concurrency()) - 1u);
     if (!sim::effect_particles::size_effect_world(*effects_, input.limits.effects))
         fault_.note("the effect layers cannot be allocated");
     search_.jobs.tick_credit = input.limits.path_search.nodes;

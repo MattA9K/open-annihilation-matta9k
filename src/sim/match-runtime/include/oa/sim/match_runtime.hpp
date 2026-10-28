@@ -11,6 +11,8 @@
 #include "oa/sim/match_runtime/match_trace.hpp"
 #include "oa/sim/match_runtime/spawn_bridge.hpp"
 #include "oa/sim/combat_state.hpp"
+#include "oa/sim/job.hpp"
+#include "oa/sim/weapon_execution/projectile_contact.hpp"
 #include "oa/sim/spatial_state/cell_classifier.hpp"
 #include "oa/core/move_class.h"
 #include "oa/sim/ground_orders/movement_map.hpp"
@@ -3280,6 +3282,22 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     ///
     /// @param shot The moved shot.
     void resolve_projectile_contact(oa::Projectile& shot);
+
+    /// Copies one flying projectile and the plot under it into the contact snapshot.
+    ///
+    /// @param world the match's world
+    /// @param index the projectile's pool slot
+    void gather_contact(const oa::World& world, uint32_t index);
+
+    /// Tests one group of the contact snapshot and applies it in slot order.
+    ///
+    /// The group starts at `first` and runs for the fixed group size. Its
+    /// answers are written into the projectile records before the caller
+    /// snapshots the next group.
+    ///
+    /// @param[in,out] world the match's world
+    /// @param first pool slot the group starts at
+    void apply_contact_group(oa::World& world, uint32_t first);
     /// Returns the slot of the unit that fired a projectile.
     ///
     /// @param shot Projectile record.
@@ -3859,6 +3877,13 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     std::shared_ptr<void> seat_state_;
     uint32_t lcg_seed_{};
     std::unique_ptr<sim::effect_particles::EffectWorld> effects_;
+
+    // The threads that share a tick's projectile contact tests, and the
+    // snapshot and answers of the batch in progress. The snapshot is taken
+    // before any test runs and the answers are applied in slot order.
+    std::unique_ptr<sim::job::Pool> contact_pool_;
+    sim::weapon_execution::ContactSnapshot contact_snapshot_{};
+    sim::weapon_execution::ContactResults contact_results_{};
     formats::gaf::Sequence flash_tiers_[sim::effect_particles::flash_tier_count];
     bool effect_sequences_resolved_{};
     /// Resolves the FX.GAF effect sequences through the effect loader once

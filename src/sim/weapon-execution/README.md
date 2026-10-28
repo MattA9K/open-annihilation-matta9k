@@ -44,3 +44,15 @@ spawners. The match runtime flies its projectiles through the pool, contact and
 interceptor code; `projectile_plot_contact` takes the plot fields directly
 because the match's plots are not canonical yet. The match's damage path runs
 retaliation.
+
+The match runs the contact test through a snapshot. `gather_contact` copies
+each flying shot, the plot under it, the occupants it names and the shot it
+intercepts into `ContactSnapshot`. `test_contacts` tests the shots of one
+group on `oa::sim::job::Pool`, each shot writing only its own
+`ContactResult`. `apply_contact_group` writes those results back in pool-slot
+order and detonates there. A group is 32 pool slots, tested and applied
+before the next group is copied, because a detonation changes the occupants
+a later shot is tested against. The grouping and the slot order are fixed, so
+the results do not depend on how many threads the pool has. The first hit in a
+plot is still its ground occupant and then its air occupant, the order the
+plot stores.

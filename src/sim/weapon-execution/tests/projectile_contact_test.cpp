@@ -221,3 +221,101 @@ int main() {
     std::puts("projectile contact tests passed");
     return 0;
 }
+
+/// Copies the fixture's world into a contact snapshot.
+void gather(const Fixture& fixture, ContactSnapshot& snapshot) {
+    const World& world = *fixture.w;
+    snapshot = {};
+    snapshot.sea_level = static_cast<int16_t>(world.game.sea_level);
+    snapshot.shot_count = static_cast<uint32_t>(world.game.projectile_count);
+    for (uint32_t index = 0; index < snapshot.shot_count; ++index) {
+        const Projectile& record = world.projectiles[index];
+        ContactShot& shot = snapshot.shots[index];
+        shot.live = true;
+        shot.slot = static_cast<uint16_t>(index);
+        shot.owner_index = record.owner_index;
+        shot.position_x = record.position.x;
+        shot.position_y = record.position.y;
+        shot.position_z = record.position.z;
+        shot.velocity_y = record.velocity.y;
+        shot.feature_cell_x = record.feature_cell_x;
+        shot.feature_cell_z = record.feature_cell_z;
+        shot.intercept_target = record.intercept_target;
+        if (const WeaponDef* weapon = world_weapon_def(&world, record.def); weapon != nullptr) {
+            shot.weapon_known = true;
+            shot.weapon_flags = weapon->flags;
+            shot.area_of_effect =
+                static_cast<uint32_t>(static_cast<uint16_t>(weapon->area_of_effect));
+        }
+        ContactCell& cell = snapshot.cells[index];
+        if (const MapPlot* plot =
+                world_plot(&world, record.position.x >> 20, record.position.z >> 20);
+            plot != nullptr) {
+            cell.on_map = true;
+            cell.ground_unit = plot->ground_unit;
+            cell.air_unit = plot->air_unit;
+            cell.high_height = plot->high_height;
+            cell.low_height = plot->low_height;
+            if (const FeatureDef* feature = plot_feature_def(world, *plot); feature != nullptr) {
+                cell.has_feature = true;
+                cell.feature_height = static_cast<uint8_t>(feature->height);
+            }
+        }
+    }
+    for (uint32_t slot = 1; slot < world.unit_slot_count && slot < snapshot.units.size(); ++slot) {
+        const Unit& record = world.units[slot];
+        const UnitDef* def = world_unit_def_of(&world, &record);
+        if (def == nullptr)
+            continue;
+        ContactUnit& unit = snapshot.units[slot];
+        unit.present = true;
+        unit.owner_index = record.owner_index;
+        unit.position_y = record.position.y;
+        unit.model_height = def->model_height;
+        unit.bounds_min_y = def->bounds_min_y;
+    }
+    for (uint32_t index = 0; index < snapshot.shot_count; ++index) {
+        ContactIntercept& intercept = snapshot.intercepts[index];
+        intercept.live = true;
+        intercept.x = world.projectiles[index].position.x;
+        intercept.y = world.projectiles[index].position.y;
+        intercept.z = world.projectiles[index].position.z;
+    }
+}
+
+/// The parallel test agrees with the direct test, for one thread and for several.
+void parallel_matches_direct() {
+    Fixture fixture;
+    fixture.plot(1, 1).ground_unit = 1;
+    fixture.plot(1, 1).air_unit = 2;
+    Projectile& nuke = fixture.shot(1, plain_def, 8, 100, 8);
+    Projectile& interceptor = fixture.shot(0, plain_def, 8, 115, 8);
+    interceptor.intercept_target = static_cast<oa_ref32>(&nuke - fixture.w->projectiles) + 1;
+    fixture.shot(1, plain_def, 24, 20, 24);
+    fixture.shot(1, bounce_def, 40, 5, 40);
+
+    ContactSnapshot snapshot;
+    gather(fixture, snapshot);
+    const uint32_t counts[] = {0u, 3u};
+    for (uint32_t workers : counts) {
+        oa::sim::job::Pool pool(workers);
+        ContactResults results;
+        test_contacts(pool, snapshot, results);
+        for (uint32_t index = 0; index < snapshot.shot_count; ++index) {
+            Projectile record = fixture.w->projectiles[index];
+            const ProjectileContact direct = projectile_map_contact(*fixture.w, record, false);
+            const ContactResult& got = results.slots[index];
+            CHECK(got.contact.kind == direct.kind);
+            CHECK(got.contact.unit == direct.unit);
+            CHECK(got.contact.intercepted == direct.intercepted);
+            CHECK(got.writes);
+            CHECK(got.plot_height == record.plot_height);
+            if (direct.kind == ContactKind::feature) {
+                CHECK(got.feature_cell_x == record.feature_cell_x);
+                CHECK(got.feature_cell_z == record.feature_cell_z);
+            }
+            if (direct.kind == ContactKind::bounce)
+                CHECK(got.velocity_y == record.velocity.y);
+        }
+    }
+}

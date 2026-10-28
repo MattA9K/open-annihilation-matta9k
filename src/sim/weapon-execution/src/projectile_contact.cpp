@@ -6,6 +6,7 @@
 #include "oa/core/unit_def.h"
 #include "oa/core/weapon_def.h"
 
+#include <array>
 #include <cstddef>
 
 namespace oa::sim::weapon_execution {
@@ -174,6 +175,137 @@ projectile_map_contact(World& world, Projectile& shot, bool water_surface_ignore
         return projectile_plot_contact(world, shot, nullptr, water_surface_ignored);
     const ContactPlot cell = contact_plot(world, *plot);
     return projectile_plot_contact(world, shot, &cell, water_surface_ignored);
+}
+
+namespace {
+
+/// Tests one occupant of a snapshot against a shot.
+///
+/// The occupant is hit below its model top; in the air band it must also be
+/// above its lower bound. The shot's own player never hits. An occupant slot
+/// past the snapshot's unit table is missed.
+///
+/// @param snapshot the batch's inputs
+/// @param shot the shot being tested
+/// @param occupant the occupant's unit slot
+/// @param air_band whether the occupant is the plot's air unit
+/// @return the occupant's unit reference, or zero
+oa_ref32 snapshot_occupant_hit(
+    const ContactSnapshot& snapshot, const ContactShot& shot, uint16_t occupant, bool air_band
+) noexcept {
+    if (occupant == 0 || occupant >= snapshot.units.size())
+        return 0;
+    const ContactUnit& unit = snapshot.units[occupant];
+    if (!unit.present || unit.owner_index == shot.owner_index)
+        return 0;
+    const int32_t top = unit.model_height + unit.position_y;
+    if (!air_band)
+        return shot.position_y < top ? oa_unit_ref_from_slot(occupant) : 0;
+    const int32_t bottom = unit.bounds_min_y + unit.position_y;
+    return bottom <= shot.position_y && shot.position_y <= top ? oa_unit_ref_from_slot(occupant)
+                                                               : 0;
+}
+
+} // namespace
+
+void test_contact(const ContactSnapshot& snapshot, uint32_t index, ContactResult& result) noexcept {
+    result = {};
+    if (index >= snapshot.shot_count || index >= snapshot.shots.size())
+        return;
+    const ContactShot& shot = snapshot.shots[index];
+    if (!shot.live)
+        return;
+    const ContactCell& cell = snapshot.cells[index];
+    if (!cell.on_map || !shot.weapon_known) {
+        result.contact.kind = ContactKind::off_map;
+        return;
+    }
+    if (shot.intercept_target != 0) {
+        const auto target_slot = static_cast<uint32_t>(shot.intercept_target - 1u);
+        if (target_slot < snapshot.intercepts.size()) {
+            const ContactIntercept& target = snapshot.intercepts[target_slot];
+            if (target.live) {
+                const uint32_t radius = static_cast<uint16_t>(shot.area_of_effect);
+                const int32_t reach = squared_distance_high(
+                    shot.position_x - target.x,
+                    shot.position_y - target.y,
+                    shot.position_z - target.z
+                );
+                if (reach < static_cast<int32_t>(radius * radius))
+                    result.contact.intercepted = true;
+            }
+        }
+    }
+    result.writes = true;
+    result.plot_height =
+        static_cast<int16_t>((static_cast<uint32_t>(cell.high_height) + cell.low_height) / 2u);
+    result.velocity_y = shot.velocity_y;
+    if (const oa_ref32 hit = snapshot_occupant_hit(snapshot, shot, cell.ground_unit, false);
+        hit != 0) {
+        result.contact.kind = ContactKind::unit;
+        result.contact.unit = hit;
+        return;
+    }
+    if (const oa_ref32 hit = snapshot_occupant_hit(snapshot, shot, cell.air_unit, true); hit != 0) {
+        result.contact.kind = ContactKind::unit;
+        result.contact.unit = hit;
+        return;
+    }
+    if ((shot.weapon_flags & OA_WEAPON_FLAG_UNITS_ONLY) != 0)
+        return;
+    const int16_t cell_x = feature_cell(shot.position_x);
+    const int16_t cell_z = feature_cell(shot.position_z);
+    const int16_t height = high_word(shot.position_y);
+    if (cell.has_feature) {
+        const int32_t feature_top = static_cast<int32_t>(cell.feature_height) + cell.low_height;
+        if (static_cast<int32_t>(height) < feature_top &&
+            (shot.feature_cell_x != cell_x || shot.feature_cell_z != cell_z)) {
+            result.feature_cell_x = cell_x;
+            result.feature_cell_z = cell_z;
+            result.contact.kind = ContactKind::feature;
+            return;
+        }
+    }
+    if (height < static_cast<int16_t>(cell.low_height)) {
+        if ((shot.weapon_flags & OA_WEAPON_FLAG_GROUND_BOUNCE) != 0) {
+            result.velocity_y = -(shot.velocity_y >> 2);
+            result.contact.kind = ContactKind::bounce;
+            return;
+        }
+        result.contact.kind = ContactKind::ground;
+        return;
+    }
+    if ((shot.weapon_flags & OA_WEAPON_FLAG_WATER_WEAPON) != 0)
+        return;
+    if (snapshot.sea_level <= height)
+        return;
+    if (snapshot.water_surface_ignored)
+        return;
+    result.contact.kind = ContactKind::water;
+}
+
+namespace {
+
+/// The context one contact batch carries to its runs.
+struct ContactBatch {
+    const ContactSnapshot* snapshot{}; ///< the batch's inputs
+    ContactResults* results{};         ///< one slot per projectile slot
+};
+
+/// Tests the shots of one run, each into its own result slot.
+void test_contact_run(void* context, job::WorkRange range) {
+    const auto& batch = *static_cast<const ContactBatch*>(context);
+    for (uint32_t index = range.begin; index < range.end; ++index)
+        test_contact(*batch.snapshot, index, batch.results->slots[index]);
+}
+
+} // namespace
+
+void test_contacts(
+    job::Pool& pool, const ContactSnapshot& snapshot, ContactResults& results
+) noexcept {
+    ContactBatch batch{&snapshot, &results};
+    pool.run(snapshot.shot_count, test_contact_run, &batch);
 }
 
 } // namespace oa::sim::weapon_execution

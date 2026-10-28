@@ -14,6 +14,10 @@ namespace oa::sim::match_runtime {
 
 namespace {
 
+/// The shots tested and applied together. Fixed, so the grouping does not
+/// depend on how many threads share the tests.
+constexpr uint32_t contact_group_size = 32;
+
 /// Tells whether a burst spawner's target field holds the point it was aimed
 /// at. A mirrored player's ballistic or dropped shot, which apply_shot
 /// launches without its aim (the constructors picked in apply_shot's order),
@@ -457,6 +461,81 @@ const sim::spatial_state::Plot* Match::plot_at(int32_t x, int32_t z) const {
     return index < spatial_.plots.size() ? &spatial_.plots[index] : nullptr;
 }
 
+void Match::gather_contact(const oa::World& world, uint32_t index) {
+    auto& shot = contact_snapshot_.shots[index];
+    const oa::Projectile& record = world.projectiles[index];
+    shot = {};
+    if ((record.flags & OA_PROJECTILE_FLAG_RETIRED) != 0)
+        return;
+    const auto* weapon = oa::world_weapon_def(&world, record.def);
+    if (weapon == nullptr)
+        return;
+    shot.live = true;
+    shot.slot = static_cast<uint16_t>(index);
+    shot.owner_index = record.owner_index;
+    shot.position_x = record.position.x;
+    shot.position_y = record.position.y;
+    shot.position_z = record.position.z;
+    shot.velocity_y = record.velocity.y;
+    shot.feature_cell_x = record.feature_cell_x;
+    shot.feature_cell_z = record.feature_cell_z;
+    shot.intercept_target = record.intercept_target;
+    shot.weapon_flags = weapon->flags;
+    shot.area_of_effect = static_cast<uint32_t>(static_cast<uint16_t>(weapon->area_of_effect));
+    shot.weapon_known = true;
+
+    auto& cell = contact_snapshot_.cells[index];
+    cell = {};
+    if (const auto* plot = plot_at(record.position.x, record.position.z)) {
+        cell.on_map = true;
+        cell.ground_unit = plot->ground;
+        cell.air_unit = plot->air;
+        cell.high_height = plot->high_height;
+        cell.low_height = plot->low_height;
+        cell.has_feature = plot_feature_height(
+            world,
+            spatial_.plots,
+            static_cast<std::size_t>(plot - spatial_.plots.data()),
+            spatial_.terrain_width,
+            cell.feature_height
+        );
+    }
+    // The occupants and the intercepted shot are copied once, the first time a
+    // shot of this pass names them, so every test reads the same values.
+    const uint16_t occupants[2] = {cell.ground_unit, cell.air_unit};
+    for (const uint16_t occupant : occupants) {
+        if (occupant == 0 || occupant >= contact_snapshot_.units.size())
+            continue;
+        auto& unit = contact_snapshot_.units[occupant];
+        if (unit.present || world.units == nullptr || occupant >= world.unit_slot_count)
+            continue;
+        const oa::Unit& record_unit = world.units[occupant];
+        const oa::UnitDef* def = oa::world_unit_def_of(&world, &record_unit);
+        if (def == nullptr)
+            continue;
+        unit.present = true;
+        unit.owner_index = record_unit.owner_index;
+        unit.position_y = record_unit.position.y;
+        unit.model_height = def->model_height;
+        unit.bounds_min_y = def->bounds_min_y;
+    }
+    if (record.intercept_target != 0) {
+        const auto target = static_cast<uint32_t>(record.intercept_target - 1u);
+        if (target < contact_snapshot_.intercepts.size() && target < OA_PROJECTILE_CAPACITY) {
+            auto& intercept = contact_snapshot_.intercepts[target];
+            if (!intercept.live) {
+                const oa::Projectile& other = world.projectiles[target];
+                if ((other.flags & OA_PROJECTILE_FLAG_RETIRED) == 0) {
+                    intercept.live = true;
+                    intercept.x = other.position.x;
+                    intercept.y = other.position.y;
+                    intercept.z = other.position.z;
+                }
+            }
+        }
+    }
+}
+
 void Match::resolve_projectile_contact(oa::Projectile& shot) {
     auto& world = state();
     sim::weapon_execution::ContactPlot cell;
@@ -511,8 +590,16 @@ void Match::update_projectiles() {
     // The pass walks the count it started with by position. Shots retired
     // earlier in the pass still fly and collide, and a compaction inside the
     // pass shifts later records under the running index.
+    // Contact tests run in groups. A group is snapshotted, tested in parallel
+    // and applied in slot order before the next group is snapshotted, because
+    // a detonation changes the occupants a later shot is tested against. The
+    // group size is fixed, so the grouping does not depend on the thread count.
+    contact_snapshot_.sea_level = sea;
+
     auto remaining = world.game.projectile_count;
-    for (int32_t index = 0; remaining > 0 && index < OA_PROJECTILE_CAPACITY; ++index, --remaining) {
+    uint32_t walked = 0;
+    for (int32_t index = 0; remaining > 0 && index < OA_PROJECTILE_CAPACITY;
+         ++index, --remaining, ++walked) {
         auto& shot = world.projectiles[index];
         const auto* weapon = oa::world_weapon_def(&world, shot.def);
         if (weapon == nullptr) {
@@ -693,12 +780,57 @@ void Match::update_projectiles() {
             break;
         }
         if (collides)
-            resolve_projectile_contact(shot);
+            gather_contact(world, static_cast<uint32_t>(index));
+        if (static_cast<uint32_t>(index) % contact_group_size == contact_group_size - 1u)
+            apply_contact_group(world, static_cast<uint32_t>(index) - (contact_group_size - 1u));
         // The trail tail runs for every flying record the pass has not retired.
         if ((shot.flags & OA_PROJECTILE_FLAG_RETIRED) == 0)
             projectile_trail_effects(shot, previous_height);
     }
+    if (walked % contact_group_size != 0u)
+        apply_contact_group(world, walked - walked % contact_group_size);
     sim::weapon_execution::compact_projectiles(world);
+}
+
+void Match::apply_contact_group(oa::World& world, uint32_t first) {
+    contact_snapshot_.shot_count = first + contact_group_size;
+    if (contact_pool_ != nullptr)
+        sim::weapon_execution::test_contacts(*contact_pool_, contact_snapshot_, contact_results_);
+    for (uint32_t index = first; index < first + contact_group_size; ++index) {
+        const auto& result = contact_results_.slots[index];
+        if (!contact_snapshot_.shots[index].live)
+            continue;
+        auto& shot = world.projectiles[index];
+        if (result.writes) {
+            shot.plot_height = result.plot_height;
+            if (result.contact.kind == sim::weapon_execution::ContactKind::feature) {
+                shot.feature_cell_x = result.feature_cell_x;
+                shot.feature_cell_z = result.feature_cell_z;
+            } else if (result.contact.kind == sim::weapon_execution::ContactKind::bounce) {
+                shot.velocity.y = result.velocity_y;
+            }
+        }
+        if (result.contact.intercepted)
+            detonate(shot, nullptr);
+        switch (result.contact.kind) {
+        case sim::weapon_execution::ContactKind::none:
+        case sim::weapon_execution::ContactKind::bounce:
+            break;
+        case sim::weapon_execution::ContactKind::off_map:
+            sim::weapon_execution::retire_projectile(world, shot);
+            break;
+        case sim::weapon_execution::ContactKind::unit: {
+            const auto slot = oa::oa_unit_slot_from_ref(result.contact.unit);
+            detonate(shot, slot < slots_.size() ? &slots_[slot] : nullptr);
+            break;
+        }
+        case sim::weapon_execution::ContactKind::feature:
+        case sim::weapon_execution::ContactKind::ground:
+        case sim::weapon_execution::ContactKind::water:
+            detonate(shot, nullptr);
+            break;
+        }
+    }
 }
 
 } // namespace oa::sim::match_runtime

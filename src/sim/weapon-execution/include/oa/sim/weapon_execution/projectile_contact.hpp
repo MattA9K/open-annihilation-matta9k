@@ -8,6 +8,9 @@
 #include "oa/core/projectile.h"
 #include "oa/core/world.h"
 
+#include "oa/sim/job.hpp"
+
+#include <array>
 #include <cstdint>
 
 // Per-tick map-cell contact of a moving projectile with the shot it
@@ -93,5 +96,114 @@ ProjectileContact projectile_plot_contact(
 [[nodiscard]]
 ProjectileContact
 projectile_map_contact(World& world, Projectile& projectile, bool water_surface_ignored) noexcept;
+
+// One projectile's contact, worked out away from the simulation state.
+//
+// The test reads a snapshot taken at one moment and writes one slot of the
+// results. Nothing it writes is read back until the caller applies the
+// results, in projectile slot order, so the answers do not depend on which
+// part of the batch a thread happened to run.
+
+/// The most projectiles one contact batch holds, one per pool slot.
+inline constexpr uint32_t contact_batch_capacity = OA_PROJECTILE_CAPACITY;
+
+/// The fields of one projectile the contact test reads, copied out of the record.
+struct ContactShot {
+    uint16_t slot{};       ///< pool slot of the projectile
+    bool live{};           ///< the slot holds a projectile this pass flies
+    uint8_t owner_index{}; ///< Projectile.owner_index
+    int32_t position_x{};  ///< Projectile.position, signed 16.16
+    int32_t position_y{};
+    int32_t position_z{};
+    int32_t velocity_y{};     ///< Projectile.velocity.y, signed 16.16
+    int16_t feature_cell_x{}; ///< the feature cell the shot last entered
+    int16_t feature_cell_z{};
+    oa_ref32 intercept_target{}; ///< the shot it homes on, or zero
+    uint32_t weapon_flags{};     ///< WeaponDef.flags
+    uint32_t area_of_effect{};   ///< WeaponDef.area_of_effect, whole units
+    bool weapon_known{};         ///< the weapon definition was found
+};
+
+/// The fields of one map plot the contact test reads, copied out of the plot.
+struct ContactCell {
+    bool on_map{};            ///< a plot covers the shot's position
+    uint16_t ground_unit{};   ///< the plot's ground occupant, a unit slot
+    uint16_t air_unit{};      ///< the plot's air occupant, a unit slot
+    uint8_t high_height{};    ///< the plot's high height, whole units
+    uint8_t low_height{};     ///< the plot's low height, whole units
+    bool has_feature{};       ///< the plot holds a feature with a height
+    uint8_t feature_height{}; ///< that feature's height, whole units
+};
+
+/// The fields of one unit the contact test reads, copied out of the record.
+struct ContactUnit {
+    bool present{};         ///< the slot holds a unit
+    uint8_t owner_index{};  ///< Unit.owner_index
+    int32_t position_y{};   ///< Unit.position.y, signed 16.16
+    int32_t model_height{}; ///< UnitDef.model_height, signed 16.16
+    int32_t bounds_min_y{}; ///< UnitDef.bounds_min_y, signed 16.16
+};
+
+/// The position of one projectile another shot may intercept, copied out of the record.
+struct ContactIntercept {
+    bool live{}; ///< the slot holds a projectile that can be intercepted
+    int32_t x{}; ///< Projectile.position, signed 16.16
+    int32_t y{};
+    int32_t z{};
+};
+
+/// Everything one contact batch reads, taken before any test runs.
+struct ContactSnapshot {
+    uint32_t shot_count{};        ///< projectile slots copied into `shots`
+    int16_t sea_level{};          ///< Game.sea_level, whole units
+    bool water_surface_ignored{}; ///< a shot below sea level flies on
+    std::array<ContactShot, contact_batch_capacity> shots{};
+    std::array<ContactCell, contact_batch_capacity> cells{};
+    std::array<ContactUnit, contact_batch_capacity> units{};
+    std::array<ContactIntercept, contact_batch_capacity> intercepts{};
+};
+
+/// What the contact test decided for one projectile, with the writes the test
+/// would have made to the record kept aside for the caller to apply.
+struct ContactResult {
+    ProjectileContact contact{}; ///< the intercept flag and the hit
+    bool writes{};               ///< the test wrote the fields below
+    int16_t plot_height{};       ///< the mean of the plot's high and low height
+    int16_t feature_cell_x{};    ///< the feature cell, once the shot enters one
+    int16_t feature_cell_z{};
+    int32_t velocity_y{}; ///< the reflected vertical velocity of a bounce
+};
+
+/// The answers of one contact batch, one slot per projectile slot.
+struct ContactResults {
+    std::array<ContactResult, contact_batch_capacity> slots{};
+};
+
+/// Tests the contact of one shot from a snapshot, writing only its own result.
+///
+/// The arithmetic is projectile_plot_contact's. The snapshot's own tables
+/// stand in for the world: the intercepted shot's position comes from
+/// `intercepts`, an occupant's height from `units`, and the plot from `cells`.
+/// A unit or an intercepted shot whose slot is past the snapshot's tables is
+/// missed. The result records the hit and the writes the test would make to
+/// the projectile record; the snapshot is not changed.
+///
+/// @param snapshot the batch's inputs
+/// @param index projectile slot to test, below shot_count
+/// @param[out] result the hit and the writes, for this slot only
+void test_contact(const ContactSnapshot& snapshot, uint32_t index, ContactResult& result) noexcept;
+
+/// Tests every shot of a snapshot, one result slot per projectile slot.
+///
+/// The pool cuts the shots into index-ordered runs and each run writes only
+/// its own slots of the results. The answers are the ones test_contact gives,
+/// so they do not depend on how many threads the pool has.
+///
+/// @param pool the pool whose threads share the batch
+/// @param snapshot the batch's inputs
+/// @param[out] results one slot per projectile slot
+void test_contacts(
+    job::Pool& pool, const ContactSnapshot& snapshot, ContactResults& results
+) noexcept;
 
 } // namespace oa::sim::weapon_execution
