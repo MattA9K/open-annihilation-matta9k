@@ -259,6 +259,11 @@ if(BUILD_TESTING)
  add_executable(oa-match-contact-threads-test tests/contact_threads_test.cpp)
  target_link_libraries(oa-match-contact-threads-test PRIVATE oa-sim-state-hash)
  add_test(NAME match-contact-threads COMMAND oa-match-contact-threads-test)
+ # Tick time of a large match with the contact tests on one thread and on several.
+ add_executable(oa-match-contact-bench tests/contact_bench_test.cpp)
+ target_link_libraries(oa-match-contact-bench PRIVATE oa-sim-state-hash)
+ add_test(NAME match-contact-bench COMMAND oa-match-contact-bench)
+ set_tests_properties(match-contact-bench PROPERTIES LABELS bench)
 endif()
 if(BUILD_TESTING)
  # The rules a match plays by and the state a rule keeps outside the records.

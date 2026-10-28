@@ -183,6 +183,8 @@ struct Options {
     int32_t maximum_wind{};
     // Unit slots of each player (OfflineInputs::per_player_limit).
     uint16_t per_player_limit = 4;
+    // Plots on a side of the square map. 16 in the shared fixture.
+    uint32_t map_plots = 16;
     // The type's maximum health (MaxDamage); 0 makes a type with none.
     uint32_t maximum_health = 1000;
 };
@@ -210,8 +212,8 @@ inline int32_t killed_corpsetype(int32_t severity) {
     return severity <= 25 ? 1 : severity <= 50 ? 2 : 3;
 }
 
-// A 16x16-cell map (256 world units a side) with one mobile type carrying a
-// 400-unit line-of-sight turret gun.
+// A square map, 16 plots on a side unless Options::map_plots says otherwise,
+// with one mobile type carrying a 400-unit line-of-sight turret gun.
 struct Fixture {
     formats::tnt::Map map;
     std::vector<sim::visibility_state::TerrainCell> terrain_values =
@@ -246,13 +248,16 @@ struct Fixture {
     ///
     /// @param options the map, weapons, features and outcome settings
     explicit Fixture(const Options& options = {}) {
-        map.attribute_width = map.attribute_height = 16;
-        map.attributes.resize(256);
+        map.attribute_width = map.attribute_height = options.map_plots;
+        const uint32_t cells = options.map_plots * options.map_plots;
+        map.attributes.resize(cells);
+        terrain_values.resize(cells);
+        collision_plots.resize(cells);
         if (options.high_ground_from) {
             constexpr uint8_t high = 60;
             map.sea_level = 30;
-            for (uint32_t cell = 0; cell < 256; ++cell) {
-                if (cell % 16 < *options.high_ground_from)
+            for (uint32_t cell = 0; cell < cells; ++cell) {
+                if (cell % options.map_plots < *options.high_ground_from)
                     continue;
                 map.attributes[cell].height = high;
                 collision_plots[cell].low_height = collision_plots[cell].high_height = high;
