@@ -171,6 +171,9 @@ struct Options {
     // 3.1c's and no profile by default.
     data::match_rules::MatchRules rules{};
     data::limits::Limits limits{};
+    // Worker threads for the tick's projectile contact tests. A count past
+    // the pool's maximum, the default, asks for one per processor.
+    uint32_t contact_workers{sim::job::max_workers + 1u};
     std::vector<data::match_rules::UnitTypeRules> unit_type_rules{};
     std::vector<data::match_rules::WeaponTypeRules> weapon_rules{};
     std::optional<base::sha256::Digest> profile_sim_hash{};
@@ -396,24 +399,24 @@ struct Fixture {
         scenario.water_damage = options.water_damage;
         scenario.unit_type_killed = options.unit_type_killed;
         sim::match_runtime::OfflineInputs input{
-            map,
-            loaded,
-            types,
-            fields,
-            weapons,
-            terrain_values,
-            masks,
-            8,
-            8,
-            options.per_player_limit,
-            2,
-            0,
-            30,
-            1,
-            &scenario,
-            {},
-            collision_plots,
-            sim::visibility_state::AltitudeSightData{8, 8, altitude_cells, altitude_patterns}
+            .map = map,
+            .loaded = loaded,
+            .types = types,
+            .fields = fields,
+            .weapons = weapons,
+            .terrain_values = terrain_values,
+            .sight_masks = masks,
+            .sight_width = 8,
+            .sight_height = 8,
+            .per_player_limit = options.per_player_limit,
+            .visibility_flags = 2,
+            .viewpoint_player = 0,
+            .clock_scale = 30,
+            .random_seed = 1,
+            .scenario_definitions = &scenario,
+            .collision_plots = collision_plots,
+            .altitude_sight =
+                sim::visibility_state::AltitudeSightData{8, 8, altitude_cells, altitude_patterns},
         };
         input.effect_sequence = options.effect_sequence;
         features = options.features;
@@ -425,6 +428,7 @@ struct Fixture {
         input.mission_features = mission_features;
         input.resuming_saved_game = options.resuming_saved_game;
         input.limits = options.limits;
+        input.contact_workers = options.contact_workers;
         input.rules = options.rules;
         input.unit_type_rules = options.unit_type_rules;
         input.weapon_rules = options.weapon_rules;

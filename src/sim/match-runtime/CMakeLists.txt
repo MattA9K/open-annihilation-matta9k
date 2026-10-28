@@ -255,6 +255,10 @@ if(BUILD_TESTING)
  add_executable(oa-match-determinism-test tests/determinism_test.cpp)
  target_link_libraries(oa-match-determinism-test PRIVATE oa-sim-state-hash oa-data-mod-profile)
  add_test(NAME match-determinism COMMAND oa-match-determinism-test)
+ # The same seeded skirmish with the contact tests on one thread and on several.
+ add_executable(oa-match-contact-threads-test tests/contact_threads_test.cpp)
+ target_link_libraries(oa-match-contact-threads-test PRIVATE oa-sim-state-hash)
+ add_test(NAME match-contact-threads COMMAND oa-match-contact-threads-test)
 endif()
 if(BUILD_TESTING)
  # The rules a match plays by and the state a rule keeps outside the records.
