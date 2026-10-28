@@ -209,11 +209,18 @@ void ground_and_water() {
 }
 } // namespace
 
+void parallel_matches_direct();
+void occupant_past_projectile_table();
+void count_past_table();
+
 int main() {
     map_edges_and_intercept();
     occupants();
     features();
     ground_and_water();
+    parallel_matches_direct();
+    occupant_past_projectile_table();
+    count_past_table();
     if (failures != 0) {
         std::fprintf(stderr, "%d failures\n", failures);
         return 1;
@@ -261,18 +268,22 @@ void gather(const Fixture& fixture, ContactSnapshot& snapshot) {
                 cell.feature_height = static_cast<uint8_t>(feature->height);
             }
         }
-    }
-    for (uint32_t slot = 1; slot < world.unit_slot_count && slot < snapshot.units.size(); ++slot) {
-        const Unit& record = world.units[slot];
-        const UnitDef* def = world_unit_def_of(&world, &record);
-        if (def == nullptr)
-            continue;
-        ContactUnit& unit = snapshot.units[slot];
-        unit.present = true;
-        unit.owner_index = record.owner_index;
-        unit.position_y = record.position.y;
-        unit.model_height = def->model_height;
-        unit.bounds_min_y = def->bounds_min_y;
+        auto copy_occupant = [&world](uint16_t occupant, ContactUnit& unit) {
+            unit = {};
+            if (occupant == 0 || occupant >= world.unit_slot_count)
+                return;
+            const Unit& record = world.units[occupant];
+            const UnitDef* def = world_unit_def_of(&world, &record);
+            if (def == nullptr)
+                return;
+            unit.present = true;
+            unit.owner_index = record.owner_index;
+            unit.position_y = record.position.y;
+            unit.model_height = def->model_height;
+            unit.bounds_min_y = def->bounds_min_y;
+        };
+        copy_occupant(cell.ground_unit, cell.ground);
+        copy_occupant(cell.air_unit, cell.air);
     }
     for (uint32_t index = 0; index < snapshot.shot_count; ++index) {
         ContactIntercept& intercept = snapshot.intercepts[index];
@@ -318,4 +329,43 @@ void parallel_matches_direct() {
                 CHECK(got.velocity_y == record.velocity.y);
         }
     }
+}
+
+/// A unit slot past the projectile table is still a hit when its fields travel
+/// with the plot.
+void occupant_past_projectile_table() {
+    ContactSnapshot snapshot;
+    snapshot.shot_count = 1;
+    ContactShot& shot = snapshot.shots[0];
+    shot.live = true;
+    shot.weapon_known = true;
+    shot.owner_index = 1;
+    shot.position_y = fx(10);
+    ContactCell& cell = snapshot.cells[0];
+    cell.on_map = true;
+    cell.ground_unit = 400;
+    cell.ground.present = true;
+    cell.ground.owner_index = 0;
+    cell.ground.position_y = 0;
+    cell.ground.model_height = fx(20);
+    cell.low_height = 10;
+    cell.high_height = 30;
+    ContactResult result;
+    test_contact(snapshot, 0, result);
+    CHECK(result.contact.kind == ContactKind::unit);
+    CHECK(result.contact.unit == oa_unit_ref_from_slot(400));
+}
+
+/// A snapshot that names more shots than the results table holds does not
+/// write past that table.
+void count_past_table() {
+    ContactSnapshot snapshot;
+    snapshot.shot_count = contact_batch_capacity + 32u;
+    snapshot.shots[0].live = true;
+    snapshot.shots[0].weapon_known = true;
+    snapshot.cells[0].on_map = false;
+    oa::sim::job::Pool pool(0);
+    ContactResults results;
+    test_contacts(pool, snapshot, results);
+    CHECK(results.slots[0].contact.kind == ContactKind::off_map);
 }

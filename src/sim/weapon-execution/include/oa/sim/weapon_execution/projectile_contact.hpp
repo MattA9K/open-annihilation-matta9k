@@ -124,17 +124,6 @@ struct ContactShot {
     bool weapon_known{};         ///< the weapon definition was found
 };
 
-/// The fields of one map plot the contact test reads, copied out of the plot.
-struct ContactCell {
-    bool on_map{};            ///< a plot covers the shot's position
-    uint16_t ground_unit{};   ///< the plot's ground occupant, a unit slot
-    uint16_t air_unit{};      ///< the plot's air occupant, a unit slot
-    uint8_t high_height{};    ///< the plot's high height, whole units
-    uint8_t low_height{};     ///< the plot's low height, whole units
-    bool has_feature{};       ///< the plot holds a feature with a height
-    uint8_t feature_height{}; ///< that feature's height, whole units
-};
-
 /// The fields of one unit the contact test reads, copied out of the record.
 struct ContactUnit {
     bool present{};         ///< the slot holds a unit
@@ -142,6 +131,22 @@ struct ContactUnit {
     int32_t position_y{};   ///< Unit.position.y, signed 16.16
     int32_t model_height{}; ///< UnitDef.model_height, signed 16.16
     int32_t bounds_min_y{}; ///< UnitDef.bounds_min_y, signed 16.16
+};
+
+/// The fields of one map plot the contact test reads, copied out of the plot.
+///
+/// The occupants' fields travel with the plot. A unit slot is not an index
+/// into a table of projectile-pool size, so a slot past that pool is still tested.
+struct ContactCell {
+    bool on_map{};            ///< a plot covers the shot's position
+    uint16_t ground_unit{};   ///< the plot's ground occupant, a unit slot
+    uint16_t air_unit{};      ///< the plot's air occupant, a unit slot
+    ContactUnit ground{};     ///< the ground occupant's fields, when present
+    ContactUnit air{};        ///< the air occupant's fields, when present
+    uint8_t high_height{};    ///< the plot's high height, whole units
+    uint8_t low_height{};     ///< the plot's low height, whole units
+    bool has_feature{};       ///< the plot holds a feature with a height
+    uint8_t feature_height{}; ///< that feature's height, whole units
 };
 
 /// The position of one projectile another shot may intercept, copied out of the record.
@@ -159,7 +164,6 @@ struct ContactSnapshot {
     bool water_surface_ignored{}; ///< a shot below sea level flies on
     std::array<ContactShot, contact_batch_capacity> shots{};
     std::array<ContactCell, contact_batch_capacity> cells{};
-    std::array<ContactUnit, contact_batch_capacity> units{};
     std::array<ContactIntercept, contact_batch_capacity> intercepts{};
 };
 
@@ -183,10 +187,10 @@ struct ContactResults {
 ///
 /// The arithmetic is projectile_plot_contact's. The snapshot's own tables
 /// stand in for the world: the intercepted shot's position comes from
-/// `intercepts`, an occupant's height from `units`, and the plot from `cells`.
-/// A unit or an intercepted shot whose slot is past the snapshot's tables is
-/// missed. The result records the hit and the writes the test would make to
-/// the projectile record; the snapshot is not changed.
+/// `intercepts`, an occupant's height from its plot's `ContactCell`, and the
+/// plot from `cells`. An intercepted shot whose slot is past the snapshot's
+/// tables is missed. The result records the hit and the writes the test would
+/// make to the projectile record; the snapshot is not changed.
 ///
 /// @param snapshot the batch's inputs
 /// @param index projectile slot to test, below shot_count
@@ -196,8 +200,10 @@ void test_contact(const ContactSnapshot& snapshot, uint32_t index, ContactResult
 /// Tests every shot of a snapshot, one result slot per projectile slot.
 ///
 /// The pool cuts the shots into index-ordered runs and each run writes only
-/// its own slots of the results. The answers are the ones test_contact gives,
-/// so they do not depend on how many threads the pool has.
+/// its own slots of the results. The count stops at the results table when
+/// the snapshot names more shots than that table holds. The answers are the
+/// ones test_contact gives, so they do not depend on how many threads the
+/// pool has.
 ///
 /// @param pool the pool whose threads share the batch
 /// @param snapshot the batch's inputs

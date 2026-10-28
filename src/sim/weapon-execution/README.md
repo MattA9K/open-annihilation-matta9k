@@ -47,10 +47,12 @@ retaliation.
 
 The match runs the contact test through a snapshot. `gather_contact` copies
 each flying shot, the plot under it, the occupants it names and the shot it
-intercepts into `ContactSnapshot`. `test_contacts` tests the shots of one
-group on `oa::sim::job::Pool`, each shot writing only its own
-`ContactResult`. `apply_contact_group` writes those results back in pool-slot
-order and detonates there. A group is 32 pool slots, tested and applied
+intercepts into `ContactSnapshot`. An occupant's fields travel with that plot,
+so a unit slot past the projectile pool is still tested. `test_contacts` tests
+the shots of one group on `oa::sim::job::Pool`, each shot writing only its own
+`ContactResult`, and the count stops at the results table. `apply_contact_group`
+writes those results back in pool-slot order and detonates there. A group is
+32 pool slots, or fewer when the pass has walked fewer, tested and applied
 before the next group is copied, because a detonation changes the occupants
 a later shot is tested against. The grouping and the slot order are fixed, so
 the results do not depend on how many threads the pool has. The first hit in a

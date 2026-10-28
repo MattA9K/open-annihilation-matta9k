@@ -18,6 +18,29 @@ namespace {
 /// depend on how many threads share the tests.
 constexpr uint32_t contact_group_size = 32;
 
+/// Copies one occupant's contact fields. An empty slot or a slot with no type
+/// leaves the copy absent.
+///
+/// @param world the match's world
+/// @param occupant the occupant's unit slot
+/// @param[out] unit the copy
+void copy_contact_occupant(
+    const oa::World& world, uint16_t occupant, sim::weapon_execution::ContactUnit& unit
+) {
+    unit = {};
+    if (occupant == 0 || world.units == nullptr || occupant >= world.unit_slot_count)
+        return;
+    const oa::Unit& record = world.units[occupant];
+    const oa::UnitDef* def = oa::world_unit_def_of(&world, &record);
+    if (def == nullptr)
+        return;
+    unit.present = true;
+    unit.owner_index = record.owner_index;
+    unit.position_y = record.position.y;
+    unit.model_height = def->model_height;
+    unit.bounds_min_y = def->bounds_min_y;
+}
+
 /// Tells whether a burst spawner's target field holds the point it was aimed
 /// at. A mirrored player's ballistic or dropped shot, which apply_shot
 /// launches without its aim (the constructors picked in apply_shot's order),
@@ -500,25 +523,11 @@ void Match::gather_contact(const oa::World& world, uint32_t index) {
             cell.feature_height
         );
     }
-    // The occupants and the intercepted shot are copied once, the first time a
-    // shot of this pass names them, so every test reads the same values.
-    const uint16_t occupants[2] = {cell.ground_unit, cell.air_unit};
-    for (const uint16_t occupant : occupants) {
-        if (occupant == 0 || occupant >= contact_snapshot_.units.size())
-            continue;
-        auto& unit = contact_snapshot_.units[occupant];
-        if (unit.present || world.units == nullptr || occupant >= world.unit_slot_count)
-            continue;
-        const oa::Unit& record_unit = world.units[occupant];
-        const oa::UnitDef* def = oa::world_unit_def_of(&world, &record_unit);
-        if (def == nullptr)
-            continue;
-        unit.present = true;
-        unit.owner_index = record_unit.owner_index;
-        unit.position_y = record_unit.position.y;
-        unit.model_height = def->model_height;
-        unit.bounds_min_y = def->bounds_min_y;
-    }
+    // Each shot carries the occupants it gathered. A later group is gathered
+    // after this group has been applied, so it sees the occupants a detonation
+    // left. The copy is the unit's own slot, not an index into the projectile pool.
+    copy_contact_occupant(world, cell.ground_unit, cell.ground);
+    copy_contact_occupant(world, cell.air_unit, cell.air);
     if (record.intercept_target != 0) {
         const auto target = static_cast<uint32_t>(record.intercept_target - 1u);
         if (target < contact_snapshot_.intercepts.size() && target < OA_PROJECTILE_CAPACITY) {
@@ -601,6 +610,8 @@ void Match::update_projectiles() {
     for (int32_t index = 0; remaining > 0 && index < OA_PROJECTILE_CAPACITY;
          ++index, --remaining, ++walked) {
         auto& shot = world.projectiles[index];
+        // A slot the pass does not gather must not keep an earlier tick's hit.
+        contact_snapshot_.shots[index] = {};
         const auto* weapon = oa::world_weapon_def(&world, shot.def);
         if (weapon == nullptr) {
             sim::weapon_execution::retire_projectile(world, shot);
@@ -779,24 +790,32 @@ void Match::update_projectiles() {
             move();
             break;
         }
-        if (collides)
+        if (collides) {
             gather_contact(world, static_cast<uint32_t>(index));
+        }
         if (static_cast<uint32_t>(index) % contact_group_size == contact_group_size - 1u)
-            apply_contact_group(world, static_cast<uint32_t>(index) - (contact_group_size - 1u));
+            apply_contact_group(
+                world, static_cast<uint32_t>(index) - (contact_group_size - 1u), walked
+            );
         // The trail tail runs for every flying record the pass has not retired.
         if ((shot.flags & OA_PROJECTILE_FLAG_RETIRED) == 0)
             projectile_trail_effects(shot, previous_height);
     }
     if (walked % contact_group_size != 0u)
-        apply_contact_group(world, walked - walked % contact_group_size);
+        apply_contact_group(world, walked - walked % contact_group_size, walked);
     sim::weapon_execution::compact_projectiles(world);
 }
 
-void Match::apply_contact_group(oa::World& world, uint32_t first) {
-    contact_snapshot_.shot_count = first + contact_group_size;
+void Match::apply_contact_group(oa::World& world, uint32_t first, uint32_t walked) {
+    const uint32_t limit = static_cast<uint32_t>(contact_snapshot_.shots.size());
+    const uint32_t end = walked < limit ? walked : limit;
+    if (first >= end)
+        return;
+    const uint32_t group_end = first + contact_group_size < end ? first + contact_group_size : end;
+    contact_snapshot_.shot_count = group_end;
     if (contact_pool_ != nullptr)
         sim::weapon_execution::test_contacts(*contact_pool_, contact_snapshot_, contact_results_);
-    for (uint32_t index = first; index < first + contact_group_size; ++index) {
+    for (uint32_t index = first; index < group_end; ++index) {
         const auto& result = contact_results_.slots[index];
         if (!contact_snapshot_.shots[index].live)
             continue;

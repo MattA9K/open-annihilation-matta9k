@@ -3287,7 +3287,8 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     /// @param shot The moved shot.
     void resolve_projectile_contact(oa::Projectile& shot);
 
-    /// Copies one flying projectile and the plot under it into the contact snapshot.
+    /// Copies one flying projectile, the plot under it and that plot's
+    /// occupants into the contact snapshot.
     ///
     /// @param world the match's world
     /// @param index the projectile's pool slot
@@ -3295,13 +3296,15 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
 
     /// Tests one group of the contact snapshot and applies it in slot order.
     ///
-    /// The group starts at `first` and runs for the fixed group size. Its
-    /// answers are written into the projectile records before the caller
-    /// snapshots the next group.
+    /// The group starts at `first` and stops at the smaller of the fixed group
+    /// size and `walked`, and never past the snapshot's tables. Its answers
+    /// are written into the projectile records before the caller snapshots the
+    /// next group.
     ///
     /// @param[in,out] world the match's world
     /// @param first pool slot the group starts at
-    void apply_contact_group(oa::World& world, uint32_t first);
+    /// @param walked pool slots the flight pass has walked
+    void apply_contact_group(oa::World& world, uint32_t first, uint32_t walked);
     /// Returns the slot of the unit that fired a projectile.
     ///
     /// @param shot Projectile record.

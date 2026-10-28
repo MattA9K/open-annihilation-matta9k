@@ -182,21 +182,18 @@ namespace {
 /// Tests one occupant of a snapshot against a shot.
 ///
 /// The occupant is hit below its model top; in the air band it must also be
-/// above its lower bound. The shot's own player never hits. An occupant slot
-/// past the snapshot's unit table is missed.
+/// above its lower bound. The shot's own player never hits. An empty occupant
+/// is missed.
 ///
-/// @param snapshot the batch's inputs
 /// @param shot the shot being tested
 /// @param occupant the occupant's unit slot
+/// @param unit the occupant's fields, copied with the plot
 /// @param air_band whether the occupant is the plot's air unit
 /// @return the occupant's unit reference, or zero
 oa_ref32 snapshot_occupant_hit(
-    const ContactSnapshot& snapshot, const ContactShot& shot, uint16_t occupant, bool air_band
+    const ContactShot& shot, uint16_t occupant, const ContactUnit& unit, bool air_band
 ) noexcept {
-    if (occupant == 0 || occupant >= snapshot.units.size())
-        return 0;
-    const ContactUnit& unit = snapshot.units[occupant];
-    if (!unit.present || unit.owner_index == shot.owner_index)
+    if (occupant == 0 || !unit.present || unit.owner_index == shot.owner_index)
         return 0;
     const int32_t top = unit.model_height + unit.position_y;
     if (!air_band)
@@ -240,13 +237,13 @@ void test_contact(const ContactSnapshot& snapshot, uint32_t index, ContactResult
     result.plot_height =
         static_cast<int16_t>((static_cast<uint32_t>(cell.high_height) + cell.low_height) / 2u);
     result.velocity_y = shot.velocity_y;
-    if (const oa_ref32 hit = snapshot_occupant_hit(snapshot, shot, cell.ground_unit, false);
+    if (const oa_ref32 hit = snapshot_occupant_hit(shot, cell.ground_unit, cell.ground, false);
         hit != 0) {
         result.contact.kind = ContactKind::unit;
         result.contact.unit = hit;
         return;
     }
-    if (const oa_ref32 hit = snapshot_occupant_hit(snapshot, shot, cell.air_unit, true); hit != 0) {
+    if (const oa_ref32 hit = snapshot_occupant_hit(shot, cell.air_unit, cell.air, true); hit != 0) {
         result.contact.kind = ContactKind::unit;
         result.contact.unit = hit;
         return;
@@ -295,7 +292,8 @@ struct ContactBatch {
 /// Tests the shots of one run, each into its own result slot.
 void test_contact_run(void* context, job::WorkRange range) {
     const auto& batch = *static_cast<const ContactBatch*>(context);
-    for (uint32_t index = range.begin; index < range.end; ++index)
+    const uint32_t limit = static_cast<uint32_t>(batch.results->slots.size());
+    for (uint32_t index = range.begin; index < range.end && index < limit; ++index)
         test_contact(*batch.snapshot, index, batch.results->slots[index]);
 }
 
@@ -305,7 +303,8 @@ void test_contacts(
     job::Pool& pool, const ContactSnapshot& snapshot, ContactResults& results
 ) noexcept {
     ContactBatch batch{&snapshot, &results};
-    pool.run(snapshot.shot_count, test_contact_run, &batch);
+    const uint32_t limit = static_cast<uint32_t>(results.slots.size());
+    pool.run(snapshot.shot_count < limit ? snapshot.shot_count : limit, test_contact_run, &batch);
 }
 
 } // namespace oa::sim::weapon_execution
