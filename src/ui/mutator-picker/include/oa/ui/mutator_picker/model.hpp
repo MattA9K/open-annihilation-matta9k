@@ -103,7 +103,8 @@ struct Mutator {
     std::optional<library::QueueItem> queued{};
     /// True when it brings units or weapons, so the row offers a clash mode.
     bool brings{};
-    /// The manifest's clash mode. Empty means `Inputs::clash_default`.
+    /// The manifest's clash mode. Empty means the player chooses, starting
+    /// from `Inputs::clash_default`. Set means that mode is fixed.
     std::optional<Clash> clashes{};
 };
 

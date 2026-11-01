@@ -184,10 +184,6 @@ struct OfflineInputs {
     uint8_t viewpoint_player{};
     int32_t clock_scale{};
     uint32_t random_seed{};
-    // Worker threads for the tick's projectile contact tests. Zero keeps
-    // none, and the calling thread tests every shot. A count past the pool's
-    // maximum asks for one worker per processor past the caller.
-    uint32_t contact_workers{sim::job::max_workers + 1u};
     sim::scenario::DefinitionHost*
         scenario_definitions{}; // required selected OTA GlobalHeader, used during construction
     std::function<uint32_t()>
@@ -260,6 +256,10 @@ struct OfflineInputs {
     // The mutator digest of the match, folded into the state digest when
     // set. None when the match applied no mutator.
     std::optional<base::sha256::Digest> mutator_digest{};
+    // Worker threads for the tick's projectile contact tests. Zero keeps
+    // none, and the calling thread tests every shot. A count past the pool's
+    // maximum asks for one worker per processor past the caller.
+    uint32_t contact_workers{sim::job::max_workers + 1u};
 };
 
 /// Returns a canonical 16.16 point as the raw words the legacy views use.

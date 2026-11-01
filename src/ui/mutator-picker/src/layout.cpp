@@ -1824,7 +1824,23 @@ DetailsPlan plan_details(
             y += option.control_h;
             plan.options.push_back(std::move(option));
         }
-        if (mutator.brings) {
+        if (mutator.brings && mutator.clashes) {
+            // The manifest names the mode, so the details show the same line
+            // an Off mutator shows. There is no Add or Replace control.
+            y += metrics.paragraph_gap;
+            plan.summary_y = y;
+            const std::string label(library::shown(hooks, words::clash_label));
+            const std::string value(library::shown(
+                hooks, *mutator.clashes == Clash::add ? words::clash_add : words::clash_replace
+            ));
+            const std::string line = library::filled(
+                hooks, words::option_line, {{"label", label}, {"value", value}}
+            );
+            plan.summary = cut(building, kit::FontRole::regular, one_line(line), plan.width);
+            plan.has_summary = !plan.summary.empty();
+            if (plan.has_summary)
+                y += metrics.regular_line;
+        } else if (mutator.brings) {
             y += metrics.paragraph_gap;
             plan.has_clash = true;
             plan.clash_locked = read_only;

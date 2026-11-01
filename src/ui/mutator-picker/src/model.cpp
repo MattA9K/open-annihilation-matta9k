@@ -257,6 +257,10 @@ normalize(const Mutator& mutator, const std::vector<std::pair<std::string, std::
 /// @return the mode, or empty when the mutator brings nothing
 std::optional<Clash>
 kept_clash(const Mutator& mutator, const Inputs& inputs, std::optional<Clash> given) {
+    // A mode named in the manifest is the mode. A choice kept from an earlier
+    // set does not replace it.
+    if (mutator.clashes && mutator.brings)
+        return mutator.clashes;
     if (given && mutator.brings)
         return given;
     return detail::default_clash(mutator, inputs);
@@ -927,7 +931,7 @@ bool set_clash(Picker& picker, std::string_view id, Clash mode) {
     if (!at)
         return false;
     const Mutator* mutator = detail::find_mutator(picker, id);
-    if (mutator == nullptr || !mutator->brings)
+    if (mutator == nullptr || !mutator->brings || mutator->clashes)
         return false;
     picker.on[*at].clash = mode;
     return true;
