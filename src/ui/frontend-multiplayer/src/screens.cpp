@@ -13,6 +13,7 @@
 #include "oa/data/map_pack/map_name.hpp"
 #include "oa/data/defs/layout.hpp"
 #include "oa/data/defs/unit_header.hpp"
+#include "oa/data/languages/interface_text.hpp"
 #include "oa/data/languages/unit_texts.hpp"
 #include "oa/ui/frontend_renderer.hpp"
 #include "oa/ui/frontend_renderer/game_text.hpp"
@@ -156,6 +157,9 @@ struct Ui {
     // survives multiplayer_reset. 0 until bound: the battle room then assumes
     // 3.1c's two.
     int32_t side_count{};
+    // Those sides' SIDEDATA names, by side number (multiplayer_bind_side_names).
+    // It survives multiplayer_reset.
+    std::vector<std::string> side_names;
     // The line this machine says of its engine in the battle room; it
     // survives multiplayer_reset.
     EngineBanner engine_banner{};
@@ -281,7 +285,7 @@ void remember_screen(Ui& state, ScreenContext* ctx) {
 // The clock multiplayer_bind_clock bound; it survives multiplayer_reset.
 LobbyClock g_clock{};
 
-// The screen sizes multiplayer_bind_display_modes bound; they survive
+// The screen size multiplayer_bind_display_modes bound; it survives
 // multiplayer_reset.
 LobbyDisplayModes g_display_modes{};
 
@@ -477,12 +481,6 @@ void service_free_picture(void*, oa_ref32 picture) {
     auto& pictures = ui().pictures;
     if (picture != 0 && picture <= pictures.size())
         pictures[picture - 1].reset();
-}
-
-int32_t service_display_modes(void*, DisplayMode* out, int32_t capacity) {
-    if (g_display_modes.modes == nullptr || out == nullptr || capacity <= 0)
-        return 0;
-    return std::clamp(g_display_modes.modes(g_display_modes.context, out, capacity), 0, capacity);
 }
 
 data::campaign::CampaignFiles map_files() {
@@ -1051,9 +1049,10 @@ void take_presence_record(Lobby& lobby, const std::vector<uint8_t>& record) noex
 
 /// Binds the lobby to the screens' transport, services, map list and units.
 ///
-/// A lobby with no game is reset first. The unit limits, the canvas size and
-/// the side count (the bound SIDEDATA count, else 2, ARM and CORE) get their
-/// defaults where the game has none.
+/// A lobby with no game is reset first. The screen size the RES column shows
+/// becomes the size the game plays at, when the binding says. The unit
+/// limits, the canvas size and the side count (the bound SIDEDATA count,
+/// else 2, ARM and CORE) get their defaults where the game has none.
 void bind_boundaries() {
     auto& state = ui();
     auto& lobby = state.lobby;
@@ -1069,7 +1068,6 @@ void bind_boundaries() {
         service_play_sound,
         service_message,
         service_tick,
-        service_display_modes,
         nullptr,
         service_unit_checksum,
         service_load_picture,
@@ -1111,6 +1109,7 @@ void bind_boundaries() {
         lobby.recorder.program, sizeof lobby.recorder.program, "%s", state.program_line.c_str()
     );
     lobby.launch_link = state.launch_link;
+    lobby.side_names = state.side_names;
     lobby.rules = state.rules;
     lobby.lobby_buttons = state.lobby_buttons;
     // A tournament lock is the host's. A joiner takes a seat, not the host's rules.
@@ -1126,18 +1125,22 @@ void bind_boundaries() {
         lobby_max_units_default(*state.game) = kDefaultMaxUnits;
     if (lobby_max_units(*state.game) == 0)
         lobby_max_units(*state.game) = kDefaultMaxUnits;
-    if (static_cast<int32_t>(lobby_screen_width(*state.game)) == 0) {
-        // The size the game plays at, when the game says, else the game's
-        // own screen.
-        DisplayMode playing{};
-        if (g_display_modes.screen_size != nullptr)
-            playing = g_display_modes.screen_size(g_display_modes.context);
-        // The setup block carries each side in 16 bits.
-        constexpr int32_t widest = std::numeric_limits<uint16_t>::max();
-        const bool known = playing.width > 0 && playing.height > 0 && playing.width <= widest &&
-                           playing.height <= widest;
-        lobby_screen_width(*state.game) = known ? playing.width : kCanvasWidth;
-        lobby_screen_height(*state.game) = known ? playing.height : kCanvasHeight;
+    // The size the game plays at, when the game says, each time a screen
+    // opens, so the RES column follows the settings' Screen size; else the
+    // size it showed, or the game's own screen at first.
+    DisplayMode playing{};
+    if (g_display_modes.screen_size != nullptr)
+        playing = g_display_modes.screen_size(g_display_modes.context);
+    // The setup block carries each side in 16 bits.
+    constexpr int32_t widest = std::numeric_limits<uint16_t>::max();
+    const bool known = playing.width > 0 && playing.height > 0 && playing.width <= widest &&
+                       playing.height <= widest;
+    if (known) {
+        lobby_screen_width(*state.game) = playing.width;
+        lobby_screen_height(*state.game) = playing.height;
+    } else if (static_cast<int32_t>(lobby_screen_width(*state.game)) == 0) {
+        lobby_screen_width(*state.game) = kCanvasWidth;
+        lobby_screen_height(*state.game) = kCanvasHeight;
     }
     if (state.game->side_count == 0)
         state.game->side_count = state.side_count > 0 ? state.side_count : 2; // 3.1c: ARM and CORE
@@ -2130,6 +2133,64 @@ picture_presentation(const Resources& res, const Control& control, ui::gui_layou
     return presentation;
 }
 
+/// The slot a SIDE button names, or -1 when the name is not SIDE and one digit.
+///
+/// @param name control name
+/// @return the slot, 0 to 9, or -1
+int32_t side_button_slot(std::string_view name) {
+    constexpr std::string_view prefix = "SIDE";
+    if (name.size() != prefix.size() + 1 || !starts_with_nocase(name, prefix))
+        return -1;
+    const char digit = name.back();
+    if (digit < '0' || digit > '9')
+        return -1;
+    return digit - '0';
+}
+
+/// A side past its art shows that side's name on the plain face.
+///
+/// A SIDE slot copied from SIDEx, not a watcher, whose stage names a loaded
+/// side and is past the button's art, takes that name as its caption. The
+/// presentation draws the bevel and the name, and no frame.
+///
+/// @param res screen resources
+/// @param control the button
+/// @param[in,out] gadget the composed gadget
+/// @param with_sprites false to leave out the art the renderer must be told of
+/// @param[in,out] presentation the button's presentation
+void name_side_past_art(
+    const Resources& res,
+    const Control& control,
+    ui::gui_layout::Gadget& gadget,
+    bool with_sprites,
+    renderer::ButtonPresentation& presentation
+) {
+    const int32_t slot = side_button_slot(gadget.common.name);
+    if (slot < 0)
+        return;
+    const auto source = template_name(res, control);
+    if (source.size() != 5 || !starts_with_nocase(source, "SIDEx"))
+        return;
+    auto& lobby = ui().lobby;
+    if (lobby.game == nullptr || static_cast<std::size_t>(control.stage) >= lobby.side_names.size())
+        return;
+    const auto& player = slot_player(lobby, slot);
+    const auto* info = player_info(lobby, player);
+    if (info != nullptr && player.in_use != 0 && (info->options & option::watcher) != 0)
+        return;
+    const auto art = button_art(res, gadget, source, with_sprites);
+    const std::size_t frames = art.sequence != nullptr ? art.sequence->frames.size() : 0;
+    if (static_cast<std::size_t>(control.stage) < frames)
+        return;
+    auto* fields = std::get_if<ui::gui_layout::ButtonFields>(&gadget.fields);
+    if (fields == nullptr)
+        return;
+    fields->text = lobby.side_names[static_cast<std::size_t>(control.stage)];
+    presentation.caption_only = true;
+    presentation.game_text = true;
+    presentation.text_stage.reset();
+}
+
 /// Composes the front panel's layout and presentations for the renderer.
 ///
 /// @param[in,out] res screen resources; the composed layout replaces the last
@@ -2177,10 +2238,12 @@ void compose_layout(
             // A list is drawn at the pitch its rows are picked and scrolled by.
             list->item_height = control.list_item_height;
         }
-        if (index > 0 && control.type == ControlType::button && control.active != 0)
+        if (index > 0 && control.type == ControlType::button && control.active != 0) {
             buttons.push_back(
                 button_presentation(res, index, gadget, layout.gadgets.size(), with_sprites, grayed)
             );
+            name_side_past_art(res, control, gadget, with_sprites, buttons.back());
+        }
         if (index > 0 && with_sprites && control.active != 0 &&
             (control.type == ControlType::hot_surface || control.type == ControlType::image))
             if (auto picture = picture_presentation(res, control, gadget))
@@ -2400,9 +2463,11 @@ void draw_text(
 ///
 /// Every slot held by the local player, a computer player or a remote player
 /// shows "major.minor" from its lobby block in the label font, centred on its
-/// LOGO<slot> rectangle whether or not the square shows. The rectangle's
-/// right and bottom edges are its last column and row, and halves are
-/// truncated toward zero.
+/// LOGO<slot> rectangle whether or not the square shows. The major is the one
+/// the player's game declares, without the bias a launched host's block
+/// carries (info_declared_version_major), so a launched room shows 3.1. The
+/// rectangle's right and bottom edges are its last column and row, and halves
+/// are truncated toward zero.
 ///
 /// @param[in,out] surface image drawn on
 /// @param res the battle room's resources
@@ -2424,7 +2489,13 @@ void draw_player_versions(renderer::Surface& surface, const Resources& res, Lobb
         if (logo == nullptr || info == nullptr)
             continue;
         char text[16];
-        std::snprintf(text, sizeof(text), "%d.%d", info->version_major, info->version_minor);
+        std::snprintf(
+            text,
+            sizeof(text),
+            "%d.%d",
+            static_cast<int>(info_declared_version_major(*info, lobby.wire_rules)),
+            info->version_minor
+        );
         const auto text_width = static_cast<int32_t>(formats::fnt::measure_text(font, text));
         const int32_t left = logo->x + res.offset_x;
         const int32_t top = logo->y + res.offset_y;
@@ -3461,14 +3532,21 @@ void enter_game_list(ScreenContext* ctx, void*) {
     if (!load(state.base, ctx, "selgame.gui", "bitmaps/selectgame2x.pcx", "anims/selgame.gaf"))
         return;
     // A direct join the host refused in its battle room comes back here,
-    // where the game list tells why.
+    // where the game list tells why. So does a join that left a 3.1c host
+    // of a mod only Open Annihilation can play. The game list clears the
+    // line, so the direct join keeps its own copy.
+    std::string left_because;
+    if (state.lobby.leave_line != nullptr)
+        left_because.assign(oa::data::languages::interface_text(state.lobby.leave_line));
     const auto reason =
         state.lobby.game != nullptr ? local_player(state.lobby).reject_reason : uint8_t{0};
     const bool refused = g_direct.progress.reached == DirectGameStep::battle_room &&
                          g_direct.game.kind == DirectGame::Kind::join && refuses_arrival(reason);
+    const bool left_wide = !left_because.empty() && g_direct.game.kind == DirectGame::Kind::join &&
+                           g_direct.progress.reached == DirectGameStep::battle_room;
     if (!game_list_open(state.lobby, state.connect, state.base.panel)) {
         if (g_direct.stage == DirectStage::game_list)
-            fail_direct_game("Invalid TCP/IP Address");
+            fail_direct_game(left_wide ? left_because.c_str() : "Invalid TCP/IP Address");
         app::screen_request(ctx, kScreenProviders);
         return;
     }
@@ -3476,6 +3554,8 @@ void enter_game_list(ScreenContext* ctx, void*) {
     connect_show_error_text(state.lobby, state.connect);
     if (g_direct.stage == DirectStage::game_list)
         continue_direct_game(state);
+    else if (left_wide)
+        fail_direct_game(left_because.c_str());
     else if (refused)
         fail_direct_game(reject_reason_text(reason));
 }
@@ -4060,6 +4140,12 @@ void multiplayer_bind_side_count(int32_t side_count) noexcept {
     ui().side_count = side_count > 0 ? side_count : 0;
 }
 
+void multiplayer_bind_side_names(std::span<const std::string> names) noexcept {
+    auto& state = ui();
+    state.side_names.assign(names.begin(), names.end());
+    state.lobby.side_names = state.side_names;
+}
+
 bool multiplayer_showing() noexcept {
     return ui().showing;
 }
@@ -4615,6 +4701,10 @@ const ui::gui_layout::Layout& multiplayer_screen_layout() noexcept {
     return ui().base.source;
 }
 
+const ui::gui_layout::Layout& multiplayer_drawn_layout() noexcept {
+    return ui().base.screen.layout;
+}
+
 Panel* multiplayer_modal() noexcept {
     return ui().modal_kind == ModalKind::none ? nullptr : &ui().modal.panel;
 }
@@ -4742,11 +4832,6 @@ void multiplayer_bind_display_modes(const LobbyDisplayModes& display_modes) noex
     g_display_modes = display_modes;
 }
 
-void multiplayer_choose_screen_size(int32_t width, int32_t height) noexcept {
-    if (g_display_modes.choose != nullptr)
-        g_display_modes.choose(g_display_modes.context, width, height);
-}
-
 void multiplayer_bind_map_source(const LobbyMapSource& source) noexcept {
     release_pack_source();
     g_map_source = source;
@@ -4775,6 +4860,7 @@ void multiplayer_reset() noexcept {
     state.game = std::make_unique<Game>();
     state.lobby = Lobby{};
     state.lobby.launch_link = state.launch_link;
+    state.lobby.side_names = state.side_names;
     state.lobby.rules = state.rules;
     state.lobby.chat_measure = state.chat_measure;
     state.connect = ConnectState{};

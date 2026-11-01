@@ -13,6 +13,7 @@
 #include "oa/app/window_icon.hpp"
 #include "oa/data/languages.hpp"
 #include "oa/data/languages/interface_text.hpp"
+#include "oa/platform/files.hpp"
 #include "oa/platform/log_files.hpp"
 #include "oa/platform/system.hpp"
 #include "oa/platform/text_font.hpp"
@@ -83,8 +84,14 @@ struct JoinWorker {
 };
 
 /// The bundled fonts the dialog's line is drawn in. One thread draws it.
-text_font::FontStack& progress_fonts() {
+/// Dropped when the dialog returns, so a later battle does not keep them.
+std::unique_ptr<text_font::FontStack>& progress_font_slot() {
     static std::unique_ptr<text_font::FontStack> stack;
+    return stack;
+}
+
+text_font::FontStack& progress_fonts() {
+    auto& stack = progress_font_slot();
     if (!stack) {
         stack = text_font::FontStack::open(text_font::bundled_font_directory());
         if (!stack)
@@ -92,6 +99,19 @@ text_font::FontStack& progress_fonts() {
     }
     return *stack;
 }
+
+void release_progress_fonts() noexcept {
+    progress_font_slot().reset();
+}
+
+/// Drops the dialog's fonts however the call leaves.
+struct DropProgressFonts {
+    ~DropProgressFonts() { release_progress_fonts(); }
+
+    DropProgressFonts() = default;
+    DropProgressFonts(const DropProgressFonts&) = delete;
+    DropProgressFonts& operator=(const DropProgressFonts&) = delete;
+};
 
 /// Copies one RGB picture onto a canvas, stretched to the canvas when the
 /// sizes differ. `under` has pixels.
@@ -263,6 +283,8 @@ void show_work_frame(
 ) {
     if (window == nullptr || renderer == nullptr)
         return;
+    // The picture is copied to the window before this returns.
+    DropProgressFonts drop_fonts;
     WindowFrame window_frame(renderer, "the progress dialog");
     paint::Canvas pixels;
     const kit::Frame dialog_frame = progress_room(window, renderer, pixels);
@@ -290,6 +312,11 @@ LongWorkResult run_long_work(
         job(inline_work);
         return {};
     }
+
+    // Released as this returns, after the dialog's picture has been shown.
+    // A job that runs without the dialog, above, does not open the fonts
+    // and must not drop a dialog that is already up.
+    DropProgressFonts drop_fonts;
 
     // Copied before the job, which may change the language the catalogue shows.
     std::string title_shown(oa::data::languages::interface_text(title));
@@ -395,10 +422,12 @@ LongWorkResult run_long_work(
 }
 
 void require_icloud_download_lines() {
+    DropProgressFonts drop_fonts;
     // The catalogue is read with the archives, after this look. The check
     // reads the file the game ships so the four languages are required here.
     const std::filesystem::path file =
-        std::filesystem::path(oa::platform::program_directory()) / "languages" / "interface.tdf";
+        oa::platform::path_from_utf8(oa::platform::program_directory()) / "languages" /
+        "interface.tdf";
     std::ifstream input(file, std::ios::binary);
     const std::string bytes(
         std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>{}
@@ -450,6 +479,7 @@ void require_icloud_download_lines() {
 bool warm_progress_dialog(SDL_Window* window, SDL_Renderer* renderer) noexcept {
     if (window == nullptr || renderer == nullptr)
         return false;
+    DropProgressFonts drop_fonts;
     try {
         paint::Canvas pixels;
         const kit::Frame room = progress_room(window, renderer, pixels);

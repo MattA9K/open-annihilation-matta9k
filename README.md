@@ -37,6 +37,11 @@
 data from your own copy of the original game. Support for
 **Total Annihilation: Kingdoms** is on the [roadmap](#roadmap).
 
+Website: [play.coreprime.net](https://play.coreprime.net/) ·
+Mods and maps: [mods.coreprime.net](https://mods.coreprime.net/) ·
+Make your own: [creators.coreprime.net](https://creators.coreprime.net/) ·
+Press kit: [press.coreprime.net](https://press.coreprime.net/)
+
 The main menu shows **Open Annihilation** and this build's version under
 the logo. A mod that names its own version text shows that instead, and
 the demo, whose game data names no revision, shows neither.
@@ -75,6 +80,9 @@ from your copy of Total Annihilation and starting the game:
   </tbody>
 </table>
 
+The same guides, with pictures and in six languages, are at
+[play.coreprime.net/install](https://play.coreprime.net/en/install/).
+
 ## How the project works
 
 These documents set out how the project is run and how changes are made:
@@ -105,6 +113,9 @@ Total Annihilation: Kingdoms:
   full support for both Total Annihilation and TA: Kingdoms game assets: a
   command-line tool for the games' file formats, and a browser-based studio
   with an asset explorer, map editor, unit viewer and live sandbox.
+- **[Core Prime Creators](https://creators.coreprime.net/)** is the file
+  format reference for Total Annihilation and TA: Kingdoms, rendered from
+  KBot's documentation, with the way into modding Open Annihilation.
 
 ## Roadmap
 
@@ -137,13 +148,25 @@ hacks it names, with no code for any particular mod. See
 profile format and every standard hack. Mods published to a registry are
 installed and updated from [the Library](docs/library.md), and map packs
 add maps the same way ([docs/maps/README.md](docs/maps/README.md)).
+Browse every package in the library at
+[mods.coreprime.net](https://mods.coreprime.net/en/), and read the
+packaging guide at
+[mods.coreprime.net/en/packaging](https://mods.coreprime.net/en/packaging/).
 
 ## Network games from the command line
 
 Network play goes through the Multiplayer screens, as in 3.1c, but asks
-for no game disc: START never counts discs. Every OA player still tells the
-other machines it has one, since a 3.1c host counts them. In the battle
-room a player on 3.1c shows the CD icon, and an OA player the app icon,
+for no game disc: START never counts discs. The host may start with no
+other human, against computer players alone; 3.1c waits for a remote
+player, and so does a room whose launch locks the options
+([launch settings](docs/command-line.md#launch-settings)). Every OA
+player still tells the other machines it has one, since a 3.1c host
+counts them. The number over each player's colour square is the version
+that player's game declares, 3.1 for 3.1c and for Open Annihilation alike.
+A host a launch started (a launch file, or a launch option such as
+`--player-limit`) sends its version as 103.1, as 3.1c does, so that only a
+game started through a launch joins it; the room still shows 3.1. In the
+battle room a player on 3.1c shows the CD icon, and an OA player the app icon,
 the plates alone, in its place. The badge is drawn at the window's own
 pixels and scaled to that rectangle with an area filter, so it stays sharp
 at any window size and a clear corner stays clear. A dot on it means that
@@ -164,7 +187,10 @@ the same icon. F1 or Return on a player's row, reached with Tab or the
 arrow keys, opens it too, as do View and A on a controller and a tap on
 the badge; Escape closes it. The card shows what that player's machine sent
 in its presence record, which OA sends only to the players whose setup blocks
-carry the mark, each alone in its frame. OA 0.7.4 players carry the mark
+carry the mark, each alone in its frame. The record also carries the
+limits: the most weapon types and the most sides this build plays. An
+older build skips a word it does not know, so a stock game between
+versions is unchanged. OA 0.7.4 players carry the mark
 too: they receive the record and ignore it, and their cards say only "Open
 Annihilation (before 0.8)". No 3.1c machine receives one, and a 3.1c
 player sees nothing new. The setup block carries nothing else new:
@@ -290,7 +316,12 @@ plays when:
   default, keeps the check;
 - it has fewer than ten players, since the viewer needs a slot of its own,
   unless the mod's profile turns on
-  [recorder.ten-player-replay](docs/mods/standard-hacks/recorder.ten-player-replay.md).
+  [recorder.ten-player-replay](docs/mods/standard-hacks/recorder.ten-player-replay.md);
+- a recording of a mod with more than 256 weapon types, or more than five
+  sides, plays only under a mod with the same two limits.
+  [Saves, recordings and films](docs/saves.md#mods-with-more-weapon-types-or-sides)
+  quotes the two refusals. Other programs that read recordings stop at the
+  first wide weapon record.
 
 With `--headless-check --game-dir PATH --match-ticks N`, the game plays up
 to N ticks of a recording without a window and prints a summary of the

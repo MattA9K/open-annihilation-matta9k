@@ -32,6 +32,7 @@
 #include <cstring>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace oa::ui::frontend_multiplayer {
 
@@ -229,7 +230,6 @@ struct LobbyServices {
     // turns over to 0 past base::game_loop::scaled_clock_turn; the lobby's
     // timers compare its readings with lobby_clock_passed.
     uint32_t (*tick)(void* context){};
-    int32_t (*display_modes)(void* context, DisplayMode* out, int32_t capacity){};
     // Lobby notifications the game reacts to (sound cues): 2 player added,
     // 4 side or alliance changed, 5 map changed, 10 game starting.
     void (*notify)(void* context, int32_t event){};
@@ -476,6 +476,8 @@ struct Lobby {
     uint32_t refused_joiner{};
     /// The launch and its service.
     LaunchLink launch_link;
+    /// SIDEDATA names by side number. A side past the battle room's art shows its name.
+    std::vector<std::string> side_names;
     /// The mod profile's rules the battle room keeps; null keeps 3.1c's.
     const data::match_rules::MatchRules* rules{};
     /// Whether map-placed units are on (+spawnon, +spawnoff) while the
@@ -530,6 +532,12 @@ struct Lobby {
     /// The side last named for this slot in the line about a side this game
     /// does not have, or -1 when nothing was posted.
     int16_t side_past_table_posted[kSlotCount]{-1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+    /// A catalogue line the game list shows once after this machine leaves a
+    /// room by itself. Empty when it did not.
+    const char* leave_line{};
+    /// Set once this host has posted the newer-build line for the player in
+    /// this slot. A later record from that player does not post it again.
+    bool limits_older_refused[kSlotCount]{};
 };
 
 // ---------------------------------------------------------------------------
@@ -601,11 +609,34 @@ struct FieldRef {
 
 /// Returns the first side the SIDE button offers at or after `side`: a side
 /// the mod's profile keeps out of the battle room is passed over.
+/// `also_hidden` passes over more sides the same way.
 ///
 /// @param game Game whose side count bounds the search.
 /// @param side The side to start from.
+/// @param also_hidden Extra sides to pass over, bit n for side n.
 /// @return the side offered; the side count when none is left after `side`
-[[nodiscard]] uint8_t lobby_offered_side(const Game& game, uint32_t side) noexcept;
+[[nodiscard]] uint8_t
+lobby_offered_side(const Game& game, uint32_t side, uint32_t also_hidden = 0) noexcept;
+
+/// Returns the nearest side the SIDE button offers below `side`.
+///
+/// A side the mod's profile keeps out of the battle room is passed over.
+/// `also_hidden` passes over more sides the same way.
+///
+/// @param game Game whose side count bounds the search.
+/// @param side The side to step back from.
+/// @param also_hidden Extra sides to pass over, bit n for side n.
+/// @return the side offered below `side`; the side count when none is
+uint8_t
+lobby_offered_side_before(const Game& game, uint32_t side, uint32_t also_hidden = 0) noexcept;
+
+/// Sides this machine's computer players may not take.
+///
+/// Bit n is set when side n is outside identity.computer-player-sides.
+/// 0 means every side, as when that key is absent or empty.
+///
+/// @return the mask, or 0 when computer players may take every side
+[[nodiscard]] uint32_t lobby_computer_hidden_sides() noexcept;
 
 // Game options copied from the host's option word when a game starts.
 struct StartedOptions {
@@ -745,6 +776,23 @@ void slot_set_status(Lobby& lobby, Player& player, uint8_t status) noexcept;
 /// @return True when the local game may join.
 [[nodiscard]] bool info_version_compatible(
     const PlayerSetupInfo& info, uint32_t local_major, const netgame::WireRules& rules = {}
+) noexcept;
+
+/// Returns the major version a player's lobby block declares, as the battle
+/// room shows it over the player's colour square.
+///
+/// A host a launch started publishes its session with its major biased by
+/// 100 and its block marked launch-only, and its block keeps the biased
+/// byte from then on; the computer players it seats are marked launch-only
+/// without the bias. The bias is taken off a marked block whose major holds
+/// it, under rules that bias a launch, so the room shows 3.1, not 103.1. The
+/// block itself, and what is sent and compared, keep the biased byte.
+///
+/// @param info A player's lobby block.
+/// @param rules The local game's network rules; 3.1c's by default.
+/// @return The major the player's game declares.
+[[nodiscard]] int32_t info_declared_version_major(
+    const PlayerSetupInfo& info, const netgame::WireRules& rules = {}
 ) noexcept;
 
 /// Reads a battle-room chat line for the recorder's commands, as every recorder reads each line it
@@ -938,12 +986,6 @@ void lobby_bind_slider(
     SliderHandler handler
 ) noexcept;
 
-/// Cycles the local screen resolution through the display modes and announces it.
-///
-/// @param[in,out] lobby Lobby state.
-/// @param backwards Step to the previous mode (right click) instead of the next.
-void lobby_cycle_resolution(Lobby& lobby, bool backwards) noexcept;
-
 /// Refreshes every row, the chat output, the option buttons and the map name.
 ///
 /// Also enforces the host's rules: deathmatch rejects computer and defeated
@@ -956,8 +998,13 @@ void lobby_update_status(Lobby& lobby, Panel& panel) noexcept;
 
 /// Tells whether every seated slot is READY and not everyone is watching.
 ///
+/// One human may start against computer players. While a launch locks the
+/// options (lobby_options_locked) the room keeps 3.1c's rule instead: the
+/// start waits for a remote player.
+///
 /// @param lobby Lobby state.
-/// @return False without a remote player or with only one seated player.
+/// @return False with no remote or computer player (no remote player while
+///     the options are locked), or with only one seated player.
 [[nodiscard]] bool lobby_ready_to_start(Lobby& lobby) noexcept;
 
 /// Sets up LOUNGE2.GUI for the local slot: options, sliders, unit sync, rows and the player info broadcast.

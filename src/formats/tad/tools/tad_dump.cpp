@@ -5,6 +5,7 @@
 // histogram of record type bytes across all packet payloads.
 
 #include "oa/formats/tad.hpp"
+#include "oa/platform/files.hpp"
 
 #include <algorithm>
 #include <array>
@@ -69,7 +70,9 @@ bool dump(const std::filesystem::path& path) {
     std::vector<uint8_t> bytes;
     if (!read_file(path, bytes)) {
         std::fprintf(
-            stderr, "%s: cannot read (missing or over the size limit)\n", path.string().c_str()
+            stderr,
+            "%s: cannot read (missing or over the size limit)\n",
+            oa::platform::path_to_utf8(path).c_str()
         );
         return false;
     }
@@ -78,7 +81,7 @@ bool dump(const std::filesystem::path& path) {
         std::fprintf(
             stderr,
             "%s: offset %zu: %s\n",
-            path.string().c_str(),
+            oa::platform::path_to_utf8(path).c_str(),
             result.error->offset,
             result.error->message.c_str()
         );
@@ -86,7 +89,7 @@ bool dump(const std::filesystem::path& path) {
     }
     const tad::Demo& demo = *result.demo;
 
-    std::printf("file            %s\n", path.string().c_str());
+    std::printf("file            %s\n", oa::platform::path_to_utf8(path).c_str());
     std::printf("version         %u\n", demo.version);
     std::printf("map             %s\n", std::string(until_nul(demo.map_name)).c_str());
     std::printf("unit limit      %u\n", demo.max_units);
@@ -94,6 +97,16 @@ bool dump(const std::filesystem::path& path) {
         std::printf("recorder        %s\n", std::string(tad::sector_text(*sector)).c_str());
     if (const auto* sector = tad::find_sector(demo, tad::SectorType::recording_date))
         std::printf("date            %s\n", std::string(tad::sector_text(*sector)).c_str());
+    tad::RecordForms record_forms = tad::RecordForms::narrow;
+    if (const auto* limits_sector = tad::find_sector(demo, tad::SectorType::limits)) {
+        if (const auto decoded = tad::decode_limits_sector(*limits_sector)) {
+            std::printf(
+                "limits          %u weapon types, %u sides\n", decoded->weapon_types, decoded->sides
+            );
+            if (decoded->weapon_types > tad::recorded_base_weapon_types)
+                record_forms = tad::RecordForms::wide;
+        }
+    }
     for (const auto& sector : demo.sectors)
         std::printf("sector          type %u, %zu bytes\n", sector.type, sector.data.size());
     for (const auto& player : demo.players) {
@@ -159,7 +172,7 @@ bool dump(const std::filesystem::path& path) {
                 );
             continue;
         }
-        const auto split = tad::split_records(decoded.bytes);
+        const auto split = tad::split_records(decoded.bytes, record_forms);
         if (split.error && !decoded.bytes.empty()) {
             if (++split_failures <= 5)
                 std::printf(

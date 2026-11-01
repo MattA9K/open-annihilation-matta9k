@@ -350,7 +350,7 @@ void Runtime::check_match_overlays(
     );
     // The radar redraws for the changed rules as after a sight rebuild; the
     // match's own grids are left as they were.
-    reset_sight_presentation(false);
+    reset_sight_presentation();
     frame_of(frame);
     const CanvasRect radar{
         radar_picture_.x, radar_picture_.y, radar_picture_.width, radar_picture_.height
@@ -482,7 +482,7 @@ void Runtime::check_match_overlays(
     game.chat_head = saved_head;
     game.chat_tail = saved_tail;
     visibility = saved_visibility;
-    reset_sight_presentation(false);
+    reset_sight_presentation();
     // An extension's overlay shows over the battlefield: the probe's bar
     // holds its colour in every pixel, and its two lines of text show.
     const int scale = hud_text_scale();
@@ -515,9 +515,7 @@ void Runtime::check_match_overlays(
     extension_.draw_match_overlay = draw_overlay_probe;
     frame_of(frame);
     extension_.draw_match_overlay = saved_overlay;
-    write_ppm(
-        fs::path(snapshot).replace_filename(snapshot.stem().string() + "-overlay.ppm"), frame
-    );
+    write_ppm(fs::path(snapshot).replace_filename(snapshot.stem() += "-overlay.ppm"), frame);
     if (probe.calls != 1 || probe.side_panel_height != side_height ||
         probe.message_log_height != message_height || side_height == 0)
         throw std::runtime_error(
@@ -728,7 +726,21 @@ void Runtime::check_match_layers() {
     check_pixel_particles(report_directory);
     check_scene_draw_scale(report_directory);
     std::cout << "match layer check: " << frames << " presented frames equal compose_match_frame\n";
-    check_presented_match_end(report_directory);
+    // The outcome frame is held to the frame the game kept, so the order
+    // buttons wear no key badges there; Show keys on buttons comes back after.
+    const oa::ui::engine_settings::EngineSettings kept_settings = engine_settings();
+    {
+        auto chosen = kept_settings;
+        chosen.show_keys_on_buttons = false;
+        apply_engine_settings(chosen);
+    }
+    try {
+        check_presented_match_end(report_directory);
+    } catch (...) {
+        apply_engine_settings(kept_settings);
+        throw;
+    }
+    apply_engine_settings(kept_settings);
 }
 
 void Runtime::check_pixel_particles(const fs::path& report_directory) {

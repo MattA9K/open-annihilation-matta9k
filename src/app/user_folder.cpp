@@ -261,6 +261,36 @@ place_capture_path(const fs::path& path, const fs::path& user_folder, std::strin
     return placed;
 }
 
+UserFolderAccess user_folder_access(const fs::path& folder) {
+    const auto refusal = [](const std::error_code& error) {
+        return error == std::errc::permission_denied || error == std::errc::operation_not_permitted;
+    };
+    std::error_code error;
+    const fs::file_status status = fs::status(folder, error);
+    if (error)
+        return refusal(error) ? UserFolderAccess::refused : UserFolderAccess::missing;
+    if (!fs::is_directory(status))
+        return UserFolderAccess::missing;
+    const fs::directory_iterator listing(folder, error);
+    if (error && refusal(error))
+        return UserFolderAccess::refused;
+    return UserFolderAccess::readable;
+}
+
+std::string refused_user_folder_message(const fs::path& folder) {
+    std::string message = "Open Annihilation is not allowed to read its folder, " +
+                          to_utf8(folder) +
+                          ", where it keeps your copy of the game, your saved games and your "
+                          "mods. Your files are still there.";
+#if defined(__APPLE__)
+    message += " Open Open Annihilation from Applications or the Finder, or allow it in System "
+               "Settings › Privacy & Security › Files and Folders, then start it again.";
+#else
+    message += " Let your user read that folder, then start Open Annihilation again.";
+#endif
+    return message;
+}
+
 bool holds_a_file(const fs::path& folder) {
     std::error_code error;
     for (fs::directory_iterator entry{folder, error}, end; !error && entry != end;
@@ -660,7 +690,7 @@ oa::ui::engine_settings::Notice saves_moved_notice(const MovesTold& moves, const
         }
     oa::ui::engine_settings::Notice notice;
     notice.title = "SAVED GAMES MOVED";
-    notice.open_caption = "OPEN FOLDER";
+    notice.open_caption = "Open folder";
     // Where they went, or with none moved, where new ones go.
     notice.paragraphs.push_back(
         {move.moved != 0
@@ -714,7 +744,7 @@ oa::ui::engine_settings::Notice mod_files_missing_notice(
 ) {
     oa::ui::engine_settings::Notice notice;
     notice.title = "MOD FILES MISSING";
-    notice.open_caption = "OPEN MOD FOLDER";
+    notice.open_caption = "Open mod folder";
     notice.paragraphs.push_back(
         {(mod_name.empty() ? std::string("This mod") : std::string(mod_name)) +
              " is missing files.",

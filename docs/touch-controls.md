@@ -94,7 +94,7 @@ prompt and Done button stand in it.
 | Gesture | What it does |
 |---|---|
 | Tap | Selects a unit, or gives the order the cursor shows for what lies under the finger: a left click |
-| Double tap a unit | Selects every unit of its type, as a double click does |
+| Double tap a unit | Selects the units of its type, as a double click does |
 | One-finger drag | Tablet: a selection box; with ATTACK, RECLAIM or REPAIR armed, an area order. Phone: scrolls the map |
 | Hold, then drag | A selection box, on both layouts |
 | Hold, then lift without moving | Opens the order wheel at that point (below) |
@@ -156,9 +156,27 @@ order the selection cannot take is greyed and does nothing; the order a
 plain tap would give is ringed. A picked order is given at the held point,
 exactly as arming its button and clicking there does. **Info** opens the
 unit info panel for the unit at the point (or the selected unit); **Type**
-selects every unit of that unit's type. The hub in the middle is **QUEUE**
-for the next pick only: the order joins the queue, and is not left armed
-unless QUEUE is on. A tap outside the wheel closes it.
+selects the units of that unit's type, as a double click does. The hub in
+the middle is **QUEUE** for the next pick only: the order joins the queue,
+and is not left armed unless QUEUE is on. A tap outside the wheel closes
+it.
+
+Holding the right mouse button, or the middle one, opens the same wheel when
+Order wheel says so. The press stays where it went down for the long-press
+time, and the wheel opens there. The pointer moves freely all the while;
+while the wheel is open the cursor is the arrow, and a wedge the selection
+can take is lit under it. Letting go on a wedge gives that order at the
+point the wheel opened. Letting go on the hub or outside the wheel, or
+Escape, closes it and gives nothing. Letting go on a greyed wedge leaves the
+wheel open. While it is open, one click of any button ends it: on a wedge
+the selection can take, it gives that order; anywhere else, it closes the
+wheel and gives nothing. That click does nothing else. A click shorter than
+the long press, or a press that moves past the drag threshold, does what
+that button does today, at the point it went down. Off, the buttons are
+unchanged. A mouse player sees the wheel alone.
+The wheel's Stop, and a pad button's Stop, press **Stop** (`order.stop`).
+Moving Stop off S in the [key editor](keys.md#the-key-editor) leaves
+them where they are.
 
 Holding and then dragging, instead of lifting, draws a selection box.
 
@@ -232,7 +250,8 @@ Once a gamepad has sent input, the touch layer shows the pad's part too
 - With the touch controls on, each control gains a small **badge** naming
   the pad buttons that give it: QUEUE R4, ADD L4, CLEAR B, SELECT ▾ D-pad
   left, PAUSE View+X, CHAT View+A, CENTRE L3, FOLLOW R3, NEXT D-pad right,
-  INFO View and FORCE R5; a group chip shows its button while L5 is held.
+  INFO View and FORCE R5. Holding View and pressing R1 toggles the keys
+  overlay. A group chip shows its button while L5 is held.
   Badges change how controls look, never where they are, and are drawn in
   the glyph set the **Button prompts** setting chooses (Off hides them). A
   long press's help names the pad input too ("On the pad: hold or tap R4").
@@ -282,8 +301,11 @@ that report the Pencil's hover, and a touch of its tip is a click.
 ## Leaving the game
 
 When the game goes to the background (the home screen, another app, a
-call) during a game played on this device alone, the in-game menu opens and
-holds the game, and the settings are saved; Resume carries on. A
+call) during a game played on this device alone, the game pauses, with its
+paused title, and the settings are saved; back in the game it goes on by
+itself half a second later. With **When the window loses focus**, in
+[Settings › Controls](settings.md#controls), at Keep playing, the in-game
+menu opens and holds the game instead, and Resume carries on. A
 multiplayer game keeps running until the system stops the app.
 
 ## Not yet

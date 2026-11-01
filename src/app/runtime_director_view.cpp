@@ -685,7 +685,7 @@ void Runtime::check_director_view() {
         visibility = static_cast<uint8_t>(
             visibility & ~(visibility_flag::mapping | visibility_flag::line_of_sight)
         );
-        reset_sight_presentation(false);
+        reset_sight_presentation();
         enter_director_mode({kStillWidth, kStillHeight, false, true}, {});
         std::vector<uint8_t> picture(static_cast<size_t>(kStillWidth) * kStillHeight * kPixelBytes);
         const auto& game = match_->state().game;
@@ -709,7 +709,7 @@ void Runtime::check_director_view() {
             ));
             draw_director_frame(picture);
             write_ppm(
-                stem.string() + "-" + name + ".ppm",
+                fs::path(stem) += std::string("-") + name + ".ppm",
                 frame_surface(picture, kStillWidth, kStillHeight)
             );
         };
@@ -718,7 +718,7 @@ void Runtime::check_director_view() {
         still_at(kExtendedZoom, "director-extended");
         leave_director_mode();
         write_ppm(
-            stem.string() + "-director-check.ppm", frame_surface(still, kCheckWidth, kCheckHeight)
+            fs::path(stem) += "-director-check.ppm", frame_surface(still, kCheckWidth, kCheckHeight)
         );
     }
 
@@ -741,7 +741,7 @@ void Runtime::check_director_view() {
     leave_director_mode();
     if (!options_.snapshot.empty()) {
         rebuild_surface();
-        write_ppm(stem.string() + "-headless.ppm", surface_);
+        write_ppm(fs::path(stem) += "-headless.ppm", surface_);
     }
     require(
         director_digest == undrawn_digest,

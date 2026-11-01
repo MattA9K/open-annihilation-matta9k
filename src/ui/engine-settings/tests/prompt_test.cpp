@@ -11,6 +11,7 @@
 #include "oa/ui/engine_settings/notice.hpp"
 #include "oa/ui/engine_settings/prompt.hpp"
 #include "oa/test/check.hpp"
+#include "oa/ui/kit/components_more.hpp"
 #include "oa/ui/kit/layout.hpp"
 #include "oa/ui/kit/theme.hpp"
 
@@ -67,22 +68,29 @@ void test_layout() {
         const Prompt prompt = prompt_of(captions);
         const auto buttons = buttons_of(prompt);
         OA_CHECK(buttons.size() == captions.size());
-        // Right-aligned, the last at the footer's right, five columns apart.
+        // Right-aligned, the last at the footer's right, as Settings places
+        // its buttons: two spaces apart, each its caption with two spaces
+        // either side, at least twice the control height.
         OA_CHECK(buttons.back().rect.x + buttons.back().rect.width == settings::notice_width - 12);
+        const oa::ui::kit::Metrics& compact = oa::ui::kit::compact_metrics;
         for (std::size_t index = 0; index < buttons.size(); ++index) {
             OA_CHECK(buttons[index].control == static_cast<int32_t>(index));
             OA_CHECK(buttons[index].text == captions[index]);
             const int32_t caption_width =
                 static_cast<int32_t>(captions[index].size()) * settings::estimated_character_width;
-            OA_CHECK(buttons[index].rect.width == std::max(52, caption_width + 16));
+            OA_CHECK(
+                buttons[index].rect.width ==
+                std::max(2 * compact.control_height, caption_width + 4 * compact.space)
+            );
             if (index + 1 < buttons.size())
                 OA_CHECK(
-                    buttons[index].rect.x + buttons[index].rect.width + 5 ==
+                    buttons[index].rect.x + buttons[index].rect.width + 2 * compact.space ==
                     buttons[index + 1].rect.x
                 );
         }
         OA_CHECK(settings::prompt_fits(prompt));
-        OA_CHECK(settings::prompt_height(prompt) >= settings::least_notice_height);
+        const int32_t height = settings::prompt_height(prompt);
+        OA_CHECK(height > 0 && height <= settings::greatest_notice_height);
     }
     // The progress bar lies under the text and makes the prompt taller.
     Prompt bar = prompt_of({"CANCEL"});
@@ -189,13 +197,14 @@ void test_size_classes() {
          {kit::SizeClass::compact, kit::SizeClass::regular, kit::SizeClass::large}) {
         const kit::Metrics& sized = kit::metrics_of(size_class);
         // A prompt of three buttons, right-aligned at the class's width with
-        // its buttons at Compact's sizes, and its text as wide as the class
-        // lets it be.
+        // Settings' buttons at the class's sizes, and its text as wide as the
+        // class lets it be.
         Prompt prompt = prompt_of({"CANCEL", "INSTALL ALONGSIDE", "REPLACE"});
         prompt.size_class = size_class;
         prompt.progress = 250;
+        const kit::PlacedQuestion placed = kit::place_question(prompt, nullptr);
         const int32_t height = settings::prompt_height(prompt);
-        OA_CHECK(height >= sized.least_notice_height);
+        OA_CHECK(height == placed.height && height > 0);
         OA_CHECK(height <= sized.greatest_notice_height);
         OA_CHECK(settings::prompt_fits(prompt));
         Prompt compact = prompt;
@@ -203,17 +212,26 @@ void test_size_classes() {
         const auto compact_buttons = buttons_of(compact);
         const auto buttons = buttons_of(prompt);
         OA_CHECK(buttons.size() == 3 && compact_buttons.size() == 3);
-        OA_CHECK(buttons.back().rect.x + buttons.back().rect.width == sized.notice_width - 12);
+        OA_CHECK(
+            buttons.back().rect.x + buttons.back().rect.width ==
+            placed.width - kit::compact_metrics.padding
+        );
         for (std::size_t index = 0; index < buttons.size() && index < compact_buttons.size();
              ++index) {
-            OA_CHECK(buttons[index].rect.width == compact_buttons[index].rect.width);
-            OA_CHECK(buttons[index].rect.height == compact_buttons[index].rect.height);
+            OA_CHECK(buttons[index].rect.width >= compact_buttons[index].rect.width);
+            OA_CHECK(buttons[index].rect.width >= 2 * sized.control_height);
+            OA_CHECK(buttons[index].rect.height == sized.control_height);
+            if (index + 1 < buttons.size())
+                OA_CHECK(
+                    buttons[index].rect.x + buttons[index].rect.width + 2 * sized.space ==
+                    buttons[index + 1].rect.x
+                );
         }
         for (const auto& part : settings::prompt_layout(prompt)) {
-            OA_CHECK(inside_box(part.rect, sized.notice_width, height));
+            OA_CHECK(inside_box(part.rect, placed.width, height));
             if (part.control == settings::no_control && !part.text.empty() &&
                 part.text != prompt.title)
-                OA_CHECK(part.rect.width == sized.notice_width - 24);
+                OA_CHECK(part.rect.width == placed.width - 2 * kit::compact_metrics.padding);
         }
         // A text longer than the class's greatest height is cut there.
         Prompt long_text = prompt;
@@ -221,10 +239,11 @@ void test_size_classes() {
             long_text.paragraphs.push_back(
                 {"A line of the prompt's text that takes a row.", false}
             );
+        const int32_t long_width = kit::place_question(long_text, nullptr).width;
         OA_CHECK(!settings::prompt_fits(long_text));
         OA_CHECK(settings::prompt_height(long_text) == sized.greatest_notice_height);
         for (const auto& part : settings::prompt_layout(long_text))
-            OA_CHECK(inside_box(part.rect, sized.notice_width, sized.greatest_notice_height));
+            OA_CHECK(inside_box(part.rect, long_width, sized.greatest_notice_height));
         // A notice: its text wraps at the class's width, its buttons keep
         // their sizes at its footer's right, and every part lies inside it.
         settings::Notice notice{};

@@ -13,7 +13,8 @@
 // following a walking unit at its farthest zoom, the ground at the view's
 // exact place every frame and its picture moving by whole pixels; and the
 // Full tier's model stage over the zoom-1 frame, its frame of models
-// against the processor's raster of the same list (check_full_models).
+// against the processor's raster of the same list (check_full_models); and
+// New unit shadows On and Off in every tier (check_unit_shadow_switch).
 // The tier comes from the game's own decision: --hardware-acceleration
 // switches it on after the start-up function test passed, and the check
 // switches it off and on again as --no-hardware-acceleration and
@@ -39,6 +40,7 @@
 #include "xrgb_conversion.hpp"
 
 #include "oa/formats/png.hpp"
+#include "oa/platform/files.hpp"
 #include "oa/platform/machine.hpp"
 #include "oa/platform/render_probe.hpp"
 #include "oa/present/game_text.hpp"
@@ -488,13 +490,17 @@ void write_png(const fs::path& path, const renderer::Surface& frame) {
         frame.width, frame.height, 8, oa::formats::png::ColorType::rgb, {}
     };
     if (!oa::formats::png::write(oa::formats::png::Image{header, {}, frame.rgb}, &file))
-        throw std::runtime_error("render tiers check: cannot encode " + path.string());
+        throw std::runtime_error(
+            "render tiers check: cannot encode " + oa::platform::path_to_utf8(path)
+        );
     std::ofstream output(path, std::ios::binary | std::ios::trunc);
     output.write(
         reinterpret_cast<const char*>(file.data()), static_cast<std::streamsize>(file.size())
     );
     if (!output)
-        throw std::runtime_error("render tiers check: cannot write " + path.string());
+        throw std::runtime_error(
+            "render tiers check: cannot write " + oa::platform::path_to_utf8(path)
+        );
 }
 
 /// Returns a frame enlarged by nearest replication: each pixel a square
@@ -1481,11 +1487,10 @@ int Runtime::check_render_tiers() {
     {
         // The first weapon of each kind, past record zero, the fallback; a
         // laser is one with a colour.
-        std::optional<uint8_t> lens_weapon;
-        std::optional<uint8_t> laser_weapon;
-        for (std::size_t index = 1; index < oa::sim::combat_state::weapon_registry_capacity;
-             ++index) {
-            const auto weapon = static_cast<uint8_t>(index);
+        std::optional<uint16_t> lens_weapon;
+        std::optional<uint16_t> laser_weapon;
+        for (std::size_t index = 1; index < weapon_registry_.capacity(); ++index) {
+            const auto weapon = static_cast<uint16_t>(index);
             if (weapon_registry_.name(weapon).empty())
                 continue;
             const auto& definition = weapon_registry_.definition(weapon);
@@ -1508,7 +1513,7 @@ int Runtime::check_render_tiers() {
                 world.projectiles + std::max<std::ptrdiff_t>(lens_check_shots, match_count)
             );
             const oa::FixedVec3 place = oa::world_unit_at(&world, anchor)->position;
-            const auto shot_of = [&](uint8_t weapon) {
+            const auto shot_of = [&](uint16_t weapon) {
                 oa::Projectile shot{};
                 shot.def = static_cast<oa_ref32>(weapon) + 1U;
                 shot.position = place;
@@ -2196,6 +2201,8 @@ int Runtime::check_render_tiers() {
         if (asked_level == HardwareAcceleration::full)
             poster_levels.push_back(HardwareAcceleration::full);
         check_poster_tiers(set_level, poster_levels, at_zoom, report_directory);
+        // New unit shadows in each tier, beside a tree.
+        check_unit_shadow_switch(set_level, poster_levels, report_directory);
     }
     // Switched off, every frame is the standard tier's again, the whole
     // frame where the chrome's scale is a whole number.
@@ -2217,7 +2224,8 @@ int Runtime::check_render_tiers() {
     std::cout << "render tiers check: the accelerated presentation draws within its references at "
                  "every zoom, with "
               << counts.textures_created << " textures made and " << counts.prescale_draws
-              << " prescale draws; pictures in " << report_directory.string() << '\n';
+              << " prescale draws; pictures in " << oa::platform::path_to_utf8(report_directory)
+              << '\n';
     return 0;
 }
 
@@ -4176,7 +4184,7 @@ void Runtime::check_full_render_tier(
     std::cout
         << "render tiers check: the full tier drew the battlefield on the card at every zoom, "
         << full_->frames << " frames, with the box filter never run; pictures in "
-        << report_directory.string() << '\n';
+        << oa::platform::path_to_utf8(report_directory) << '\n';
 
     // The fog, the overlay canvas, the kill board and the +stats panel.
     check_full_overlays(set_level, at_zoom, presented, composed, report_directory);
@@ -4568,12 +4576,12 @@ void Runtime::check_full_overlays(
             dithered ? saved_graphics | init::preference_flags::dithered_fog
                      : saved_graphics & ~init::preference_flags::dithered_fog
         );
-        reset_sight_presentation(false);
+        reset_sight_presentation();
     };
     const auto restore_fog = [&]() {
         game.visibility_flags = saved_visibility;
         game.graphics_flags = saved_graphics;
-        reset_sight_presentation(false);
+        reset_sight_presentation();
     };
     // The gray table's colour of a frame's pixel, as the fog grays it.
     ensure_fog_frames();

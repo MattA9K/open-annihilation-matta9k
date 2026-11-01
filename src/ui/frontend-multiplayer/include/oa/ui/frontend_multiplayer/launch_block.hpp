@@ -33,12 +33,16 @@ inline constexpr int32_t modem = 3;
 inline constexpr int32_t serial = 4;
 } // namespace connection_type
 
-// LaunchBlock::faction: the side the launch assigned.
+// LaunchBlock::faction and LaunchComputer::faction: the side the launch
+// assigned. A value N from 1 is side N - 1 (arm 1 is side 0, core 2 is side 1).
 namespace faction {
 inline constexpr int32_t none = 0;
 inline constexpr int32_t arm = 1;
 inline constexpr int32_t core = 2;
 } // namespace faction
+
+/// Bytes of a SIDEDATA name in a launch, its terminating NUL included.
+inline constexpr std::size_t kLaunchSideNameBytes = 30;
 
 /// The most computer players a launch seats: every seat but the player's own.
 inline constexpr int32_t kLaunchComputerLimit = 9;
@@ -83,6 +87,8 @@ struct LaunchComputer {
     int32_t difficulty{}; ///< difficulty values
     /// A kebab-case id of at most 64 bytes. Empty seats the built-in player.
     char brain[kLaunchBrainIdBytes]{};
+    /// A SIDEDATA name the battle room resolves when faction is none. Empty for none.
+    char faction_name[kLaunchSideNameBytes]{};
 };
 
 // One launch. Texts are terminated within their fields.
@@ -112,7 +118,7 @@ struct LaunchBlock {
     int32_t watching{};                  // 2 allows watchers
     char address[kLaunchAddressBytes]{}; // the host's address ("-n1:" writes it too)
     int32_t tournament{};                // nonzero for a tournament game
-    int32_t faction{};                   // faction values
+    int32_t faction{};                   // faction values; N from 1 is side N - 1
     int32_t team{};
     int32_t color{};          // 1 through kLaunchColourLast; 0 leaves it to the battle room
     uint32_t watcher{};       // 1: the player watches instead of playing
@@ -121,6 +127,8 @@ struct LaunchBlock {
     uint32_t closed{};           // 1: the host closes the game to more players
     int32_t restriction_count{}; // unit restrictions set from restrictions, in order
     LaunchRestriction restrictions[kLaunchRestrictionLimit]{};
+    /// A SIDEDATA name the battle room resolves when faction is none. Empty for none.
+    char faction_name[kLaunchSideNameBytes]{};
 };
 
 } // namespace oa::ui::frontend_multiplayer::launch

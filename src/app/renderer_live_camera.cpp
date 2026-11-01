@@ -72,33 +72,15 @@ bool prepare_triangle(
     return true;
 }
 
-bool triangle_hit_prepared(
-    const PreparedTriangle& triangle,
-    float screen_x,
-    float screen_y,
-    std::array<float, 3>& weights,
-    float& depth
-) noexcept {
-    if (!triangle.valid || !std::isfinite(screen_x) || !std::isfinite(screen_y))
-        return false;
-    const double first = (triangle.first_x * (double(screen_x) - triangle.origin_x) +
-                          triangle.first_y * (double(screen_y) - triangle.origin_y)) /
-                         triangle.determinant;
-    const double second = (triangle.second_x * (double(screen_x) - triangle.origin_x) +
-                           triangle.second_y * (double(screen_y) - triangle.origin_y)) /
-                          triangle.determinant;
-    const double third = 1 - first - second;
-    constexpr double edge_tolerance = 1e-6;
-    if (first < -edge_tolerance || second < -edge_tolerance || third < -edge_tolerance)
-        return false;
-    const float hit_depth = static_cast<float>(
-        first * triangle.depths[0] + second * triangle.depths[1] + third * triangle.depths[2]
-    );
-    if (!std::isfinite(hit_depth))
-        return false;
-    weights = {static_cast<float>(first), static_cast<float>(second), static_cast<float>(third)};
-    depth = hit_depth;
-    return true;
+bool triangle_hit_bounded(const std::array<std::array<float, 3>, 3>& triangle) noexcept {
+    const auto& a = triangle[0];
+    const auto& b = triangle[1];
+    const auto& c = triangle[2];
+    // Slivers can magnify cancellation in the original barycentric query.
+    const double first = (double(b[1]) - c[1]) * (double(a[0]) - c[0]);
+    const double second = (double(c[0]) - b[0]) * (double(a[1]) - c[1]);
+    constexpr double minimum_relative_area = 1e-9;
+    return std::abs(first + second) > (std::abs(first) + std::abs(second)) * minimum_relative_area;
 }
 
 bool triangle_hit(
@@ -115,24 +97,18 @@ bool triangle_hit(
     const double right = std::max({a[0], b[0], c[0]});
     // Accepted barycentric weights may extend beyond the vertices. Allow twice
     // their maximum aggregate edge tolerance, including arithmetic roundoff.
-    constexpr double bounds_tolerance = 4e-6;
-    const double margin_x = (right - left) * bounds_tolerance;
+    const double margin_x = (right - left) * triangle_bounds_tolerance;
     bool outside = screen_x < left - margin_x || screen_x > right + margin_x;
     if (!outside) {
         const double top = std::min({a[1], b[1], c[1]});
         const double bottom = std::max({a[1], b[1], c[1]});
-        const double margin_y = (bottom - top) * bounds_tolerance;
+        const double margin_y = (bottom - top) * triangle_bounds_tolerance;
         outside = screen_y < top - margin_y || screen_y > bottom + margin_y;
     }
-    if (outside) {
-        // Slivers can magnify cancellation in the original barycentric query.
-        // Keep that path for ill-conditioned triangles instead of changing hits.
-        const double first = (double(b[1]) - c[1]) * (double(a[0]) - c[0]);
-        const double second = (double(c[0]) - b[0]) * (double(a[1]) - c[1]);
-        constexpr double minimum_relative_area = 1e-9;
-        if (std::abs(first + second) > (std::abs(first) + std::abs(second)) * minimum_relative_area)
-            return false;
-    }
+    // Keep the original query for ill-conditioned triangles instead of
+    // changing hits.
+    if (outside && triangle_hit_bounded(triangle))
+        return false;
     PreparedTriangle prepared;
     return prepare_triangle(triangle, prepared) &&
            triangle_hit_prepared(prepared, screen_x, screen_y, weights, depth);

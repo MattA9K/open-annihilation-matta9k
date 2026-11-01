@@ -98,7 +98,7 @@ struct Runtime::EngineSettingsState {
     /// The section the dialog showed when it last closed; it opens there,
     /// and on its first section, Controls, the first time.
     oa::ui::engine_settings::Page last_page{oa::ui::engine_settings::Page::controls};
-    /// What OK last asked of the seven file-type switches, on a Mac; none
+    /// What OK last asked of the eight file-type switches, on a Mac; none
     /// before OK asked. The hint under File Type Registration names a type
     /// this copy still opens that was asked off, until a later opening's
     /// read-back matches this.
@@ -209,8 +209,8 @@ struct Runtime::EngineSettingsState {
 
     /// Returns the screen sizes the display the window is on offers
     /// (offered_screen_sizes), from the floor the profile's display rules
-    /// set: the options' Screen Size list, the settings' Screen size after
-    /// Desktop, and the battle room's RES column. In full screen, the
+    /// set: the options' Screen Size list and the settings' Screen size
+    /// after Desktop. In full screen, the
     /// display's modes, including on a desktop that scales its frame and
     /// cannot switch the output's mode. In a window, the sizes that fit the
     /// desktop. Without a window, the primary display's for the way the next

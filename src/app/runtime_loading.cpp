@@ -267,9 +267,13 @@ void Runtime::teardown_match() {
     offline_services_.clear_match();
     offline_services_.set_on_screen_test(nullptr, nullptr);
     effect_boundary_.clock = nullptr;
-    live_renderer_.reset();
+    release_live_renderer();
     reset_match_effect_sources();
     match_.reset();
+    // A pause the window's absence held goes with its match; whether the
+    // window is away stays.
+    away_pause_.held = false;
+    away_pause_.resume_ns.reset();
     // The brains this match seated go with it. A list held for the next
     // start stays: a new start tears the previous match down before it
     // configures the players that list is for.
@@ -332,7 +336,6 @@ void Runtime::leave_match() {
     match_outcome_ = sim::scenario::Outcome::ongoing;
     campaign_mission_ = false;
     stop_match_tracking();
-    radar_explored_.clear();
     unit_info_panel_.reset();
     chat_composing_ = false;
     chat_buffer_.clear();

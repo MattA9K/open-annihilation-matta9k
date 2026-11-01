@@ -499,6 +499,43 @@ loader. What SDL's own target brings with it is SDL's.
   in any function or scope, so a variable a link names needs a name no
   other build file uses for something else.
 
+### Turn paths into text through UTF-8
+
+A `std::filesystem::path` becomes text, and text a path, through
+`oa::platform::path_to_utf8()`, `path_to_generic_utf8()` and
+`path_from_utf8()` (`oa/platform/files.hpp`). Never write a path out with
+its `string()` or `generic_string()`, or give it to `operator<<`, and never
+make one from a `std::string` or `const char*` that holds a name read from
+a file, typed by the player, given on the command line or sent by another
+player. A name in the game data, which the game reads byte for byte, is
+taken apart as text, as `oa::data::defs::file_stem()` does, never through a
+path.
+
+- **Why:** on Windows a path holds UTF-16, and its narrow conversions go
+  through the system's code page. `string()` throws on a name that holds a
+  character the code page lacks, such as a user name, or a map or mod file
+  named in another script, and the game stopped with a filesystem error;
+  a path made from UTF-8 text reads it in the code page and names another
+  file. SDL, the preferences, the logs, the catalogue and the network carry
+  UTF-8.
+- **Applies to:** every source outside tests.
+- **Checked by:** `style-ratchet` (`path-narrow`) counts `string()` and
+  `generic_string()` of a path and a path given to `operator<<`, finding a
+  path by the call that made it or the name it was declared with; making a
+  path from narrow text is left to review. `platform-path-text` tests the
+  conversions, and a folder whose names no one code page holds.
+
+```cpp
+// Good
+error = "cannot write " + oa::platform::path_to_utf8(file);
+const fs::path folder = oa::platform::path_from_utf8(values.at(key));
+
+// Bad: throws on Windows for a name outside the code page, and reads the
+// preference's UTF-8 in the code page.
+error = "cannot write " + file.string();
+const fs::path folder(values.at(key));
+```
+
 ## Seams between modules
 
 Between simulation modules, prefer a direct call where the layer order
@@ -741,21 +778,25 @@ frozen members.
 Game data never enters the repository: no archives, maps, sounds, movies,
 or captures of them, apart from the small screenshots that show the
 standard hacks on their pages, in `docs/mods/standard-hacks/images/`, the
-sections of the settings, in `docs/images/settings/`, the UI kit gallery at
-its three size classes, in `docs/images/ui-kit/`, and the trailer's
+sections of the settings, in `docs/images/settings/`, the UI kit gallery on
+three windows, in `docs/images/ui-kit/`, and the trailer's
 picture at the top of the README, `docs/images/trailer.jpg`.
 
 The settings pictures are drawn, not edited by hand.
 `oa-ui-engine-settings-pictures DIRECTORY` (built with the tests) draws
 each section of the dialog alone, unlocked, at Compact and 2×, 960 by 648,
-in the installed game's fonts, and writes them under the names that folder
-uses (`engine-limits.png`, `controls-1.png`, `downloads-2.png` for
-Downloads scrolled to its end, and the same for the other sections). It
-needs `OA_GAME_DIR`. The data test `ui-engine-settings-pictures` runs it
-into a scratch folder. Refresh the manual with:
+in the installed game's fonts, or with `--modern FONTS` in the modern look,
+and writes them under the names that folder uses (`engine-limits.png`,
+`controls-1.png`, `downloads-2.png` for Downloads scrolled to its end, and
+the same for the other sections). It needs `OA_GAME_DIR`. The data test
+`ui-engine-settings-pictures` runs it into a scratch folder. Refresh the
+manual by drawing into a scratch folder and copying the pictures, Updates
+included (`updates-1.png` up to date, `updates-2.png` a release offered,
+`updates-3.png` the end with Previous version)
+([the settings' module](../../src/ui/engine-settings/README.md#the-manuals-pictures)):
 
 ```sh
-oa-ui-engine-settings-pictures docs/images/settings
+oa-ui-engine-settings-pictures pictures --modern local/deps/text-fonts
 ```
 
 ## Checks
@@ -787,7 +828,7 @@ ctest --test-dir build --output-on-failure \
 
 | Check | What it enforces | Script and baseline |
 |---|---|---|
-| `style-ratchet` | qualified fixed-width types; names built from offsets, addresses or generated placeholders; names that number what they do not know (`unknown_3`); raw masks on flag fields; missing `{}` initialisers; offset comments outside file-format code; functions declared in headers without a `///` block; exceptions, virtual functions and heap containers in the core, base and simulation directories; `assert()` and `#undef NDEBUG` in tests | `check_style.py` and `style-baseline.json` in `tools/` |
+| `style-ratchet` | qualified fixed-width types; names built from offsets, addresses or generated placeholders; names that number what they do not know (`unknown_3`); raw masks on flag fields; missing `{}` initialisers; offset comments outside file-format code; functions declared in headers without a `///` block; exceptions, virtual functions and heap containers in the core, base and simulation directories; `assert()` and `#undef NDEBUG` in tests; paths written out through the code page outside tests | `check_style.py` and `style-baseline.json` in `tools/` |
 | `doc-links` | relative links, anchors and repository paths in Markdown resolve | `tools/check_links.py` |
 | `ctest-names` | every ctest name keeps to the [naming rule](#naming) | `tools/check_ctest_names.py` |
 | `runtime-surface-names` | the `Runtime` names an extension uses only shrink | `tools/check_runtime_surface.py`, `tools/runtime-surface-baseline.json` |
@@ -818,12 +859,12 @@ baseline in the same change, for the style rules with
 
 Every style rule but two is down to zero findings. What remains are the
 virtual functions (`tier-virtual`, 220) and heap containers
-(`tier-heap-container`, 185) of the core, base and simulation tiers, all of
+(`tier-heap-container`, 168) of the core, base and simulation tiers, all of
 them in code that predates the rule:
 
 | Area | `tier-virtual` | `tier-heap-container` | What they are |
 |---|---|---|---|
-| `src/sim/match-runtime` | 42 | 60 | the match's service, spawn, script and attack-order interfaces; the match's own unit, order, trace and ground-mission tables |
+| `src/sim/match-runtime` | 42 | 47 | the match's service, spawn, script and attack-order interfaces; the match's own unit, order, trace and ground-mission tables |
 | `src/sim/unit-spawn` | 30 | 14 | the spawn and runtime-type hosts; the loaded types and legacy views |
 | `src/sim/combat-state` | 16 | 17 | the spawn-geometry, target-search, intelligence and attack hosts; the weapon registry and projectile tables |
 | `src/sim/script-vm`, `src/sim/script-state` | 22 | 16 | the script machine's host; script stacks and threads |

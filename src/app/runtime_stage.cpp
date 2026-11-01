@@ -353,6 +353,63 @@ bool Runtime::run_stage_direction(
         std::printf("stage: attack-ground %s: %zu units at %d,%d\n", group.c_str(), ordered, x, z);
         return true;
     }
+    if (action == "queue") {
+        // The last unit placed, a factory, has the type added to its build
+        // queue, as a computer player's factory orders add it.
+        std::string name;
+        int32_t count = 0;
+        if (!(line >> name >> count) || count <= 0 || stage_->last_unit == 0)
+            throw std::runtime_error(where + ": queue takes TYPE COUNT after a factory");
+        const auto type = oa::sim::unit_spawn::find_type_index(spawn_type_names_, name);
+        if (type == 0)
+            throw std::runtime_error(where + ": the game has no type " + name);
+        match_->queue_factory_build(stage_->last_unit, type, count);
+        std::printf(
+            "stage: unit %u queues %d %s\n",
+            static_cast<unsigned>(stage_->last_unit),
+            count,
+            name.c_str()
+        );
+        return true;
+    }
+    if (action == "patrol-all") {
+        int32_t player = -1;
+        int32_t x = 0;
+        int32_t z = 0;
+        if (!(line >> player >> x >> z) || player < 0 || player >= OA_PLAYER_COUNT)
+            throw std::runtime_error(where + ": patrol-all takes PLAYER X Z [KEPT_GROUP]");
+        // The members of the kept group are left to their orders.
+        std::vector<uint16_t> kept;
+        if (std::string group; line >> group)
+            kept = live_members(group);
+        // Every live unit of the player that takes a move order, the
+        // factories among them, is ordered as a selection of them is: each
+        // keeps its place around the point, measured from the centre of all
+        // of them.
+        std::vector<uint16_t> members;
+        for (const auto& slot : match_->world().slots)
+            if (slot.unit != nullptr && slot.record.type_index != 0 &&
+                slot.record.owner_index == player && oa::unit_is_live_target(slot.record.flags) &&
+                std::find(kept.begin(), kept.end(), slot.unit_index) == kept.end() &&
+                match_->takes_move_order(slot.unit_index))
+                members.push_back(slot.unit_index);
+        const auto point = ground_point(*match_, x, z);
+        oa::sim::gameplay_input::GroupCentre centre{};
+        const auto& world = match_->state();
+        for (const auto unit : members)
+            if (const auto* member = oa::world_unit_at(&world, unit); member != nullptr)
+                oa::sim::gameplay_input::add_to_group_centre(centre, *member);
+        for (const auto unit : members)
+            match_->issue_patrol(
+                unit,
+                group_order_destination(
+                    centre, oa::sim::gameplay_input::OrderCommand::patrol, unit, 0, point
+                ),
+                false
+            );
+        std::printf("stage: patrol-all %d: %zu units to %d,%d\n", player, members.size(), x, z);
+        return true;
+    }
     if (action == "guard") {
         std::string group;
         std::string guarded;
@@ -445,13 +502,15 @@ bool Runtime::run_stage_direction(
         const auto members = live_members(group);
         if (members.empty())
             throw std::runtime_error(where + ": the group " + group + " has no live unit");
-        // The view centred on the group's first live unit and the pointer
-        // moved onto it, as the player's pointer moves.
+        // The view centred on the group's first live unit, as far as the
+        // view's limits let it go, and the pointer moved onto it, as the
+        // player's pointer moves. A unit past the map's left or top edge
+        // stands at a place below 0.
         const auto unit = members.front();
         const auto& position = match_->world().slots[unit].unit->position;
         set_camera_position(
-            static_cast<int32_t>(position[0] >> kStageFixedShift) - visible_map_width() / 2,
-            static_cast<int32_t>(position[2] >> kStageFixedShift) - visible_map_height() / 2,
+            (static_cast<int32_t>(position[0]) >> kStageFixedShift) - visible_map_width() / 2,
+            (static_cast<int32_t>(position[2]) >> kStageFixedShift) - visible_map_height() / 2,
             0
         );
         render_match_surface();
@@ -483,6 +542,62 @@ bool Runtime::run_stage_direction(
             send_stage_pointer(type, index, pointer_x_, pointer_y_);
         std::printf(
             "stage: press %s: %s\n", button.c_str(), status_.empty() ? "-" : status_.c_str()
+        );
+        return true;
+    }
+    if (action == "drag") {
+        std::array<int32_t, 4> corners{};
+        if (!(line >> corners[0] >> corners[1] >> corners[2] >> corners[3]))
+            throw std::runtime_error(where + ": drag takes X0 Z0 X1 Z1");
+        // The points of the battlefield that show the map pixels at height
+        // 0, from the view as it is, past the map's edges too; a point out of
+        // view is held a pixel inside the battlefield's edges, as the
+        // screen's edges hold the player's pointer short of the scroll.
+        render_match_surface();
+        const auto viewport = live_viewport(match_camera_x_, match_camera_z_);
+        const auto shown = [&](int32_t x, int32_t z) {
+            const auto point = project_match_point(
+                viewport,
+                {static_cast<uint32_t>(x) << kStageFixedShift,
+                 0,
+                 static_cast<uint32_t>(z) << kStageFixedShift}
+            );
+            return std::array<float, 2>{
+                static_cast<float>(std::clamp(
+                    point.x,
+                    match_layout_.left + 1,
+                    match_layout_.left + match_layout_.battlefield_width() - 2
+                )),
+                static_cast<float>(std::clamp(
+                    point.y,
+                    match_layout_.top + 1,
+                    match_layout_.top + match_layout_.battlefield_height() - 2
+                ))
+            };
+        };
+        const auto from = shown(corners[0], corners[1]);
+        const auto to = shown(corners[2], corners[3]);
+        // The select button held from the one to the other, through the
+        // middle, as the player drags a box; the same point twice is a click.
+        const uint8_t select = match_select_button();
+        status_.clear();
+        send_stage_pointer(SDL_EVENT_MOUSE_MOTION, 0, from[0], from[1]);
+        send_stage_pointer(SDL_EVENT_MOUSE_BUTTON_DOWN, select, from[0], from[1]);
+        send_stage_pointer(
+            SDL_EVENT_MOUSE_MOTION, 0, (from[0] + to[0]) / 2.0F, (from[1] + to[1]) / 2.0F
+        );
+        send_stage_pointer(SDL_EVENT_MOUSE_MOTION, 0, to[0], to[1]);
+        // The box as it shows while the button is still held.
+        if (from != to)
+            write_stage_snapshot("drag");
+        send_stage_pointer(SDL_EVENT_MOUSE_BUTTON_UP, select, to[0], to[1]);
+        std::printf(
+            "stage: drag %d,%d to %d,%d: %s\n",
+            corners[0],
+            corners[1],
+            corners[2],
+            corners[3],
+            status_.empty() ? "-" : status_.c_str()
         );
         return true;
     }

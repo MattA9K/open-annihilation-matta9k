@@ -17,6 +17,7 @@
 #include "oa/app/demo_installer.hpp"
 #include "oa/app/mod_profile_loader.hpp"
 #include "oa/data/content_bundles/content_choice.hpp"
+#include "oa/platform/files.hpp"
 #include "oa/platform/game_installs.hpp"
 #include "oa/platform/preferences.hpp"
 #include <cstdint>
@@ -47,25 +48,12 @@ static_assert(
     kGameDirectoryPreference.find('\\') == std::string_view::npos
 );
 
-/// Converts UTF-8 text to a path.
-///
-/// SDL, argv on Windows and the preferences file carry UTF-8; a narrow
-/// fs::path would decode it in the Windows ANSI code page.
-///
-/// @param text UTF-8 path
-/// @return the path
-[[nodiscard]] inline fs::path path_from_utf8(std::string_view text) {
-    return fs::path(std::u8string(text.begin(), text.end()));
-}
-
-/// Converts a path to UTF-8 text.
-///
-/// @param path path to convert
-/// @return its UTF-8 spelling
-[[nodiscard]] inline std::string path_to_utf8(const fs::path& path) {
-    const auto text = path.u8string();
-    return {text.begin(), text.end()};
-}
+// SDL, argv on Windows and the preferences file carry UTF-8; a narrow
+// fs::path would read it in the Windows code page, and path::string() would
+// write a name back in that code page and throw on a character it lacks.
+using oa::platform::path_from_utf8;
+using oa::platform::path_to_generic_utf8;
+using oa::platform::path_to_utf8;
 
 /// An archive the discovery found but could not mount, and why.
 struct SkippedArchive {
@@ -442,6 +430,24 @@ void remember_mod_directory(oa::platform::preferences::Values& values, const fs:
 ///        folder to walk; empty, or not a folder, copies nothing
 /// @return the copied bundle ids, in the built-in order
 [[nodiscard]] std::vector<std::string> copied_content_bundles(const fs::path& folder);
+
+/// How many times the copied bundles have been read, including a read of the
+/// managed records. A frame that already holds the list does not add to this.
+///
+/// @return the count, from 0
+[[nodiscard]] uint64_t copied_content_bundles_walks() noexcept;
+
+/// The generation of the copied bundles.
+///
+/// It starts at 1 and moves when a content record is written, a bundle is
+/// removed, or the files in a walked game folder are replaced. A reader keeps
+/// the list until this moves.
+///
+/// @return the generation
+[[nodiscard]] uint64_t content_bundles_generation() noexcept;
+
+/// Records that the copied bundles can have changed.
+void note_content_bundles_changed() noexcept;
 
 /// Returns the bundles in the player's folder that a registry delivered: each
 /// managed bundle folder whose content record names a registry as its source

@@ -13,11 +13,13 @@
 #include "oa/app/view_rules.hpp"
 #include "language_packs.hpp"
 
+#include "oa/platform/files.hpp"
 #include "oa/platform/log_files.hpp"
 #include "oa/platform/system.hpp"
 #include "oa/platform/text_font.hpp"
 #include "oa/base/threads.hpp"
 #include "oa/present/game_text.hpp"
+#include "oa/ui/hud/backed_text.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -158,7 +160,7 @@ void apply_preview_faces(
             std::fprintf(
                 stderr,
                 "open-annihilation: the language font %s did not open\n",
-                font.file.string().c_str()
+                oa::platform::path_to_utf8(font.file).c_str()
             );
     }
     if (ideographs && fonts.least_cjk_size < text_font::least_cjk_language_pixel_size)
@@ -366,6 +368,39 @@ int32_t Runtime::painted_baseline(int32_t font_baseline, int32_t size) const noe
 int Runtime::paint_modern_text(
     const oa::present::TextLayers& layers, int x, int baseline_y, std::array<uint8_t, 3> color
 ) {
+    if (text_hold_.holding()) {
+        // The line's box is laid now, and its letters once every box of its
+        // group is (BackedText).
+        auto canvas = match_text_canvas();
+        oa::ui::hud::lay_text_backing(canvas, layers, x, baseline_y);
+        hold_painted_text([this,
+                           line = oa::ui::hud::without_backing(layers),
+                           x,
+                           baseline_y,
+                           color,
+                           backed = layers.background] {
+            lay_match_text(line, x, baseline_y, color, backed);
+        });
+        return layers.advance;
+    }
+    lay_match_text(layers, x, baseline_y, color, layers.background);
+    return layers.advance;
+}
+
+void Runtime::lay_match_text(
+    const oa::present::TextLayers& layers,
+    int x,
+    int baseline_y,
+    std::array<uint8_t, 3> color,
+    bool backed
+) {
+    if (painted_lines_)
+        painted_lines_->push_back({&paint_target(), {layers, x, baseline_y, color, backed}});
+    auto canvas = match_text_canvas();
+    oa::present::lay_text(canvas, layers, x, baseline_y, color);
+}
+
+oa::present::TextCanvas Runtime::match_text_canvas() {
     auto& dest = paint_target();
     const bool has_palette = match_palette_ != oa::PaletteBytes{};
     auto canvas = oa::present::rgb_canvas(
@@ -374,6 +409,19 @@ int Runtime::paint_modern_text(
         static_cast<int32_t>(dest.height),
         has_palette ? std::span<const uint8_t>(match_palette_) : std::span<const uint8_t>{}
     );
+    // A turned frame's overlay canvas holds no picture: what a line would
+    // do to the picture under its see-through pixels, its shadow, outline
+    // and letters, each line's own, is made on the picture by the card as
+    // lay_text would make it.
+    if (paints_turned_overlay()) {
+        begin_turned_text_line();
+        canvas.see_through = turned_overlay_key();
+        canvas.world_user = this;
+        canvas.world_run = [](void* user, const oa::present::TextWorldRun& run) {
+            static_cast<Runtime*>(user)->note_turned_text_run(run);
+        };
+        return canvas;
+    }
     // The Full tier's overlay canvas holds no world: over it the card
     // darkens the world under the shadow at the shadow's alpha, holds it to
     // the outline grey at the most under the outline, which is black over
@@ -412,8 +460,7 @@ int Runtime::paint_modern_text(
             }
         };
     }
-    oa::present::lay_text(canvas, layers, x, baseline_y, color);
-    return layers.advance;
+    return canvas;
 }
 
 void Runtime::install_game_text_hooks() {

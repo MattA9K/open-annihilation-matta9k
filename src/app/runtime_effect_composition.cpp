@@ -2,9 +2,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "oa/app/runtime.hpp"
+#include "bench_timers.hpp"
 #include "renderer_effect_sources.hpp"
 #include "renderer_effects.hpp"
+#include "renderer_water.hpp"
 #include "renderer_water_effects.hpp"
+#include "oa/present/world_renderer/world_fog.hpp"
 #include "oa/sim/visibility_state.hpp"
 
 #include <algorithm>
@@ -13,9 +16,9 @@
 
 namespace oa::app {
 namespace {
-constexpr float minimum_light_strength = 1.0F / 110.0F;
-constexpr float minimum_glow_strength = 1.0F / 150.0F;
-constexpr float minimum_heat_strength = 0.25F;
+constexpr float minimum_light_strength = 1.0F / renderer_effects::light_energy;
+constexpr float minimum_glow_strength = 1.0F / renderer_effects::glow_energy;
+constexpr float minimum_heat_strength = renderer_effects::minimum_heat;
 
 /// Select a source's light independently from its heat distortion.
 float light_intensity(
@@ -97,18 +100,51 @@ void Runtime::compose_match_effect_pixels(
     bool live,
     float effect_row_offset
 ) {
+    const auto projected = project_match_effects(
+        width, height, origin_x, origin_y, scale_x, scale_y, live, effect_row_offset
+    );
+    compose_projected_match_effects(
+        pixels,
+        width,
+        height,
+        pitch,
+        channels,
+        origin_x,
+        origin_y,
+        scale_x,
+        scale_y,
+        live,
+        projected
+    );
+}
+
+renderer_effects::Settings Runtime::match_effect_settings() {
+    return {true, true, engine_settings().heat_distortion != 0};
+}
+
+std::vector<renderer_effects::Source> Runtime::project_match_effects(
+    uint32_t width,
+    uint32_t height,
+    float origin_x,
+    float origin_y,
+    float scale_x,
+    float scale_y,
+    bool live,
+    float effect_row_offset
+) {
+    std::vector<renderer_effects::Source> projected;
     if (!match_ || !selected_tnt_ || !match_effects_enabled() || width == 0 || height == 0 ||
         width > 8192 || height > 8192 || !std::isfinite(scale_x) || !std::isfinite(scale_y) ||
         scale_x <= 0 || scale_y <= 0)
-        return;
+        return projected;
     const float zoom = match_zoom();
     if (!std::isfinite(zoom) || zoom <= 0)
-        return;
+        return projected;
     const auto place = match_view_place();
     const auto& settings = engine_settings();
-    std::vector<renderer_effects::Source> projected;
+    // Underwater shimmer's strength, which a lava sea leaves at none.
+    const float shimmer = std::min(water_levels().shimmer, 2.0F);
     projected.reserve(match_effect_sources().size());
-    constexpr float heat_spatial_frequency = 0.55F;
     float depth_scale = 1;
     if (live) {
         const float zero = live_project_depth(0, 0, 0);
@@ -131,8 +167,7 @@ void Runtime::compose_match_effect_pixels(
             source.z,
             float(selected_tnt_->sea_level) - source.height,
             match_->simulation().tick / 30.0,
-            std::min(settings.underwater_shimmer, 200U) / 100.0F *
-                std::clamp((zoom - 0.25F) / 0.25F, 0.0F, 1.0F)
+            shimmer * std::clamp((zoom - 0.25F) / 0.25F, 0.0F, 1.0F)
         );
         const float heat = std::clamp(source.heat, 0.0F, 1.0F) * detail[1] * heat_scale * water[3];
         if (light < minimum_light_strength && glow < minimum_glow_strength &&
@@ -165,17 +200,39 @@ void Runtime::compose_match_effect_pixels(
              light,
              glow,
              heat,
-             source.x * 0.13F + source.z * 0.17F + effect_row_offset * heat_spatial_frequency,
+             source.x * 0.13F + source.z * 0.17F +
+                 effect_row_offset * renderer_effects::heat_spatial_frequency,
              radius_y}
         );
     }
-    if (projected.empty())
+    return projected;
+}
+
+void Runtime::compose_projected_match_effects(
+    std::span<uint8_t> pixels,
+    uint32_t width,
+    uint32_t height,
+    uint32_t pitch,
+    uint32_t channels,
+    float origin_x,
+    float origin_y,
+    float scale_x,
+    float scale_y,
+    bool live,
+    std::span<const renderer_effects::Source> projected
+) {
+    if (projected.empty() || !match_ || width == 0 || height == 0 || width > 8192 ||
+        height > 8192 || !std::isfinite(scale_x) || !std::isfinite(scale_y) || scale_x <= 0 ||
+        scale_y <= 0)
         return;
-    // Only pixels reached by an effect need visibility sampling.
+    const float zoom = match_zoom();
+    const auto place = match_view_place();
+    // Only pixels reached by an effect need visibility sampling, and only
+    // the effects compose draws: the first max_sources of them.
     std::vector<uint32_t> row_left(height, width), row_right(height, 0);
     std::vector<std::array<uint32_t, 4>> regions;
-    std::size_t region_pixels = 0;
-    for (const auto& source : projected) {
+    for (const auto& source :
+         projected.first(std::min(projected.size(), renderer_effects::max_sources))) {
         constexpr float maximum_radius = 256;
         constexpr float heat_sample_margin = 4;
         const float radius = std::min(source.radius_pixels, maximum_radius) + heat_sample_margin;
@@ -197,7 +254,6 @@ void Runtime::compose_match_effect_pixels(
             std::clamp(std::ceil(source.screen_y + radius_y + 1), 0.0F, float(height))
         );
         regions.push_back({left, top, right, bottom});
-        region_pixels += static_cast<std::size_t>(right - left) * (bottom - top);
         for (auto y = top; y < bottom; ++y) {
             row_left[y] = std::min(row_left[y], left);
             row_right[y] = std::max(row_right[y], right);
@@ -206,37 +262,89 @@ void Runtime::compose_match_effect_pixels(
     std::vector<uint8_t> visibility;
     std::vector<float> depths;
     if (live) {
+        // renderer_effects::compose reads a light's pixels on the rows its
+        // ellipse crosses, to a column beyond the ellipse's width on either
+        // side, and heat moves a sample at most four columns along its row.
+        // Each light asks for those columns of each row, and one more on
+        // either side to spare, rather than its whole rectangle.
+        std::vector<uint32_t> reach_left(height, width), reach_right(height, 0);
+        std::vector<std::array<uint32_t, 3>> reaches;
+        std::size_t reach_pixels = 0;
+        std::size_t lights = 0;
+        for (const auto& source :
+             projected.first(std::min(projected.size(), renderer_effects::max_sources))) {
+            const float radius = std::min(source.radius_pixels, renderer_effects::max_radius);
+            const float radius_y =
+                source.radius_y_pixels > 0
+                    ? std::min(source.radius_y_pixels, renderer_effects::max_radius)
+                    : radius;
+            if (!std::isfinite(source.screen_x) || !std::isfinite(source.screen_y) ||
+                !std::isfinite(radius) || radius <= 0 || !std::isfinite(radius_y) || radius_y <= 0)
+                continue;
+            ++lights;
+            const auto top = static_cast<uint32_t>(
+                std::clamp(std::floor(source.screen_y - radius_y), 0.0F, float(height))
+            );
+            const auto bottom = static_cast<uint32_t>(
+                std::clamp(std::ceil(source.screen_y + radius_y) + 1, 0.0F, float(height))
+            );
+            for (auto y = top; y < bottom; ++y) {
+                const float dy = (float(y) - source.screen_y) / radius_y;
+                constexpr float row_spare = 1.0F / 1024;
+                if (dy * dy >= 1 + row_spare)
+                    continue;
+                const float half_width = radius * std::sqrt(std::max(0.0F, 1 - dy * dy));
+                constexpr float column_spare = 6;
+                const auto left = static_cast<uint32_t>(std::clamp(
+                    std::floor(source.screen_x - half_width) - column_spare, 0.0F, float(width)
+                ));
+                const auto right = static_cast<uint32_t>(std::clamp(
+                    std::ceil(source.screen_x + half_width) + column_spare + 1, 0.0F, float(width)
+                ));
+                if (left >= right)
+                    continue;
+                reaches.push_back({y, left, right});
+                reach_pixels += right - left;
+                reach_left[y] = std::min(reach_left[y], left);
+                reach_right[y] = std::max(reach_right[y], right);
+            }
+        }
         std::size_t span_pixels = 0;
         for (uint32_t y = 0; y < height; ++y)
-            if (row_right[y] > row_left[y])
-                span_pixels += row_right[y] - row_left[y];
+            if (reach_right[y] > reach_left[y])
+                span_pixels += reach_right[y] - reach_left[y];
         std::vector<uint8_t> requested_pixels;
         // A row interval can bridge distant lights. Keep the simple row path
-        // when their rectangles overlap or leave little unused space.
+        // when their reaches overlap or leave little unused space.
         constexpr std::size_t sparse_region_margin = 4;
-        if (regions.size() > 1 &&
-            span_pixels > region_pixels + region_pixels / sparse_region_margin) {
+        if (lights > 1 && span_pixels > reach_pixels + reach_pixels / sparse_region_margin) {
             requested_pixels.resize(static_cast<std::size_t>(width) * height);
-            for (const auto& region : regions)
-                for (auto y = region[1]; y < region[3]; ++y) {
-                    const auto offset = static_cast<std::size_t>(y) * width;
-                    std::fill(
-                        requested_pixels.begin() + offset + region[0],
-                        requested_pixels.begin() + offset + region[2],
-                        1
-                    );
-                }
+            for (const auto& [y, left, right] : reaches) {
+                const auto offset = static_cast<std::size_t>(y) * width;
+                std::fill(
+                    requested_pixels.begin() + offset + left,
+                    requested_pixels.begin() + offset + right,
+                    1
+                );
+            }
         }
-        live_scene_visibility(visibility, depths, false, row_left, row_right, requested_pixels);
+        bench_timers::Span testing(bench_timers::Stage::effect_visibility);
+        live_scene_visibility(visibility, depths, false, reach_left, reach_right, requested_pixels);
+        testing.stop();
         if (visibility.size() != static_cast<std::size_t>(width) * height)
             return;
     } else {
         const auto& sight = match_->sight();
         const auto coverage = match_->player_coverage(match_view_player());
-        const auto bit = static_cast<uint16_t>(1U << (match_view_player() & 0x1fU));
+        // The view player's mapped bit, and those of the players whose ground
+        // it is shown under allied vision.
+        const auto own = static_cast<uint16_t>(1U << (match_view_player() & 0x1fU));
+        const present::world_renderer::FogOptions fog_rules{
+            match_line_of_sight_on(), match_mapping_on(), allied_mapped_bits()
+        };
+        const auto bit = static_cast<uint16_t>(own | fog_rules.shared_mapped);
         constexpr float cell = present::world_renderer::fog_cell_pixels;
-        const bool mapping = match_mapping_on();
-        const bool los = match_line_of_sight_on();
+        const bool mapping = fog_rules.mapping;
         const auto visible = [&](int column, int row) {
             if (column < 0 || row < 0 || column >= sight.width || row >= sight.height)
                 return false;
@@ -244,45 +352,100 @@ void Runtime::compose_match_effect_pixels(
             if (mapping &&
                 (index >= sight.player_bits.size() || (sight.player_bits[index] & bit) == 0))
                 return false;
-            return !los || (index < coverage.size() &&
-                            sim::visibility_state::count_in_sight(
-                                coverage[index], sim::visibility_state::SightReading::player
-                            ));
+            return present::world_renderer::cell_shown_in_sight(
+                index < coverage.size() ? coverage[index] : uint16_t{0},
+                index < sight.player_bits.size() ? sight.player_bits[index] : uint16_t{0},
+                own,
+                fog_rules
+            );
         };
         visibility.resize(static_cast<std::size_t>(width) * height);
+        // The compose reads only pixels inside the lights' rectangles. Each
+        // pixel column's map position and cell are worked out once, and a
+        // cell's sight and its eight neighbours' once along a row.
+        uint32_t reach_left = width;
+        uint32_t reach_right = 0;
         for (uint32_t y = 0; y < height; ++y)
-            for (uint32_t x = row_left[y]; x < row_right[y]; ++x) {
-                const float map_x =
-                    static_cast<float>(place[0]) + (origin_x + (x + 0.5F) / scale_x) / zoom;
-                const float map_y =
-                    static_cast<float>(place[1]) + (origin_y + (y + 0.5F) / scale_y) / zoom;
-                const int column = static_cast<int>(std::floor(map_x / cell));
-                const int row = static_cast<int>(std::floor(map_y / cell));
-                if (!visible(column, row))
-                    continue;
-                // Fade toward unseen neighbours without adding light to their pixels.
-                float attenuation = 1;
-                for (int dz = -1; dz <= 1; ++dz)
-                    for (int dx = -1; dx <= 1; ++dx)
-                        if (!visible(column + dx, row + dz)) {
-                            const float distance_x = std::max(
-                                {(column + dx) * cell - map_x,
-                                 map_x - (column + dx + 1) * cell,
-                                 0.0F}
-                            );
-                            const float distance_y = std::max(
-                                {(row + dz) * cell - map_y, map_y - (row + dz + 1) * cell, 0.0F}
-                            );
-                            attenuation = std::min(
-                                attenuation,
-                                std::clamp(
-                                    std::hypot(distance_x, distance_y) / (cell * 0.5F), 0.0F, 1.0F
-                                )
-                            );
-                        }
-                visibility[static_cast<std::size_t>(y) * width + x] =
-                    static_cast<uint8_t>(attenuation * 255);
+            if (row_left[y] < row_right[y]) {
+                reach_left = std::min(reach_left, row_left[y]);
+                reach_right = std::max(reach_right, row_right[y]);
             }
+        std::vector<float> map_xs;
+        std::vector<int> columns;
+        for (uint32_t x = reach_left; x < reach_right; ++x) {
+            const float map_x =
+                static_cast<float>(place[0]) + (origin_x + (x + 0.5F) / scale_x) / zoom;
+            map_xs.push_back(map_x);
+            columns.push_back(static_cast<int>(std::floor(map_x / cell)));
+        }
+        // Bit (dz + 1) * 3 + dx + 1 holds whether the cell dx, dz from a
+        // pixel's own cell is in sight; bit 4 is the pixel's own cell.
+        constexpr uint16_t own_cell = 1U << 4;
+        constexpr uint16_t every_cell = 0x1ff;
+        std::vector<std::array<uint32_t, 2>> spans;
+        for (uint32_t y = 0; y < height; ++y) {
+            if (row_left[y] >= row_right[y])
+                continue;
+            const float map_y =
+                static_cast<float>(place[1]) + (origin_y + (y + 0.5F) / scale_y) / zoom;
+            const int row = static_cast<int>(std::floor(map_y / cell));
+            spans.clear();
+            for (const auto& region : regions)
+                if (region[1] <= y && y < region[3] && region[0] < region[2])
+                    spans.push_back({region[0], region[2]});
+            std::sort(spans.begin(), spans.end());
+            bool sight_known = false;
+            int sight_column = 0;
+            uint16_t in_sight = 0;
+            uint32_t filled = 0;
+            for (const auto& span : spans) {
+                for (uint32_t x = std::max(span[0], filled); x < span[1]; ++x) {
+                    const int column = columns[x - reach_left];
+                    if (!sight_known || column != sight_column) {
+                        in_sight = 0;
+                        for (int dz = -1; dz <= 1; ++dz)
+                            for (int dx = -1; dx <= 1; ++dx)
+                                if (visible(column + dx, row + dz))
+                                    in_sight |=
+                                        static_cast<uint16_t>(1U << ((dz + 1) * 3 + dx + 1));
+                        sight_known = true;
+                        sight_column = column;
+                    }
+                    if ((in_sight & own_cell) == 0)
+                        continue;
+                    uint8_t& pixel_visibility = visibility[static_cast<std::size_t>(y) * width + x];
+                    if (in_sight == every_cell) {
+                        pixel_visibility = 255;
+                        continue;
+                    }
+                    const float map_x = map_xs[x - reach_left];
+                    // Fade toward unseen neighbours without adding light to their pixels.
+                    float attenuation = 1;
+                    for (int dz = -1; dz <= 1; ++dz)
+                        for (int dx = -1; dx <= 1; ++dx)
+                            if ((in_sight & (1U << ((dz + 1) * 3 + dx + 1))) == 0) {
+                                const float distance_x = std::max(
+                                    {(column + dx) * cell - map_x,
+                                     map_x - (column + dx + 1) * cell,
+                                     0.0F}
+                                );
+                                const float distance_y = std::max(
+                                    {(row + dz) * cell - map_y, map_y - (row + dz + 1) * cell, 0.0F}
+                                );
+                                attenuation = std::min(
+                                    attenuation,
+                                    std::clamp(
+                                        std::hypot(distance_x, distance_y) / (cell * 0.5F),
+                                        0.0F,
+                                        1.0F
+                                    )
+                                );
+                            }
+                    pixel_visibility = static_cast<uint8_t>(attenuation * 255);
+                }
+                filled = std::max(filled, span[1]);
+            }
+        }
     }
     renderer_effects::compose(
         {pixels,
@@ -293,8 +456,9 @@ void Runtime::compose_match_effect_pixels(
          visibility,
          depths},
         projected,
-        {true, true, settings.heat_distortion != 0},
-        static_cast<double>(match_->simulation().tick) / 30.0
+        match_effect_settings(),
+        static_cast<double>(match_->simulation().tick) / 30.0,
+        draw_pool_.get()
     );
 }
 

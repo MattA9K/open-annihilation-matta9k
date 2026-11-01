@@ -813,6 +813,53 @@ void check_engine_banner(Driver& d) {
     mp::multiplayer_bind_engine_banner({});
 }
 
+/// The screen size the test binds as the one the game plays at.
+mp::DisplayMode bound_screen_size{};
+
+/// Returns the screen size the test binds.
+mp::DisplayMode screen_size_bound(void*) {
+    return bound_screen_size;
+}
+
+/// The local player's RES shows the size the game plays at each time the
+/// battle room opens, so a size the settings chose between two rooms shows
+/// in the second, and a click on RES0 changes nothing.
+void check_screen_size_shown(Driver& d) {
+    bound_screen_size = {1920, 1080, 8};
+    mp::multiplayer_bind_display_modes({nullptr, screen_size_bound});
+    if (!host_battleroom(d, "Sizes", "Host")) {
+        mp::multiplayer_bind_display_modes({});
+        return;
+    }
+    d.frame();
+    const auto& info = mp::local_info(mp::multiplayer_lobby());
+    expect(
+        info.screen_width == 1920 && info.screen_height == 1080 &&
+            mp::panel_text(mp::multiplayer_panel(), "RES0") == "1920x1080",
+        "RES0 shows the size the game plays at"
+    );
+    const auto* res = control("RES0");
+    d.host.sounds.clear();
+    if (res != nullptr)
+        d.pointer_click(res->x + res->width / 2, res->y + res->height / 2);
+    expect(
+        res != nullptr && !d.played("Multi") && info.screen_width == 1920 &&
+            mp::panel_text(mp::multiplayer_panel(), "RES0") == "1920x1080",
+        "a click on RES0 changes nothing"
+    );
+    bound_screen_size = {1280, 720, 8};
+    if (host_battleroom(d, "Sizes again", "Host")) {
+        d.frame();
+        const auto& again = mp::local_info(mp::multiplayer_lobby());
+        expect(
+            again.screen_width == 1280 && again.screen_height == 720 &&
+                mp::panel_text(mp::multiplayer_panel(), "RES0") == "1280x720",
+            "a battle room opened again shows the size the settings chose since"
+        );
+    }
+    mp::multiplayer_bind_display_modes({});
+}
+
 int starts = 0;
 
 /// Counts the games the battle room starts.
@@ -3079,6 +3126,60 @@ int main() {
             shows_frame(d, art, sides, control("SIDE0")->stage, control("SIDE0")),
         "SIDE0 keeps its art"
     );
+    // A side past the art shows its name on the bevel, and a side the art
+    // has a frame for still shows that frame.
+    if (sides != nullptr && control("SIDE0") != nullptr && sides->frames.size() > 1 &&
+        sides->frames.size() < 7) {
+        const auto saved_stage = control("SIDE0")->stage;
+        const auto saved_side = mp::local_info(lobby).side;
+        std::vector<std::string> names;
+        for (int index = 0; index < 7; ++index)
+            names.push_back("Ridge" + std::to_string(index));
+        mp::multiplayer_bind_side_names(names);
+        mp::multiplayer_bind_side_count(7);
+        const auto past = static_cast<int32_t>(sides->frames.size());
+        // The room's tick copies the local seat's side onto SIDE0 before the
+        // draw, so the seat names the stage this frame should show. The bevel
+        // colours are GUI palette entries 17 and 0 as the room's palette matches them.
+        mp::local_info(lobby).side = static_cast<uint8_t>(past);
+        mp::panel_set_stage(mp::multiplayer_panel(), "SIDE0", past);
+        d.frame();
+        const auto* named = control("SIDE0");
+        const Box face = named != nullptr ? badge_box(*named) : Box{};
+        const auto mapped = oa::remap_palette(art.screen.gui_palette, art.palette);
+        const auto palette_rgb = [&](uint8_t index) {
+            const auto entry = mapped[index];
+            return Rgb{
+                art.palette[entry * 4], art.palette[entry * 4 + 1], art.palette[entry * 4 + 2]
+            };
+        };
+        const Rgb bevel_top = palette_rgb(17);
+        const Rgb bevel_bottom = palette_rgb(0);
+        bool caption_is_name = false;
+        for (const auto& gadget : mp::multiplayer_drawn_layout().gadgets) {
+            if (gadget.common.name != "SIDE0")
+                continue;
+            if (const auto* fields = std::get_if<oa::ui::gui_layout::ButtonFields>(&gadget.fields))
+                caption_is_name = fields->text == names[static_cast<std::size_t>(past)];
+        }
+        expect(
+            named != nullptr && caption_is_name && !shows_frame(d, art, sides, 0, named) &&
+                pixel_is(d, face.x, face.y, bevel_top) &&
+                pixel_is(d, face.x + face.width - 1, face.y + face.height - 1, bevel_bottom),
+            "a side past the art shows its name on the bevel"
+        );
+        mp::local_info(lobby).side = static_cast<uint8_t>(1);
+        mp::panel_set_stage(mp::multiplayer_panel(), "SIDE0", 1);
+        d.frame();
+        expect(
+            shows_frame(d, art, sides, 1, control("SIDE0")),
+            "SIDE0 at stage 1 still shows its art frame"
+        );
+        mp::local_info(lobby).side = saved_side;
+        mp::multiplayer_bind_side_names({});
+        mp::panel_set_stage(mp::multiplayer_panel(), "SIDE0", saved_stage);
+        d.frame();
+    }
     expect(shows_frame(d, art, doors, 0, control("battlestart")), "closed doors hide START");
 
     // The sliders lie between their arrows and are drawn from the shared
@@ -4052,6 +4153,15 @@ int main() {
     );
     expect(shows_color(d, art, "LOGO" + row, 1, "3.1"), "the remote player's colour square");
     expect(shows_version(d, art, "LOGO" + row, "3.1"), "the remote player's version");
+    // A host a launch started sends its major biased by 100 and marks its
+    // block launch-only; the room shows the version its game declares.
+    remote->version_major = 103;
+    remote->status = static_cast<uint16_t>(remote->status | mp::status::launch_only);
+    d.frame();
+    expect(shows_version(d, art, "LOGO" + row, "3.1"), "a launched player's version reads 3.1");
+    remote->version_major = 3;
+    remote->status = static_cast<uint16_t>(remote->status & ~mp::status::launch_only);
+    d.frame();
     expect(shows_frame(d, art, disc, 0, control("CD" + row)), "a remote 3.1c player's CD icon");
     expect(!door->hot, "the doors stop taking clicks once everyone is ready");
     expect(
@@ -4276,6 +4386,7 @@ int main() {
     }
     check_launch_exit(d);
     check_engine_banner(d);
+    check_screen_size_shown(d);
     check_pack_maps(d);
     check_pack_map_page(d);
     check_bound_base_maps(d);

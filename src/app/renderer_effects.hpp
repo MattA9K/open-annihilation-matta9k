@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #pragma once
 
+#include "oa/platform/job_pool.hpp"
+
+#include <cstddef>
 #include <cstdint>
 #include <array>
 #include <span>
@@ -50,6 +53,42 @@ struct Surface {
 /// @return light and heat strength multipliers, respectively
 std::array<float, 2> detail_strength(float radius_pixels, float zoom) noexcept;
 
+/// The most sources compose() draws: the first this many it is given.
+inline constexpr std::size_t max_sources = 128;
+
+/// The widest a source reaches compose() draws, in pixels either way.
+inline constexpr float max_radius = 256;
+
+/// The channel steps a source's light adds at its centre at strength 1.
+inline constexpr float light_energy = 110;
+
+/// The channel steps a wreck's glow adds at its centre at strength 1.
+inline constexpr float glow_energy = 150;
+
+/// The share of a source's radius its glow's core reaches.
+inline constexpr float glow_radius_fraction = 0.35F;
+
+/// The share of a source's depth reach by which a surface nearer the camera
+/// than the source counts as standing in front of it: the glow and the heat
+/// leave it alone, and heat samples no pixel across that much depth.
+inline constexpr float silhouette_depth_fraction = 0.08F;
+
+/// The least heat strength that distorts.
+inline constexpr float minimum_heat = 0.25F;
+
+/// The most pixels heat moves a sample at strength 1.
+inline constexpr float max_displacement = 2;
+
+/// Heat's ripple along the rows, in radians a row, and in time, in radians a
+/// simulation second; time repeats every animation_period seconds.
+inline constexpr float heat_spatial_frequency = 0.55F;
+inline constexpr float heat_temporal_frequency = 11;
+inline constexpr double animation_period = 120;
+
+/// Whether compose() draws a source at all: every value finite, a radius
+/// above zero and no reach below it.
+bool valid_source(const Source& source) noexcept;
+
 /// Composite at most 128 visible sources, with radii bounded to 256 pixels.
 /// Source visibility must be checked before projection. Visibility prevents both
 /// sampling and writing hidden pixels; depth limits light reach and rejects shimmer
@@ -61,8 +100,14 @@ std::array<float, 2> detail_strength(float radius_pixels, float zoom) noexcept;
 /// @param sources visible projected sources, finite values and effect strengths in [0,2]
 /// @param settings independent light, wreck glow and distortion switches
 /// @param simulation_seconds simulation time, held constant while paused
+/// @param pool threads to compose bands of rows on; null composes them in
+///        order on the calling thread, with the same result
 void compose(
-    Surface surface, std::span<const Source> sources, Settings settings, double simulation_seconds
+    Surface surface,
+    std::span<const Source> sources,
+    Settings settings,
+    double simulation_seconds,
+    platform::job_pool::Pool* pool = nullptr
 );
 
 } // namespace oa::app::renderer_effects

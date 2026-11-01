@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "oa/sim/gameplay_input/input.hpp"
+#include "oa/core/map_plot.h"
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -129,6 +130,65 @@ formats::objects3d::FixedVector3 terrain_intersection(
         break;
     }
     return {fixed_x, std::bit_cast<int32_t>(static_cast<uint32_t>(height) << 16U), fixed_z};
+}
+
+formats::objects3d::FixedVector3 drag_box_corner(
+    const sim::unit_movement::Terrain& terrain,
+    int32_t map_x,
+    int32_t projected_z,
+    int32_t map_width,
+    int32_t map_height,
+    bool past_edges
+) {
+    const bool on_map =
+        map_x >= 0 && map_x < map_width && projected_z >= 0 && projected_z < map_height;
+    if (!past_edges || on_map || map_width <= 0 || map_height <= 0)
+        return terrain_intersection(terrain, map_x, projected_z, map_width, map_height);
+    return {fixed(map_x), 0, fixed(projected_z)};
+}
+
+formats::objects3d::FixedVector3 ground_point_on_shown_map(
+    const sim::unit_movement::Terrain& terrain,
+    const formats::objects3d::FixedVector3& point,
+    int32_t shown_width,
+    int32_t shown_height,
+    int32_t map_width,
+    int32_t map_height
+) {
+    if (shown_width <= 0 || shown_height <= 0)
+        return point;
+    const int32_t column = point.x >> 16;
+    const int32_t row = (point.z >> 16) - ((point.y >> 16) >> 1);
+    if (column >= 0 && column < shown_width && row >= 0 && row < shown_height)
+        return point;
+    return terrain_intersection(
+        terrain,
+        std::clamp(column, 0, shown_width - 1),
+        std::clamp(row, 0, shown_height - 1),
+        map_width,
+        map_height
+    );
+}
+
+bool footprint_within_shown_map(
+    int32_t cell_x,
+    int32_t cell_z,
+    int32_t footprint_x,
+    int32_t footprint_z,
+    int32_t height,
+    int32_t shown_width,
+    int32_t shown_height
+) noexcept {
+    if (shown_width <= 0 || shown_height <= 0)
+        return true;
+    // In 64 bits, so that no footprint wraps round into the map.
+    constexpr int64_t cell = OA_MAP_CELL_PIXELS;
+    const int64_t lift = height >> 1;
+    const int64_t left = int64_t{cell_x} * cell;
+    const int64_t right = (int64_t{cell_x} + footprint_x) * cell;
+    const int64_t top = int64_t{cell_z} * cell - lift;
+    const int64_t bottom = (int64_t{cell_z} + footprint_z) * cell - lift;
+    return left >= 0 && right <= shown_width && top >= 0 && bottom <= shown_height;
 }
 
 bool command_binds_cursor_unit(uint8_t command) noexcept {

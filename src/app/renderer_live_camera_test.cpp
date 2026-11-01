@@ -5,7 +5,10 @@
 #include "renderer_live_camera.hpp"
 #include "oa/test/check.hpp"
 
+#include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <limits>
 
@@ -289,6 +292,232 @@ void prepared_triangle_picking() {
     OA_CHECK(depth == 44);
 }
 
+/// Narrowed rows keep every column whose centre the prepared query accepts.
+void narrowed_rows() {
+    using Triangle = std::array<std::array<float, 3>, 3>;
+    uint32_t state = 54321;
+    const auto random = [&] {
+        state = state * 1664525U + 1013904223U;
+        return float(state >> 8) / 16777216.0F;
+    };
+    constexpr float centre = 0.5F;
+    std::size_t kept = 0;
+    std::size_t left_out = 0;
+    for (int sample = 0; sample < 4000; ++sample) {
+        // Triangles from slivers a pixel across to ones wider than the rows.
+        const float scale = std::pow(10.0F, random() * 3 - 0.5F);
+        const float middle_x = random() * 64;
+        const float middle_y = random() * 64;
+        Triangle triangle{};
+        for (auto& vertex : triangle)
+            vertex = {
+                middle_x + (random() * 2 - 1) * scale,
+                middle_y + (random() * 2 - 1) * scale,
+                random() * 100
+            };
+        if (sample % 5 == 0)
+            triangle[2] = {
+                std::lerp(triangle[0][0], triangle[1][0], 0.375F),
+                std::lerp(triangle[0][1], triangle[1][1], 0.375F) + 1e-3F,
+                10
+            };
+        if (sample % 7 == 0)
+            triangle[1][1] = triangle[0][1];
+        PreparedTriangle prepared;
+        if (!prepare_triangle(triangle, prepared))
+            continue;
+        for (int y = -8; y < 72; ++y) {
+            constexpr int row_first = -8;
+            constexpr int row_last = 72;
+            int first = row_first;
+            int last = row_last;
+            narrow_row(prepared, y + centre, centre, first, last);
+            OA_CHECK(first >= row_first && last <= row_last);
+            for (int x = row_first; x < row_last; ++x) {
+                std::array<float, 3> weights{};
+                float depth{};
+                if (!triangle_hit_prepared(prepared, x + centre, y + centre, weights, depth))
+                    continue;
+                OA_CHECK(x >= first && x < last);
+                ++kept;
+            }
+            left_out += static_cast<std::size_t>(row_last - row_first) -
+                        static_cast<std::size_t>(std::max(0, last - first));
+        }
+    }
+    // The narrowing leaves out most of the columns no triangle covers.
+    OA_CHECK(kept > 0);
+    OA_CHECK(left_out > kept);
+    // An invalid triangle and an empty row change nothing.
+    int first = 3;
+    int last = 40;
+    narrow_row(PreparedTriangle{}, 10.5F, centre, first, last);
+    OA_CHECK(first == 3 && last == 40);
+    first = last = 7;
+    PreparedTriangle prepared;
+    OA_CHECK(prepare_triangle(Triangle{{{0, 0, 0}, {64, 0, 0}, {0, 64, 0}}}, prepared));
+    narrow_row(prepared, 10.5F, centre, first, last);
+    OA_CHECK(first == 7 && last == 7);
+    // A row wholly outside the triangle comes back empty.
+    first = 0;
+    last = 64;
+    narrow_row(prepared, 80.5F, centre, first, last);
+    OA_CHECK(first == last);
+}
+
+/// Weighing a point gives the reference hit's answer, weights and depth.
+void weighed_points() {
+    using Triangle = std::array<std::array<float, 3>, 3>;
+    uint32_t state = 24680;
+    const auto random = [&] {
+        state = state * 1664525U + 1013904223U;
+        return float(state >> 8) / 16777216.0F;
+    };
+    std::size_t hits = 0;
+    std::size_t misses = 0;
+    for (int sample = 0; sample < 4000; ++sample) {
+        // From slivers and tiny triangles far from the origin to wide ones.
+        const float scale = std::pow(10.0F, random() * 6 - 3);
+        const float middle_x = (random() * 2 - 1) * 4096;
+        const float middle_y = (random() * 2 - 1) * 4096;
+        Triangle triangle{};
+        for (auto& vertex : triangle)
+            vertex = {
+                middle_x + (random() * 2 - 1) * scale,
+                middle_y + (random() * 2 - 1) * scale,
+                (random() * 2 - 1) * 1000
+            };
+        if (sample % 5 == 0)
+            triangle[2] = {
+                std::lerp(triangle[0][0], triangle[1][0], 0.625F),
+                std::lerp(triangle[0][1], triangle[1][1], 0.625F),
+                10
+            };
+        PreparedTriangle prepared;
+        if (!prepare_triangle(triangle, prepared))
+            continue;
+        const auto compare = [&](float x, float y) {
+            std::array<float, 3> weights{11, 22, 33};
+            float depth = 44;
+            const bool expected = triangle_hit_reference(triangle, x, y, weights, depth);
+            const auto point = weigh_prepared(prepared, x, y);
+            OA_CHECK(point.hit == expected);
+            if (!expected) {
+                ++misses;
+                return;
+            }
+            ++hits;
+            OA_CHECK(point.weights == weights);
+            OA_CHECK(point.depth == depth);
+        };
+        for (int point = 0; point < 16; ++point)
+            compare(
+                middle_x + (random() * 3 - 1.5F) * scale, middle_y + (random() * 3 - 1.5F) * scale
+            );
+        for (const auto& vertex : triangle) {
+            compare(vertex[0], vertex[1]);
+            compare(std::nextafter(vertex[0], std::numeric_limits<float>::infinity()), vertex[1]);
+        }
+    }
+    OA_CHECK(hits > 1000);
+    OA_CHECK(misses > 1000);
+}
+
+/// The row-by-row narrowing as it was written before its row-independent
+/// terms were worked out once: the reference the prepared narrowing keeps.
+void narrow_row_reference(
+    const PreparedTriangle& triangle, float screen_y, float centre, int& first, int& last
+) {
+    if (!triangle.valid || !std::isfinite(screen_y) || !std::isfinite(centre) ||
+        last - first <= most_columns_left_whole)
+        return;
+    const double sign = triangle.determinant < 0 ? -1.0 : 1.0;
+    const double size = std::abs(triangle.determinant);
+    const double row = double(screen_y) - triangle.origin_y;
+    const std::array<double, 3> slopes{
+        triangle.first_x * sign,
+        triangle.second_x * sign,
+        -(triangle.first_x + triangle.second_x) * sign
+    };
+    const std::array<double, 3> offsets{
+        triangle.first_y * row * sign,
+        triangle.second_y * row * sign,
+        size - (triangle.first_y + triangle.second_y) * row * sign
+    };
+    const double limit = size * 2e-6;
+    double low = -std::numeric_limits<double>::infinity();
+    double high = std::numeric_limits<double>::infinity();
+    for (std::size_t edge = 0; edge < slopes.size(); ++edge) {
+        if (std::abs(slopes[edge]) <= size * 1e-9)
+            continue;
+        const double bound = (-limit - offsets[edge]) * (1 / slopes[edge]);
+        if (!std::isfinite(bound))
+            continue;
+        if (slopes[edge] > 0)
+            low = std::max(low, bound - 0.5);
+        else
+            high = std::min(high, bound + 0.5);
+    }
+    const double left = std::max(double(first), std::ceil(low + triangle.origin_x - centre));
+    const double right = std::min(double(last), std::floor(high + triangle.origin_x - centre) + 1);
+    if (!(left < right)) {
+        last = first;
+        return;
+    }
+    first = static_cast<int>(left);
+    last = static_cast<int>(right);
+}
+
+/// A triangle's narrowing, prepared once, narrows each row as the reference does.
+void prepared_narrowing() {
+    using Triangle = std::array<std::array<float, 3>, 3>;
+    uint32_t state = 13579;
+    const auto random = [&] {
+        state = state * 1664525U + 1013904223U;
+        return float(state >> 8) / 16777216.0F;
+    };
+    constexpr float centre = 0.5F;
+    std::size_t narrowed = 0;
+    for (int sample = 0; sample < 4000; ++sample) {
+        const float scale = std::pow(10.0F, random() * 4 - 1);
+        const float middle_x = random() * 256;
+        const float middle_y = random() * 256;
+        Triangle triangle{};
+        for (auto& vertex : triangle)
+            vertex = {
+                middle_x + (random() * 2 - 1) * scale,
+                middle_y + (random() * 2 - 1) * scale,
+                random() * 100
+            };
+        if (sample % 7 == 0)
+            triangle[1][1] = triangle[0][1];
+        if (sample % 11 == 0)
+            triangle[2][0] = triangle[0][0];
+        PreparedTriangle prepared;
+        (void)prepare_triangle(triangle, prepared);
+        const auto narrowing = prepare_narrowing(prepared);
+        for (int y = -4; y < 264; y += 3) {
+            const int row_first = static_cast<int>(random() * 64) - 16;
+            const int row_last = row_first + static_cast<int>(random() * 320);
+            int first = row_first;
+            int last = row_last;
+            narrow_row(narrowing, y + centre, centre, first, last);
+            int expected_first = row_first;
+            int expected_last = row_last;
+            narrow_row_reference(prepared, y + centre, centre, expected_first, expected_last);
+            OA_CHECK(first == expected_first && last == expected_last);
+            int whole_first = row_first;
+            int whole_last = row_last;
+            narrow_row(prepared, y + centre, centre, whole_first, whole_last);
+            OA_CHECK(whole_first == expected_first && whole_last == expected_last);
+            narrowed += first != row_first || last != row_last;
+        }
+    }
+    OA_CHECK(narrowed > 10000);
+    // An invalid triangle prepares no narrowing, which leaves rows whole.
+    OA_CHECK(!prepare_narrowing(PreparedTriangle{}).valid);
+}
+
 /// Include every visible terrain height while keeping the classic crop tight.
 void terrain_bounds() {
     constexpr float width = 960;
@@ -366,6 +595,9 @@ int main() {
     triangle_picking();
     prepared_triangle_picking();
     bounded_triangle_picking();
+    narrowed_rows();
+    weighed_points();
+    prepared_narrowing();
     terrain_bounds();
     return oa::test::check_exit_status();
 }

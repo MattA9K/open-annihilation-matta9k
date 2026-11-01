@@ -95,6 +95,84 @@ hit_candidates(std::span<const PickUnit> units, const Camera& camera, ScreenPoin
     int32_t map_width,
     int32_t map_height
 );
+/// Finds the point a drag box's corner takes at a screen-plane position.
+///
+/// Over the map it is the terrain point seen there (terrain_intersection).
+/// A view that may show past the map's edges shows no ground there: a
+/// position past them is its own point at height 0, so that the box reaches
+/// as far as the view shows and takes the units drawn there. A view kept on
+/// the map takes the terrain point wherever the position lies, as 3.1c does.
+///
+/// @param terrain height and sea level queries
+/// @param map_x camera-adjusted map column, whole units
+/// @param projected_z camera-adjusted screen-plane row, whole units
+/// @param map_width map width, whole units
+/// @param map_height map height, whole units
+/// @param past_edges true when the view may show past the map's edges
+/// @return the corner, 16.16 world coordinates
+[[nodiscard]] formats::objects3d::FixedVector3 drag_box_corner(
+    const sim::unit_movement::Terrain& terrain,
+    int32_t map_x,
+    int32_t projected_z,
+    int32_t map_width,
+    int32_t map_height,
+    bool past_edges
+);
+/// Holds a ground point a turned view's pick found to the map the view
+/// shows, as the classic pick holds its point: a point drawn within the
+/// shown map stands; one drawn past it takes the terrain point seen at the
+/// nearest shown map pixel (terrain_intersection). A point is drawn at its
+/// column, and at its row less half its height, rounded down. So a pick
+/// reaches no further past the map's edges than 3.1c's, whose view never
+/// shows past them.
+///
+/// @param terrain height and sea level queries
+/// @param point the ground point the pick found, 16.16 world coordinates
+/// @param shown_width the shown map's width, whole units; 0 or less, with
+///        no shown map known, holds nothing
+/// @param shown_height the shown map's height, whole units; likewise
+/// @param map_width map width, whole units
+/// @param map_height map height, whole units
+/// @return the point, 16.16 world coordinates
+[[nodiscard]] formats::objects3d::FixedVector3 ground_point_on_shown_map(
+    const sim::unit_movement::Terrain& terrain,
+    const formats::objects3d::FixedVector3& point,
+    int32_t shown_width,
+    int32_t shown_height,
+    int32_t map_width,
+    int32_t map_height
+);
+/// Tells whether a building's footprint lies within the map the view shows,
+/// as the local player's build cursor requires of a site.
+///
+/// Across, its columns lie within the shown width. Down, it is drawn raised
+/// by half the height it stands at, rounded down, as the map's hidden edges
+/// are measured: its first row is drawn at or below the map's top and its
+/// last row within the shown height. So the cursor offers no site whose
+/// building would stand over ground the view never shows, such as a
+/// geothermal plant over a vent in the rows past the map's bottom edge,
+/// which the simulation's own site test lets through. That test is kept as
+/// it is: orders from other machines and the computer players' builds are
+/// not held to this.
+///
+/// @param cell_x the footprint's first column; negative left of the map
+/// @param cell_z the footprint's first row; negative above the map
+/// @param footprint_x its columns
+/// @param footprint_z its rows
+/// @param height the height the building stands at, whole units
+/// @param shown_width the shown map's width, whole units; 0 or less, with
+///        no shown map known, holds nothing
+/// @param shown_height the shown map's height, whole units; likewise
+/// @return true when the footprint lies within the shown map
+[[nodiscard]] bool footprint_within_shown_map(
+    int32_t cell_x,
+    int32_t cell_z,
+    int32_t footprint_x,
+    int32_t footprint_z,
+    int32_t height,
+    int32_t shown_width,
+    int32_t shown_height
+) noexcept;
 
 // Command bytes that never take the unit under the pointer as their target. 5 is
 // UNLOAD. 10 is the command that resolves to STOP. 0x0e is the build cursor a
