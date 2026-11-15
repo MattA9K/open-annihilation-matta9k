@@ -3,6 +3,7 @@
 
 #include "oa/sim/feature_runtime.hpp"
 #include "oa/base/bytes.hpp"
+#include "oa/base/game_math.hpp"
 
 #include <cstring>
 #include <initializer_list>
@@ -311,8 +312,12 @@ uint8_t plot_height(const World& world, int16_t cell_x, int16_t cell_z) noexcept
 }
 
 int32_t sample_height(const World& world, oa_fixed x, oa_fixed z) noexcept {
-    const auto world_x = static_cast<int32_t>(static_cast<int16_t>(static_cast<uint32_t>(x) >> 16));
-    const auto world_z = static_cast<int32_t>(static_cast<int16_t>(static_cast<uint32_t>(z) >> 16));
+    const auto pixels_x = world.game.map_width > 0 ? world.game.map_width * plot_world_units : 0;
+    const auto pixels_z = world.game.map_height > 0 ? world.game.map_height * plot_world_units : 0;
+    const auto world_x =
+        base::game_math::fixed_extent_index(static_cast<uint32_t>(x), pixels_x, 16);
+    const auto world_z =
+        base::game_math::fixed_extent_index(static_cast<uint32_t>(z), pixels_z, 16);
     const auto cell_x = world_x >> 4;
     const auto cell_z = world_z >> 4;
     const auto width = world.game.map_width;
@@ -332,8 +337,12 @@ int32_t sample_height(const World& world, oa_fixed x, oa_fixed z) noexcept {
 }
 
 int32_t mean_plot_height(const World& world, oa_fixed x, oa_fixed z) noexcept {
-    const auto world_x = static_cast<int32_t>(static_cast<int16_t>(static_cast<uint32_t>(x) >> 16));
-    const auto world_z = static_cast<int32_t>(static_cast<int16_t>(static_cast<uint32_t>(z) >> 16));
+    const auto pixels_x = world.game.map_width > 0 ? world.game.map_width * plot_world_units : 0;
+    const auto pixels_z = world.game.map_height > 0 ? world.game.map_height * plot_world_units : 0;
+    const auto world_x =
+        base::game_math::fixed_extent_index(static_cast<uint32_t>(x), pixels_x, 16);
+    const auto world_z =
+        base::game_math::fixed_extent_index(static_cast<uint32_t>(z), pixels_z, 16);
     const auto* plot = plot_at(world, world_x / 16, world_z / 16);
     if (plot == nullptr)
         return -1;

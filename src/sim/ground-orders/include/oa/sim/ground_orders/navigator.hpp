@@ -18,7 +18,7 @@ inline constexpr uint32_t search_retry_ticks = 60;
 inline constexpr std::size_t navigation_capacity = 20;
 inline constexpr std::size_t route_delta_capacity = 3;
 
-using RoutePoint = std::array<int16_t, 2>; // integer world X/Z
+using RoutePoint = std::array<int32_t, 2>; // whole map pixels across and down
 
 // Local ground navigator: owns the route produced by the path search for a
 // unit simulated on this machine.

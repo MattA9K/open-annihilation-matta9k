@@ -192,6 +192,15 @@ void bucket_grid() {
             w.buckets[1].area_high_height == 0 && w.buckets[1].edges == 11,
         "build_buckets single row"
     );
+    // 2560 plots is an 80 by 80 map. Its side is 320 buckets of 128 world units.
+    w.terrain_width = 2560;
+    w.terrain_height = 8;
+    w.plots.assign(2560u * 8u, {});
+    spatial::build_buckets(w);
+    check(
+        w.bucket_width == 320 && w.bucket_height == 1 && w.buckets.size() == 320,
+        "build_buckets 80-map side"
+    );
 }
 
 // bucket_unlink splices through the link it walked (not always the head) and
@@ -600,6 +609,19 @@ int main() {
         check(cell_x == 2 && cell_z == 3, "position_to_cell cells");
         check(
             !spatial::position_to_cell(-1, 0, 16, 16, cell_x, cell_z), "position_to_cell off map"
+        );
+        check(cell_x < 0, "position_to_cell negative cell");
+        // Pixel 34456 is past signed 16-bit pixels and still on an 80 by 80 map
+        // (2560 plots, 40960 pixels). Its cell is 34456 / 16.
+        const auto far = static_cast<int32_t>(34456u << 16);
+        check(
+            spatial::position_to_cell(far, 0, 2560, 2560, cell_x, cell_z),
+            "position_to_cell far side"
+        );
+        check(cell_x == 2153 && cell_z == 0, "position_to_cell far cell");
+        check(
+            !spatial::position_to_cell(-1, 0, 2560, 2560, cell_x, cell_z) && cell_x < 0,
+            "position_to_cell just off a wide map"
         );
         spatial::Plot placed[8]{};
         placed[0].feature_word = 9;

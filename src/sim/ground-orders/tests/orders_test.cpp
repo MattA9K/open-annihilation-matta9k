@@ -75,6 +75,19 @@ int main() {
     CHECK(host.sounds == 5 && order.wait_events == 0xe0 && nav.count == 2 && nav.needs_search());
     CHECK(nav.points[0][0] == 8 && nav.points[1][0] == 88);
     CHECK(extra.goal && extra.goal->cell[0] == 5);
+    {
+        // Pixel 34456 is on an 80 by 80 map and is still that pixel's cell.
+        oa::sim::unit_movement::Unit wide;
+        wide.footprint = {1, 1};
+        const Point far{
+            static_cast<Fixed>(34456u << 16), 0, static_cast<Fixed>(34456u << 16)
+        };
+        const auto far_goal = make_goal(order, wide, far, 16, 2560, 2560);
+        CHECK(far_goal.cell[0] == 2153 && far_goal.cell[1] == 2153);
+        const Point off{static_cast<Fixed>(static_cast<uint32_t>(-30) << 16), 0, 0};
+        const auto off_goal = make_goal(order, wide, off, 16, 2560, 2560);
+        CHECK(off_goal.cell[0] < 0);
+    }
     CHECK(goal_cost(*extra.goal, 0, 0) == 86);
     CHECK(!goal_contains(*extra.goal, 0, 0));
     {

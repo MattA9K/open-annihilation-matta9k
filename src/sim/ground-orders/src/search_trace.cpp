@@ -11,7 +11,7 @@ constexpr std::array<int8_t, 8> direction_x{0, -1, -1, -1, 0, 1, 1, 1};
 constexpr std::array<int8_t, 8> direction_z{-1, -1, 0, 1, 1, 1, 0, -1};
 } // namespace
 
-std::vector<std::array<int16_t, 2>> reconstruct_search_path(
+std::vector<std::array<int32_t, 2>> reconstruct_search_path(
     uint32_t width,
     uint32_t height,
     std::array<int16_t, 2> start,
@@ -56,14 +56,15 @@ std::vector<std::array<int16_t, 2>> reconstruct_search_path(
     }
     ring[written & 63u] = start;
     const auto count = std::min<uint32_t>(written + 1, retained_turns);
-    std::vector<std::array<int16_t, 2>> result;
+    std::vector<std::array<int32_t, 2>> result;
     result.reserve(count);
     for (uint32_t i = 0; i < count; ++i) {
         const auto cell = ring[written & 63u];
         --written;
+        // Footprint centre in whole pixels. The multiply stays in 32 bits, so a
+        // cell on a map past signed 16-bit pixels keeps its centre.
         result.push_back(
-            {static_cast<int16_t>((int32_t(cell[0]) * 2 + footprint_x) * 8),
-             static_cast<int16_t>((int32_t(cell[1]) * 2 + footprint_z) * 8)}
+            {(int32_t(cell[0]) * 2 + footprint_x) * 8, (int32_t(cell[1]) * 2 + footprint_z) * 8}
         );
     }
     return result;

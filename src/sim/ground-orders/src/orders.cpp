@@ -44,8 +44,13 @@ int16_t short_bits(uint32_t v) noexcept {
     return std::bit_cast<int16_t>(static_cast<uint16_t>(v));
 }
 
-int16_t integer(Fixed v) noexcept {
-    return short_bits(uint32_t(v) >> 16);
+int32_t map_pixel(Fixed v, int32_t map_pixels) noexcept {
+    return base::game_math::fixed_extent_index(static_cast<uint32_t>(v), map_pixels, 16);
+}
+
+// Whole pixels shifted into a 16.16 word. A pixel past signed 16.16 keeps its bits.
+Fixed from_pixel(int32_t pixel) noexcept {
+    return bits(static_cast<uint32_t>(pixel) << 16);
 }
 
 Fixed abs32(Fixed v) noexcept {
@@ -109,7 +114,9 @@ void SearchController::complete(OccupancyRectangle rectangle, uint32_t changed_t
     active_.movement_map = nullptr;
 }
 
-void install_goal(UnitView u, Goal* goal, uint32_t tick, Host& host) {
+void install_goal(
+    UnitView u, Goal* goal, uint32_t tick, Host& host, int32_t map_pixels_x, int32_t map_pixels_z
+) {
     auto& n = u.navigation;
     if (!count_fits(n))
         return;
@@ -132,8 +139,7 @@ void install_goal(UnitView u, Goal* goal, uint32_t tick, Host& host) {
                     sub(u.geometry.position[0], target[0]), sub(u.geometry.position[2], target[2])
                 );
                 const auto tail_distance = norm(
-                    sub(Fixed(end[0]) * one_world_unit, target[0]),
-                    sub(Fixed(end[1]) * one_world_unit, target[2])
+                    sub(from_pixel(end[0]), target[0]), sub(from_pixel(end[1]), target[2])
                 );
                 if (mul(tail_distance, 2) < unit_distance)
                     n.flags |= route_bit;
@@ -141,8 +147,13 @@ void install_goal(UnitView u, Goal* goal, uint32_t tick, Host& host) {
             if ((n.flags & route_bit) == 0 && u.state.primary &&
                 (u.state.primary->flags & retry_order) == 0) {
                 n.count = 2;
-                n.points[0] = {integer(u.geometry.position[0]), integer(u.geometry.position[2])};
-                n.points[1] = {integer(target[0]), integer(target[2])};
+                n.points[0] = {
+                    map_pixel(u.geometry.position[0], map_pixels_x),
+                    map_pixel(u.geometry.position[2], map_pixels_z)
+                };
+                n.points[1] = {
+                    map_pixel(target[0], map_pixels_x), map_pixel(target[2], map_pixels_z)
+                };
                 n.flags |= route_bit;
             }
         }
@@ -180,17 +191,19 @@ void advance_path(Navigation& n, uint32_t count) {
     }
 }
 
-void tick_navigation(UnitView u, uint32_t tick, Host& host) {
+void tick_navigation(
+    UnitView u, uint32_t tick, Host& host, int32_t map_pixels_x, int32_t map_pixels_z
+) {
     auto& n = u.navigation;
     if (!count_fits(n))
         return;
     if (n.goal && goal_contains_unit(*n.goal, u.geometry)) {
         signal(n.goal, arrived_event);
-        install_goal(u, nullptr, tick, host);
+        install_goal(u, nullptr, tick, host, map_pixels_x, map_pixels_z);
     }
     if (n.count > 1) {
-        const auto dx = sub(integer(u.geometry.position[0]), n.points[1][0]),
-                   dz = sub(integer(u.geometry.position[2]), n.points[1][1]);
+        const auto dx = sub(map_pixel(u.geometry.position[0], map_pixels_x), n.points[1][0]),
+                   dz = sub(map_pixel(u.geometry.position[2], map_pixels_z), n.points[1][1]);
         if (add(mul(dx, dx), mul(dz, dz)) < Fixed(point_reached_squared))
             advance_path(n, 1);
     }
@@ -213,7 +226,7 @@ std::array<Point, 3> steering_points(const Navigation& n) noexcept {
         return out;
     for (std::size_t i = 0; i < out.size(); ++i) {
         const auto& p = n.points[std::min(i, std::size_t(n.count - 1))];
-        out[i] = {Fixed(p[0]) * one_world_unit, 0, Fixed(p[1]) * one_world_unit};
+        out[i] = {from_pixel(p[0]), 0, from_pixel(p[1])};
     }
     return out;
 }
@@ -237,8 +250,12 @@ uint32_t move_ground(
     OrderState& extra,
     uint32_t events,
     uint32_t tick,
-    Host& host
+    Host& host,
+    int32_t map_cells_x,
+    int32_t map_cells_z
 ) {
+    const auto map_pixels_x = map_cells_x > 0 ? map_cells_x * 16 : 0;
+    const auto map_pixels_z = map_cells_z > 0 ? map_cells_z * 16 : 0;
     if (order.phase == 0) {
         if (u.attached)
             return 7;
@@ -250,17 +267,18 @@ uint32_t move_ground(
         // handler only constructs the rectangular goal for mobiles.
         std::unique_ptr<Goal> next;
         if ((u.geometry.type.flags & aircraft_type) == 0)
-            next = std::make_unique<Goal>(
-                make_goal(order, u.geometry, extra.destination, add(extra.tolerance, 4))
-            );
+            next = std::make_unique<Goal>(make_goal(
+                order, u.geometry, extra.destination, add(extra.tolerance, 4), map_cells_x,
+                map_cells_z
+            ));
         if (u.state.object_present) {
             if (extra.goal) {
-                install_goal(u, nullptr, tick, host);
+                install_goal(u, nullptr, tick, host, map_pixels_x, map_pixels_z);
                 extra.goal.reset();
             }
             if (next) {
                 order.raised_events &= ~goal_event_mask;
-                install_goal(u, next.get(), tick, host);
+                install_goal(u, next.get(), tick, host, map_pixels_x, map_pixels_z);
                 extra.goal = std::move(next);
             }
         }

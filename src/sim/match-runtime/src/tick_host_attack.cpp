@@ -11,16 +11,19 @@ void TickHost::AttackAdapter::set_goal(std::unique_ptr<sim::ground_orders::Goal>
     auto& g = host.ground(*source.unit);
     g.project_slot();
     auto flags = host.weapon_flags(source);
+    const auto& game = host.match.state().game;
     if (record.extra.goal) {
         sim::ground_orders::install_goal(
-            host.view(source, g, flags), nullptr, host.match.simulation_.tick, host
+            host.view(source, g, flags), nullptr, host.match.simulation_.tick, host,
+            game.map_width_world, game.map_height_world
         );
         record.extra.goal.reset();
     }
     if (goal) {
         record.order.raised_events &= ~sim::ground_orders::goal_event_mask;
         sim::ground_orders::install_goal(
-            host.view(source, g, flags), goal.get(), host.match.simulation_.tick, host
+            host.view(source, g, flags), goal.get(), host.match.simulation_.tick, host,
+            game.map_width_world, game.map_height_world
         );
         record.extra.goal = std::move(goal);
     }
@@ -89,7 +92,10 @@ void TickHost::AttackAdapter::circle_goal(const AttackPoint& point, int32_t radi
         p[i] = std::bit_cast<int32_t>(point[i]);
     set_goal(
         std::make_unique<sim::ground_orders::Goal>(
-            sim::ground_orders::make_goal(record.order, g.geometry, p, radius)
+            sim::ground_orders::make_goal(
+                record.order, g.geometry, p, radius, host.match.state().game.map_width,
+                host.match.state().game.map_height
+            )
         )
     );
 }

@@ -38,8 +38,8 @@ static_assert(sizeof(SearchMapCell::handle) == sizeof(SearchHeap::Handle));
 /// @param footprint_x unit footprint width in cells
 /// @param footprint_z unit footprint depth in cells
 /// @param cells the search map, row by row; each cell's predecessor is 0..7
-/// @return route points in integer world X/Z, at most 64; none for a broken map
-std::vector<std::array<int16_t, 2>> reconstruct_search_path(
+/// @return route points in whole map pixels, at most 64; none for a broken map
+std::vector<std::array<int32_t, 2>> reconstruct_search_path(
     uint32_t width,
     uint32_t height,
     std::array<int16_t, 2> start,

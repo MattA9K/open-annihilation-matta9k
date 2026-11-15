@@ -55,12 +55,16 @@ struct Goal {
 /// @param unit moving unit, for its footprint
 /// @param target signed 16.16 world position; converted to the footprint-origin cell
 /// @param tolerance arrival radius in world units
+/// @param map_cells_x map width in cells; zero sign-extends a sign-bit coordinate
+/// @param map_cells_z map height in cells; zero sign-extends a sign-bit coordinate
 /// @return the goal
 Goal make_goal(
     sim::simulation_state::Order& order,
     const sim::unit_movement::Unit& unit,
     const Point& target,
-    int32_t tolerance
+    int32_t tolerance,
+    int32_t map_cells_x = 0,
+    int32_t map_cells_z = 0
 );
 /// Builds a ring goal between an inner and outer range of a centre.
 ///
@@ -69,13 +73,17 @@ Goal make_goal(
 /// @param centre signed 16.16 world position; converted to the footprint-origin cell
 /// @param outer outer range in world units
 /// @param inner inner range in world units
+/// @param map_cells_x map width in cells; zero sign-extends a sign-bit coordinate
+/// @param map_cells_z map height in cells; zero sign-extends a sign-bit coordinate
 /// @return the goal
 Goal make_ring_goal(
     sim::simulation_state::Order& order,
     const sim::unit_movement::Unit& unit,
     const Point& centre,
     int32_t outer,
-    int32_t inner
+    int32_t inner,
+    int32_t map_cells_x = 0,
+    int32_t map_cells_z = 0
 );
 /// Builds the border goal around a build site.
 ///
@@ -102,13 +110,17 @@ Goal make_outline_goal(
 /// @param destination signed 16.16 site centre
 /// @param footprint_x site width in cells
 /// @param footprint_z site depth in cells
+/// @param map_cells_x map width in cells; zero sign-extends a sign-bit coordinate
+/// @param map_cells_z map height in cells; zero sign-extends a sign-bit coordinate
 /// @return the goal
 Goal make_build_goal(
     sim::simulation_state::Order& order,
     const sim::unit_movement::Unit& builder,
     const Point& destination,
     int16_t footprint_x,
-    int16_t footprint_z
+    int16_t footprint_z,
+    int32_t map_cells_x = 0,
+    int32_t map_cells_z = 0
 );
 
 /// Tests whether a footprint-origin cell satisfies the goal.

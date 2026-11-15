@@ -86,12 +86,12 @@ enum class StartRule : uint8_t {
 
 /// One start position of the schema the match plays, in StartPos order.
 ///
-/// `index` is the map's zero-based StartPos number. `x` and `z` are integer
-/// world coordinates, the same numbers a start marker stores.
+/// `index` is the map's zero-based StartPos number. `x` and `z` are that
+/// position's map pixels, the same numbers a start marker stores.
 struct MapStart {
     int32_t index{}; ///< StartPos1 is zero
-    int16_t x{};     ///< integer world coordinate across
-    int16_t z{};     ///< integer world coordinate down
+    int32_t x{};     ///< map pixels across
+    int32_t z{};     ///< map pixels down
 };
 
 /// The facts a brain reads as `game`. A default value is the base game with

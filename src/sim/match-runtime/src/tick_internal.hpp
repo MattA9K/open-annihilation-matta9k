@@ -172,24 +172,21 @@ inline int32_t wrapping_sub(int32_t a, int32_t b) {
 ///
 /// @param value the word, read as signed
 /// @return the shifted value's low half, read as signed
-inline int16_t arithmetic_shift20(uint32_t value) {
-    const auto high = value >> 20;
-    const auto bits = (value & 0x80000000u) ? high | 0xfffff000u : high;
-    return std::bit_cast<int16_t>(static_cast<uint16_t>(bits));
-}
-
 /// Returns the footprint-origin cell of one signed 16.16 axis.
 ///
 /// snap_build_position chooses this cell, then places the footprint's centre
-/// on it.
+/// on it. A cell on a map past signed 16.16 stays on that side; a cell just
+/// off the near side stays negative.
 ///
 /// @param world signed 16.16 coordinate
 /// @param footprint footprint extent on that axis, in cells
+/// @param map_cells map extent on that axis, in cells; zero sign-extends a
+///        coordinate with the sign bit set
 /// @return the cell
-inline int32_t footprint_origin_cell(int32_t world, int16_t footprint) {
-    return static_cast<int32_t>(arithmetic_shift20(
-        std::bit_cast<uint32_t>(world) - static_cast<uint32_t>(footprint) * 0x80000u + 0x80000u
-    ));
+inline int32_t footprint_origin_cell(int32_t world, int16_t footprint, int32_t map_cells) {
+    const auto biased = std::bit_cast<uint32_t>(world) -
+                        static_cast<uint32_t>(footprint) * 0x80000u + 0x80000u;
+    return base::game_math::fixed_extent_index(biased, map_cells, 20);
 }
 
 /// Returns the high 32 bits of a value's 64-bit square.

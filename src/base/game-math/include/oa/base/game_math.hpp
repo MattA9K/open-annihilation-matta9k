@@ -214,4 +214,29 @@ void float_heap_pop(FloatHeapPair* heap, int32_t size) noexcept;
         static_cast<uint32_t>(static_cast<uint64_t>(truncate_to_int64(value)))
     );
 }
+
+/// Index of a 16.16 coordinate along one map axis.
+///
+/// `fixed` drops its low `shift` bits. An unsigned index below `extent` is
+/// kept, so a map past signed 16.16 — a pixel of 32768 or more — still names
+/// its far side. A coordinate with the sign bit set whose unsigned index is
+/// at or past `extent` keeps the arithmetic shift, so a position just off the
+/// near side stays negative.
+///
+/// @param fixed signed 16.16 coordinate, as its bits
+/// @param extent size of the axis in the units the shift produces; zero or a
+///        negative size treats every sign-bit coordinate as negative
+/// @param shift bits to drop, from 1 to 31: 16 for whole pixels, 20 for plot
+///        cells, 23 for 128-unit buckets
+/// @return the index; negative only off the near side of the axis
+[[nodiscard]] inline int32_t
+fixed_extent_index(uint32_t fixed, int32_t extent, uint32_t shift) noexcept {
+    if (shift == 0 || shift > 31)
+        return static_cast<int32_t>(fixed);
+    const auto logical = fixed >> shift;
+    const auto limit = static_cast<uint32_t>(extent < 0 ? 0 : extent);
+    if ((fixed & 0x80000000u) != 0 && logical >= limit)
+        return static_cast<int32_t>(logical | (~uint32_t{0} << (32u - shift)));
+    return static_cast<int32_t>(logical);
+}
 } // namespace oa::base::game_math

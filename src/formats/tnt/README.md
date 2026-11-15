@@ -56,9 +56,9 @@ It exposes `GlobalHeader` display metadata and every numbered schema's type and
 `StartPos` records. `select_multiplayer_schema` scans the multiplayer schema
 types (`Type=Network 1` to `Network 4`) and prefers the schema with the exact
 player count, else the largest. Each start record gives kind 1, a zero-based
-suffix, signed 16-bit X and signed 16-bit Z. Skirmish capacity counts kind-1
-records, and a matching index converts X/Z to signed 16.16 commander
-coordinates. The OTA `memory` and `numplayers` literals are kept as text
+suffix, and X and Z as whole map pixels in a signed 32-bit word. Skirmish
+capacity counts kind-1 records, and a matching index shifts those pixels
+into the high half of a 32-bit word for the commander's coordinates. The OTA `memory` and `numplayers` literals are kept as text
 without interpreting it. The `size` literal is also retained separately and is
 not substituted for `memory`.
 

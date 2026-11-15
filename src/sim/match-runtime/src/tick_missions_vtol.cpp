@@ -1141,17 +1141,22 @@ void TickHost::set_aircraft_goal(
     auto flags = weapon_flags(s);
     if (extra.goal) {
         sim::ground_orders::install_goal(
-            view(s, *g, flags), nullptr, match.simulation_.tick, *this
+            view(s, *g, flags), nullptr, match.simulation_.tick, *this,
+            match.state().game.map_width_world, match.state().game.map_height_world
         );
         extra.goal.reset();
     }
     if (point) {
         auto goal = std::make_unique<sim::ground_orders::Goal>(
-            sim::ground_orders::make_goal(order, g->geometry, *point, arrival_radius)
+            sim::ground_orders::make_goal(
+                order, g->geometry, *point, arrival_radius, match.state().game.map_width,
+                match.state().game.map_height
+            )
         );
         order.raised_events &= ~sim::ground_orders::goal_event_mask;
         sim::ground_orders::install_goal(
-            view(s, *g, flags), goal.get(), match.simulation_.tick, *this
+            view(s, *g, flags), goal.get(), match.simulation_.tick, *this,
+            match.state().game.map_width_world, match.state().game.map_height_world
         );
         extra.goal = std::move(goal);
     }

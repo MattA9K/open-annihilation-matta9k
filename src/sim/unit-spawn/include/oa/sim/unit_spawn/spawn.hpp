@@ -360,9 +360,13 @@ void record_slot_death(oa::World& world, Tables& tables, const oa::Unit& unit) n
 ///         callback removes the type, each stopping the attachment there
 SpawnFault attach_model_script(oa::World& world, Tables& tables, oa::Unit& unit, Host& host);
 
+/// One map marker. Kind 1 is a start position: `index` is its zero-based
+/// StartPos number, and `x` and `z` are that position's whole map pixels.
 struct StartMarker {
-    int32_t kind{}, index{};
-    int16_t x{}, z{}; // 12-byte map record, integer world coordinates
+    int32_t kind{};
+    int32_t index{};
+    int32_t x{}; ///< map pixels across
+    int32_t z{}; ///< map pixels down
 };
 
 /// Counts the kind-1 (start position) markers: the players a map can seat.
@@ -375,7 +379,7 @@ struct StartMarker {
 ///
 /// @param markers map markers
 /// @param index start position index
-/// @param[out] output the marker's integer x/z converted to 16.16, y 0
+/// @param[out] output the marker's map pixels shifted into the high half of a 32-bit word, y 0
 /// @return false when no marker matches
 bool start_position(
     std::span<const StartMarker> markers, int32_t index, std::array<uint32_t, 3>& output

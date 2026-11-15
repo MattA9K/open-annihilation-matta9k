@@ -32,10 +32,12 @@ inline constexpr std::string_view multiplayer_schema_types[] = {
     "Network 4",
 };
 
+/// One StartPos record. `x` and `z` are whole map pixels in a signed 32-bit
+/// word, which holds a map of 80 by 80 (40960 pixels on a side).
 struct StartPosition {
-    int32_t index{}; // StartPos1 is runtime index zero.
-    int16_t x{};
-    int16_t z{};
+    int32_t index{}; ///< StartPos1 is runtime index zero
+    int32_t x{};     ///< map pixels across
+    int32_t z{};     ///< map pixels down
 };
 
 struct Schema {
@@ -83,8 +85,10 @@ struct ParseResult {
 /// Reads the GlobalHeader display fields and every canonically named
 /// "Schema N" section with its Type and StartPos records. StartPos suffixes
 /// become zero-based indices; a record without a numeric suffix takes the
-/// next implicit number. Input, sections, nesting, values and start records
-/// are bounded.
+/// next implicit number. A start coordinate is a signed 32-bit map pixel;
+/// an integer outside that range is `number_out_of_range`, and text that is
+/// not an integer is stored as zero. Input, sections, nesting, values and
+/// start records are bounded.
 ///
 /// @param text the whole OTA file
 /// @return the metadata, or the first error and its offset

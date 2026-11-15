@@ -187,8 +187,14 @@ struct ConstructionOrderState {
 /// @param[in,out] destination Signed 16.16 site; x and z are snapped.
 /// @param footprint_x Footprint width in cells.
 /// @param footprint_z Footprint depth in cells.
+/// @param map_cells_x Map width in cells; zero sign-extends a sign-bit coordinate.
+/// @param map_cells_z Map height in cells; zero sign-extends a sign-bit coordinate.
 void snap_build_position(
-    sim::ground_orders::Point& destination, int16_t footprint_x, int16_t footprint_z
+    sim::ground_orders::Point& destination,
+    int16_t footprint_x,
+    int16_t footprint_z,
+    int32_t map_cells_x = 0,
+    int32_t map_cells_z = 0
 );
 
 } // namespace oa::sim::match_runtime

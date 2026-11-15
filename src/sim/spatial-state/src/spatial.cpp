@@ -20,16 +20,18 @@ bool valid(const World& w) {
     return plots == w.plots.size() && buckets == w.buckets.size() && !w.units.empty();
 }
 
-int32_t signed_word(uint32_t bits) {
-    return static_cast<int32_t>(bits);
-}
-
 uint8_t yard_bit(bool open) {
     return open ? 2U : 4U;
 }
 
 int16_t add16(int16_t left, int16_t right) {
     return static_cast<int16_t>(static_cast<uint16_t>(left) + static_cast<uint16_t>(right));
+}
+
+// Bucket column of a 16.16 position. 23 drops the 16 fraction bits and the
+// 7 bits of a 128-unit bucket.
+int32_t bucket_of(uint32_t position, uint32_t count) {
+    return base::game_math::fixed_extent_index(position, static_cast<int32_t>(count), 23);
 }
 
 bool valid_mask(const Unit& unit) {
@@ -161,8 +163,8 @@ Error register_unit(Unit& unit, World& world, Host& host) {
                          static_cast<int64_t>(z) + fh >= world.terrain_height;
     std::optional<std::size_t> target;
     if (!outside) {
-        const auto bx = signed_word(unit.position[0]) >> 23;
-        const auto bz = signed_word(unit.position[2]) >> 23;
+        const auto bx = bucket_of(unit.position[0], world.bucket_width);
+        const auto bz = bucket_of(unit.position[2], world.bucket_height);
         if (bx < 0 || bz < 0 || static_cast<uint32_t>(bx) >= world.bucket_width ||
             static_cast<uint32_t>(bz) >= world.bucket_height)
             return Error::spatial_bucket_out_of_range;
@@ -582,9 +584,11 @@ constexpr uint32_t world_units_per_plot = 16;
 constexpr int32_t fixed_to_bucket_shift = 23; // 16.16 world units to 128-unit buckets
 
 // Buckets along a map side of `plots` plots: its 16.16 extent rounded up.
+// The extent is a 64-bit word, so a side of 32768 pixels and beyond still
+// rounds up to a bucket count.
 uint32_t bucket_span(uint32_t plots) {
-    const auto extent = (plots * world_units_per_plot) << 16;
-    return static_cast<uint32_t>(static_cast<int32_t>(extent + 0x7fffffu) >> fixed_to_bucket_shift);
+    const auto extent = (uint64_t{plots} * world_units_per_plot) << 16;
+    return static_cast<uint32_t>((extent + 0x7fffffu) >> fixed_to_bucket_shift);
 }
 
 // Walks `count` buckets `stride` apart: each takes the highest value of itself
@@ -612,8 +616,8 @@ const Bucket& unit_bucket(const World& world, const Unit& unit) noexcept {
     if (unit.bucket_linked)
         return unit.bucket && *unit.bucket < world.buckets.size() ? world.buckets[*unit.bucket]
                                                                   : world.outside_bucket;
-    const auto bx = signed_word(unit.position[0]) >> fixed_to_bucket_shift;
-    const auto bz = signed_word(unit.position[2]) >> fixed_to_bucket_shift;
+    const auto bx = bucket_of(unit.position[0], world.bucket_width);
+    const auto bz = bucket_of(unit.position[2], world.bucket_height);
     if (bx < 0 || bz < 0 || static_cast<uint32_t>(bx) >= world.bucket_width ||
         static_cast<uint32_t>(bz) >= world.bucket_height)
         return world.outside_bucket;

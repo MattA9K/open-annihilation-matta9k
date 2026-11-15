@@ -384,7 +384,7 @@ void Runtime::check_unit_playout() {
         struct Shared {
             oa::sim::unit_movement::Fixed speed{};
             uint8_t count{};
-            std::array<std::array<int16_t, 2>, 3> route{};
+            std::array<std::array<int32_t, 2>, 3> route{};
         };
         const auto share = [&] {
             Shared shared{};
@@ -396,8 +396,8 @@ void Runtime::check_unit_playout() {
             shared.count = static_cast<uint8_t>(std::min<uint32_t>(navigation.count, 3));
             for (std::size_t i = 0; i < shared.count; ++i)
                 shared.route[i] = {
-                    static_cast<int16_t>(navigation.points[i][0] + (lane[0] >> 16)),
-                    static_cast<int16_t>(navigation.points[i][1] + (lane[1] >> 16))
+                    navigation.points[i][0] + (lane[0] >> 16),
+                    navigation.points[i][1] + (lane[1] >> 16)
                 };
             return shared;
         };

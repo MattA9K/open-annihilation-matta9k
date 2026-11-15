@@ -103,7 +103,10 @@ void TickHost::movement_tick(oa::Unit& record) {
             fast_unit_steering()
         );
     } else {
-        sim::ground_orders::tick_navigation(view(s, g, flags), match.simulation_.tick, *this);
+        sim::ground_orders::tick_navigation(
+            view(s, g, flags), match.simulation_.tick, *this, match.state().game.map_width_world,
+            match.state().game.map_height_world
+        );
         sim::ground_orders::steer_ground(
             g.geometry,
             g.movement,

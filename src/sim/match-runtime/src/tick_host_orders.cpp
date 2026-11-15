@@ -209,7 +209,8 @@ uint32_t TickHost::dispatch_mission(
             result = 7;
     } else if (order.kind == sim::ground_orders::move_ground_kind)
         result = sim::ground_orders::move_ground(
-            steering(), order, owned(order).extra, events, world.tick, *this
+            steering(), order, owned(order).extra, events, world.tick, *this,
+            match.state().game.map_width, match.state().game.map_height
         );
     else if (order.kind == paralyze_order_kind) {
         // Paralyze. The first parameter is the duration.

@@ -141,7 +141,7 @@ const Node* child(const Node& n, std::string_view name) {
     return nullptr;
 }
 
-bool integer(std::string_view s, int32_t& out) {
+bool wide_integer(std::string_view s, int64_t& out) {
     s = trim(s);
     if (s.empty())
         return false;
@@ -152,6 +152,27 @@ bool integer(std::string_view s, int32_t& out) {
     }
     const auto result = std::from_chars(s.data(), s.data() + s.size(), out);
     return result.ec == std::errc{};
+}
+
+bool integer(std::string_view s, int32_t& out) {
+    int64_t wide = 0;
+    if (!wide_integer(s, wide) || wide < std::numeric_limits<int32_t>::min() ||
+        wide > std::numeric_limits<int32_t>::max())
+        return false;
+    out = static_cast<int32_t>(wide);
+    return true;
+}
+
+// A start coordinate. Text that is not an integer becomes zero. An integer
+// outside the signed 32-bit range is refused.
+bool coordinate(std::string_view text, int32_t& out) {
+    if (integer(text, out))
+        return true;
+    int64_t wide = 0;
+    if (wide_integer(text, wide))
+        return false;
+    out = 0;
+    return true;
 }
 
 bool explicit_start_suffix(std::string_view s, int32_t& out) {
@@ -232,22 +253,14 @@ ParseResult parse(std::string_view text) {
                     suffix = ++implicit_start_number;
                 if (suffix > 0)
                     --suffix;
-                if (!integer(value(special, "XPos"), x))
-                    x = 0;
-                if (!integer(value(special, "ZPos"), z))
-                    z = 0;
-                if (x < std::numeric_limits<int16_t>::min() ||
-                    x > std::numeric_limits<int16_t>::max() ||
-                    z < std::numeric_limits<int16_t>::min() ||
-                    z > std::numeric_limits<int16_t>::max())
+                if (!coordinate(value(special, "XPos"), x) ||
+                    !coordinate(value(special, "ZPos"), z))
                     return failure(
                         {ErrorCode::number_out_of_range,
                          0,
-                         "OTA start position exceeds the signed 16-bit field"}
+                         "OTA start position exceeds the signed 32-bit field"}
                     );
-                schema.start_positions.push_back(
-                    {suffix, static_cast<int16_t>(x), static_cast<int16_t>(z)}
-                );
+                schema.start_positions.push_back({suffix, x, z});
             }
         output.schemas.push_back(std::move(schema));
     }

@@ -3,6 +3,7 @@
 
 #include "oa/sim/map_runtime.hpp"
 #include "oa/sim/map_runtime/feature_defs.hpp"
+#include "oa/base/game_math.hpp"
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -473,8 +474,12 @@ uint16_t feature_at_position(
             return std::nullopt;
         return static_cast<std::size_t>(index);
     };
-    auto origin_x = static_cast<int16_t>(world_x >> 20);
-    auto origin_z = static_cast<int16_t>(world_z >> 20);
+    auto origin_x = static_cast<int16_t>(
+        base::game_math::fixed_extent_index(static_cast<uint32_t>(world_x), map_width, 20)
+    );
+    auto origin_z = static_cast<int16_t>(
+        base::game_math::fixed_extent_index(static_cast<uint32_t>(world_z), map_height, 20)
+    );
     auto index = plot_at(origin_x, origin_z);
     if (!index)
         return empty;

@@ -30,12 +30,13 @@ int32_t abs32(int32_t v) noexcept {
     return v < 0 ? wrap_sub(0, v) : v;
 }
 
-// Footprint-origin cell of a 16.16 world coordinate (arithmetic shift).
-int16_t origin_cell(Fixed position, int16_t footprint) noexcept {
-    const auto biased = wrap(
-        static_cast<uint32_t>(position) - static_cast<uint32_t>(footprint) * half_cell + half_cell
-    );
-    return static_cast<int16_t>(biased >> 20);
+// Footprint-origin cell of a 16.16 world coordinate. A cell on a map past
+// signed 16.16 stays on that side; a cell just off the near side stays negative.
+int16_t origin_cell(Fixed position, int16_t footprint, int32_t map_cells) noexcept {
+    const auto biased =
+        static_cast<uint32_t>(position) - static_cast<uint32_t>(footprint) * half_cell + half_cell;
+    const auto cell = base::game_math::fixed_extent_index(biased, map_cells, 20);
+    return static_cast<int16_t>(static_cast<uint16_t>(static_cast<uint32_t>(cell)));
 }
 
 // 16.16 centre of a footprint whose origin cell is `cell`.
@@ -104,12 +105,17 @@ Goal make_goal(
     sim::simulation_state::Order& order,
     const sim::unit_movement::Unit& unit,
     const Point& target,
-    int32_t tolerance
+    int32_t tolerance,
+    int32_t map_cells_x,
+    int32_t map_cells_z
 ) {
     Goal g;
     g.order = &order;
     g.shape = GoalShape::circle;
-    g.cell = {origin_cell(target[0], unit.footprint[0]), origin_cell(target[2], unit.footprint[1])};
+    g.cell = {
+        origin_cell(target[0], unit.footprint[0], map_cells_x),
+        origin_cell(target[2], unit.footprint[1], map_cells_z)
+    };
     g.tolerance = tolerance;
     g.radius_squared = squared_cells(tolerance);
     return g;
@@ -120,12 +126,17 @@ Goal make_ring_goal(
     const sim::unit_movement::Unit& unit,
     const Point& centre,
     int32_t outer,
-    int32_t inner
+    int32_t inner,
+    int32_t map_cells_x,
+    int32_t map_cells_z
 ) {
     Goal g;
     g.order = &order;
     g.shape = GoalShape::ring;
-    g.cell = {origin_cell(centre[0], unit.footprint[0]), origin_cell(centre[2], unit.footprint[1])};
+    g.cell = {
+        origin_cell(centre[0], unit.footprint[0], map_cells_x),
+        origin_cell(centre[2], unit.footprint[1], map_cells_z)
+    };
     g.tolerance = outer;
     g.inner_range = inner;
     g.radius_squared = squared_cells(outer);
@@ -154,12 +165,15 @@ Goal make_build_goal(
     const sim::unit_movement::Unit& builder,
     const Point& destination,
     int16_t footprint_x,
-    int16_t footprint_z
+    int16_t footprint_z,
+    int32_t map_cells_x,
+    int32_t map_cells_z
 ) {
     return make_outline_goal(
         order,
         builder,
-        {origin_cell(destination[0], footprint_x), origin_cell(destination[2], footprint_z)},
+        {origin_cell(destination[0], footprint_x, map_cells_x),
+         origin_cell(destination[2], footprint_z, map_cells_z)},
         {footprint_x, footprint_z}
     );
 }

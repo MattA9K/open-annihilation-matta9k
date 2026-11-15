@@ -238,7 +238,43 @@ void facing_turns_the_footprint_and_heading() {
     }
 }
 
+// Pixel 34456 on an 80 by 80 map (2560 plots). Footprint 2 by 3 pulls the
+// origin back one cell across and two cells down: 2153 and 2152.
+void far_map_cell() {
+    SpawnWorld sw(3, 2);
+    auto& w = *sw;
+    sw.range(0, 1, 2);
+    for (auto& unit : sw.units)
+        unit.owner = oa::oa_ref_from_index(0);
+    sw.player(0).in_use = 1;
+    sw.player(0).status = 1;
+    auto& t = sw.types[1];
+    t.simulation.flags = 0x1840000;
+    t.simulation.maximum_health = 1000;
+    t.footprint_x = 2;
+    t.footprint_z = 3;
+    t.build_angle = 100;
+    t.model = 10;
+    sw.load_types();
+    w.game.map_width = 2560;
+    w.game.map_height = 2560;
+    Request r;
+    r.type = 1;
+    r.finished = true;
+    r.state = ground_occupancy_state;
+    r.position = {34456u << 16, 0, 34456u << 16};
+    Fixture h;
+    auto* unit = create(w, sw.tables, r, h);
+    CHECK(unit != nullptr && unit->cell_x == 2153 && unit->cell_z == 2152);
+    // A position just off the near side of the same map stays a negative cell.
+    r.position = {static_cast<uint32_t>(-30) << 16, 0, 0};
+    r.requested_slot = 2;
+    auto* near = create(w, sw.tables, r, h);
+    CHECK(near != nullptr && near->cell_x < 0 && near->cell_z < 0);
+}
+
 int main() {
+    far_map_cell();
     slot_reuse_waits_for_its_tick();
     created_under_the_sea_starts_submerged();
     facing_turns_the_footprint_and_heading();
@@ -330,6 +366,10 @@ int main() {
     CHECK(pos[0] == 9);
     CHECK(start_position(markers, 1, pos));
     CHECK(pos[0] == 0xffe20000u && pos[1] == 0 && pos[2] == 100u * 65536);
+    std::array<StartMarker, 1> far_marker{{{1, 4, 40000, 34456}}};
+    std::array<uint32_t, 3> far_pos{};
+    CHECK(start_position(far_marker, 4, far_pos));
+    CHECK(far_pos[0] == 40000u * 65536u && far_pos[1] == 0 && far_pos[2] == 34456u * 65536u);
     PlayerSetup setup;
     setup.side = 1;
     setup.metal = 100;

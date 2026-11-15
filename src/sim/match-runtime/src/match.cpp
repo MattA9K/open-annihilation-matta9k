@@ -1089,13 +1089,18 @@ Match::bounds_for(const sim::simulation_state::Unit& unit) const {
 void Match::place_unit(
     sim::unit_spawn::Slot& slot, int32_t x, int32_t y, int32_t z, uint8_t layer
 ) {
-    const auto cell_for = [](int32_t world, int16_t footprint) {
+    const auto cells_x = state().game.map_width;
+    const auto cells_z = state().game.map_height;
+    // The footprint's top-left cell. A cell on a map past signed 16.16 stays
+    // on that side; a cell just off the near side stays negative.
+    const auto cell_for = [](int32_t world, int16_t footprint, int32_t map_cells) {
         const auto biased =
             static_cast<uint32_t>(world) - static_cast<uint32_t>(footprint) * 0x80000u + 0x80000u;
-        return static_cast<int16_t>(std::bit_cast<int32_t>(biased) >> 20);
+        const auto cell = base::game_math::fixed_extent_index(biased, map_cells, 20);
+        return static_cast<int16_t>(static_cast<uint16_t>(static_cast<uint32_t>(cell)));
     };
-    const auto cell_x = cell_for(x, slot.record.footprint_x);
-    const auto cell_z = cell_for(z, slot.record.footprint_z);
+    const auto cell_x = cell_for(x, slot.record.footprint_x, cells_x);
+    const auto cell_z = cell_for(z, slot.record.footprint_z, cells_z);
     const std::array position{
         static_cast<uint32_t>(x), static_cast<uint32_t>(y), static_cast<uint32_t>(z)
     };

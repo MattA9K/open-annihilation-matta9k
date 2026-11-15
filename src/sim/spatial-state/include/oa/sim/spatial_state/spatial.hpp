@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "oa/base/game_math.hpp"
 #include "oa/core/unit.h"
 
 #include <array>
@@ -93,8 +94,10 @@ struct Plot {
 
 /// Converts a signed 16.16 X/Z position to its map cell.
 ///
-/// The cell is each coordinate shifted down 20 bits. A cell outside the map has
-/// no plot; a projectile over such a cell is retired by its caller.
+/// The cell is each coordinate shifted down 20 bits. A coordinate past signed
+/// 16.16 that still lies on the map keeps its unsigned cell; one just off the
+/// near side stays negative. A cell outside the map has no plot; a projectile
+/// over such a cell is retired by its caller.
 ///
 /// @param x signed 16.16 world X
 /// @param z signed 16.16 world Z
@@ -106,8 +109,8 @@ struct Plot {
 [[nodiscard]] inline bool position_to_cell(
     int32_t x, int32_t z, int32_t width, int32_t height, int32_t& cell_x, int32_t& cell_z
 ) noexcept {
-    cell_x = x >> 20;
-    cell_z = z >> 20;
+    cell_x = base::game_math::fixed_extent_index(static_cast<uint32_t>(x), width, 20);
+    cell_z = base::game_math::fixed_extent_index(static_cast<uint32_t>(z), height, 20);
     return cell_x >= 0 && cell_x < width && cell_z >= 0 && cell_z < height;
 }
 
@@ -157,8 +160,8 @@ plot_index_to_cell(int32_t slot, int32_t width) noexcept {
 
 /// Returns the plot index of the feature origin under a 16.16 position.
 ///
-/// Uses the same signed 16.16 cell shift as position_to_cell. Word 0xfffe is a
-/// footprint continuation, so the origin at (cell_x - back_x, cell_z - back_z) is
+/// Uses the same cell shift as position_to_cell. Word 0xfffe is a footprint
+/// continuation, so the origin at (cell_x - back_x, cell_z - back_z) is
 /// returned; any other word stays on this cell. The walk is one step.
 ///
 /// @param x signed 16.16 world X
@@ -170,8 +173,8 @@ plot_index_to_cell(int32_t slot, int32_t width) noexcept {
 [[nodiscard]] inline std::optional<std::size_t> feature_origin_plot_at(
     int32_t x, int32_t z, std::span<const Plot> plots, int32_t width, int32_t height
 ) noexcept {
-    const auto cell_x = x >> 20;
-    const auto cell_z = z >> 20;
+    const auto cell_x = base::game_math::fixed_extent_index(static_cast<uint32_t>(x), width, 20);
+    const auto cell_z = base::game_math::fixed_extent_index(static_cast<uint32_t>(z), height, 20);
     if (cell_x < 0 || cell_x >= width || cell_z < 0 || cell_z >= height)
         return std::nullopt;
     const auto index = static_cast<std::size_t>(cell_z) * static_cast<std::size_t>(width) +
@@ -193,10 +196,11 @@ plot_index_to_cell(int32_t slot, int32_t width) noexcept {
 
 /// Returns the mean of a plot's high and low heights under a 16.16 position.
 ///
-/// The signed high words of X and Z are divided by 16 toward zero to give the
-/// cell, which plot_index_at looks up. The plot's high and low heights are added
-/// and shifted right once. This does not interpolate like the terrain height
-/// sample and does not follow a 0xfffe footprint.
+/// The high words of X and Z, read as position_to_cell reads a coordinate, are
+/// divided by 16 toward zero to give the cell, which plot_index_at looks up.
+/// The plot's high and low heights are added and shifted right once. This does
+/// not interpolate like the terrain height sample and does not follow a 0xfffe
+/// footprint.
 ///
 /// @param x signed 16.16 world X
 /// @param z signed 16.16 world Z
@@ -207,12 +211,11 @@ plot_index_to_cell(int32_t slot, int32_t width) noexcept {
 [[nodiscard]] inline int32_t plot_mean_height_at(
     int32_t x, int32_t z, std::span<const Plot> plots, int32_t width, int32_t height
 ) noexcept {
-    const auto world = [](int32_t fixed) noexcept {
-        return static_cast<int32_t>(
-            static_cast<int16_t>(static_cast<uint16_t>(static_cast<uint32_t>(fixed) >> 16))
-        );
-    };
-    const auto index = plot_index_at(world(x) / 16, world(z) / 16, plots, width, height);
+    const auto pixel_x =
+        base::game_math::fixed_extent_index(static_cast<uint32_t>(x), width * 16, 16);
+    const auto pixel_z =
+        base::game_math::fixed_extent_index(static_cast<uint32_t>(z), height * 16, 16);
+    const auto index = plot_index_at(pixel_x / 16, pixel_z / 16, plots, width, height);
     if (!index)
         return -1;
     return (static_cast<int32_t>(plots[*index].low_height) +

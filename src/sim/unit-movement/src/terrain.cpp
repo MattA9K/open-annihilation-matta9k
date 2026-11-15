@@ -88,8 +88,10 @@ uint8_t Terrain::sea_level() const noexcept {
 int32_t Terrain::height(Fixed x, Fixed z) const noexcept {
     if (!map_)
         return -1;
-    const int world_x = short_bits(uint32_t(x) >> fraction_bits),
-              world_z = short_bits(uint32_t(z) >> fraction_bits);
+    const auto pixels_x = static_cast<int32_t>(map_->attribute_width * attribute_spacing);
+    const auto pixels_z = static_cast<int32_t>(map_->attribute_height * attribute_spacing);
+    const int world_x = base::game_math::fixed_extent_index(uint32_t(x), pixels_x, fraction_bits),
+              world_z = base::game_math::fixed_extent_index(uint32_t(z), pixels_z, fraction_bits);
     const int cell_x = world_x >> attribute_shift, cell_z = world_z >> attribute_shift;
     if (cell_x < 0 || cell_z < 0 || uint32_t(cell_x) + 1 >= map_->attribute_width ||
         uint32_t(cell_z) + 1 >= map_->attribute_height)

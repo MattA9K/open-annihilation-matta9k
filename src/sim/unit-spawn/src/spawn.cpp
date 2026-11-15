@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "oa/sim/unit_spawn/spawn.hpp"
+#include "oa/base/game_math.hpp"
 #include <bit>
 #include <cstdint>
 
@@ -31,11 +32,6 @@ constexpr uint32_t build_menu_first_page =
 // Returns flags with bit set when on and cleared otherwise.
 constexpr uint32_t with_flag(uint32_t flags, uint32_t bit, bool on) noexcept {
     return (flags & ~bit) | (on ? bit : 0u);
-}
-
-uint32_t arithmetic_shift20(uint32_t value) {
-    const auto high = value >> 20;
-    return (value & 0x80000000u) ? high | 0xfffff000u : high;
 }
 
 // Callbacks may replace the unit's type; the game reloads it from the unit.
@@ -152,15 +148,19 @@ initialize_numeric(oa::World& w, oa::Unit& u, const Request& r, Host& h, const S
     u.build_flags &= static_cast<uint8_t>(~OA_UNIT_BUILD_SCRIPT_MASK);
     u.decloak_until_tick = 0;
     u.pitch = 0;
-    // Wrapping arithmetic, an arithmetic shift by 20, then each grid coordinate narrows.
-    const auto grid_x = arithmetic_shift20(
-        r.position[0] - static_cast<uint32_t>(static_cast<int32_t>(footprint_x)) * 0x80000u +
-        0x80000u
-    );
-    const auto grid_z = arithmetic_shift20(
-        r.position[2] - static_cast<uint32_t>(static_cast<int32_t>(footprint_z)) * 0x80000u +
-        0x80000u
-    );
+    // The footprint's top-left cell. Wrapping arithmetic, then a shift of 20
+    // that keeps a cell on a map past signed 16.16 and a cell just off the
+    // near side negative. Each grid coordinate then narrows.
+    const auto cell_of = [](uint32_t position, int16_t footprint, int32_t map_cells) {
+        const auto adjusted = position -
+                              static_cast<uint32_t>(static_cast<int32_t>(footprint)) * 0x80000u +
+                              0x80000u;
+        return static_cast<uint32_t>(
+            base::game_math::fixed_extent_index(adjusted, map_cells, 20)
+        );
+    };
+    const auto grid_x = cell_of(r.position[0], footprint_x, w.game.map_width);
+    const auto grid_z = cell_of(r.position[2], footprint_z, w.game.map_height);
     u.cell_x = std::bit_cast<int16_t>(static_cast<uint16_t>(grid_x));
     u.cell_z = std::bit_cast<int16_t>(static_cast<uint16_t>(grid_z));
     // Heading: a random value below the type's build angle, less 0x8000 and less
@@ -461,9 +461,7 @@ bool start_position(
     for (const auto& marker : markers)
         if (marker.kind == 1 && marker.index == index) {
             output = {
-                static_cast<uint32_t>(static_cast<int32_t>(marker.x)) << 16,
-                0,
-                static_cast<uint32_t>(static_cast<int32_t>(marker.z)) << 16
+                static_cast<uint32_t>(marker.x) << 16, 0, static_cast<uint32_t>(marker.z) << 16
             };
             return true;
         }
@@ -516,12 +514,20 @@ StartResult spawn_player_commander(
     request.type = start.commander_type_for_side(stored.side);
     auto* result = create(w, tables, request, h, fault);
     if (player == local_player) {
-        const auto x = std::bit_cast<int16_t>(static_cast<uint16_t>(request.position[0] >> 16));
-        const auto z = std::bit_cast<int16_t>(static_cast<uint16_t>(request.position[2] >> 16));
-        const auto camera_x = static_cast<uint32_t>(static_cast<int32_t>(x)) -
-                              static_cast<uint32_t>(viewport_width / 2);
-        const auto camera_z = static_cast<uint32_t>(static_cast<int32_t>(z)) -
-                              static_cast<uint32_t>(viewport_height / 2);
+        // The view is centred on the marker's map pixels, less half the viewport.
+        int32_t pixel_x = 0;
+        int32_t pixel_z = 0;
+        for (const auto& marker : markers) {
+            if (marker.kind == 1 && marker.index == index) {
+                pixel_x = marker.x;
+                pixel_z = marker.z;
+                break;
+            }
+        }
+        const auto camera_x =
+            static_cast<uint32_t>(pixel_x) - static_cast<uint32_t>(viewport_width / 2);
+        const auto camera_z =
+            static_cast<uint32_t>(pixel_z) - static_cast<uint32_t>(viewport_height / 2);
         start.set_camera_position(
             std::bit_cast<int32_t>(camera_x), std::bit_cast<int32_t>(camera_z), 0
         );
@@ -550,12 +556,11 @@ int32_t average_plot_height(
     int32_t map_width,
     int32_t map_height
 ) {
-    const auto high_word = [](uint32_t word) noexcept {
-        return static_cast<int16_t>(static_cast<uint16_t>(word >> 16));
-    };
-    // Signed division by 16 truncates toward zero, including negatives.
-    const auto cell_x = static_cast<int32_t>(high_word(position[0])) / 16;
-    const auto cell_z = static_cast<int32_t>(high_word(position[2])) / 16;
+    // Division by 16 truncates toward zero, including a cell just off the near side.
+    const auto cell_x =
+        base::game_math::fixed_extent_index(position[0], map_width * 16, 16) / 16;
+    const auto cell_z =
+        base::game_math::fixed_extent_index(position[2], map_height * 16, 16) / 16;
     const auto index =
         sim::spatial_state::plot_index_at(cell_x, cell_z, plots, map_width, map_height);
     if (!index)

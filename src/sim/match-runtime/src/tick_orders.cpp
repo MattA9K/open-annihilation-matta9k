@@ -874,10 +874,12 @@ bool TickHost::relocate_queued_build(
     const bool turned = (facing & 1U) != 0;
     const auto footprint_x = turned ? built.footprint_z : built.footprint_x;
     const auto footprint_z = turned ? built.footprint_x : built.footprint_z;
-    const auto cell_x = footprint_origin_cell(destination[0], footprint_x);
-    const auto cell_z = footprint_origin_cell(destination[2], footprint_z);
+    const auto cell_x = footprint_origin_cell(destination[0], footprint_x, world.game.map_width);
+    const auto cell_z = footprint_origin_cell(destination[2], footprint_z, world.game.map_height);
     auto site = destination;
-    snap_build_position(site, footprint_x, footprint_z);
+    snap_build_position(
+        site, footprint_x, footprint_z, world.game.map_width, world.game.map_height
+    );
     const auto height = match.footprint_height(type, cell_x, cell_z, facing);
     site[1] = static_cast<int32_t>(static_cast<uint32_t>(height) << 16);
     record->extra.destination = site;

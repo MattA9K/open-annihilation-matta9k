@@ -164,7 +164,7 @@ struct Motion {
     bool blocked{};                     ///< Movement.flags collision-blocked bit
     /// The route points its owner shared (the mirrored navigator's), 0 to 3
     uint8_t route_count{};
-    std::array<std::array<int16_t, 2>, 3> route{}; ///< map pixels x and z
+    std::array<std::array<int32_t, 2>, 3> route{}; ///< whole map pixels across and down
     FixedVec3 air_point{};                         ///< the air driver's point, 16.16
     FixedVec3 air_velocity{}; ///< the air driver's point's velocity, 16.16 pixels a tick
     uint16_t air_heading{};   ///< the air driver's heading

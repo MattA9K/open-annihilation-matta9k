@@ -3,6 +3,7 @@
 
 // World-space drawing: build ghosts, lines and GAF blits.
 #include "oa/app/runtime.hpp"
+#include "oa/base/game_math.hpp"
 #include "oa/core/map_plot.h"
 #include "oa/present/game_text.hpp"
 #include "match_models.hpp"
@@ -52,15 +53,19 @@ Runtime::build_site_for(uint16_t type, uint8_t facing, oa::sim::ground_orders::P
     facing = match_->build_facing(type, facing);
     if ((facing & 1U) != 0)
         std::swap(fx, fz);
-    oa::sim::match_runtime::snap_build_position(world, fx, fz);
+    const auto cells_x = match_->state().game.map_width;
+    const auto cells_z = match_->state().game.map_height;
+    oa::sim::match_runtime::snap_build_position(world, fx, fz, cells_x, cells_z);
     const auto fx_u = static_cast<uint32_t>(fx);
     const auto fz_u = static_cast<uint32_t>(fz);
-    // The footprint's first cell, rounded toward negative infinity: a
-    // footprint over the left or top edge starts at a negative cell.
-    const auto cell_x =
-        std::bit_cast<int32_t>(static_cast<uint32_t>(world[0]) - fx_u * 0x80000u + 0x80000u) >> 20;
-    const auto cell_z =
-        std::bit_cast<int32_t>(static_cast<uint32_t>(world[2]) - fz_u * 0x80000u + 0x80000u) >> 20;
+    // The footprint's first cell. A cell on a map past signed 16.16 stays on
+    // that side; a footprint over the left or top edge starts at a negative cell.
+    const auto cell_x = base::game_math::fixed_extent_index(
+        static_cast<uint32_t>(world[0]) - fx_u * 0x80000u + 0x80000u, cells_x, 20
+    );
+    const auto cell_z = base::game_math::fixed_extent_index(
+        static_cast<uint32_t>(world[2]) - fz_u * 0x80000u + 0x80000u, cells_z, 20
+    );
     // Where the rules let the build cursor place over the player's own units,
     // the cursor names unit slot 1 as the unit to skip, as the game does, so
     // that slot never refuses the site, whoever owns it.

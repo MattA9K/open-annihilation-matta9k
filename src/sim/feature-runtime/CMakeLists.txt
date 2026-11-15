@@ -7,7 +7,9 @@ add_library(oa-sim-feature-runtime src/feature_runtime.cpp)
 add_library(oa::sim::feature_runtime ALIAS oa-sim-feature-runtime)
 target_include_directories(oa-sim-feature-runtime PUBLIC include)
 target_compile_features(oa-sim-feature-runtime PUBLIC cxx_std_20)
-target_link_libraries(oa-sim-feature-runtime PUBLIC oa-core-types oa-options PRIVATE oa-base-bytes)
+target_link_libraries(
+  oa-sim-feature-runtime PUBLIC oa-core-types oa-options PRIVATE oa-base-bytes oa-base-game-math
+)
 if(MSVC)
   target_compile_options(oa-sim-feature-runtime PRIVATE /W4)
 else()

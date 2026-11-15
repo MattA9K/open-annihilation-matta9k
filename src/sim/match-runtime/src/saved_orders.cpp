@@ -406,7 +406,8 @@ void TickHost::install_order_goal(sim::unit_spawn::Slot& s, Match::RuntimeOrder&
         movement->project_slot();
         auto flags = weapon_flags(s);
         sim::ground_orders::install_goal(
-            view(s, *movement, flags), record.extra.goal.get(), match.simulation_.tick, *this
+            view(s, *movement, flags), record.extra.goal.get(), match.simulation_.tick, *this,
+            match.state().game.map_width_world, match.state().game.map_height_world
         );
         write_flags(s, flags);
     } else if (record.air_goal.kind != sim::air::AirGoalKind::none) {

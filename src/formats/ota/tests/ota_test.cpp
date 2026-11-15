@@ -64,7 +64,7 @@ bool fails_with(std::string_view text, ErrorCode code, std::size_t offset) {
 /// @param x first start position's XPos
 /// @param z first start position's ZPos
 /// @return the OTA text
-std::string schema_with_starts(std::size_t count, long x, long z) {
+std::string schema_with_starts(std::size_t count, long long x, long long z) {
     std::string text = "[GlobalHeader]{[Schema 0]{Type=Network 1;[specials]{";
     for (std::size_t i = 0; i < count; ++i) {
         text += "[special" + std::to_string(i) + "]{specialwhat=StartPos" + std::to_string(i + 1) +
@@ -171,9 +171,16 @@ void test_limits() {
         schema_with_starts(limit::start_positions + 1, 0, 0), ErrorCode::start_position_limit, 0
     ));
 
-    // A start position outside the signed 16-bit field, on either axis.
-    CHECK(fails_with(schema_with_starts(1, 32768, 0), ErrorCode::number_out_of_range, 0));
-    CHECK(fails_with(schema_with_starts(1, 0, -32769), ErrorCode::number_out_of_range, 0));
+    // An 80 by 80 map is 40960 pixels on a side. A start on it still parses.
+    const auto wide = oa::formats::ota::parse(schema_with_starts(1, 40960, 34456));
+    CHECK(wide.ok() && wide.metadata && wide.metadata->schemas.size() == 1);
+    if (wide.ok() && wide.metadata && !wide.metadata->schemas.empty()) {
+        const auto& at = wide.metadata->schemas[0].start_positions;
+        CHECK(at.size() == 1 && at[0].x == 40960 && at[0].z == 34456);
+    }
+    // A start position outside the signed 32-bit field, on either axis.
+    CHECK(fails_with(schema_with_starts(1, 2147483648LL, 0), ErrorCode::number_out_of_range, 0));
+    CHECK(fails_with(schema_with_starts(1, 0, -2147483649LL), ErrorCode::number_out_of_range, 0));
 }
 
 void test_malformed() {

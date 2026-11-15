@@ -66,4 +66,14 @@ int main() {
     const Terrain empty(tiny);
     CHECK(!terrain_grid_valid(tiny) && !empty.holds_grid());
     CHECK(empty.height(0, 0) == -1 && empty.sea_level() == 0);
+    // Pixel 34456 is on an attribute grid 2200 wide (35200 pixels) and reads
+    // that plot's height.
+    oa::formats::tnt::Map wide;
+    wide.attribute_width = 2200;
+    wide.attribute_height = 2;
+    wide.attributes.assign(2200u * 2u, {});
+    for (auto& cell : wide.attributes)
+        cell.height = 40;
+    const Terrain wide_terrain(wide);
+    CHECK(wide_terrain.height(static_cast<int32_t>(34456u << 16), 0) == 40);
 }

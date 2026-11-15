@@ -144,7 +144,12 @@ void release_navigation(SearchController& controller, Navigation& navigation) no
 /// @param goal new goal, or null to clear it
 /// @param tick current game tick
 /// @param host search cancellation
-void install_goal(UnitView u, Goal* goal, uint32_t tick, Host& host);
+/// @param map_pixels_x map width in whole pixels; zero sign-extends a sign-bit coordinate
+/// @param map_pixels_z map height in whole pixels; zero sign-extends a sign-bit coordinate
+void install_goal(
+    UnitView u, Goal* goal, uint32_t tick, Host& host, int32_t map_pixels_x = 0,
+    int32_t map_pixels_z = 0
+);
 /// Installs a search result, or reports a failed search on the goal's order.
 ///
 /// An empty result raises path_failed_event unless the unit already satisfies
@@ -173,7 +178,11 @@ void advance_path(Navigation& n, uint32_t count);
 /// @param u unit geometry, movement and navigator
 /// @param tick current game tick
 /// @param host search cancellation for the detached goal
-void tick_navigation(UnitView u, uint32_t tick, Host& host);
+/// @param map_pixels_x map width in whole pixels; zero sign-extends a sign-bit coordinate
+/// @param map_pixels_z map height in whole pixels; zero sign-extends a sign-bit coordinate
+void tick_navigation(
+    UnitView u, uint32_t tick, Host& host, int32_t map_pixels_x = 0, int32_t map_pixels_z = 0
+);
 /// Marks the navigator's search timestamp once its pending request has aged 60 ticks.
 ///
 /// @param[in,out] navigation navigator
@@ -210,6 +219,8 @@ void snap_to_footprint_centre(
 /// @param events events that woke the order
 /// @param tick current game tick
 /// @param host sounds and search cancellation
+/// @param map_cells_x map width in cells; zero sign-extends a sign-bit coordinate
+/// @param map_cells_z map height in cells; zero sign-extends a sign-bit coordinate
 /// @return the scheduler result: 1 waiting (phase 0), 5 arrived, 9 retry on another event, 7 for an attached unit or an unknown phase
 uint32_t move_ground(
     UnitView u,
@@ -217,7 +228,9 @@ uint32_t move_ground(
     OrderState& extra,
     uint32_t events,
     uint32_t tick,
-    Host& host
+    Host& host,
+    int32_t map_cells_x = 0,
+    int32_t map_cells_z = 0
 );
 /// Runs the Standby mission handler.
 ///

@@ -183,10 +183,12 @@ void Match::snap_to_build_grid(uint16_t type, FixedVec3& position) const {
     if (type == 0 || type >= world.unit_def_count || world.unit_defs[type].bm_code != 0)
         return;
     const auto& def = world.unit_defs[type];
-    const auto cell_x = footprint_origin_cell(position.x, def.footprint_x);
-    const auto cell_z = footprint_origin_cell(position.z, def.footprint_z);
+    const auto cell_x = footprint_origin_cell(position.x, def.footprint_x, world.game.map_width);
+    const auto cell_z = footprint_origin_cell(position.z, def.footprint_z, world.game.map_height);
     sim::ground_orders::Point site{position.x, position.y, position.z};
-    snap_build_position(site, def.footprint_x, def.footprint_z);
+    snap_build_position(
+        site, def.footprint_x, def.footprint_z, world.game.map_width, world.game.map_height
+    );
     position.x = site[0];
     position.y =
         static_cast<int32_t>(static_cast<uint32_t>(footprint_height(type, cell_x, cell_z)) << 16);

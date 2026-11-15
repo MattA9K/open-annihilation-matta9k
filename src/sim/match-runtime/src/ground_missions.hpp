@@ -379,13 +379,19 @@ class TickHost::GroundMissions {
         auto& g = *movement;
         g.project_slot();
         auto flags = host.weapon_flags(s);
+        const auto pixels_x = world().game.map_width_world;
+        const auto pixels_z = world().game.map_height_world;
         if (record.extra.goal) {
-            sim::ground_orders::install_goal(host.view(s, g, flags), nullptr, tick(), host);
+            sim::ground_orders::install_goal(
+                host.view(s, g, flags), nullptr, tick(), host, pixels_x, pixels_z
+            );
             record.extra.goal.reset();
         }
         if (goal) {
             order.raised_events &= ~sim::ground_orders::goal_event_mask;
-            sim::ground_orders::install_goal(host.view(s, g, flags), goal.get(), tick(), host);
+            sim::ground_orders::install_goal(
+                host.view(s, g, flags), goal.get(), tick(), host, pixels_x, pixels_z
+            );
             record.extra.goal = std::move(goal);
         }
         host.write_flags(s, flags);
@@ -445,7 +451,10 @@ class TickHost::GroundMissions {
         g->project_slot();
         install_goal(
             std::make_unique<sim::ground_orders::Goal>(
-                sim::ground_orders::make_goal(order, g->geometry, point, tolerance)
+                sim::ground_orders::make_goal(
+                    order, g->geometry, point, tolerance, world().game.map_width,
+                    world().game.map_height
+                )
             )
         );
     }
@@ -1123,7 +1132,10 @@ class TickHost::GroundMissions {
         g->project_slot();
         install_goal(
             std::make_unique<sim::ground_orders::Goal>(
-                sim::ground_orders::make_ring_goal(order, g->geometry, point, outer, inner)
+                sim::ground_orders::make_ring_goal(
+                    order, g->geometry, point, outer, inner, world().game.map_width,
+                    world().game.map_height
+                )
             )
         );
     }
