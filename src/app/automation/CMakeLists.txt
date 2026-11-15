@@ -52,37 +52,51 @@ if(TARGET oa-game)
       oa-ui-screen-registry oa-options)
     oa_add_extension(oa-app-automation-window-fixture INIT oa_extension_init_window_fixture)
   endif()
-  # What the endpoint reports of a match and of the battle room, and the
-  # events it learns by comparing what the game holds from frame to frame,
-  # read from the canonical records and the multiplayer screens' lobby
-  # alone, so that their check runs without a running game.
-  add_library(oa-app-automation-reports STATIC reports.cpp events.cpp)
+  # What the endpoint reports of a match and of the battle room, read from
+  # the canonical records and the multiplayer screens' lobby alone, so that
+  # their check runs without a running game. The events it learns live in
+  # the shared core.
+  add_library(oa-app-automation-reports STATIC reports.cpp)
   add_library(oa::app::automation_reports ALIAS oa-app-automation-reports)
   target_include_directories(oa-app-automation-reports PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
   target_link_libraries(oa-app-automation-reports
     PUBLIC oa-app-automation-protocol oa-core-types
     PRIVATE oa-ui-frontend-multiplayer oa-sim-messages oa-sim-scenario oa-options)
+  # What --fark and the MCP server share: the control listing and its tree,
+  # the screen names, input injection, frame capture and encoding, and the
+  # events learned by comparing what the game holds from frame to frame.
+  # The options library is linked so app.hpp, which names the screens, can
+  # be included: it needs the headers that library publishes.
+  add_library(oa-app-automation-core STATIC controls.cpp input.cpp frames.cpp events.cpp tree.cpp
+    screen.cpp chords.cpp view.cpp text.cpp shots.cpp)
+  add_library(oa::app::automation_core ALIAS oa-app-automation-core)
+  target_include_directories(oa-app-automation-core PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/include")
+  target_link_libraries(oa-app-automation-core
+    PUBLIC oa-app-automation-reports
+    PRIVATE oa-app-automation-input oa-app-automation-options oa-app-headers
+      oa-ui-frontend-multiplayer oa-ui-frontend-renderer
+      oa-ui-key-bindings oa-present
+      oa-sim-messages oa-formats-png SDL3::SDL3)
   # Status lines: the same events, on standard output or in a file, with no
   # socket. The check links this library and not the endpoint.
   add_library(oa-app-automation-status STATIC status.cpp)
   add_library(oa::app::automation_status ALIAS oa-app-automation-status)
   target_include_directories(oa-app-automation-status PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
   target_link_libraries(oa-app-automation-status
-    PUBLIC oa-app-automation-reports
+    PUBLIC oa-app-automation-core
     PRIVATE oa-platform-shims oa-app-automation-options)
   # The endpoint and the extension's hooks. It reads the game through the
   # check host and the automation host (check_host.hpp, automation_host.hpp)
-  # and reaches no Runtime member.
-  add_library(oa-app-automation STATIC extension.cpp endpoint.cpp requests.cpp controls.cpp
-    input.cpp frames.cpp serve_reports.cpp)
+  # and reaches no Runtime member. The listing, input, frames and events are
+  # the shared core's.
+  add_library(oa-app-automation STATIC extension.cpp endpoint.cpp requests.cpp serve_reports.cpp)
   add_library(oa::app::automation ALIAS oa-app-automation)
   target_link_libraries(oa-app-automation PRIVATE oa-app-automation-protocol
     oa-app-automation-options oa-app-automation-input oa-app-automation-reports
-    oa-app-automation-status oa-app-headers
+    oa-app-automation-status oa-app-automation-core oa-app-headers
     oa-app-game-directory oa-netgame oa-ui-frontend-multiplayer oa-ui-frontend-renderer
     oa-core-types SDL3::SDL3 oa-options oa-platform-shims)
-  # The frame request: PNG files of the frames the game presents.
-  target_link_libraries(oa-app-automation PRIVATE oa-formats-png)
   # hello names the engine's version.
   set_property(SOURCE requests.cpp APPEND
     PROPERTY COMPILE_DEFINITIONS "OA_ENGINE_VERSION=\"${PROJECT_VERSION}\"")
@@ -111,9 +125,9 @@ if(BUILD_TESTING)
     # The match and room answers and the events, over records and a lobby
     # the check builds: what each writes, and that none changes the game.
     add_executable(oa-app-automation-reports-test tests/reports_test.cpp)
-    target_link_libraries(oa-app-automation-reports-test PRIVATE oa-app-automation-reports
-      oa-app-automation-protocol oa-ui-frontend-multiplayer oa-sim-scenario oa-test-support
-      oa-options)
+    target_link_libraries(oa-app-automation-reports-test PRIVATE oa-app-automation-core
+      oa-app-automation-protocol oa-ui-frontend-multiplayer oa-sim-scenario
+      oa-test-support oa-options)
     add_test(NAME automation-reports COMMAND oa-app-automation-reports-test)
   endif()
   if(TARGET oa-app-automation-status)
@@ -122,6 +136,33 @@ if(BUILD_TESTING)
     target_link_libraries(oa-app-automation-status-test PRIVATE oa-app-automation-status
       oa-app-automation-options oa-platform-shims oa-test-support oa-options)
     add_test(NAME automation-status COMMAND oa-app-automation-status-test)
+  endif()
+  if(TARGET oa-app-automation-core)
+    # The control tree: each control's parent, and a dialog over a screen.
+    add_executable(oa-app-automation-tree-test tests/tree_test.cpp)
+    target_link_libraries(oa-app-automation-tree-test PRIVATE oa-app-automation-core
+      oa-app-headers oa-test-support oa-options)
+    add_test(NAME automation-tree COMMAND oa-app-automation-tree-test)
+    if(TARGET oa-platform-screen-reader)
+      # The screen-reader tree of one listing: each role, a dialog named from
+      # its label, rows adopted by a container listed after them, and the
+      # nodes read back through AccessKit's C API.
+      add_executable(oa-app-screen-reader-tree-test tests/screen_reader_tree_test.cpp)
+      target_link_libraries(oa-app-screen-reader-tree-test PRIVATE oa-app-automation-core
+        oa-app-screen-reader-tree
+        oa-platform-screen-reader oa-app-headers SDL3::SDL3 oa-test-support oa-options)
+      if(MSVC AND NOT OA_SCREEN_READER_COMPILED_OUT)
+        target_compile_options(oa-app-screen-reader-tree-test PRIVATE /external:W0)
+      endif()
+      oa_copy_accesskit_dll(oa-app-screen-reader-tree-test)
+      add_test(NAME screen-reader-tree COMMAND oa-app-screen-reader-tree-test)
+      set_tests_properties(screen-reader-tree PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 60)
+    endif()
+    # A chord's keys, and an action id resolved from the registry's defaults.
+    add_executable(oa-app-automation-chords-test tests/chords_test.cpp)
+    target_link_libraries(oa-app-automation-chords-test PRIVATE oa-app-automation-core
+      oa-ui-key-bindings oa-test-support oa-options)
+    add_test(NAME automation-chords COMMAND oa-app-automation-chords-test)
   endif()
   find_package(Python3 COMPONENTS Interpreter QUIET)
   if(Python3_Interpreter_FOUND)

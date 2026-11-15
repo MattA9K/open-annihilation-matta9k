@@ -1,11 +1,12 @@
 # app/update
 
 This build's version and package id, when a check for a new release is due,
-the worker that fetches the signed engine feed, the package download, the
-update centre's one state with its words and actions, the player's choices,
-and the plan, state and receipt files the game and `oa-update` share. The
-verified bytes are kept under the data folder. The main thread reads
-snapshots. Nothing here installs a package.
+which channel's feed it reads, the worker that fetches the signed engine
+feed, the worker that reports a check to the address the feed names, the
+package download, the update centre's one state with its words and
+actions, the player's choices, and the plan, state and receipt files the
+game and `oa-update` share. The verified bytes are kept under the data
+folder. The main thread reads snapshots. Nothing here installs a package.
 
 [build.hpp](include/oa/app/update/build.hpp),
 [centre.hpp](include/oa/app/update/centre.hpp),
@@ -14,6 +15,7 @@ snapshots. Nothing here installs a package.
 [choices.hpp](include/oa/app/update/choices.hpp),
 [download.hpp](include/oa/app/update/download.hpp),
 [offer.hpp](include/oa/app/update/offer.hpp),
+[ping.hpp](include/oa/app/update/ping.hpp),
 [plan.hpp](include/oa/app/update/plan.hpp) and
 [receipt.hpp](include/oa/app/update/receipt.hpp) are the entry points
 (`oa::app::update`).
@@ -25,6 +27,12 @@ snapshots. Nothing here installs a package.
   name: `windows-95` when the build is a Windows 95 build, `steam-deck`
   when the platform is `linux-x86_64` and the program folder holds a
   `steam-deck` directory, and the platform name otherwise.
+- `read_channel` reads Update channel, Stable unless the preference says
+  `testing`, and `run_channel` puts the launch option's channel before it.
+  `channel_feed_address` is the feed a channel reads: Stable reads
+  `feed_address`, `stable-2.json`, or a test feed, as it is; Testing reads
+  `testing-2.json` in the same folder. `Source::channel` is the channel
+  the fetched feed must name.
 - `read_check_mode`, `write_check_mode`, `read_checked` and `write_checked`
   are the preference values. `check_due` is true only for Automatically:
   at the first check of a run, whatever the age of the last check that
@@ -33,18 +41,29 @@ snapshots. Nothing here installs a package.
   is that hour at the main menu first and then anywhere, and
   `update_notice_shows` is the main menu, never a match.
 - `offer_text` writes the question's title, the size of the offered
-  package's zip, and the reassurance. The notes are the release's own
+  package's zip, or that the release is installed by hand where the offer
+  names an install page, and the reassurance. The notes are the release's own
   lines and are not looked up. `notes_paragraph` joins those lines under
   "New in {version}:", one bulleted line each. `offer_wanted` is false at
   or below the release `read_skipped` names. `write_skipped` remembers
   that number.
+- `read_pinged`, `write_pinged` and `ping_due` keep the report's hour.
+  `ping_body` is the report's JSON: the version, the package id, the
+  channel, the install ID and the trigger, `manual` for an asked check.
+  `local_address` is `localhost` or a 127 address, where an unattended run
+  or a test feed reports. `build_reports` is true only for a build with no
+  version label whose package id is one of `reported_platforms`. `Pinger` posts one report on a worker thread
+  with the game's own user agent; nothing waits for it, and `snapshot`
+  says whether the server took it.
 - `Checker` fetches one feed and its signature on a worker thread. `start`
   does nothing while a check is running. `cancel` asks it to stop, and a
   cancelled check is not a finished one. `snapshot` is the latest result,
   and a failed one says why as `CheckFailure`: the server could not be
   reached, the feed was refused, or this machine could not store it.
   `remember` publishes the offer of the feed an earlier check stored, after
-  checking its signature again, with no request.
+  checking its signature and its channel again, with no request; a feed
+  the other channel's check stored is not remembered. A snapshot says
+  whether the player asked for its check (`CheckSnapshot::asked`).
 - `PackageDownload` fetches one package in steps of a mebibyte, publishing
   the bytes and the rate (`RateMeter`) after each. A match, or the
   player's `pause`, stops it at the next step; `resume` carries on.
@@ -55,7 +74,9 @@ snapshots. Nothing here installs a package.
   gathers in `CentreInputs`, with the `Act`s that stage allows.
   `centre_words` writes its status, detail, the short form for the menu
   pill and the headers, a note, and each action's caption; the install
-  action names the route (`install_way`). `step_words` and
+  action names the route (`install_way`). A page-only release installed by
+  hand (`CentreInputs::by_hand`) says so, opens the download page, and
+  offers What's new for the release's own page. `step_words` and
   `recovery_steps` write a receipt's steps and the steps that put an
   unfinished recovery right.
 - `read_scheduled`, `write_scheduled` and `clear_scheduled` keep the
@@ -65,6 +86,8 @@ snapshots. Nothing here installs a package.
   tries again. `read_install_policy` reads Install updates. `clear_skipped`
   takes a skip back.
 - `read_plan` and `plan_text` are the plan the game writes for the helper.
+  `Plan::channel` is the channel the saved feed was fetched for, written
+  only when it is Testing.
   `helper_inherits_open_files` is false: the helper is not given the files
   this process still has open, so it can rename the fonts folder once this
   process has left. `windows_helper_command` is the command line that
@@ -88,8 +111,12 @@ updates are preference values. The runtime holds the workers for the run.
 
 ## Invariants
 
-- The feed's address is `feed_address`. A test feed replaces it for one
-  run. An empty key list means the engine's pinned keys.
+- The feed's address is `feed_address`, or `testing-2.json` beside it on
+  the testing channel. A test feed replaces it for one run. An empty key
+  list means the engine's pinned keys.
+- A check is reported only after its feed verified, to the address that
+  feed names, once a check and at most once an hour. The report never
+  holds up the check, and a failed one changes nothing.
 - The worker sends the game's own user agent and no other header, and no
   query. It does not fetch the signature unless the feed came back whole.
 - `check_feed` runs only on those two responses. `choose` runs only on an
@@ -116,22 +143,31 @@ test. `app-update-check` covers when a check is due, including the first
 menu and the hour, the preference values, and a `Checker` against a feed
 served on 127.0.0.1: an offer, a release already running, a remembered
 stored feed, a missing feed, a refused feed, a check that runs out of
-time, and a cancel, with each failure's kind.
+time, and a cancel, with each failure's kind; the channel's word, the
+launch option over the setting and each channel's address; the testing
+channel's feed fetched from testing-2.json, each channel's feed refused as
+the other's, and a copy back on Stable that is offered nothing until a
+newer stable release; and the report's hour. `app-update-ping` covers the
+report's body, which builds report, which addresses are this machine's,
+one report posted to a local server with its type and user agent, a
+refused and an unanswered report, and one report at a time.
 `app-update-plan` covers the plan and state texts and the refusals: an
-unknown format or route, a relative path, an empty program, and a title or
-line that is too long. `app-update-download` covers the download against a
+unknown format, route or channel, a relative path, an empty program, and a
+title or line that is too long, and a plan for the testing channel. `app-update-download` covers the download against a
 local server: a resume, a match's pause, the player's pause and resume, a
 cancel that keeps nothing, a package already downloaded, and each
 failure's kind. `app-update-centre` covers the state each set of facts
 gives and its actions, the English words, the route's install words,
 scheduling and taking it back, Later kept apart from Skip, a held release,
-each failure's words, the time left and the rate. `app-update-receipt`
+each failure's words, a release installed by hand, the time left and the
+rate. `app-update-offer` covers the question's words, a release installed
+by hand, the notes and the skip. `app-update-receipt`
 covers the receipt's names, outcomes, round trip, refusals and file, and
 the state file's quit marker.
 
 ## Limitations
 
-- The channel is `stable`. A preview channel is later work.
+- The channels are `stable` and `testing`.
 - `rollout` and the oldest version that may play online are not acted on.
   That waits for 0.9.
 - The update centre's state is decided here, and the menu pill and the

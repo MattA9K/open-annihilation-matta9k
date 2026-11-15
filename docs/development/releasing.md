@@ -58,7 +58,10 @@ expanded and checked, and the notary service's logs.
    the source's notices in `Contents/Resources`, the text fonts in its
    `fonts` folder, each the bootstrap's byte for byte, the built-in
    registries in `registries/` (Core Prime's descriptor the same bytes as
-   the source). `Contents/MacOS` holds the executable and `oa-update`, and
+   the source). When that build's cache has the module on, the same check
+   also accepts `coreprime.ccx`, the module's language file and the page
+   fonts, and with the module off it accepts the same files as before.
+   `Contents/MacOS` holds the executable and `oa-update`, and
    nothing else. The notices are `LICENSE`, `ATTRIBUTIONS.md` and the files of
    `licenses/` that Git tracks; a file Git does not track there, a
    `.DS_Store` for one, stops the script, since the build would put it in
@@ -333,8 +336,16 @@ folder is what the installer packs. It holds `open-annihilation.exe`,
 `oa-intro.exe`, `oa-tool.exe`, `LICENSE`, `ATTRIBUTIONS.md`, `licenses/`,
 `fonts/`, `languages/interface.tdf`, `registries/` and `brains/` with
 Classic packed as `classic.oabrain`. When the folder also holds
+`coreprime.ccx`, the installer packs it and the uninstaller removes it;
+a Windows 95 folder has none, and the installer does not require it.
+Every language file in the folder is installed, and the uninstaller
+removes those files. `fonts/` is copied as a tree, so page-font folders
+in the package are installed and removed with the text fonts. When the folder also holds
 `oa-update.exe`, the installer packs that too. The uninstaller removes
-`oa-update.exe` whether or not this package carried it. The installer
+`oa-update.exe` whether or not this package carried it. The same goes for
+`accesskit.dll`, the screen reader's library, which every package but
+Windows 95's carries; its notices are the `AccessKit-*` files in
+`licenses/`. The installer
 refuses a folder whose `brains/` has no `classic.oabrain`, and installs
 that file into `brains` beside the game. The uninstaller removes it.
 
@@ -372,9 +383,12 @@ when it is the last argument and is not quoted. Silent uninstall is
 
 `packaging/windows/build-installers.sh` lays out four folders in that
 shape, using the tree's notices, catalogue and registries and stand-in
-executables, including a stand-in `oa-update.exe`, and builds all four
+executables, including a stand-in `oa-update.exe`, and a stand-in
+`accesskit.dll` in every folder but Windows 95's, and builds all four
 with Homebrew's `makensis`. It checks that each installer lists
-`oa-update.exe`, that a folder without that file still builds, and that
+`oa-update.exe`, that the three that are not Windows 95's list
+`accesskit.dll` and the Windows 95 one does not, that a folder without
+`oa-update.exe` still builds, and that
 an unknown package name, a folder missing `LICENSE` and a folder missing
 `classic.oabrain` in `brains/` are refused.
 
@@ -420,6 +434,43 @@ a Windows 95 machine is not part of building the package.
 
 ## The signed feed
 
-A release is offered to players from one signed feed. After the packages
-are built, write the feed, sign it and check it as
+A release is offered to players from signed feeds, one file for each
+channel and for each group of copies that reads it. After the packages
+are built, write each feed, sign it and check it as
 [The engine feed](engine-feed.md) describes.
+
+### Releasing through the testing channel
+
+A release goes to the testing channel first, so that the maintainer's own
+copies take it the way players will, then to the stable channel. Every
+feed is signed with the release key on the signing machine. Upload each
+`.sig` with its feed, the feed first.
+
+1. Upload the packages to `v1/engine/<version>/` on the downloads host.
+2. Write `testing-2.json` with `--channel testing`, the release's
+   packages and `--previous testing-2.json` (the last testing feed; the
+   first time, leave `--previous` out), and the ping options when the
+   release reports checks. Sign it, check it with
+   `oa-tool engine-feed check --channel testing testing-2.json`, upload
+   it, and check it again with `--url`. No copy before 0.8.12 reads a
+   testing file, so `testing.json` is not needed.
+3. Update the maintainer's own installs on the testing channel: the Mac
+   installed from the `.pkg`, a Windows install and a Linux install, each
+   a normal release build. On each, set Settings › Developer › Update
+   channel to Testing (or start it once with `--update-channel testing`),
+   press Check now on Settings › Updates, which names "Testing channel",
+   and install the release. Check that each starts on the new version and
+   reaches the main menu.
+4. Write and sign the stable files with `--channel stable`, and upload
+   them:
+   - `stable-2.json`, read by 0.8.12 and later, with every package of the
+     release, a package's own `--package-from` and the `--install-page`
+     where older copies install by hand, and `--previous stable-2.json`
+     (the first time, `--previous stable.json`);
+   - `stable.json`, read by 0.8.9 to 0.8.11, with the same release but
+     without `macos-universal` while those copies' Mac updater is in use,
+     and `--previous stable.json`.
+
+   Check both with `--url`. Players get the release from here; the
+   maintainer's copies can go back to Stable, which offers nothing until
+   the release after.

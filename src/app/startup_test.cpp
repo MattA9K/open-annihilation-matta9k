@@ -18,11 +18,13 @@
 #include "oa/app/extension.hpp"
 #include "oa/app/game_directory.hpp"
 #include "oa/app/command_line.hpp"
+#include "oa/platform/preferences.hpp"
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -305,6 +307,7 @@ void game_files_options() {
         {{"--headless-check"}, "--headless-check"},
         {{"--render-script", "film.oascript"}, "--render-script"},
         {{"--generate-script", "game.tad"}, "--generate-script"},
+        {{"--replay-index", "game.tad", "--output", "game.json"}, "--replay-index"},
         {{"--capture-video", "check.mp4"}, "--capture-video"},
         {{"--showcase", "arm-first-mission"}, "--showcase"},
         {{"--benchmark", "10"}, "--benchmark"},
@@ -319,6 +322,7 @@ void game_files_options() {
         {{"--check-render-tiers"}, "--check-render-tiers"},
         {{"--check-unit-language", "fr"}, "--check-unit-language"},
         {{"--check-director-view"}, "--check-director-view"},
+        {{"--check-photo"}, "--check-photo"},
     };
     for (const auto& [arguments, named] : conflicts) {
         std::vector<const char*> line{"--check-game-files"};
@@ -394,6 +398,7 @@ const std::vector<FlagCase>& flag_cases() {
         {"--check-map-packs", &Options::check_map_packs, {}},
         {"--check-map-browser", &Options::check_map_browser, {}},
         {"--check-key-editor", &Options::check_key_editor, {}},
+        {"--check-replay-viewer", &Options::check_replay_viewer, {}},
         {"--check-key-capture", &Options::check_key_capture, {}},
         {"--check-key-share", &Options::check_key_share, {}},
         {"--check-key-views", &Options::check_key_views, {}},
@@ -419,6 +424,10 @@ const std::vector<FlagCase>& flag_cases() {
         {"--check-library-map-previews", &Options::check_library_map_previews, {}},
         {"--check-library-content", &Options::check_library_content, {}},
         {"--check-library-update-question", &Options::check_library_update_question, {}},
+        {"--check-library-replays", &Options::check_library_replays, {}},
+        {"--check-replay-import", &Options::check_replay_import, {}},
+        {"--check-replays-content", &Options::check_replays_content, {}},
+        {"--check-replays-core-prime", &Options::check_replays_core_prime, {}},
         {"--check-renderer-ladder", &Options::check_renderer_ladder, {}},
         {"--check-renderer-proof", &Options::check_renderer_proof, {}},
         {"--check-live-renderer", &Options::check_live_renderer, {}},
@@ -439,6 +448,8 @@ const std::vector<FlagCase>& flag_cases() {
         {"--check-replay-loadout", &Options::check_replay_loadout, {}},
         {"--check-side-data-per-match", &Options::check_side_data_per_match, {}},
         {"--check-gadget-art-per-match", &Options::check_gadget_art_per_match, {}},
+        {"--check-picture-frames", &Options::check_picture_frames, {}},
+        {"--check-build-page-fallback", &Options::check_build_page_fallback, {}},
         {"--check-download-builds", &Options::check_download_builds, {}},
         {"--check-stockpile-builds", &Options::check_stockpile_builds, {}},
         {"--check-unit-page-memory", &Options::check_unit_page_memory, {}},
@@ -524,6 +535,7 @@ const std::vector<ValueCase>& value_cases() {
         {"--preferences-file", "p.conf", {}},
         {"--data-dir", "data", {}},
         {"--user-folder", "own", {}},
+        {"--core-prime-api", "http://127.0.0.1:9", {}},
         {"--log-dir", "logs", {}},
         {"--open", "a.oamod", {}},
         {"--install-mod", "a.oamod", {}},
@@ -584,6 +596,8 @@ const std::vector<ValueCase>& value_cases() {
         {"--check-content-copy", "docs", {}},
         {"--check-installer", "setup.bin", {}},
         {"--generate-script", "game.rec", {}},
+        {"--replay-index", "game.rec", {"--output", "game.json"}},
+        {"--replay-map-pack", "kept", {"--replay-index", "game.rec", "--output", "game.json"}},
         {"--render-script", "game.oascript", {}},
         {"--output", "out", {"--render-script", "game.oascript"}},
         {"--chunks", "1", {"--render-script", "game.oascript"}},
@@ -597,6 +611,7 @@ const std::vector<ValueCase>& value_cases() {
         {"--update-key",
          "test-key=ed25519:11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=",
          {"--update-feed", "http://127.0.0.1:9/v1/engine/stable.json"}},
+        {"--update-channel", "testing", {}},
         {"--updated-from", "0.8.7", {}},
         {"--rolled-back-from", "0.8.4", {"--roll-back-reason", "player"}},
         {"--roll-back-reason", "failed-starts", {"--rolled-back-from", "0.8.4"}},
@@ -609,10 +624,15 @@ const std::vector<ValueCase>& value_cases() {
     return cases;
 }
 
-// The other options: --check-navigation, which takes a group's name when
-// one follows it, and the hardware acceleration flags, which must agree.
+// The other options: --check-navigation and --check-photo, which take a
+// group's name when one follows them, and the hardware acceleration flags,
+// which must agree.
 constexpr const char* kOtherOptions[] = {
-    "--version", "--check-navigation", "--hardware-acceleration", "--no-hardware-acceleration"
+    "--version",
+    "--check-navigation",
+    "--check-photo",
+    "--hardware-acceleration",
+    "--no-hardware-acceleration",
 };
 
 // An extension that takes every option it is offered, as a flag, and
@@ -980,8 +1000,9 @@ void mod_install_options() {
     expect(
         rejection({"x.oamod", "--headless-check"})
                 .find(
-                    "a file to open (.oamod, .oalang, .oamap, .oamut, .oabrain, .oakeys or "
-                    ".oareg), after "
+                    "a file to open (.oamod, .oalang, .oamap, .oamut, .oabrain, .oakeys, "
+                    ".oareg, .oademo "
+                    "or .tad), after "
                     "--open or "
                     "on "
                     "its own,"
@@ -1112,11 +1133,25 @@ void key_layout_options() {
     );
 }
 
+// --update-channel is taken in every build, as stable or testing, and
+// leaves the setting to decide when it is not given.
+void update_channel_option() {
+    expect(parse({}).update_channel.empty(), "no --update-channel leaves the setting to decide");
+    expect(parse({"--update-channel", "testing"}).update_channel == "testing", "testing is taken");
+    expect(parse({"--update-channel", "stable"}).update_channel == "stable", "stable is taken");
+    for (const char* refused : {"Testing", "preview"})
+        expect(
+            rejection({"--update-channel", refused}) ==
+                "--update-channel must be stable or testing",
+            "--update-channel must be stable or testing"
+        );
+}
+
 // --update-feed and --update-key are self-checks. A key needs a feed, and
 // the key's text has to be an ed25519 public key. --check-engine-feed draws
 // in a window on the fixed clock.
 void update_feed_options() {
-    constexpr const char* kUrl = "http://127.0.0.1:9/v1/engine/stable.json";
+    constexpr const char* kUrl = "http://127.0.0.1:9/v1/engine/stable-2.json";
     constexpr const char* kKey = "test-key=ed25519:11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=";
     constexpr const char* kOther = "other-key=ed25519:11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=";
     if constexpr (oa::app::self_checks_built) {
@@ -1311,6 +1346,7 @@ int main() {
     mod_install_options();
     switch_words_keep_their_spaces();
     options_by_name();
+    update_channel_option();
     update_feed_options();
     value_options();
     mutator_options();
@@ -1447,15 +1483,19 @@ int main() {
         "--force-capable goes with --check-underwater-features"
     );
     expect(
+        parse({"--check-photo", "--force-capable"}).force_capable,
+        "--force-capable goes with --check-photo"
+    );
+    expect(
         rejection({"--force-capable"}) ==
                 "--force-capable is accepted only with --check-render-tiers, "
                 "--check-build-preview, --check-dialog-backdrop, --check-engine-settings, "
-                "--check-kill-board and "
+                "--check-kill-board, --check-photo and "
                 "--check-underwater-features" &&
             rejection({"--force-capable", "--check-navigation"}) ==
                 "--force-capable is accepted only with --check-render-tiers, "
                 "--check-build-preview, --check-dialog-backdrop, --check-engine-settings, "
-                "--check-kill-board and "
+                "--check-kill-board, --check-photo and "
                 "--check-underwater-features",
         "--force-capable is refused without a check that takes it"
     );
@@ -2212,7 +2252,7 @@ int main() {
         rejection({"--force-capable"}) ==
             "--force-capable is accepted only with --check-render-tiers, "
             "--check-build-preview, --check-dialog-backdrop, --check-engine-settings, "
-            "--check-kill-board and "
+            "--check-kill-board, --check-photo and "
             "--check-underwater-features",
         "--force-capable alone is refused"
     );
@@ -2220,7 +2260,7 @@ int main() {
         rejection({"--check-match-layers", "--force-capable"}) ==
             "--force-capable is accepted only with --check-render-tiers, "
             "--check-build-preview, --check-dialog-backdrop, --check-engine-settings, "
-            "--check-kill-board and "
+            "--check-kill-board, --check-photo and "
             "--check-underwater-features",
         "--force-capable with another check is refused"
     );
@@ -2262,6 +2302,99 @@ int main() {
         "--check-director-view is a headless, fixed-clock and unattended run"
     );
     expect(!parse({"--headless-check"}).check_director_view, "no director view check unasked");
+
+    // The photo check opens a window on the fixed clock, past the intro, with
+    // nobody there. A group's name may follow; any other word is read as before.
+    const auto photo = parse({"--check-photo"});
+    expect(
+        photo.check_photo && !photo.headless_check && photo.skip_intro && photo.fixed_clock &&
+            photo.unattended && photo.photo_group == oa::app::PhotoGroup::mode,
+        "--check-photo is a fixed-clock and unattended run that opens a window"
+    );
+    const auto photo_mode = parse({"--check-photo", "mode"});
+    expect(
+        photo_mode.check_photo && photo_mode.photo_group == oa::app::PhotoGroup::mode,
+        "--check-photo mode names the mode group"
+    );
+    const auto photo_time = parse({"--check-photo", "time"});
+    expect(
+        photo_time.check_photo && photo_time.photo_group == oa::app::PhotoGroup::time,
+        "--check-photo time names the time group"
+    );
+    const auto photo_camera = parse({"--check-photo", "camera"});
+    expect(
+        photo_camera.check_photo && photo_camera.photo_group == oa::app::PhotoGroup::camera,
+        "--check-photo camera names the camera group"
+    );
+    const auto photo_capture = parse({"--check-photo", "capture"});
+    expect(
+        photo_capture.check_photo && photo_capture.photo_group == oa::app::PhotoGroup::capture,
+        "--check-photo capture names the capture group"
+    );
+    const auto photo_live = parse({"--check-photo", "live"});
+    expect(
+        photo_live.check_photo && photo_live.photo_group == oa::app::PhotoGroup::live,
+        "--check-photo live names the live group"
+    );
+    const auto photo_panel = parse({"--check-photo", "panel"});
+    expect(
+        photo_panel.check_photo && photo_panel.photo_group == oa::app::PhotoGroup::panel,
+        "--check-photo panel names the panel group"
+    );
+    const auto photo_sizes = parse({"--check-photo", "sizes"});
+    expect(
+        photo_sizes.check_photo && photo_sizes.photo_group == oa::app::PhotoGroup::sizes,
+        "--check-photo sizes names the sizes group"
+    );
+    const auto photo_pad_touch = parse({"--check-photo", "pad-touch"});
+    expect(
+        photo_pad_touch.check_photo &&
+            photo_pad_touch.photo_group == oa::app::PhotoGroup::pad_touch,
+        "--check-photo pad-touch names the controller and touch group"
+    );
+    const auto photo_replay = parse({"--check-photo", "replay"});
+    expect(
+        photo_replay.check_photo && photo_replay.photo_group == oa::app::PhotoGroup::replay,
+        "--check-photo replay names the replay group"
+    );
+    const auto photo_tiles = parse({"--check-photo", "tiles"});
+    expect(
+        photo_tiles.check_photo && photo_tiles.photo_group == oa::app::PhotoGroup::tiles,
+        "--check-photo tiles names the tiles group"
+    );
+    const auto photo_tiles_live = parse({"--check-photo", "tiles-live"});
+    expect(
+        photo_tiles_live.check_photo &&
+            photo_tiles_live.photo_group == oa::app::PhotoGroup::tiles_live,
+        "--check-photo tiles-live names the turned-view tiles group"
+    );
+    const auto photo_depth_live = parse({"--check-photo", "depth-live"});
+    expect(
+        photo_depth_live.check_photo &&
+            photo_depth_live.photo_group == oa::app::PhotoGroup::depth_live,
+        "--check-photo depth-live names the depth group"
+    );
+    const auto photo_poster = parse({"--check-photo", "poster"});
+    expect(
+        photo_poster.check_photo && photo_poster.photo_group == oa::app::PhotoGroup::poster,
+        "--check-photo poster names the poster group"
+    );
+    const auto photo_close = parse({"--check-photo", "close"});
+    expect(
+        photo_close.check_photo && photo_close.photo_group == oa::app::PhotoGroup::close,
+        "--check-photo close names the close group"
+    );
+    expect(
+        parse({"--check-photo", "capture", "--force-capable"}).force_capable,
+        "--force-capable goes with --check-photo"
+    );
+    const auto photo_language = parse({"--check-photo", "german"});
+    expect(
+        photo_language.check_photo && photo_language.photo_group == oa::app::PhotoGroup::mode &&
+            std::string_view(photo_language.launch.language) == "german",
+        "a word after --check-photo that names no group is still the language"
+    );
+    expect(!parse({"--headless-check"}).check_photo, "no photo check unasked");
     expect(
         rejection({"--check-director-view", "--capture-video", "view.mp4"}) ==
             "--capture-video captures the game or a --showcase, not a check or benchmark",
@@ -2307,6 +2440,23 @@ int main() {
             generate_sized.window_resolution,
         "--resolution sets the size a generated script plans for"
     );
+    // --replay-index writes its index where --output says, and runs headless
+    // on the fixed clock as well.
+    const auto indexed = parse({"--replay-index", "game.tad", "--output", "game.json"});
+    expect(
+        indexed.replay_index == oa::app::path_from_utf8("game.tad") &&
+            indexed.director_output == oa::app::path_from_utf8("game.json") &&
+            indexed.headless_check && indexed.skip_intro && indexed.fixed_clock &&
+            indexed.unattended && !indexed.seed && indexed.generate_script.empty() &&
+            indexed.render_script.empty(),
+        "--replay-index takes its recording and output and runs headless"
+    );
+    const auto indexed_pack =
+        parse({"--replay-index", "game.tad", "--output", "game.json", "--replay-map-pack", "kept"});
+    expect(
+        indexed_pack.replay_map_pack == oa::app::path_from_utf8("kept"),
+        "--replay-map-pack names the kept pack the index pass mounts"
+    );
     const auto render = parse({"--render-script", "game.oascript", "--chunks", "2-5"});
     expect(
         render.render_script == oa::app::path_from_utf8("game.oascript") &&
@@ -2349,6 +2499,39 @@ int main() {
                 .preferences_file->u8string() == u8"\u5b58\u6863.conf",
         "--preferences-file reads UTF-8"
     );
+    // The restart after an update names the player's own preferences file:
+    // one file however it is spelled, and that start is the player's own.
+    expect(
+        oa::app::names_same_file("prefs/../folder/p.conf", "folder/./p.conf") &&
+            !oa::app::names_same_file("folder/p.conf", "folder/q.conf"),
+        "a path names the same file however it is spelled"
+    );
+    {
+        oa::app::Options other_file;
+        other_file.preferences_file = std::filesystem::path("scratch/p.conf");
+        oa::app::forget_own_preferences_file(other_file);
+        expect(
+            other_file.preferences_file.has_value(), "a played start keeps another preferences file"
+        );
+        oa::app::Options check = parse({"--preferences-file", "p.conf", "--headless-check"});
+        oa::app::forget_own_preferences_file(check);
+        expect(check.preferences_file.has_value(), "a headless check keeps its preferences file");
+        std::optional<std::filesystem::path> own;
+        try {
+            own = oa::platform::preferences::default_file();
+        } catch (const std::exception&) {
+            // No player's file to name on this machine.
+        }
+        if (own) {
+            oa::app::Options restarted;
+            restarted.preferences_file = *own;
+            oa::app::forget_own_preferences_file(restarted);
+            expect(
+                !restarted.preferences_file,
+                "a played start that names the player's own preferences file is the player's own"
+            );
+        }
+    }
     expect(
         parse({"--log-dir", "logs", "--headless-check"}).log_dir == std::filesystem::path("logs") &&
             !parse({"--headless-check"}).log_dir,
@@ -2366,8 +2549,26 @@ int main() {
         "one director run at a time"
     );
     expect(
-        rejection({"--output", "out"}) == "--output needs --generate-script or --render-script",
+        rejection({"--replay-index", "game.tad", "--render-script", "game.oascript"}) ==
+                "--render-script and --replay-index cannot be used together" &&
+            rejection({"--generate-script", "game.tad", "--replay-index", "game.tad"}) ==
+                "--generate-script and --replay-index cannot be used together",
+        "the index pass is a director run of its own"
+    );
+    expect(
+        rejection({"--output", "out"}) ==
+            "--output needs --generate-script, --render-script or --replay-index",
         "--output belongs to a director run"
+    );
+    expect(
+        rejection({"--replay-map-pack", "kept"}) == "--replay-map-pack needs --replay-index" &&
+            rejection({"--replay-index", "game.tad"}) == "--replay-index needs --output" &&
+            rejection(
+                {"--replay-index", "game.tad", "--output", "out", "--resolution", "640x360"}
+            ) == "--replay-index draws nothing, so it takes no --resolution" &&
+            rejection({"--replay-index", "game.tad", "--output", "out", "--chunks", "1"}) ==
+                "--chunks needs --render-script",
+        "the index pass takes an output, and nothing of a render"
     );
     expect(
         rejection({"--chunks", "1"}) == "--chunks needs --render-script" &&
@@ -2474,9 +2675,13 @@ int main() {
         {"--check-interpolation"},
         {"--check-unit-playout"},
     };
-    for (const auto* run : {"--generate-script", "--render-script"})
+    for (const auto* run : {"--generate-script", "--render-script", "--replay-index"})
         for (const auto& other : refused_with_scripts) {
             std::vector<const char*> arguments{run, "game.file"};
+            if (std::string(run) == "--replay-index") {
+                arguments.push_back("--output");
+                arguments.push_back("game.json");
+            }
             arguments.insert(arguments.end(), other.begin(), other.end());
             expect(
                 rejection(arguments) == std::string(run) + " cannot be used with " + other.front(),

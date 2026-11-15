@@ -106,7 +106,14 @@ bool start_video(NativeDialogs& dialogs) {
 }
 
 #if OA_NATIVE_FOLDER_DIALOG
-FolderPick pick_folder(void* context, const fs::path& start, fs::path* chosen, std::string* error) {
+FolderPick pick_folder_titled(
+    void* context,
+    const fs::path& start,
+    fs::path* chosen,
+    std::string* error,
+    std::string_view title_text,
+    SDL_Window* window
+) {
     auto& dialogs = *static_cast<NativeDialogs*>(context);
     if (!start_video(dialogs)) {
         *error = dialogs.video_error;
@@ -125,9 +132,7 @@ FolderPick pick_folder(void* context, const fs::path& start, fs::path* chosen, s
     // A property SDL cannot store leaves the dialog with SDL's own title,
     // starting folder or choice of one folder; it still opens. The title
     // says which folder qualifies. SDL copies it during Show.
-    const std::string title = std::string(
-        oa::data::languages::interface_text("Choose the folder that holds totala1.hpi.")
-    );
+    const std::string title(title_text);
     std::ignore =
         SDL_SetStringProperty(properties, SDL_PROP_FILE_DIALOG_TITLE_STRING, title.c_str());
     const auto location = dialog_location(start);
@@ -137,6 +142,10 @@ FolderPick pick_folder(void* context, const fs::path& start, fs::path* chosen, s
         );
     }
     std::ignore = SDL_SetBooleanProperty(properties, SDL_PROP_FILE_DIALOG_MANY_BOOLEAN, false);
+    if (window != nullptr) {
+        std::ignore =
+            SDL_SetPointerProperty(properties, SDL_PROP_FILE_DIALOG_WINDOW_POINTER, window);
+    }
     DialogWait wait;
     SDL_ShowFileDialogWithProperties(SDL_FILEDIALOG_OPENFOLDER, folder_chosen, &wait, properties);
     SDL_DestroyProperties(properties);
@@ -158,6 +167,17 @@ FolderPick pick_folder(void* context, const fs::path& start, fs::path* chosen, s
         return FolderPick::cancelled;
     *chosen = path_from_utf8(wait.path);
     return FolderPick::chosen;
+}
+
+FolderPick pick_folder(void* context, const fs::path& start, fs::path* chosen, std::string* error) {
+    return pick_folder_titled(
+        context,
+        start,
+        chosen,
+        error,
+        oa::data::languages::interface_text("Choose the folder that holds totala1.hpi."),
+        nullptr
+    );
 }
 #endif
 
@@ -219,6 +239,8 @@ struct NativeHost {
     ModChoice mod;
     /// The preferences the stored folder and the mod come from; the mod choice points here.
     oa::platform::preferences::Values values{};
+    /// `--content` for this run; empty when the run names none.
+    std::string content;
 };
 
 // Without the folder dialog in the build, the host offers none
@@ -254,7 +276,8 @@ bool ask_native_user(void* context, Notice kind, std::string_view text, std::str
 GameInstall inspect(void* context, const fs::path& folder) {
     const auto& host = *static_cast<NativeHost*>(context);
     const fs::path& demo_root = host.user_folder.empty() ? host.data_folder : host.user_folder;
-    auto install = inspect_game_install(folder, demo_root, demo_1997, host.mod);
+    const fs::path overlay = game_files_overlay(host.user_folder, host.values, host.content);
+    auto install = inspect_game_install(folder, demo_root, demo_1997, host.mod, overlay);
     if (install.demo.outcome == DemoOutcome::unpack_failed && host.data_folder.empty())
         install.demo.problem += " (" + host.data_folder_problem + ")";
     return install;
@@ -391,6 +414,7 @@ find_game_directory(const Options& options, GameFilesNeeded* needed, bool defer_
     request.defer_dialog = defer_dialog;
     NativeHost native;
     prepare_native_host(options, request.unattended, true, native);
+    native.content = options.content;
     if (request.argument.empty())
         request.stored = stored_game_directory(native.values);
     take_platform_folder(request);
@@ -435,24 +459,41 @@ find_game_directory(const Options& options, GameFilesNeeded* needed, bool defer_
     return resolved;
 }
 
-FolderPick
-pick_game_folder_with_dialog(const fs::path& start, fs::path* chosen, std::string* error) {
+FolderPick pick_folder_with_dialog(
+    const fs::path& start,
+    std::string_view title,
+    fs::path* chosen,
+    std::string* error,
+    SDL_Window* window
+) {
 #if OA_NATIVE_FOLDER_DIALOG
     NativeDialogs dialogs;
     // Windows reports a choice with no folder on disk behind it (This PC, a
     // library) as a failure, so a failure opens the dialog once more.
-    FolderPick pick = pick_folder(&dialogs, start, chosen, error);
+    FolderPick pick = pick_folder_titled(&dialogs, start, chosen, error, title, window);
     if (pick == FolderPick::unavailable) {
         error->clear();
-        pick = pick_folder(&dialogs, start, chosen, error);
+        pick = pick_folder_titled(&dialogs, start, chosen, error, title, window);
     }
     return pick;
 #else
     std::ignore = start;
+    std::ignore = title;
     std::ignore = chosen;
+    std::ignore = window;
     *error = "this build offers no folder dialog";
     return FolderPick::unavailable;
 #endif
+}
+
+FolderPick
+pick_game_folder_with_dialog(const fs::path& start, fs::path* chosen, std::string* error) {
+    return pick_folder_with_dialog(
+        start,
+        oa::data::languages::interface_text("Choose the folder that holds totala1.hpi."),
+        chosen,
+        error
+    );
 }
 
 std::optional<GameDirectory>

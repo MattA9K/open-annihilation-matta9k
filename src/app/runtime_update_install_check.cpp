@@ -386,6 +386,8 @@ int Runtime::check_update_download() {
         stopped.bytes_per_second = 0;
         update::CentreInputs page_only = offered;
         page_only.way = update::InstallWay::page_only;
+        update::CentreInputs by_hand = page_only;
+        by_hand.by_hand = true;
         update::CentreInputs ready = downloading;
         ready.download = update::DownloadState::ready;
         ready.received = ready.total;
@@ -539,6 +541,25 @@ int Runtime::check_update_download() {
                 capture("update-offer-page-" + size + ".png");
                 clear_screens();
             }
+            // The offer a copy below the package's minimum asks, where the
+            // feed names an install page: installed by hand.
+            update_->pictured = by_hand;
+            update_->held.offer.by_hand = true;
+            update_->held.offer.page = "https://example.invalid/install";
+            update_->offered_release.reset();
+            {
+                const auto deadline = deadline_from(std::chrono::seconds{10});
+                while (!is_update_question(oa_layer().find(QuestionScreen::screen_name))) {
+                    require(
+                        std::chrono::steady_clock::now() < deadline,
+                        "the offer installed by hand did not show on " + size
+                    );
+                    idle_tick();
+                }
+                capture("update-offer-by-hand-" + size + ".png");
+                clear_screens();
+            }
+            settings_picture("by-hand");
             update_->pictured = offered;
             update_->held = {};
             settings_picture("offered");
@@ -664,8 +685,8 @@ int Runtime::check_update_download() {
         feed_json(release, version, built.package, sha256_hex(promised), promised.size(), mirror),
         0x61
     );
-    server.serve_bytes("/v1/engine/stable.json", offered.bytes, "application/json");
-    server.serve_bytes("/v1/engine/stable.json.sig", offered.signature, "text/plain");
+    server.serve_bytes("/v1/engine/stable-2.json", offered.bytes, "application/json");
+    server.serve_bytes("/v1/engine/stable-2.json.sig", offered.signature, "text/plain");
     if (resume) {
         fixture::Reply cut;
         cut.status = 200;
@@ -676,7 +697,7 @@ int Runtime::check_update_download() {
         server.override_next("/v1/engine/engine.zip", partial_reply(sent, step * 2), 1);
     }
     server.serve_bytes("/v1/engine/engine.zip", sent);
-    options_.update_feed = server.url("/v1/engine/stable.json");
+    options_.update_feed = server.url("/v1/engine/stable-2.json");
     options_.update_keys = {std::string(kKeyId) + "=" + offered.key_text};
 
     const auto offer_visible = [this]() {

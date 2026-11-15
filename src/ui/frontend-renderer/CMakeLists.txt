@@ -7,7 +7,8 @@ add_library(oa::ui::frontend_renderer ALIAS oa-ui-frontend-renderer)
 target_include_directories(oa-ui-frontend-renderer PUBLIC include)
 target_link_libraries(oa-ui-frontend-renderer PUBLIC
   oa-formats-hpi oa-formats-fnt oa-ui-gui-layout oa-ui-gui-input oa-formats-gaf oa-present
-  oa-ui-decoded oa-data-defs oa-options oa-base-threads PRIVATE oa-base-text oa-data-languages)
+  oa-ui-decoded oa-data-defs oa-options oa-base-threads PRIVATE oa-base-text oa-data-languages
+  oa-present-colour-vision)
 
 add_executable(oa-render-main-menu EXCLUDE_FROM_ALL tools/render_main_menu.cpp)
 target_link_libraries(oa-render-main-menu PRIVATE oa-ui-frontend-renderer)
@@ -20,6 +21,13 @@ if(BUILD_TESTING)
   add_executable(oa-scroll-bars-test tests/scroll_bars_test.cpp)
   target_link_libraries(oa-scroll-bars-test PRIVATE oa-ui-frontend-renderer)
   add_test(NAME frontend-scroll-bars COMMAND oa-scroll-bars-test)
+
+  # The main menu's picture against the base game's, the records an
+  # overlay's band covers, undrawn buttons and the corners of OA's buttons,
+  # all with made-up pictures and layouts.
+  add_executable(oa-main-menu-art-test tests/main_menu_art_test.cpp)
+  target_link_libraries(oa-main-menu-art-test PRIVATE oa-ui-frontend-renderer oa-options)
+  add_test(NAME frontend-main-menu-art COMMAND oa-main-menu-art-test)
 
   add_executable(oa-gadget-draw-test tests/gadget_draw_test.cpp)
   target_link_libraries(oa-gadget-draw-test PRIVATE oa-ui-frontend-renderer)

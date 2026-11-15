@@ -113,6 +113,8 @@ constexpr std::string_view kKeptAsTheyWere =
 constexpr int32_t kReceiptLog = 0;
 /// The card's first line on Settings › Updates; {version} is this build.
 constexpr std::string_view kInstalledVersion = "Installed {version}";
+/// The card's first line while this run reads the testing channel.
+constexpr std::string_view kInstalledTesting = "Installed {version} · Testing channel";
 /// The card's heading while the dialog shows Check for updates at Never.
 constexpr std::string_view kNeverChecks = "OA never checks";
 /// The badge beside Updates in Settings' section list while a release is ready.
@@ -556,8 +558,10 @@ kit::Question centre_question(const update::Centre& centre, std::vector<update::
 
 /// The update pill on the main menu: the update centre's state in short,
 /// at the main menu's top right, with one small button. A press on the pill
-/// opens the update centre's question. It takes no key, and what it does not
-/// take goes on to the main menu.
+/// opens the update centre's question. Return and Space go on to the main
+/// menu: the order opens the centre from the bound Accept and Press, through
+/// the same call a press uses. What the pill does not take goes on. Tab is
+/// one of those: the menu moves the order.
 class UpdatePillScreen final : public LayerScreen {
   public:
 
@@ -631,10 +635,30 @@ class UpdatePillScreen final : public LayerScreen {
     /// @return false
     [[nodiscard]] bool opaque() const override { return false; }
 
-    /// Draws the pill.
+    /// Tells that the family's ring is drawn around the pill, not the kit's.
+    ///
+    /// The pill is drawn in its own canvas. A ring drawn there is clipped to
+    /// that canvas, so the family's ring, which is drawn in the window, is
+    /// the one a player sees.
+    ///
+    /// @return false
+    [[nodiscard]] bool draws_kit_focus_ring() const override { return false; }
+
+    /// Draws the pill, and the focus ring while the pill holds the focus.
     ///
     /// @param canvas where it draws
-    void draw(const kit::Canvas& canvas) const override { kit::draw_update_pill(canvas, pill_); }
+    void draw(const kit::Canvas& canvas) const override {
+        kit::draw_update_pill(canvas, pill_);
+        if (!kit::focus_ring_visible(interaction_))
+            return;
+        const kit::DisplayList list = display_list();
+        const kit::Control* body = kit::control_of(list, interaction_.focused);
+        if (body == nullptr)
+            return;
+        kit::DisplayList ring;
+        kit::add_focus_ring(ring, body->rect, true);
+        kit::paint(canvas, ring);
+    }
 
     /// Takes the pointer over the pill: it lights, a press on it holds, and a
     /// release over what the press held opens the update centre's question
@@ -653,6 +677,12 @@ class UpdatePillScreen final : public LayerScreen {
         kit::PillPointer what = kit::PillPointer::move;
         switch (kind) {
         case ScreenInputKind::pointer_move:
+            // A move hides the ring and leaves the focus, as the kit does, so
+            // the next key still acts on the pill.
+            if (interaction_.focus_shown && !interaction_.pointer_hid_ring) {
+                interaction_.pointer_hid_ring = true;
+                ++revision_;
+            }
             break;
         case ScreenInputKind::pointer_down:
             if (button != SDL_BUTTON_LEFT || !inside)
@@ -679,11 +709,20 @@ class UpdatePillScreen final : public LayerScreen {
         return acted == kit::UpdatePillAction::none ? LayerAnswer::none : LayerAnswer::redraw;
     }
 
-    /// Lets every key go on.
+    /// Return and Space go on. The order opens the centre from the bound
+    /// Accept and Press, so a layout that moves those keys still opens it
+    /// and a key that is no longer bound does not. A pointer move hides the
+    /// ring and leaves the stop.
     ///
     /// @return pass
     LayerAnswer key(kit::Key /*pressed*/, uint32_t /*sdl_key*/) override {
         return LayerAnswer::pass;
+    }
+
+    /// Opens the update centre, as a press on the pill does.
+    void open_from_order() {
+        if (host_.opened)
+            host_.opened();
     }
 
     /// Lets the wheel go on.
@@ -691,18 +730,30 @@ class UpdatePillScreen final : public LayerScreen {
     /// @return pass
     LayerAnswer wheel(kit::Point /*at*/, float /*notches*/) override { return LayerAnswer::pass; }
 
-    /// Returns the pill's display list.
+    /// Returns the pill's display list. The body is one stop, so a later
+    /// order can land on it. The small button stays out of that order.
     ///
     /// @return the list
     [[nodiscard]] kit::DisplayList display_list() const override {
-        return kit::update_pill_list(pill_, layer_.screen_fonts());
+        kit::DisplayList list = kit::update_pill_list(pill_, layer_.screen_fonts());
+        for (kit::Control& control : list.controls) {
+            if (control.id != kit::update_pill_body)
+                continue;
+            control.focusable = true;
+            break;
+        }
+        list.tab_order.push_back(kit::update_pill_body);
+        return list;
     }
 
-    /// Returns what the pointer lights and holds.
+    /// Returns what the pointer lights and holds, and the focus.
+    ///
+    /// The focus starts unset, so Return does what it does today until
+    /// something shows the ring on the pill.
     ///
     /// @return the interaction
     [[nodiscard]] kit::Interaction interaction() const override {
-        kit::Interaction shown{};
+        kit::Interaction shown = interaction_;
         shown.hovered = pill_.hovered;
         shown.pressed = pill_.pressed;
         return shown;
@@ -742,10 +793,11 @@ class UpdatePillScreen final : public LayerScreen {
 
   private:
 
-    OaLayer& layer_;       ///< the layer it shows on
-    kit::UpdatePill pill_; ///< how it looks
-    Host host_;            ///< what it does
-    uint64_t revision_{1}; ///< moves on with each change of look
+    OaLayer& layer_;                 ///< the layer it shows on
+    kit::UpdatePill pill_;           ///< how it looks
+    Host host_;                      ///< what it does
+    kit::Interaction interaction_{}; ///< the focus; unset until it is shown on the pill
+    uint64_t revision_{1};           ///< moves on with each change of look
 };
 
 /// The ready prompt, up or waiting.
@@ -1082,12 +1134,11 @@ void Runtime::hand_off_update() {
         plan.arguments.push_back("--user-folder");
         plan.arguments.push_back(absolute_utf8(*options_.user_folder));
     }
+    // Only a preferences file this run was started with: the player's own
+    // file, named, would keep the started copy's folders beside it.
     if (options_.preferences_file && !options_.preferences_file->empty()) {
         plan.arguments.push_back("--preferences-file");
         plan.arguments.push_back(absolute_utf8(*options_.preferences_file));
-    } else if (!preference_path_.empty()) {
-        plan.arguments.push_back("--preferences-file");
-        plan.arguments.push_back(absolute_utf8(preference_path_));
     }
     if (options_.log_dir && !options_.log_dir->empty()) {
         plan.arguments.push_back("--log-dir");
@@ -1108,6 +1159,13 @@ void Runtime::hand_off_update() {
     plan.from_version = kept;
     plan.feed = absolute_utf8(*folder / "feed.json");
     plan.signature = absolute_utf8(*folder / "feed.json.sig");
+    // The helper checks the saved feed against the channel it was fetched
+    // for: the held feed's, which the check that saved it verified.
+    const std::optional<update::Channel> saved_channel =
+        update_->held.feed != nullptr ? update::parse_channel(update_->held.feed->channel)
+                                      : std::nullopt;
+    plan.channel =
+        saved_channel.value_or(update::run_channel(options_.update_channel, preference_values_));
     plan.release = update_->download_release;
     plan.package = update_->download_package;
     plan.file = absolute_utf8(shot.path);
@@ -1331,12 +1389,11 @@ void Runtime::hand_off_roll_back() {
         plan.arguments.push_back("--user-folder");
         plan.arguments.push_back(absolute_utf8(*options_.user_folder));
     }
+    // Only a preferences file this run was started with: the player's own
+    // file, named, would keep the started copy's folders beside it.
     if (options_.preferences_file && !options_.preferences_file->empty()) {
         plan.arguments.push_back("--preferences-file");
         plan.arguments.push_back(absolute_utf8(*options_.preferences_file));
-    } else if (!preference_path_.empty()) {
-        plan.arguments.push_back("--preferences-file");
-        plan.arguments.push_back(absolute_utf8(preference_path_));
     }
     if (options_.log_dir && !options_.log_dir->empty()) {
         plan.arguments.push_back("--log-dir");
@@ -1841,6 +1898,7 @@ update::Centre Runtime::update_centre() const {
 #endif
     }
     inputs.way = update_->centre_way;
+    inputs.by_hand = held.offer.by_hand;
     // The offer names the size of the file a download fetches: the
     // installer where the route uses it, the zip otherwise.
     if (held.offer.package != nullptr)
@@ -2032,8 +2090,10 @@ void Runtime::take_update_action(update::Act action) {
         updates_log();
         return;
     case update::Act::open_page:
-    case update::Act::whats_new:
         open_release_page();
+        return;
+    case update::Act::whats_new:
+        open_release_page(true);
         return;
     case update::Act::roll_back: {
         // The question asks once. Roll back and restart quits, and main()
@@ -2211,8 +2271,13 @@ bool Runtime::apply_update_download(settings::Dialog& dialog) {
             offer.card_status = std::string(languages::interface_text(kNeverChecks));
             offer.card_detail.clear();
         }
+        // A copy on the testing channel says so, so a tester can tell.
+        const bool testing = update::run_channel(options_.update_channel, preference_values_) ==
+                             update::Channel::testing;
         offer.card_installed = library::filled(
-            shown_hooks(), kInstalledVersion, {{"version", centre.current_version}}
+            shown_hooks(),
+            testing ? kInstalledTesting : kInstalledVersion,
+            {{"version", centre.current_version}}
         );
         const bool moving = centre.stage == update::Stage::downloading ||
                             centre.stage == update::Stage::paused_by_player ||
@@ -2624,6 +2689,14 @@ void Runtime::tick_update_install() {
     offer_updated_notice();
     consider_background_download();
     consider_update_and_quit();
+}
+
+void Runtime::open_update_pill_from_order() {
+    if (oa_layer_ == nullptr)
+        return;
+    auto* pill = dynamic_cast<UpdatePillScreen*>(oa_layer_->find(kit::update_pill_word));
+    if (pill != nullptr)
+        pill->open_from_order();
 }
 
 } // namespace oa::app

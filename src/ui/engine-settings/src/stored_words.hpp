@@ -29,6 +29,12 @@ inline constexpr std::array<ChoiceWord<ExplosionFlash>, 3> explosion_flash_words
     {ExplosionFlash::reduced, "reduced"},
     {ExplosionFlash::full, "full"},
 }};
+/// Update channel's words, in update_channel_choices' order: the channels'
+/// own names.
+inline constexpr std::array<ChoiceWord<UpdateChannel>, 2> update_channel_words{{
+    {UpdateChannel::stable, "stable"},
+    {UpdateChannel::testing, "testing"},
+}};
 /// Fog of War's words, in fog_of_war_choices' order.
 inline constexpr std::array<ChoiceWord<FogOfWar>, 2> fog_of_war_words{{
     {FogOfWar::classic, "classic"},
@@ -72,6 +78,13 @@ inline constexpr std::array<ChoiceWord<DoubleClickSelects>, 2> double_click_sele
 inline constexpr std::array<ChoiceWord<FocusLost>, 2> focus_lost_words{{
     {FocusLost::pause_single_player, "pause"},
     {FocusLost::keep_playing, "keep-playing"},
+}};
+/// Keep replays for's words, in replay_keep_choices' order.
+inline constexpr std::array<ChoiceWord<ReplayKeep>, 4> replay_keep_words{{
+    {ReplayKeep::thirty_days, "30-days"},
+    {ReplayKeep::ninety_days, "90-days"},
+    {ReplayKeep::one_year, "1-year"},
+    {ReplayKeep::forever, "forever"},
 }};
 /// Window frame's words, in window_frame_choices' order.
 inline constexpr std::array<ChoiceWord<WindowFrame>, 2> window_frame_words{{
@@ -171,6 +184,29 @@ inline constexpr std::array<ChoiceWord<OrderWheel>, 3> order_wheel_words{{
     {OrderWheel::off, "off"},
     {OrderWheel::hold_right, "hold-right"},
     {OrderWheel::hold_middle, "hold-middle"},
+}};
+
+/// Colour vision's words, in the drop-down's order.
+inline constexpr std::array<ChoiceWord<ColourVision>, 5> colour_vision_words{{
+    {ColourVision::off, "off"},
+    {ColourVision::protanopia, "protanopia"},
+    {ColourVision::deuteranopia, "deuteranopia"},
+    {ColourVision::tritanopia, "tritanopia"},
+    {ColourVision::achromatopsia, "achromatopsia"},
+}};
+
+/// Screen reader's words. Automatic is stored as auto.
+inline constexpr std::array<ChoiceWord<ScreenReaderMode>, 3> screen_reader_words{{
+    {ScreenReaderMode::automatic, "auto"},
+    {ScreenReaderMode::on, "on"},
+    {ScreenReaderMode::off, "off"},
+}};
+
+/// Speak chat's words.
+inline constexpr std::array<ChoiceWord<SpeakChat>, 3> speak_chat_words{{
+    {SpeakChat::off, "off"},
+    {SpeakChat::pages, "pages"},
+    {SpeakChat::all, "all"},
 }};
 
 /// Returns the word the preferences keep a choice as.

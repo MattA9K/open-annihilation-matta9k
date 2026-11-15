@@ -14,7 +14,7 @@ add_library(oa-app-package-install src/package.cpp src/names.cpp src/plan_oamod.
   src/handoff.cpp src/kinds.cpp src/prompts_oamod.cpp src/prompts_oamap.cpp src/prompts_oalang.cpp
   src/prompts_oaexp.cpp src/plan_oaexp.cpp src/plan_oamut.cpp src/prompts_oamut.cpp
   src/plan_oabrain.cpp src/prompts_oabrain.cpp src/plan_oakeys.cpp src/prompts_oakeys.cpp
-  src/origin.cpp)
+  src/origin.cpp src/replay_release.cpp)
 add_library(oa::app::package_install ALIAS oa-app-package-install)
 target_include_directories(oa-app-package-install PUBLIC include)
 target_compile_features(oa-app-package-install PUBLIC cxx_std_20)
@@ -93,6 +93,13 @@ if(BUILD_TESTING)
     oa-formats-zip oa-base-sha256 oa-platform-shims ZLIB::ZLIB oa-test-support oa-options)
   add_test(NAME app-package-install-origin COMMAND oa-app-package-install-origin-test)
   set_tests_properties(app-package-install-origin PROPERTIES TIMEOUT 60)
+  # A release kept for a replay: a folder that does not verify is replaced,
+  # and one whose origin names the digest is left and found again.
+  add_executable(oa-app-package-install-replay-release-test tests/replay_release_test.cpp)
+  target_link_libraries(oa-app-package-install-replay-release-test PRIVATE oa-app-package-install
+    oa-formats-zip oa-base-sha256 ZLIB::ZLIB oa-test-support oa-options)
+  add_test(NAME app-package-install-replay-release COMMAND oa-app-package-install-replay-release-test)
+  set_tests_properties(app-package-install-replay-release PROPERTIES TIMEOUT 30)
   # A map pack: its manifest, the files it may hold, its previews, the engine
   # it needs, a catalogue replace and a question, and a fit check through hooks.
   add_executable(oa-app-package-install-oamap-test tests/oamap_test.cpp)
@@ -142,8 +149,10 @@ if(BUILD_TESTING)
     "${oa_pseudo_pack}")
   set_tests_properties(app-package-install-oalang PROPERTIES TIMEOUT 60)
   # An expansion: the built-in table refuses the fixture and writes nothing;
-  # the test table installs it, a reinstall drops a stray file, uninstall
-  # leaves a sibling, and a link in the expansion's place is left alone.
+  # the test table installs it with the package in its record, a reinstall
+  # replaces it file by file and keeps what the game wrote beside it,
+  # uninstall leaves a sibling, and a link in the expansion's place is left
+  # alone.
   add_executable(oa-app-package-install-oaexp-test tests/oaexp_test.cpp)
   target_link_libraries(oa-app-package-install-oaexp-test PRIVATE oa-app-package-install
     oa-data-content-bundles oa-formats-zip oa-base-sha256 ZLIB::ZLIB oa-test-support oa-options)

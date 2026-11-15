@@ -6,15 +6,39 @@ install is separate from the check.
 
 ## What is checked
 
-The check reads the published stable feed: the list of releases, and the
-signature beside it. The signature is checked against the keys this build
-pins before any release in the list is considered. A file that does not
-verify is discarded. The channel is the stable one.
+The check reads the published feed of the channel you are on: the list of
+releases, and the signature beside it. The signature is checked against the
+keys this build pins before any release in the list is considered. A file
+that does not verify is discarded, and so is one that names another channel
+than the one asked for. Unless you choose otherwise the channel is the
+stable one ([The testing channel](#the-testing-channel)).
 
 The version you are running, and the kind of package it is (this computer's
 platform, a Windows 95 build, or a Steam Deck package when that folder sits
 beside a Linux build), decide whether a release in the list is newer and
 has a package for you.
+
+## The testing channel
+
+A release can go to a testing channel before players get it, so that it is
+tried on a few copies first. A testing release may be unfinished. Most
+players never need it: the stable channel is the default, and every release
+reaches it once it has been tried.
+
+To read the testing channel, open Settings › Developer and set **Update
+channel** to **Testing**, then press OK; the game looks at that channel at
+once. The row takes a change whether Developer Mode is on or off. For one
+run only, start the game with `--update-channel testing`
+([the command line](command-line.md)). While a copy reads the testing
+channel, the card on Settings › Updates says so: "Installed 0.8.12 ·
+Testing channel". Everything else works as on the stable channel: the same
+signature check against the same keys, the same downloads, the same
+install and the same roll back.
+
+Set Update channel back to **Stable** to leave. Nothing is put back: a copy
+running a release only the testing channel offered is offered nothing
+until the stable channel has a newer release, and then updates as usual.
+The setting is `open-annihilation.update-channel`, `stable` or `testing`.
 
 ## When
 
@@ -100,23 +124,51 @@ the menu, the pill sits under them.
 
 ## What is sent
 
-Two requests, and nothing else. One asks for the feed and one for its
-signature. Each uses the game's own user agent, `OpenAnnihilation/` and the
-version. There is no query string, no cookie, no install ID and no other
-header. The check does not say who is playing.
+Two requests ask for the feed and for its signature. Each uses the game's
+own user agent, `OpenAnnihilation/` and the version. There is no query
+string, no cookie, no install ID and no other header.
+
+When the signed feed names an address for reports, the game then reports
+the check there, once a check and at most once an hour, in one more
+request: a POST with the game's user agent and this, and nothing else:
+
+| Member | What it holds |
+|---|---|
+| `version` | The version you are running, such as `0.8.12`. |
+| `platform` | The kind of package it is, such as `macos-universal`, `windows-x64`, `windows-95` or `steam-deck`. |
+| `channel` | `stable` or `testing`. |
+| `install_id` | The install ID of the registry the feed names, or empty. |
+| `trigger` | `manual` for Check now, `automatic` otherwise. |
+
+The install ID is the one downloads from that registry already send
+([the install ID](downloads.md#the-install-id)). It is sent only while that
+registry's **Install ID** is on in Settings › Downloads and an ID has been
+made; turned off, the report carries none, and a report never makes one.
+The game does not wait for the report, and a report that fails changes
+nothing: it is written to the log and the check goes on as before. The
+address comes only from the signed feed; an unattended or headless run,
+and one given a test feed, reports only to this machine. A build whose
+version has a label, such as a development build, and a build no release
+package is made for, such as iOS, never report. Check for updates at
+Never makes no request at all, so it sends no report either.
 
 ## What is kept
 
 When both files verify, they are stored under the data folder in
-`updates/feed.json` and `updates/feed.json.sig`. They are written only
+`updates/feed.json` and `updates/feed.json.sig`, whichever channel they
+came from. They are written only
 after they verify. A check that cannot find the server, or runs out of
 time, leaves the stored files as they were and tries again on a later
 start. A check that reached the server, including one whose feed was
 refused, waits a day before the next automatic check.
 
+The time of the last report is kept as `open-annihilation.update-pinged`
+in the preferences, so the next one waits out the hour.
+
 The first main menu of each start reads the stored feed again, with no
-request, and checks its signature as a fetched feed is checked. A release
-it offers is offered again, so LATER asks again at the next start, and a
+request, and checks its signature and its channel as a fetched feed is
+checked; one stored on the other channel is not read. A release it offers
+is offered again, so LATER asks again at the next start, and a
 package already downloaded for it is found. Check for updates at Never
 reads nothing.
 
@@ -131,6 +183,7 @@ words and the same size for it:
 | Checking | Checking for updates… |
 | Up to date | Up to date |
 | A release is out | {version} is out |
+| A release is out, installed by hand | {version} is out. You have {current}. This version is installed by hand. |
 | Skipped | {version} is skipped |
 | Downloading | Downloading {version}, with the bytes, the share and the time left |
 | Paused by you | Download paused |
@@ -188,6 +241,19 @@ the release, the last button is **Open the release page**, which opens the
 release's page from the signed feed. On a Steam Deck in Game Mode, where
 no browser opens, the question names the page instead of opening it. A
 release that names no page opens the releases page on the project's site.
+
+A release may name the oldest version that updates in place, for every
+platform or for one platform's package. A copy older than that is not
+offered the download. Where the signed feed also names a page to install
+from by hand, the question says "You have {current}. This version is
+installed by hand." in place of the size, keeps the release's notes and
+that your saved games, settings and mods stay as they are, and leaves out
+the line about matches, since nothing is downloaded. The last button is
+**Open the download page**, which opens that page from the feed.
+Settings › Updates shows the same words, with Open the download page,
+**What's new**, which opens the release's own page, and Skip this version.
+Where the feed names no such page, the copy is offered the release page as
+above.
 
 The question waits while a match is being played, while Settings is open,
 or while a message box is open. It does not take a match's input. A match
@@ -337,8 +403,9 @@ the [preferences](../src/platform/preferences/README.md).
 When a verified package is scheduled for the quit and you quit, or you
 choose to install it now, the game writes a plan and starts `oa-update`,
 then quits. The helper waits until the game has left. It
-checks the saved feed's signature against the keys this build pins, and
-the downloaded package's name, size and SHA-256 against that feed. A
+checks the saved feed's signature against the keys this build pins, that
+the feed names the channel the game fetched it for, and the downloaded
+package's name, size and SHA-256 against that feed. A
 package that does not match is not unpacked. The window says "The update
 could not be checked. Nothing was changed." and the game starts again on
 the version you had.
@@ -379,9 +446,19 @@ with the administrator's rights: everything the helper writes in your
 Library, the receipt, the log, the copy of your preferences and the record
 of what was kept, stays yours, and the game never starts with those rights.
 The new app takes the owner the old one had, and the kept app becomes
-yours. If you close the prompt, nothing changes, the version you had starts
+yours. Every account on the Mac can read and start the new app, as the
+installer package leaves it, and nothing in it can be changed by another
+account. If you close the prompt, nothing changes, the version you had starts
 again and says "The update was cancelled.", with **Try again**. Rolling
 back such a copy asks the same way.
+
+Before the update counts as installed, the helper checks that your account
+can open the new app: read its `Info.plist` and start the game and the
+helper inside it. If it cannot, or one of them is missing, the helper puts
+the version you had back, the log names the file, the game starts again on
+that version and says "The update failed. {version} was put back.", and the
+receipt's step says "the player's account could not start the version put
+in place".
 
 A copy macOS is running from a protected place asks you to move it to
 Applications first, and is not replaced where it stands.

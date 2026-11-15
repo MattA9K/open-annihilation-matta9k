@@ -126,7 +126,7 @@ flowchart LR
 | Standard hacks | Behaviour switches with parameters | The module that owns each rule | `units.id-reuse-delay: true` |
 | Settings | Bindings to the mod's INI and registry settings, and registry seeds | The resolver | `limits.effects.queue: {ini: Preferences/SfxLimit}` |
 | Strings | Replacement engine texts | The interface ([10](#10-strings-and-media)) | `status: {nanolathing: Building}` |
-| Media | Front-end movie names | The front end ([10](#10-strings-and-media)) | `movies: {intro: ""}` |
+| Media | Front-end movie names, and how the main menu shows the strip drawn over its bottom rows | The front end ([10](#10-strings-and-media)) | `movies: {intro: ""}` |
 
 The **hack registry**,
 [`src/data/mod-profile/registry/hack-registry.yaml`](../../src/data/mod-profile/registry/hack-registry.yaml),
@@ -169,7 +169,7 @@ optional.
 | `hacks` | Standard hacks: `true`, a shorthand value, a mapping of a preset and parameters, or `false` | `repair.rate: true` |
 | `settings` | Bindings of parameters to the mod's INI or registry settings, and `registry-seeds` | `limits.effects.queue: {ini: Preferences/SfxLimit}` |
 | `strings` | Replacement engine texts by name | `status: {nanolathing: Building}` |
-| `media` | Front-end movie names | `movies: {intro: ""}` |
+| `media` | Front-end movie names, and how the main menu shows the way into the Boneyards | `movies: {intro: ""}` |
 
 `supportedGames` and `requiredExpansions` name built-in bundles, compared
 exactly. A required expansion must extend at least one supported game.
@@ -1057,7 +1057,7 @@ profile, are [the OAMUT standard](../mutators/oamut-standard.md).
 | --- | --- |
 | Unit scripts | `set ARMORED` turns on `DamageModifier`; a negative `EnergyUse` is paid out while the unit is activated; a script can attach and drop any unit, and attaching to piece −1 hides the passenger; scripts may scan every unit slot in one tick without sleeping; `MoveRate` calls reach ground units. |
 | Deaths and wrecks | `setSFXoccupy` codes reach `Killed`; corpse types up to 25; wrecks that turn into further wrecks over several steps. |
-| AI and builds | Build orders named `MAKENUKE` and `MAKEANTI` become stockpile orders: from the build buttons and a computer player's factories, as in 3.1c, and from a computer player's builders, which in 3.1c place such a round as a unit; manual fire of the third weapon works with an empty second weapon. |
+| AI and builds | Build orders named `MAKENUKE` and `MAKEANTI` become stockpile orders: from the build buttons and a computer player's factories, as in 3.1c, and from a computer player's builders, which in 3.1c place such a round as a unit; manual fire of the third weapon works with an empty second weapon. A computer-player profile's weight or limit line whose name is written with a space in it, such as `Limit ARM DECOM 4`, is skipped when the part before the space is no unit's name; 3.1c reads it as 0 for that part, here every Arm type no line names on its own. When that part is a unit's name, the line reads as in 3.1c. |
 | Sides | A side's HUD panels come from the GAF its SIDEDATA `intgaf` names, its resource numbers and unit panel are drawn in the font its `font` names, and its resource bars come from its own `SIDEn` section; the rest of its interface, such as its general build pages, follows its `nameprefix`. A unit page draws the panel art its GUI names, `ARMPAN` or `ARMPAN2` for a third side whose pages are the `nameprefix`'s templates; when the side's `intgaf` holds art named by that GAF's stem without `INT` and the page's name without its side, `RUMPAN2` in `RUMINT.gaf` for `ARMPAN2`, the side's own is drawn instead. Commanders and build lists come from SIDEDATA, never from fixed unit names. The skirmish side button shows the `SIDEx` frame of the side it has chosen, for every SIDEDATA side, where 3.1c's two-stage button wraps back to Arm after Core. With more than five sides, a left click on the skirmish Side button and on the battle room's SIDE button steps forward, and a right click steps back, skipping a hidden side and wrapping. With five sides or fewer a right click still steps forward. A side whose `SIDEx` art has no frame shows its SIDEDATA name. The side tile is looked up as `<nameprefix>guisidetile.pcx` before the Arm and Core tiles. Order pages are named with the side's `nameprefix`, and the pointer reads a button's action from its name with that prefix taken off. |
 | Transports | A script may drop every passenger at once; a blocked drop cell is handled as 3.1c handles it. |
 | Loading | Missing weapons, sounds, fonts and sprite sequences; unknown unit names in AI profiles; misspelled SIDEDATA sections; duplicate unit and feature names; a missing semicolon; brackets inside weapon names; non-square footprints of mobile units; maps without a terrain file. Each loads as 3.1c loads it. |
@@ -1090,8 +1090,9 @@ and its shorthand. A hack without parameters is turned on by writing
 ## 10. Strings and media
 
 `strings` replaces engine texts by name, and `media` the front end's movie
-files. Both nest one level (`status: {nanolathing: Building}`) and are view
-scope, so they stay out of the sim hash.
+files and how the main menu shows the way into the Boneyards. Both nest
+one level (`status: {nanolathing: Building}`) and are view scope, so they
+stay out of the sim hash.
 
 | Key | Holds | 3.1c | Type |
 | --- | --- | --- | --- |
@@ -1107,12 +1108,78 @@ scope, so they stay out of the sim hash.
 | `media.movies.ending-a` | The first ending movie | `3.zrb` | string, at most 12 |
 | `media.movies.ending-b` | The second ending movie | `4.zrb` | string, at most 12 |
 | `media.movies.credits` | The credits movie | `5.zrb` | string, at most 12 |
+| `media.boneyards-entry.mode` | How the main menu shows the way into the Boneyards, the online lobby the game's built-in module draws: `auto` draws the Boneyards strip across the menu's bottom 102 rows when the menu's art there is the base game's, and only the strip's ENTER plate when it is not; `strip` and `button` choose one; `none` shows neither | `auto` | `auto`, `strip`, `button` or `none` |
+| `media.boneyards-entry.x` | The ENTER plate's left column on the 640 by 480 main menu, in button mode; given with `y` | `497` | integer, 0 to 505 |
+| `media.boneyards-entry.y` | The ENTER plate's top row on the main menu, in button mode; given with `x` | `8` | integer, 0 to 414 |
 
 An empty movie name means no movie at that point. This engine checks both
 blocks and keeps them in the full hash. While `+Sing` is on, unit speech
 plays the first of the two `strings.cheat.sing-sounds` on one 30-tick
 window in eight and the second on the others, each named as below the
 `sounds` directory.
+
+`auto` sets the menu's FrontendX against the base game's over the strip's
+rows, 378 to 479: the strip shows when at most a tenth of those pixels
+differ, which keeps it on menus drawn on the base game's art, and the
+plate shows on art of the mod's own. A mod whose art there is its own but
+looks like the base game's, or the other way round, names the mode.
+Only the mod's own folder counts as the mod's art: an expansion installed
+beside the game counts as the game's.
+
+The plate is the strip's riveted ENTER panel, 135 by 66 pixels with its
+eight lamps, drawn as the strip draws it in the base game's palette inside
+a one-pixel dark line, and pressed as on the strip. In `button` and `none`
+the menu keeps the MAINMENU.GUI it has without the strip, the mod's own or
+the base game's, whether or not the Boneyards is installed as an
+expansion, and Open Annihilation's two buttons stay at the bottom right,
+where 0.8.14 put them; no key moves them.
+
+In button mode the plate's top-left corner stands at `x` and `y`, in the
+640 by 480 menu's own pixels. The two are given together, and keep the
+whole plate on the menu: `x` from 0 to 505 and `y` from 0 to 414. Left
+out, the plate stands at the default place, the top right 8 pixels in
+(497, 8). The game does not move the plate off the menu's buttons or its
+painted titles: a mod picks a place clear of them, and the log names the
+plate's place and says when it covers a gadget of the menu or one of Open
+Annihilation's buttons. `x` and `y` place nothing in strip mode or `none`;
+in strip mode the log says they are not used. `none` hides the way in
+from the menu; the Boneyards' own keyboard shortcut and command-line
+switch still enter. The Boneyards' own pages describe both forms.
+
+`strip` forced on art of the mod's own draws the strip through the palette
+of the mod's FrontendX, so its colours come out wrong unless that palette
+is the base game's; `button` draws the plate in the base game's palette
+whatever the menu's. `boneyards-entry` is a mapping: `boneyards-entry:
+button` is refused with `media.boneyards-entry: must be a mapping of mode,
+x, y`, and `x` without `y`, or `y` without `x`, with
+`media.boneyards-entry: x and y must be given together`. The mode and the
+place change what the main menu shows, never what a battle plays: they
+are view scope, and a profile that leaves them at `auto`, 497 and 8 keeps
+both of its hashes ([11](#11-the-resolved-profile-and-its-hashes)). An
+engine before 0.9.0 does not know `boneyards-entry` and refuses the
+profile as an unknown media key ([3.6](#36-validation-and-diagnostics)),
+so a mod that writes it requires `engine: ">= 0.9.0"`.
+
+The mode alone, the plate at the default place when the mode is button:
+
+```yaml
+media:
+  boneyards-entry: {mode: button}
+```
+
+The plate's place alone, the mode chosen from the art:
+
+```yaml
+media:
+  boneyards-entry: {x: 8, y: 8}
+```
+
+Both:
+
+```yaml
+media:
+  boneyards-entry: {mode: button, x: 172, y: 377}
+```
 
 ## 11. The resolved profile and its hashes
 
@@ -1143,7 +1210,7 @@ change it, so two profiles that mean the same thing hash the same.
   strings, media, the visual
   hacks and every view value.
 
-Seven keys were added after grammar 1's first release. The canonical form
+Eight keys were added after grammar 1's first release. The canonical form
 leaves each out while it stays at its baseline, so every profile that
 leaves them there keeps the sim hash and the full hash it had:
 
@@ -1153,7 +1220,8 @@ leaves them there keeps the sim hash and the full hash it had:
 - `identity.battle-room-hidden-sides`, an empty list;
 - `identity.computer-player-sides`, an empty list;
 - `limits.weapon-types`, 256;
-- `limits.sides`, 5.
+- `limits.sides`, 5;
+- `media.boneyards-entry`, mode `auto`, x 497 and y 8.
 
 Any other value is included. A named installation archive stays sim scope,
 because the mounted data changes the game. `--print-profile` still prints

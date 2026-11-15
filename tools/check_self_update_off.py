@@ -74,11 +74,13 @@ PASSTHROUGH = (
 )
 
 # Where the running build found a dependency that CMAKE_PREFIX_PATH does not
-# name. A FreeType in its own folder is freetype_DIR. A value CMake recorded
-# as missing is not a place to look.
+# name. A FreeType in its own folder is freetype_DIR, and a HarfBuzz in its
+# own folder is harfbuzz_DIR, and the screen reader's AccessKit tree is
+# OA_ACCESSKIT_DIR. A value CMake recorded as missing is not a place to look.
 DEPENDENCY = (
     "freetype_DIR",
     "Freetype_DIR",
+    "harfbuzz_DIR",
     "SDL3_DIR",
     "ZLIB_INCLUDE_DIR",
     "ZLIB_LIBRARY",
@@ -90,6 +92,8 @@ DEPENDENCY = (
     "FREETYPE_LIBRARY_RELEASE",
     "CMAKE_IGNORE_PREFIX_PATH",
     "CMAKE_FIND_ROOT_PATH",
+    "OA_ACCESSKIT_DIR",
+    "OA_SCREEN_READER",
 )
 
 
@@ -109,6 +113,9 @@ def configure_flags(source, build, entries, extra):
         require(entries, "CMAKE_GENERATOR"),
         f"-DCMAKE_PREFIX_PATH={require(entries, 'CMAKE_PREFIX_PATH')}",
         f"-DOA_TEXT_FONTS_DIR={require(entries, 'OA_TEXT_FONTS_DIR')}",
+        # The module's font folder. The scratch tree has none of its own, so
+        # the nested configure uses the folder the running build found.
+        f"-DOA_FONTS_DIR={require(entries, 'OA_FONTS_DIR')}",
     ]
     for key in PASSTHROUGH:
         value = entries.get(key, "")

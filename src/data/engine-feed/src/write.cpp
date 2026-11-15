@@ -74,6 +74,13 @@ void write_package(std::string& out, int level, const Package& package, bool tra
     out += json_string(package.id);
     out += ": {\n";
     const int inner = level + 1;
+    if (package.from) {
+        indent(out, inner);
+        out += json_string("from");
+        out += ": ";
+        out += json_string(oamod::engine_version_text(*package.from));
+        out += ",\n";
+    }
     write_file_members(out, inner, package.zip, true);
     if (package.installer) {
         indent(out, inner);
@@ -159,6 +166,8 @@ void write_release(std::string& out, const Release& release, bool trailing_comma
         write_notes(out, 3, release.notes, true);
     if (!release.page.empty())
         key_line("page", json_string(release.page), true);
+    if (!release.install_page.empty())
+        key_line("install_page", json_string(release.install_page), true);
     indent(out, 3);
     out += json_string("packages");
     out += ": {\n";
@@ -193,6 +202,23 @@ std::string feed_text(const Feed& feed) {
         out += ": ";
         out += json_string(oamod::engine_version_text(*feed.online_min));
         out += ",\n";
+    }
+    if (feed.ping) {
+        indent(out, 1);
+        out += json_string("ping");
+        out += ": {\n";
+        indent(out, 2);
+        out += json_string("url");
+        out += ": ";
+        out += json_string(feed.ping->url);
+        out += ",\n";
+        indent(out, 2);
+        out += json_string("registry");
+        out += ": ";
+        out += json_string(feed.ping->registry);
+        out += "\n";
+        indent(out, 1);
+        out += "},\n";
     }
     indent(out, 1);
     out += json_string("releases");

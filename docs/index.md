@@ -26,8 +26,10 @@ Every document in the repository, by what you want to do.
   launch file from the desktop, 3.1c's switches and the `-c` file,
   `--list-content --json`, and the exit statuses and refusals.
 - [troubleshooting.md](troubleshooting.md): zooming out when memory is
-  short, the message the game shows when it runs out of memory, and a copy
-  of the game that does not finish.
+  short, the message the game shows when it runs out of memory, a slow
+  frame rate on a laptop with two graphics cards, a copy of the game
+  that does not finish, and speech when the screen-reader support cannot
+  load.
 - [settings.md](settings.md): Open Annihilation's own settings, with a
   picture of each section: opening them, the grouped section list, moving
   OA's windows, OK, Cancel, Restore defaults and the count of changes, and
@@ -39,6 +41,9 @@ Every document in the repository, by what you want to do.
   Limits, System and Developer does, its default, when it takes effect and
   when to change it; the command-line options that set them for one run,
   and where they are kept.
+- [accessibility.md](accessibility.md): colour vision, shape cues, the
+  focus ring, the keyboard on each screen, screen readers on each system,
+  and what the game speaks.
 - [first-run.md](first-run.md): the welcome at the first main menu, which
   chooses a language, explains online features and points out the Library
   and Settings buttons.
@@ -67,6 +72,8 @@ Every document in the repository, by what you want to do.
   an iPhone or a touch screen: the gestures, the tablet and phone layouts,
   QUEUE, ADD and x5, the order wheel, building, the Touch settings, the
   keyboard's Cmd keys and the Pencil.
+- [photo-mode.md](photo-mode.md): the battlefield alone, from the place
+  you were looking, and coming back to that place.
 - [controls.md](controls.md): the keys panel in a match and the keys on
   the buttons, the key editor (Common commands, Find by key, changing a
   key, the clash question, the keyboard and the mouse, Undo), Arrange
@@ -155,6 +162,10 @@ Every document in the repository, by what you want to do.
   and the ` REMOTED` line in the battle room. Status lines for a
   launcher, without the endpoint, are
   [multiplayer/status.md](multiplayer/status.md).
+- [mcp.md](mcp.md): driving the game with the Model Context Protocol,
+  `--mcp`, `--mcp-http` and `--mcp-clock`, the tools and their schemas,
+  the badge shown while a client is connected, and the Claude Code and
+  Claude Desktop setup.
 - [mods/README.md](mods/README.md): mod support: installing a mod from the
   Library, in a mod folder or as a copied install, its updates and rolling
   them back, choosing it in the settings or with

@@ -29,6 +29,8 @@
 #include <string_view>
 #include <vector>
 
+struct SDL_Window;
+
 namespace oa::platform {
 struct FileResidence;
 using FileResidenceProbe = bool (*)(const std::filesystem::path&, FileResidence&, void*);
@@ -117,7 +119,7 @@ struct GameInstall {
 /// @param data_folder the per-user data folder; empty when none is known
 /// @param release the release of the demo to recognise
 /// @param mod the mod folder, the --mod file and the player's preferences
-/// @param overlay files laid over the folder, first, as a mod folder is; empty: none
+/// @param overlay files laid over the folder, after the mod folder and ahead of the game folder; empty: none
 /// @return whether it is a folder, its archives in mount order, the
 ///     required resources none of them holds, where they lie and the
 ///     profile they play with
@@ -127,6 +129,40 @@ struct GameInstall {
     const DemoRelease& release = demo_1997,
     const ModChoice& mod = {},
     const fs::path& overlay = {}
+);
+
+/// A folder one module lays over the game folder while it is inspected.
+///
+/// Empty means the folder stands alone. The managed copy of other
+/// expansions is unchanged: this is asked only when a named game folder is
+/// inspected, and only the folder the module returns is laid over it.
+using GameFilesOverlay = fs::path (*)(
+    const fs::path& user_folder,
+    const oa::platform::preferences::Values& values,
+    std::string_view content
+);
+
+/// Names the folder laid over a game folder while it is inspected.
+///
+/// Null clears it. A module sets this before the game folder is resolved.
+/// The managed mount does not ask.
+///
+/// @param overlay the query, or null
+void set_game_files_overlay(GameFilesOverlay overlay);
+
+/// Returns the folder to lay over a game folder, or empty when none is set.
+///
+/// A query that throws is an empty folder, so a failure there leaves the
+/// game folder as it was.
+///
+/// @param user_folder the player's folder; empty when it is not known yet
+/// @param values the preferences the stored choice is read from
+/// @param content the `--content` value; empty when the run names none
+/// @return the folder, or empty
+[[nodiscard]] fs::path game_files_overlay(
+    const fs::path& user_folder,
+    const oa::platform::preferences::Values& values,
+    std::string_view content
 );
 
 /// Says why a folder cannot be played, in words for the player (the text resolution shows).
@@ -662,6 +698,26 @@ take_picked_folder(const GameDirectoryHost& host, const fs::path& folder, std::s
 /// @return what the dialog gave; unavailable where the build offers none
 [[nodiscard]] FolderPick
 pick_game_folder_with_dialog(const fs::path& start, fs::path* chosen, std::string* error);
+
+/// Opens the system's folder dialog with a title of the caller's choosing.
+///
+/// The same dialog as `pick_game_folder_with_dialog`, opened on `start`. A
+/// build without the system dialog returns `FolderPick::unavailable` and
+/// leaves `chosen` alone. Cancelling leaves it alone too.
+///
+/// @param start the folder it opens at; empty: the system's choice
+/// @param title the dialog's title
+/// @param[out] chosen the folder picked
+/// @param[out] error why no folder came back, for FolderPick::unavailable
+/// @param window the game's window, when one exists; none before the window does
+/// @return what the dialog gave; unavailable where the build offers none
+[[nodiscard]] FolderPick pick_folder_with_dialog(
+    const fs::path& start,
+    std::string_view title,
+    fs::path* chosen,
+    std::string* error,
+    SDL_Window* window = nullptr
+);
 
 /// Inspects a folder the chooser picked and returns it as chosen (it is remembered) when it
 /// can be played (game_directory_dialog.cpp), with the mod folder and the data folder

@@ -272,6 +272,8 @@ std::string_view page_slug(settings::Page page) {
         return "updates";
     case settings::Page::accessibility:
         return "accessibility";
+    case settings::Page::replays:
+        return "replays";
     case settings::Page::mod_keys:
     case settings::Page::mod_patrol:
     case settings::Page::mod_guard:
@@ -359,6 +361,12 @@ std::string_view label_of(settings::Setting setting) {
         return "View past the map's edge";
     case settings::Setting::middle_click_pan:
         return "Middle-click pans";
+    case settings::Setting::invert_3d_camera_pan:
+        return "Invert 3D camera pan";
+    case settings::Setting::invert_3d_camera_rotation:
+        return "Invert 3D camera rotation";
+    case settings::Setting::invert_mouse_zoom:
+        return "Invert mouse zoom";
     case settings::Setting::escape_opens_menu:
         return "Escape opens the game menu";
     case settings::Setting::group_keys_centre:
@@ -521,6 +529,30 @@ std::string_view label_of(settings::Setting setting) {
         return "Reset window positions";
     case settings::Setting::look:
         return "Look";
+    case settings::Setting::update_channel:
+        return "Update channel";
+    case settings::Setting::record_games:
+        return "Record my games";
+    case settings::Setting::keep_replays:
+        return "Keep replays for";
+    case settings::Setting::open_replay_files:
+        return "Open replay files with Open Annihilation";
+    case settings::Setting::colour_vision:
+        return "Colour vision";
+    case settings::Setting::shape_cues:
+        return "Shape cues";
+    case settings::Setting::colour_preview:
+        return "Preview";
+    case settings::Setting::screen_reader:
+        return "Screen reader";
+    case settings::Setting::speak_chat:
+        return "Speak chat";
+    case settings::Setting::speak_lobby:
+        return "Speak lobby changes";
+    case settings::Setting::speak_ticker:
+        return "Speak the ticker";
+    case settings::Setting::always_show_focus:
+        return "Always show focus";
     default:
         return {};
     }
@@ -768,12 +800,36 @@ void Runtime::check_engine_settings_dialog() {
             require(running, "a click in the dialog ended the run");
         }
     };
-    // Clicks the middle of the part a control with a caption draws.
+    // Clicks the middle of the part a control with a caption draws. A
+    // section's entry the list's room cuts (Compact's holds eleven of the
+    // twelve) is brought in first with the wheel over the list.
     const auto click = [&](int32_t control, std::string_view text, std::string_view what) {
         auto* dialog = engine_settings_dialog();
         require(dialog != nullptr, "the dialog closed before " + std::string(what));
-        const auto parts = settings::dialog_layout(*dialog);
+        auto parts = settings::dialog_layout(*dialog);
+        const bool entry =
+            control >= settings::first_page_control && control < settings::restore_control;
         const auto* part = find_part(parts, control, text);
+        if (part == nullptr && entry) {
+            // Over the list, which scrolls under the pointer: up to its top,
+            // then down to its foot, until the entry shows.
+            const layout::Point over_list{
+                placement().x + settings::dialog_width / 8,
+                placement().y + settings::dialog_height / 3
+            };
+            for (const float notches : {1.0F, -1.0F}) {
+                for (int32_t turns = 0; turns < 6 && part == nullptr; ++turns) {
+                    SDL_Event wheel = check_host_input::wheel_event(
+                        sdl_.renderer, sdl_.window, over_list.x, over_list.y, notches
+                    );
+                    bool turning = true;
+                    dispatch_event(wheel, turning);
+                    require(turning, "the wheel over the section list ended the run");
+                    parts = settings::dialog_layout(*engine_settings_dialog());
+                    part = find_part(parts, control, text);
+                }
+            }
+        }
         require(part != nullptr, "the dialog shows no " + std::string(what));
         click_at(part->rect.x + part->rect.width / 2, part->rect.y + part->rect.height / 2);
     };
@@ -915,6 +971,10 @@ void Runtime::check_engine_settings_dialog() {
         } own_sections{*this};
 
         tall::show_tall_section(*engine_settings_dialog());
+        // The dialog opens on the open section's entry with the ring hidden.
+        // Scrolling leaves that focus where it is and does not draw the ring.
+        const int32_t focused_before = engine_settings_dialog()->focused;
+        const bool ring_before = engine_settings_dialog()->focus_shown;
         const auto turn_wheel = [&](layout::Point at, float notches) {
             SDL_Event wheel =
                 check_host_input::wheel_event(sdl_.renderer, sdl_.window, at.x, at.y, notches);
@@ -960,7 +1020,8 @@ void Runtime::check_engine_settings_dialog() {
         tap(SDLK_HOME);
         require(offset() == 0, "Home did not scroll back to the top");
         require(
-            engine_settings_dialog()->focused == settings::no_control &&
+            engine_settings_dialog()->focused == focused_before &&
+                engine_settings_dialog()->focus_shown == ring_before && !ring_before &&
                 same_settings(engine_settings(), defaults),
             "scrolling showed the focus or changed a setting"
         );
@@ -1048,6 +1109,23 @@ void Runtime::check_engine_settings_dialog() {
         past_map_edge_share() == 0.25,
         "View past the map's edge 25% is not the view's limits' share"
     );
+    // The switches that turn the mouse's camera gestures round, under
+    // Middle-click pans: each On at once.
+    const int32_t invert_pan = control_named("settings.invert-3d-camera-pan");
+    focus(invert_pan, "Invert 3D camera pan");
+    click(invert_pan, "On", "Invert 3D camera pan's On");
+    chosen.invert_3d_camera_pan = true;
+    expect("Invert 3D camera pan On");
+    const int32_t invert_rotation = control_named("settings.invert-3d-camera-rotation");
+    focus(invert_rotation, "Invert 3D camera rotation");
+    click(invert_rotation, "On", "Invert 3D camera rotation's On");
+    chosen.invert_3d_camera_rotation = true;
+    expect("Invert 3D camera rotation On");
+    const int32_t invert_zoom = control_named("settings.invert-mouse-zoom");
+    focus(invert_zoom, "Invert mouse zoom");
+    click(invert_zoom, "On", "Invert mouse zoom's On");
+    chosen.invert_mouse_zoom = true;
+    expect("Invert mouse zoom On");
     // Window edge opens on Capture, with Edge stickiness under it locked at
     // 1.0: Tab passes it by and its keys change nothing. Sticky frees it,
     // and a step of it is the sticky edge's firmness at once. Free locks it
@@ -1417,6 +1495,10 @@ void Runtime::check_engine_settings_dialog() {
     chosen.frame_stats = true;
     expect("Show performance statistics On");
     require(frame_stats_shown_, "Show performance statistics did not show the statistics");
+    // Update channel takes a change while Developer Mode is off.
+    click(settings::first_row_control + 3, "Testing", "Update channel's Testing");
+    chosen.update_channel = settings::UpdateChannel::testing;
+    expect("Update channel Testing");
 
     // OK keeps them and saves exactly the keys that changed, and the dialog
     // opens again on them; the window takes the Screen size at once, and the
@@ -1445,6 +1527,9 @@ void Runtime::check_engine_settings_dialog() {
         {std::string(settings::key::max_zoom_out), "whole-map"},
         {std::string(settings::key::max_zoom_in), "3"},
         {std::string(settings::key::view_past_map_edge), "25"},
+        {std::string(settings::key::invert_3d_camera_pan), "1"},
+        {std::string(settings::key::invert_3d_camera_rotation), "1"},
+        {std::string(settings::key::invert_mouse_zoom), "1"},
         {std::string(settings::key::window_edge), "sticky"},
         {std::string(settings::key::edge_stickiness), "1.2"},
         {std::string(settings::key::escape_opens_menu), "1"},
@@ -1453,6 +1538,7 @@ void Runtime::check_engine_settings_dialog() {
         {std::string(settings::key::anti_aliasing),
          std::to_string(static_cast<int>(kChosenAntiAliasing))},
         {std::string(settings::key::frame_stats), "1"},
+        {std::string(settings::key::update_channel), "testing"},
         {std::string(settings::key::modern_fonts), "1"},
         {std::string(settings::key::text_shadow), "0"},
         {std::string(settings::key::text_size), std::to_string(chosen.text_size)},
@@ -2270,6 +2356,10 @@ void Runtime::check_engine_settings_window_sizes() {
             throw std::runtime_error(std::string("SDL_SetWindowSize: ") + SDL_GetError());
         load(Screen::main_menu);
         require(screen_ == Screen::main_menu, "the main menu did not open" + on);
+        // A main menu that comes back may have an extension build its overlay
+        // again, which raises the flag. This loop reads the bare menu's
+        // corner; the overlay checks above set the flag for themselves.
+        main_menu_overlay_ = false;
         int window_width = 0;
         int window_height = 0;
         SDL_GetWindowSizeInPixels(sdl_.window, &window_width, &window_height);
@@ -2476,8 +2566,40 @@ void Runtime::check_engine_settings_window_sizes() {
         const auto shows_dialog = [&](std::string_view what) {
             shows_dialog_at(what, expected_layout.scale * 100);
         };
+        // The wheel over the section list, up to its top and then down to its
+        // foot, until a section's entry shows: Compact's list holds eleven
+        // of its twelve entries.
+        const auto bring_entry_in = [&](settings::Page page) {
+            for (const float notches : {1.0F, -1.0F}) {
+                for (int32_t turns = 0; turns < 6; ++turns) {
+                    const auto parts_now = settings::dialog_layout(*engine_settings_dialog());
+                    if (find_part(parts_now, settings::page_control(page), {}) != nullptr)
+                        return;
+                    const SDL_Event motion = window_pointer_event(
+                        sdl_.window,
+                        sdl_.renderer,
+                        SDL_EVENT_MOUSE_MOTION,
+                        layer_window_pixel(
+                            placed(), {settings::dialog_width / 8, settings::dialog_height / 3}
+                        ),
+                        0
+                    );
+                    SDL_Event wheel{};
+                    wheel.type = SDL_EVENT_MOUSE_WHEEL;
+                    wheel.wheel.windowID = motion.motion.windowID;
+                    wheel.wheel.direction = SDL_MOUSEWHEEL_NORMAL;
+                    wheel.wheel.y = notches;
+                    wheel.wheel.mouse_x = motion.motion.x;
+                    wheel.wheel.mouse_y = motion.motion.y;
+                    bool turning = true;
+                    dispatch_event(wheel, turning);
+                    require(turning, "the wheel over the section list ended the run" + on);
+                }
+            }
+        };
         // Each section, through its entry where the window shows it.
         for (const auto page : kPages) {
+            bring_entry_in(page);
             const auto parts = settings::dialog_layout(*dialog);
             click_part(
                 find_part(parts, settings::page_control(page), {}),
@@ -2646,7 +2768,7 @@ void Runtime::check_engine_settings_window_sizes() {
             apply_engine_settings(restore.settings);
             preference_values_[std::string(oa::ui::first_run::preference_key)] =
                 std::string(oa::ui::first_run::preference_done);
-            options_.update_feed = "http://127.0.0.1:9/v1/engine/stable.json";
+            options_.update_feed = "http://127.0.0.1:9/v1/engine/stable-2.json";
 
             tap(SDLK_COMMA, kShortcutModifier);
             require(engine_settings_dialog() != nullptr, "Updates did not open again" + on);

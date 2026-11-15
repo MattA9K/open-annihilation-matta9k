@@ -129,6 +129,15 @@ struct LaunchBlock {
     LaunchRestriction restrictions[kLaunchRestrictionLimit]{};
     /// A SIDEDATA name the battle room resolves when faction is none. Empty for none.
     char faction_name[kLaunchSideNameBytes]{};
+    /// 1: this battle plays with no mutators and the picker stays locked,
+    /// whether or not lock_options locked the room's other controls.
+    /// 0: the room's mutators follow the usual rules.
+    uint32_t bar_mutators{};
+    /// 1: this battle counts for a ladder. START is refused while any
+    /// player's presence record says their game files differ from Total
+    /// Annihilation's, and the battle room names that player. 0: the usual
+    /// rules.
+    uint32_t stock_files{};
 };
 
 } // namespace oa::ui::frontend_multiplayer::launch

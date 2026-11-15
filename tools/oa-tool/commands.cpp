@@ -10,6 +10,59 @@
 namespace oa::tool {
 namespace {
 
+const Command replay_commands[] = {
+    {
+        "export",
+        "FILE --format oademo|tad --out PATH [--no-oa-sectors] [--force]",
+        "Export a replay as a .oademo or a .tad.",
+        "Reads a .oademo or a .tad and writes one file. --format is oademo or tad, and --out "
+        "names the file. A .oademo is written at zstd level 19. A .tad is version 5 with every "
+        "packet plain and no network address; a long name is cut to 63 bytes and a long status "
+        "to 512, and each such cut is a warning. --no-oa-sectors leaves out Open Annihilation's "
+        "own sectors and applies only to a .tad. --force replaces a file that already exists.",
+        1,
+        any_count,
+        run_replay_export,
+        {},
+    },
+    {
+        "info",
+        "FILE [--json]",
+        "Print what a recording or a replay holds.",
+        "Prints the description of a .oademo, or the header of a .tad. --json prints one JSON "
+        "object. A .tad's address sector is left out.",
+        1,
+        any_count,
+        run_replay_info,
+        {},
+    },
+    {
+        "pack",
+        "FILE.tad [--out FILE] [--level N | --deflate] [--force]",
+        "Wrap a recording as a replay.",
+        "Reads a .tad and writes a .oademo. The recording is stored as plain packets, and an "
+        "address sector is left out. --level is a zstd level from 1 to 22; the default is 3. "
+        "--deflate stores the recording with deflate instead. The two are not given together. "
+        "--out names the file; without it the name ends in .oademo. --force replaces a file "
+        "that already exists.",
+        1,
+        any_count,
+        run_replay_pack,
+        {},
+    },
+    {
+        "unpack",
+        "FILE.oademo [--out FILE] [--force]",
+        "Write a replay's recording back as a .tad.",
+        "Reads a .oademo and writes the recording it stores. --out names the file; without it "
+        "the name ends in .tad. --force replaces a file that already exists.",
+        1,
+        any_count,
+        run_replay_unpack,
+        {},
+    },
+};
+
 const Command catalogue_commands[] = {
     {
         "keygen",
@@ -73,17 +126,23 @@ const Command catalogue_commands[] = {
 const Command engine_feed_commands[] = {
     {
         "write",
-        "--version V [--release N] --date YYYY-MM-DD --from V --page URL --mirror URL "
-        "[--mirror URL]... [--notes FILE] [--rollout N] [--online-min V] [--channel stable] "
-        "[--previous FEED] --out FEED PACKAGE...",
+        "--version V [--release N] --date YYYY-MM-DD --from V [--package-from ID=V]... "
+        "--page URL [--install-page URL] --mirror URL [--mirror URL]... [--notes FILE] "
+        "[--rollout N] [--online-min V] [--ping-url URL --ping-registry ID] "
+        "[--channel stable|testing] [--previous FEED] --out FEED PACKAGE...",
         "Write one release of the signed engine feed.",
         "Reads each package file, hashes it and writes a feed of format 1. A package is named "
         "open-annihilation, an optional v, the version, and then the package id as a zip, a "
         "Windows setup or the macOS package. The version in each name must be --version. "
-        "--release defaults to that version's release number. --notes is a JSON object of "
-        "language to lines. --previous adds the older releases of an earlier feed, five in "
-        "all. The written file is read back before the command reports success. Prints the "
-        "feed's path and the release number.",
+        "--release defaults to that version's release number. --from is the oldest version "
+        "that updates in place. --package-from gives one package, which must be among those "
+        "given, an oldest version of its own, and --install-page is where an older copy "
+        "installs by hand. --notes is a JSON object of language to lines. --ping-url and "
+        "--ping-registry, given together, name where a copy reports a check of the feed and "
+        "the registry whose install ID it sends. --channel defaults to stable; testing writes "
+        "the testing channel's feed. --previous adds the older releases of an earlier feed of "
+        "the same channel, five in all. The written file is read back before the command "
+        "reports success. Prints the feed's path and the release number.",
         0,
         any_count,
         run_engine_feed_write,
@@ -105,13 +164,17 @@ const Command engine_feed_commands[] = {
     },
     {
         "check",
-        "(FEED [--sig SIG] | --url URL) [--channel stable] [--key ID=ed25519:BASE64]...",
+        "(FEED [--sig SIG] | --url URL) [--channel stable|testing] "
+        "[--key ID=ed25519:BASE64]...",
         "Check an engine feed's signature.",
         "Checks FEED against its signature, or fetches --url and that address with .sig added. "
         "Without --sig the signature is FEED with .sig added to the name. Without --key the "
         "keys are this build's pinned keys. Each --key is an id, =, ed25519: and the key in "
-        "base64. Prints the signing key and one line a release, and exits 0 when the feed can "
-        "be used. A refused feed prints the verdict and exits 1.",
+        "base64. The feed must name --channel, stable unless it is given. Prints the signing "
+        "key, the ping's address and registry where the feed names them, and one line a "
+        "release, with each package's own from and the install page where the release names "
+        "them, and exits 0 when the feed can be used. A refused feed prints the verdict and "
+        "exits 1.",
         0,
         any_count,
         run_engine_feed_check,
@@ -624,6 +687,17 @@ const Command command_table[] = {
         registry_commands,
     },
     {
+        "expansions",
+        "",
+        "List the built-in expansions.",
+        "Prints one line per built-in expansion, in the table's order: the id, a tab and how "
+        "many files it holds. Takes no arguments.",
+        0,
+        0,
+        run_expansions,
+        {},
+    },
+    {
         "interface-words",
         "--json",
         "List the English texts the interface catalogue is given.",
@@ -634,6 +708,18 @@ const Command command_table[] = {
         1,
         run_interface_words,
         {},
+    },
+    {
+        "replay",
+        "COMMAND",
+        "Read a replay, or wrap and unwrap a recording.",
+        "Prints what a .oademo or a .tad holds, wraps a .tad as a .oademo, and writes a "
+        "replay's recording back as a .tad. Pack stores every packet plain and leaves an "
+        "address sector out.",
+        0,
+        0,
+        nullptr,
+        replay_commands,
     },
 };
 

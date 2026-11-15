@@ -7,6 +7,7 @@
 // frame's time, and the "+stats" overlay of frame, tick, draw and present
 // times and the latest frames' graph, with its console check.
 #include "oa/app/runtime.hpp"
+#include "oa/app/hook_call.hpp"
 #include "device_state.hpp"
 #include "frame_stats_panel.hpp"
 #include "full_presentation.hpp"
@@ -16,6 +17,7 @@
 #include "pad_state.hpp"
 #include "oa/app/frame_pacing.hpp"
 #include "oa/app/match_console.hpp"
+#include "oa/platform/render_probe.hpp"
 #include "oa/ui/console/console.hpp"
 #include "oa/ui/console/game_fields.hpp"
 #include "oa/ui/gadget_render.hpp"
@@ -223,6 +225,25 @@ uint32_t Runtime::frame_clock_milliseconds() const {
 }
 
 void Runtime::step_match_frame() {
+    // Photo mode's freeze and slow hold the clock here, and a slow pace
+    // grants the ticks it owes, before a stepped clock returns. Snapping
+    // each held frame keeps Run, and leaving, from catching the held time up.
+    if (photo_clock_held()) {
+        grant_photo_slow_ticks();
+        snap_held_clock();
+    }
+    // A stepped clock draws this frame and does not take wall-clock time.
+    // The ticks it runs were granted earlier in the frame. Snapping the
+    // clock's reading keeps a return to the wall clock from catching up
+    // the time the clock was held, and leaves the tick and the adaptation
+    // where they are. A run that never asks does not take this branch.
+    if (stepped_clock_holds()) {
+        const uint32_t ticks_before = match_timing_.tick;
+        snap_held_clock();
+        present_frame_between_ticks(false, ticks_before);
+        place_tracking_camera();
+        return;
+    }
     bool stepped = match_clock_steps();
     const uint32_t ticks_before = match_timing_.tick;
     const uint32_t now_ms = frame_clock_milliseconds();
@@ -239,6 +260,10 @@ void Runtime::step_match_frame() {
         stepped = false;
     if (stepped)
         advance_match_clock(now_ms);
+    else if (match_ && (current_extension_state() & extension_state::replay) != 0)
+        call_hook_or_report<&Extension::replay_hold>(
+            extension_, hook_error_report(), *this, now_ms
+        );
     present_frame_between_ticks(stepped, ticks_before);
     place_tracking_camera();
 }
@@ -246,7 +271,9 @@ void Runtime::step_match_frame() {
 void Runtime::present_frame_between_ticks(bool stepped, uint32_t ticks_before) {
     FrameTicks ticks{};
     ticks.owed = stepped ? match_timing_.pending_steps : 0;
-    ticks.ran = match_timing_.tick - ticks_before;
+    // A jump back leaves the tick behind the one this frame started on. The picture shows no
+    // ticks across that jump; play only ever moves the tick forward.
+    ticks.ran = match_timing_.tick >= ticks_before ? match_timing_.tick - ticks_before : 0;
     // A check's fixed clock draws whole ticks, as before frames were drawn
     // between them; a --frame-rate run's clock does not. Smooth motion Off
     // draws whole ticks too, as the game drew them: the frames between two
@@ -275,8 +302,12 @@ void Runtime::pace_next_frame(bool& running) {
     if (now > loop_frame_start_ns_)
         note_frame_measure(frame_stats_, FrameMeasure::work, now - loop_frame_start_ns_);
     FrameActivity activity{};
-    activity.match_advancing =
-        match_clock_steps() && (match_->state().game.sim_run_flags & console::kSimRunPaused) == 0;
+    // Photo mode's slow pace draws at the play rate. Frozen, and a replay
+    // whose pause is on, stay at the idle rate, as the game menu does. The
+    // menu has no match, so the pause bit is read only while one is open.
+    const bool paused =
+        match_ != nullptr && (match_->state().game.sim_run_flags & console::kSimRunPaused) != 0;
+    activity.match_advancing = !paused && (match_clock_steps() || photo_slow_speed() != 0);
     activity.camera_moving = camera_moved_;
     // A finger resting on the screen, or a pad's button, stick or trackpad
     // held, is a held button: hold timers, ghost drags and auto-scroll need
@@ -293,7 +324,13 @@ void Runtime::pace_next_frame(bool& running) {
             capped_frame_rate(paced_frames_per_second_, vsync_frame_cap(display_refresh_rate()));
     const bool idle = !activity.match_advancing && !activity.camera_moving &&
                       !activity.input_recent && !activity.unattended;
-    frame_wait_ = idle && sdl_.window != nullptr ? FrameWait::idle : FrameWait::precise;
+    // A remote-controlled run, and a run that asked to keep going while the
+    // window is inactive, still draws at the idle rate, but it does not park
+    // in the event wait. A click that arrives while the thread is inside that
+    // wait is not taken until the window is in front again.
+    const bool stay_awake = options_.remote_controlled || keep_running_while_inactive_;
+    frame_wait_ =
+        idle && sdl_.window != nullptr && !stay_awake ? FrameWait::idle : FrameWait::precise;
     const uint64_t wait = end_paced_frame(frame_pacer_, frame_clock_ns(), paced_frames_per_second_);
     if (wait == 0)
         return;
@@ -323,7 +360,7 @@ void Runtime::show_frame_stats(bool shown) {
     frame_stats_shown_ = shown;
 }
 
-frame_pacing::FrameStatsRenderer Runtime::frame_stats_renderer() const {
+frame_pacing::FrameStatsRenderer Runtime::frame_stats_renderer() {
     frame_pacing::FrameStatsRenderer renderer{};
     renderer.tier = full_presentation()          ? full_tier_name
                     : accelerated_presentation() ? basic_tier_name
@@ -346,6 +383,23 @@ frame_pacing::FrameStatsRenderer Runtime::frame_stats_renderer() const {
     // a frame what it needs past them.
     if (full_presentation() && full_->page_memory_full)
         renderer.limit = "sprite memory full";
+    // The graphics device the turned view draws on, which may be on another
+    // adapter than the window's renderer: named when it opens, and again
+    // only when another takes its place.
+    if (SDL_GPUDevice* const device = turned_view_device(); device != turned_named_device_) {
+        turned_named_device_ = device;
+        turned_driver_.clear();
+        turned_adapter_.clear();
+        if (device != nullptr) {
+            const char* driver = SDL_GetGPUDeviceDriver(device);
+            turned_driver_ = driver != nullptr ? driver : "";
+            turned_adapter_ =
+                stats_device_adapter_name(oa::platform::render_probe::gpu_device_adapter(device));
+        }
+    }
+    renderer.turned_device = turned_named_device_ != nullptr;
+    renderer.turned_driver = turned_driver_;
+    renderer.turned_adapter = turned_adapter_;
     return renderer;
 }
 
@@ -397,15 +451,18 @@ void Runtime::draw_frame_stats() {
     if (font == nullptr)
         return;
     ensure_ui_colors();
+    const frame_pacing::FrameStatsRenderer renderer = frame_stats_renderer();
     const FrameStatsTable table = frame_pacing::frame_stats_table(
-        frame_stats_, frame_stats_notes(), frame_stats_renderer(), frame_stats_display()
+        frame_stats_, frame_stats_notes(), renderer, frame_stats_display()
     );
     LabelFont label_font{font};
     panel::TextWidthHooks measure{};
     measure.context = &label_font;
     measure.width = label_width;
+    // Laid out for the rows the table has, the turned view's device's
+    // among them while it is open.
     const auto layout = panel::lay_out_panel(
-        frame_pacing::frame_stats_widest_table(),
+        frame_pacing::frame_stats_widest_table(renderer.turned_device),
         measure,
         static_cast<int>(oa::formats::fnt::line_height(*font))
     );
@@ -552,8 +609,8 @@ void Runtime::draw_frame_stats() {
             continue;
         }
         if (frame_pacing::runs_on(row.kind)) {
-            // The renderer's names and the display's, cut where they would
-            // pass the panel.
+            // The renderer's names, the turned view's device's and the
+            // display's, cut where they would pass the panel.
             const auto fit = panel::fit_run_on_row(row, measure, layout);
             text(
                 layout.label_x * scale,

@@ -9,9 +9,10 @@ import argparse
 import subprocess
 import sys
 from pathlib import Path
+import native_offline
 
 # A feed the check replaces. The address is never fetched.
-DUMMY_FEED = "http://127.0.0.1:9/v1/engine/stable.json"
+DUMMY_FEED = "http://127.0.0.1:9/v1/engine/stable-2.json"
 DUMMY_KEY = "test-key=ed25519:11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo="
 
 
@@ -19,6 +20,9 @@ def preferences(path, background):
     """Writes the preferences one start opens with."""
     lines = [
         "open-annihilation-preferences 1",
+        # The update check stays at its default: the check serves its own feed on
+        # loopback and passes --update-feed, so it never asks Core Prime.
+        '"open-annihilation.content-updates" "never"',
         '"open-annihilation.language" "en"',
         '"open-annihilation.first-run" "done"',
     ]

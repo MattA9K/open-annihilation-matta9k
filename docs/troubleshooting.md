@@ -17,6 +17,37 @@ The `+stats` console command shows that memory on its "models" row: the
 megabytes the units' picture holds, "MB of" the most it may take, and "dots"
 when the last frame drew the units as dots.
 
+## A slow frame rate on a laptop
+
+Many Windows laptops have two graphics cards: the processor's own graphics,
+which saves power, and a faster card from NVIDIA or AMD. Windows and the
+card's driver decide which one draws each program, and they give a program
+they do not know the processor's graphics unless it asks for the faster
+card. Open Annihilation asks for it.
+
+To see which card the game draws on, type `+stats` in a match. The row
+under "models" names how the game draws and, after it, the graphics card
+that draws the window. Once you have turned the camera in Full 3D Mode, a
+row that starts "3D" names the card that draws the turned view. On a
+laptop with an NVIDIA card both should name it, such as "NVIDIA GeForce RTX
+4070". A name such as "Intel(R) UHD Graphics" or "AMD Radeon(TM) Graphics"
+is the processor's graphics. A long name is cut short to fit the panel.
+
+Your own choice for the game wins over the game's request. To choose the
+card yourself, close the game and use either of these:
+
+- In Windows, open Settings › System › Display › Graphics. If Open
+  Annihilation is not listed, add `open-annihilation.exe` from the folder
+  you installed the game in. Open its options and choose High performance
+  for the faster card, or Power saving for the processor's graphics.
+- In the NVIDIA Control Panel (Manage 3D settings › Program Settings) or in
+  AMD Software's graphics settings, add `open-annihilation.exe` and choose
+  the high-performance card.
+
+Then start the game again and check `+stats`. A laptop that is set, in its
+own settings or its maker's software, to use only one of its cards keeps
+that card whatever the game or Windows asks for.
+
 ## Files kept in iCloud
 
 If Documents is in iCloud Drive and Optimize Mac Storage is on, macOS can
@@ -100,3 +131,28 @@ in a box and in the log, and names the files that were not copied. If
 the files of a finished copy are gone, delete the folder the box names
 (under Open Annihilation › Games in your Documents folder) and start the
 game again to copy it afresh.
+
+## Speech on an older Windows
+
+On Windows, when the screen-reader support beside the game cannot be
+loaded, the game speaks for itself. That is Windows XP, Vista, 7 and 8,
+the Windows 95 package, and any later Windows where that support did not
+load. Moving to a control speaks its name, what it is and its value, and
+cuts off whatever was being spoken. Announcements, such as a chat line or
+a player joining, are spoken too. A message that comes with the move,
+such as the text of a message box, is spoken first and is not cut off.
+A later change of only the value is not spoken again. Changing Screen
+reader itself is spoken, because the row is read again.
+
+With Screen reader set to On, this happens whether or not a screen reader
+is running. Set to Automatic, it happens only while Windows says a screen
+reader is running. Set to Off, nothing is spoken. The row is Settings ›
+Accessibility › Screen reader
+(`open-annihilation.access.screen-reader`, `on`, `auto` or `off`).
+[Accessibility](accessibility.md#screen-readers) is the player's account.
+The Windows 95 package leaves that support out. When that package also
+has no voice, the row says "Nothing on this system can speak."
+
+If this Windows has no speech installed, the game stays quiet. It shows
+no dialog and writes no error. macOS and Linux are unchanged: the screen
+reader speaks through the bridge, and the game does not speak on its own.

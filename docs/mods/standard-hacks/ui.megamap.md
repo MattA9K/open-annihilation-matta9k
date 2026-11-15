@@ -46,8 +46,15 @@ hacks:
 #### Opening and closing
 
 Tab opens and closes the megamap, playing the interface's open and close
-sounds. Rolling the wheel toward the player opens it; rolling it away closes
-it and centres the battlefield view on the map point under the pointer.
+sounds. While a replay plays, a chord that is also a view binding (the next
+or previous player's view, every player, or the camera mode) does that view
+action instead, and the megamap stays as it was. A megamap chord that is
+not one of those still opens and closes it. Rolling the wheel toward the
+player opens it; rolling it away closes
+it and zooms the battlefield in at the pointer: the map point under the
+pointer on the megamap stays under it on the battlefield, unless the view's
+limits at the map's edges hold the view back, as they hold any jump. Off
+the map's picture the view stays where it was.
 
 #### With Mouse wheel zoom on
 
@@ -55,8 +62,10 @@ The settings' Mouse wheel zoom (Controls, on by default) zooms the
 battlefield with the wheel, out to the whole map with Maximum zoom out at
 Whole map, which makes the megamap redundant. While it is on, the hack is
 off for this player, as if the profile left it out: Tab and
-the wheel do what they do without it, the wheel zooming the battlefield, no
-megamap opens and the minimap keeps the game's own picture. Turning the
+the wheel do what they do without the hack. In a replay that means Tab
+changes the watched player when it is bound to that, and it does not open
+the megamap; the wheel zooms the battlefield, no megamap opens and the
+minimap keeps the game's own picture. Turning the
 setting on during a match closes an open megamap, without its sound, and
 puts the game's minimap picture back; turning it off brings the megamap and
 the enhanced minimap back.
@@ -70,6 +79,11 @@ the colour that looks nearest among those the map's tiles use (the least
 distance in the OKLab colour space) or, with `dither`, a checkerboard of the
 two nearest. The picture is shaded by what the viewer has mapped and sees,
 as the minimap is.
+
+The picture is made as the match starts, and as the Mouse wheel zoom
+setting is turned off during one, so that the megamap shows at once when it
+first opens. A window resized since makes it again the next time the
+megamap opens.
 
 With `feature-blobs`, the map's indestructible features that cannot be
 reclaimed, such as rocks, vents and metal patches made of features, are
@@ -218,7 +232,9 @@ match hash and every machine's simulation stay as they are.
   the minimap's picture back when the setting changes in a match.
 - Test: `ui-hud-megamap` (`src/ui/hud/tests/megamap_test.cpp`) covers the
   layout, the terrain downscale by red, green and blue and among the map's
-  own colours as they look, the features drawn and the marks' colours, a
+  own colours as they look, each pixel as the plain search of the colours
+  finds it, on the drawing threads or not and read by rows or by pixels,
+  the features drawn and the marks' colours, a
   picture shrunk, placed and laid over the terrain, the icon file, the
   icon choice and the ring minimums.
 - Test: `native-megamap-clicks` (`src/app/runtime_megamap_check.cpp`)
@@ -228,6 +244,8 @@ match hash and every machine's simulation stay as they are.
   rather than a flat mark, while the reclaimable and destructible ones leave
   it as it is; moving the main view leaves the megamap as it was, with no
   rectangle for the view; and the bars beside the map are the dark grey.
+  It rolls the wheel away over a point of the megamap and checks that the
+  battlefield then shows that map point under the pointer.
   Then it makes the same clicks on the battlefield and on the megamap in both
   interface types and checks that each leaves the same selection, armed
   command and orders: moves, an attack, a guard, selecting, deselecting,
@@ -303,7 +321,7 @@ hacks:
 | --- | --- | --- |
 | `megamap.toggle` | `Tab` | The megamap on or off |
 | `megamap.open-wheel` | `WheelDown` | Opens the megamap |
-| `megamap.close-wheel` | `WheelUp` | Closes the megamap and centres on the pointer |
+| `megamap.close-wheel` | `WheelUp` | Closes the megamap and zooms in at the pointer |
 | `megamap.jump` | `—` | Jumps the view to a point of the megamap |
 <!-- END GENERATED: keys -->
 

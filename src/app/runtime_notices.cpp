@@ -7,6 +7,7 @@
 // renderer record, worded for each kind: a driver that failed, a graphics
 // card that could not be used, and one that could not draw the battlefield.
 #include "oa/app/game_directory.hpp"
+#include "oa/app/hook_call.hpp"
 #include "oa/app/runtime.hpp"
 #include "oa/data/languages/interface_text.hpp"
 #include "oa_layer.hpp"
@@ -89,6 +90,26 @@ main_menu_settled(Screen screen, const oa::ui::frontend_state::State& state, boo
 }
 
 } // namespace
+
+bool answer_multiplayer_entry(Runtime& runtime) {
+    // The same two answers the menu's own MULTI gives before it opens.
+    if (runtime.eligible_map_names_.empty()) {
+        runtime.play_menu_sound(menu::Sound::big_button);
+        runtime.show_missing_content(Runtime::MissingContent::multiplayer_maps);
+        return true;
+    }
+    if (runtime.refuse_incomplete_mod_start()) {
+        runtime.play_menu_sound(menu::Sound::big_button);
+        return true;
+    }
+    // The strip's MULTI sits on the menu's MULTI and takes the pointer, so
+    // this is the press a player makes. The menu's own MULTI asks the same
+    // hook. Taken keeps the main menu; anything else lets the caller open
+    // multiplayer, which is what the strip did before it asked.
+    const MultiplayerSelection selection =
+        call_hook_or_raise<&Extension::select_multiplayer>(runtime.extension_, runtime);
+    return selection == MultiplayerSelection::taken;
+}
 
 void Runtime::show_missing_content(MissingContent missing) {
     std::string_view text;

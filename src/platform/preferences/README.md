@@ -179,7 +179,8 @@ as `7f3a90d2-4c18-4b0e-9a77-1d6e5ab0c91e`. It is a random 128-bit value, a
 different one for each registry, so no two registries can tell that they
 serve the same player. It is made the first time a download from that
 registry needs one, not when the game starts, and it is sent only with
-download requests. The value `off` turns that registry's ID off: the ID
+download requests and with the report of a check for a new release whose
+signed feed names that registry. The value `off` turns that registry's ID off: the ID
 that was stored is gone, and none is made while the key says `off`.
 Absent, or any other text, means none has been made yet.
 
@@ -203,10 +204,20 @@ of range is clamped. A switch is On for any number above 0: a word such as
 | `open-annihilation.access.sticky-modifiers` | 0 or 1 | 0 |
 | `open-annihilation.access.pointer-keys` | 0 or 1 | 0 |
 | `open-annihilation.access.hold-to-confirm` | 0 or 1. Self-destruct, surrender and quitting need the long-press time, and a ring fills while the press is held | 0 |
+| `open-annihilation.access.always-show-focus` | 0 or 1. Absent, or anything that is not a whole number above 0, leaves the focus ring hidden until a key shows it. 1 draws the ring on the first item when a kit screen opens. The kit does not read this key; each screen is told. Settings › Accessibility offers it as Always show focus | 0 |
 | `open-annihilation.access.edge-scroll` | 0 or 1. Off stops the view scrolling while the pointer rests at the window's edge. Arrow keys and the touch edge band while a drag is held keep moving the view | 1 |
 | `open-annihilation.access.move-overlays` | 0 or 1. On, the keys overlay, the chat line and the latch chips show at the places `open-annihilation.overlay.<overlay>.<class>` holds; off, where they lay themselves out. Settings › Accessibility reads and writes it | 0 |
 | `open-annihilation.access.order-wheel` | `off`, `hold-right` or `hold-middle`. Holding that mouse button on the battlefield opens the order wheel; a short click or a drag still does what the button does. Any other text reads as `off` | `off` |
+| `open-annihilation.access.colour-vision` | `off`, `protanopia`, `deuteranopia`, `tritanopia` or `achromatopsia`. Any other text reads as `off`. The ten player colours become the set for that eye, on the menus and in a match; `off` leaves the game's own colours. Another player's machine uses that player's own preference | `off` |
+| `open-annihilation.access.shape-cues` | A whole number above 0 is on, and anything else is off. With it on, every army's colour carries a shape as well. Achromatopsia carries the shapes even when this is 0. The shapes and the colour-vision mode apply together, on the menus and in a match | 0 |
+| `open-annihilation.access.screen-reader` | `auto`, `on` or `off`. Any other text reads as `auto`. `auto` attaches while the system says a screen reader is running, and the tree is built only then. `on` attaches even when none is running. Where the bridge cannot load, `on` speaks always and `auto` speaks while a screen reader is running. `off` starts nothing. The tree is published only while a reader is running and one has asked. Settings › Accessibility offers it as Screen reader | `auto` |
+| `open-annihilation.access.speak-chat` | `off`, `pages` or `all`. Any other text, including absent, reads as `all`. `all` speaks chat lines and whispers. `pages` speaks pages only. `off` speaks neither. A line is spoken when a screen reader is running or the screen-reader preference is `on` | `all` |
+| `open-annihilation.access.speak-lobby` | `0` or `1`. `0` is off. Absent, or any other text, is on. On speaks battle-room joins, leaves, ready, side, colour, team, the map, an option, the countdown and the host leaving | `1` |
+| `open-annihilation.access.speak-ticker` | `0` or `1`. `1` is on. Absent, or any other text, is off. The ticker repeats, so it stays quiet until this is on | `0` |
 | `open-annihilation.middle-click-pan` | 0 or 1 | 1 |
+| `open-annihilation.invert-3d-camera-pan` | 0 or 1. On, the drags that pan the turned 3D view move it the other way, the way the pointer goes | 0 |
+| `open-annihilation.invert-3d-camera-rotation` | 0 or 1. On, the drags that orbit the turned 3D view turn and tilt it the other way | 0 |
+| `open-annihilation.invert-mouse-zoom` | 0 or 1. On, the mouse wheel and a trackpad's scroll zoom the battlefield the other way, in the classic view and the turned one | 0 |
 | `open-annihilation.max-zoom-out` | `automatic`, `whole-map`, `1/32`, `1/16`, `1/8`, `1/4` or `1/2`; any other text reads as `automatic` | `automatic` |
 | `open-annihilation.max-zoom-in` | `1`, `2`, `3` or `4` times the game's scale; any other text reads as `4` | `4` |
 | `open-annihilation.view-past-map-edge` | `off`, or `25` or `50` percent of the battlefield past the map's edges; any other text reads as `50` | `50` |
@@ -259,6 +270,8 @@ of range is clamped. A switch is On for any number above 0: a word such as
 | `open-annihilation.update-install-on-quit` | the release number that installs the next time the game quits; absent, or any text that is not a whole number, schedules nothing | absent |
 | `open-annihilation.update-held` | the release number of a release that did not install; it and older ones are not offered, downloaded or installed by themselves until the player tries again; absent holds nothing | absent |
 | `open-annihilation.update-install` | `ask` or `when-i-quit`: how a ready release is installed; any other text reads as `ask` | `ask` |
+| `open-annihilation.update-channel` | `stable` or `testing`: the channel the check for a new release reads, `stable-2.json` or `testing-2.json`; any other text reads as `stable` | `stable` |
+| `open-annihilation.update-pinged` | seconds since 1970 of the last report of a check to the address the signed feed names; the next waits out the hour; absent, or any text that is not a whole number, means none has been sent | absent |
 | `open-annihilation.file-types.oamod` | `on` or `off`. Only the word `off` turns the switch off; any other text reads as on. Not `0` and `1` | on: this copy opens mod packages |
 | `open-annihilation.file-types.oamap` | `on` or `off`, as the mod packages' key | on: this copy opens map packs |
 | `open-annihilation.file-types.oalang` | `on` or `off`, as the mod packages' key | on: this copy opens language packs |
@@ -270,6 +283,18 @@ of range is clamped. A switch is On for any number above 0: a word such as
 | `open-annihilation.base-game` | `totala` or `totala-demo`; any other text reads as `totala` | `totala`, with every copied expansion of it that can be on |
 | `open-annihilation.expansions.<game>` | comma-separated expansion ids, in the built-in order; empty means none on | every copied expansion of that game that can be on |
 | `open-annihilation.content-note` | `required-expansion` when a mod was cleared because an expansion it needs went off | no note waiting |
+| `open-annihilation.photo.copy` | 0 or 1. 0 leaves a saved photo off the clipboard. Absent, or any text that is not `0`, copies the photo after it is saved. The photo is still saved either way. A side above 8192 pixels, or a copied picture above 128 MB, is saved and not copied | 1 |
+| `open-annihilation.photo.player-names` | 0 or 1. Only the text `0` leaves player names out of a photo. Absent, or any other text, names the players. Written only when the player changes it: off writes `0`, and on erases the key | 1 |
+| `open-annihilation.replays.record` | `on` or `off`. Only the word `off` turns it off; absent, or any other text, reads as on. On, every game a person plays, a network game, a skirmish and a campaign mission, is kept as a replay (a `.oademo`) in `Recordings/<mod id>`, unless the profile's recorder hack records it as a `.tad`; nothing is sent to the other players on its account. A headless run or a check records only when `--record-game` or `--net-record` names a file. Settings › Replays sets it (Record my games), and so does the Library's Replays section (Turn on recording) | on |
+| `open-annihilation.replays.keep` | `30-days`, `90-days`, `1-year` or `forever`; any other text reads as `30-days`. How long the replays the game recorded are kept. Recording does not read it. Settings › Replays sets it (Keep replays for). Keep them all on the first old-replays question writes `forever` | `30-days` |
+| `open-annihilation.replays.open-files` | `on` or `off`. Only the word `off` turns it off; absent, or any other text, reads as on. On, this copy opens a `.oademo`, and offers to open a `.tad` without taking it as the default. Settings › Replays sets it (Open replay files with Open Annihilation), on Windows, Linux and macOS. On Windows and Linux a start someone plays registers or withdraws both. On macOS the switch chooses whether this copy is the default opener of `.oademo`, and a start never replaces a choice made in Finder | on |
+| `open-annihilation.replays.retention-asked` | `keep` or `let-go`: the player's answer the first time old replays would go. Absent, or any other text, means the question has not been answered, and nothing is removed | absent |
+| `open-annihilation.replay-expansions` | comma-separated expansion ids that were on before a replay turned others on, so they can be put back when the replay ends. Absent means nothing is waiting. The game writes it and erases it; no screen draws a control for it | absent |
+| `open-annihilation.replay-expansions-state` | `wait` until that replay starts, then `play` until its match ends. A mod switched for the same replay uses this state too. Absent means no replay is holding the player's content. The game writes it and erases it; no screen draws a control for it | absent |
+| `open-annihilation.replay-mod-set` | present while a replay switched the mod, so the player's own folder can be put back. The game writes it and erases it; no screen draws a control for it | absent |
+| `open-annihilation.replay-mod` | the mod folder that was chosen before that replay. Empty means no mod. Read only while `replay-mod-set` is present. The game writes it and erases it; no screen draws a control for it | absent |
+| `open-annihilation.replay-map-pack` | the pack folder the next start mounts for the pending replay, beside `pending-demo`. Absent means Maps. The game writes it and erases it; no screen draws a control for it | absent |
+| `open-annihilation.replay-watch-from` | the tick Watch from jumps to after a replay restarts to switch the mod or the expansions. The next start seeks there once the replay can say where it is, then erases it. Absent means that replay starts at the beginning. The game writes it and erases it; no screen draws a control for it | absent |
 | `open-annihilation.access.slow-keys-ms` | milliseconds a key is held before it counts, 0 to 1000. 0 waits nothing. Absent, or any text that is not a whole number, reads as 0 | 0 |
 | `open-annihilation.access.bounce-keys-ms` | milliseconds during which a second press of the same key is ignored, 0 to 1000. 0 ignores nothing. Absent, or any text that is not a whole number, reads as 0 | 0 |
 | `open-annihilation.access.double-press-ms` | milliseconds two presses may be apart and still be a double press. 0 uses the system's double-click time; any other number is held to 200 to 1000. Absent, or any text that is not a whole number, reads as 0 | 0, the system's |
