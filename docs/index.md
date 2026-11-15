@@ -128,8 +128,8 @@ Every document in the repository, by what you want to do.
   the game data translates in German, French, Italian and Spanish,
   language packs and where to get them, Simplified Chinese, the engine's
   own words, and adding a language.
-- [Network games from the command line](../README.md#network-games-from-the-command-line)
-  in the README: the OA badge and player card in the battle room and the
+- [Network games from the command line](https://github.com/open-annihilation/open-annihilation#network-games-from-the-command-line)
+  in the Open Annihilation README: the OA badge and player card in the battle room and the
   presence record behind them, hosting a TCP/IP game with `--host` or
   joining one with `--join ADDRESS`, with `--player-name`, `--game-name`
   and `--game-password`, and what the game prints as it goes.
@@ -144,7 +144,7 @@ Every document in the repository, by what you want to do.
 - [multiplayer/status.md](multiplayer/status.md): what a game reports on
   its standard output for a launcher, with `--status-stdout`,
   `--status-file` and `--quit-after-game`.
-- [Demo Recorder](../README.md#demo-recorder) in the README: playing back a
+- [Demo Recorder](https://github.com/open-annihilation/open-annihilation#demo-recorder) in the Open Annihilation README: playing back a
   recorded game (`.tad`) from the command line with `--play-demo`, what a
   recording needs to play, and recording network games.
 - [capture.md](capture.md): capturing the game as an MP4 video with

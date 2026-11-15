@@ -219,7 +219,7 @@ opener of `.oademo`.
 ## Playing one
 
 `--play-demo` takes a `.tad` or a `.oademo`. See
-[Demo Recorder](../README.md#demo-recorder) and the
+[Demo Recorder](https://github.com/open-annihilation/open-annihilation#demo-recorder) and the
 [command line](command-line.md). A path named on its own is imported, as
 [Opening one](#opening-one) says, and is not played at once. **+** and **-**
 step the speed it is watched at, and **Pause** holds it.

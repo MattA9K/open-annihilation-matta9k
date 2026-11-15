@@ -1131,7 +1131,7 @@ void test_label_lines_keep_characters_whole() {
     CHECK(red_at(drawn, 1, 7) == 50 && red_at(drawn, 3, 7) == 52);
 }
 
-/// The ten shipped 32xlogos frames gain one shaded square per extra colour.
+/// Shipped 32xlogos frames with no team pixel gain one drawn square per extra colour.
 void test_extra_player_colors() {
     namespace colors = oa::present;
     oa::formats::gaf::Archive archive;
@@ -1151,18 +1151,23 @@ void test_extra_player_colors() {
     team.frames.resize(static_cast<std::size_t>(colors::shipped_player_color_count));
     archive.sequences.push_back(std::move(team));
 
-    // A palette of black with the five entries the first new colour (0x39FF14)
-    // shades to, so each square pixel names the entry it was meant to.
+    // A palette of black with the entries the first new colour shades to, so
+    // each square pixel names the entry it was meant to.
     std::vector<uint8_t> palette(256 * 4, 0);
-    const auto set_entry = [&](std::size_t index, int r, int g, int b) {
-        palette[index * 4] = static_cast<uint8_t>(r);
-        palette[index * 4 + 1] = static_cast<uint8_t>(g);
-        palette[index * 4 + 2] = static_cast<uint8_t>(b);
+    const uint32_t first_new =
+        colors::player_colors[static_cast<std::size_t>(colors::shipped_player_color_count)].rgb;
+    // The colour moved `lighten` percent toward white, then kept at `keep` percent.
+    const auto set_shade = [&](std::size_t index, int lighten, int keep) {
+        for (int channel = 0; channel < 3; ++channel) {
+            const int value = static_cast<int>((first_new >> (16 - 8 * channel)) & 0xff);
+            palette[index * 4 + static_cast<std::size_t>(channel)] =
+                static_cast<uint8_t>((value + (255 - value) * lighten / 100) * keep / 100);
+        }
     };
-    set_entry(100, 57, 255, 20);   // the colour itself, the face
-    set_entry(101, 25, 114, 9);    // 45 percent of it, the rim
-    set_entry(102, 156, 255, 137); // half way to white, the top-left edge
-    set_entry(103, 41, 183, 14);   // 72 percent of it, the bottom-right edge
+    set_shade(100, 0, 100);  // the colour itself, the face
+    set_shade(101, 0, 45);   // 45 percent of it, the rim
+    set_shade(102, 50, 100); // half way to white, the top-left edge
+    set_shade(103, 0, 72);   // 72 percent of it, the bottom-right edge
 
     oa::ui::frontend_renderer::append_extra_player_colors(archive, std::vector<uint8_t>(1020, 0));
     CHECK(
@@ -1207,8 +1212,50 @@ void test_extra_player_colors() {
     CHECK(shorter.sequences[0].frames.size() == 9);
 }
 
+/// The shipped blue square is recoloured into each extra colour, keeping its shade.
+void test_extra_player_colors_recolour_the_blue_square() {
+    namespace colors = oa::present;
+    std::vector<uint8_t> palette(256 * 4, 0);
+    const auto set_entry = [&](std::size_t index, int r, int g, int b) {
+        palette[index * 4] = static_cast<uint8_t>(r);
+        palette[index * 4 + 1] = static_cast<uint8_t>(g);
+        palette[index * 4 + 2] = static_cast<uint8_t>(b);
+    };
+    set_entry(10, 200, 200, 200); // a neutral rim
+    set_entry(20, 23, 71, 231);   // the blue face
+    set_entry(21, 12, 36, 116);   // a blue half as light, the shade
+    const uint32_t first_new =
+        colors::player_colors[static_cast<std::size_t>(colors::shipped_player_color_count)].rgb;
+    const auto part = [&](int shift) { return static_cast<int>((first_new >> shift) & 0xff); };
+    set_entry(100, part(16), part(8), part(0));             // the first new colour
+    set_entry(101, part(16) / 2, part(8) / 2, part(0) / 2); // half of it
+
+    oa::formats::gaf::Archive archive;
+    oa::formats::gaf::Sequence logos;
+    logos.name = "32xlogos";
+    for (int index = 0; index < colors::shipped_player_color_count; ++index) {
+        oa::formats::gaf::Frame frame;
+        frame.width = 3;
+        frame.height = 2;
+        frame.pixels = {10, 20, 20, 10, 21, 20};
+        if (index != 0)
+            frame.pixels.assign(6, 10);
+        frame.coverage.assign(6, 1);
+        logos.frames.push_back(std::move(frame));
+    }
+    archive.sequences.push_back(std::move(logos));
+    oa::ui::frontend_renderer::append_extra_player_colors(archive, palette);
+    const auto& frames = archive.sequences[0].frames;
+    CHECK(frames.size() == static_cast<std::size_t>(colors::player_color_count));
+    const auto& added = frames[static_cast<std::size_t>(colors::shipped_player_color_count)];
+    CHECK(added.width == 3 && added.height == 2);
+    CHECK(added.pixels == std::vector<uint8_t>({10, 100, 100, 10, 101, 100}));
+    CHECK(frames[0].pixels == std::vector<uint8_t>({10, 20, 20, 10, 21, 20}));
+}
+
 int main() {
     test_extra_player_colors();
+    test_extra_player_colors_recolour_the_blue_square();
     check_translated_stage_captions();
     test_label_lines_keep_characters_whole();
     test_caption_shrinks_to_button();

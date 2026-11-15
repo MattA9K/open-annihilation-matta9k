@@ -10,11 +10,12 @@
 // `dot` is an entry of palettes/palette.pal. The minimap, the megamap,
 // whiteboard marks, shared cameras and the extra radar blips use it. The game
 // shows 256 colours, so a dot is the entry nearest to the colour wanted.
-// `rgb` is the colour wanted, as 0xRRGGBB. The menu square of a colour past
-// the ten shipped frames is shaded from the entries of palettes/guipal.pal
-// nearest to it, and so are the team panels of 3D units: each team texture of
-// textures/logos.gaf gains a frame whose team pixels are the entries of
-// palettes/palette.pal nearest to it (see team_textures.hpp). An `rgb` of 0
+// `rgb` is the colour wanted, as 0xRRGGBB. The team panels of 3D units take
+// it: each team texture of textures/logos.gaf gains a frame whose team pixels
+// are the entries of palettes/palette.pal nearest to it (see
+// team_textures.hpp). The menu square of a colour past the ten shipped frames
+// is the shipped square recoloured the same way, also in palettes/palette.pal,
+// so it shows the colour the units are drawn in. An `rgb` of 0
 // on a shipped colour marks a picture that this table leaves in the file.
 //
 // To recolour a colour past the tenth, change its `rgb` for the menu square
@@ -55,15 +56,15 @@ inline constexpr std::array<PlayerColor, player_color_count> player_colors{{
     {93, 0},         // gray
     {130, 0},        // light blue
     {67, 0},         // khaki
-    {250, 0x39FF14}, // neon green; the palette's pure green
+    {193, 0xFBF383}, // cream
     {36, 0x2E9B57},  // sea green
-    {249, 0xE30B5D}, // raspberry; the palette has no pink-red, its pure red is nearest
+    {5, 0x800080},   // magenta; the palette's only one, and it has no pink
     {153, 0x4B0082}, // indigo
     {210, 0xFF8102}, // orange
-    {1, 0x800000},   // maroon
+    {89, 0x6B6B6B},  // slate grey
     {206, 0x670E10}, // royal maroon
     {19, 0xFF7E70},  // salmon; the palette's nearest rose
-    {105, 0x0F52BA}, // sapphire blue
+    {139, 0x0B3357}, // deep sea blue
     {33, 0x40E0D0},  // turquoise
 }};
 

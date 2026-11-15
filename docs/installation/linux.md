@@ -89,7 +89,7 @@ never needs to be started or run through Proton.
 ### The free demo
 
 To try Open Annihilation without the full game, see
-[Playing the demo](../../README.md#playing-the-demo).
+[Playing the demo](https://github.com/open-annihilation/open-annihilation#playing-the-demo).
 
 ## 5. Start the game
 

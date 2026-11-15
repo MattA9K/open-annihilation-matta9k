@@ -10,6 +10,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 
 namespace oa::present {
@@ -33,5 +34,26 @@ namespace oa::present {
 /// @param palette palettes/palette.pal, 256 entries of four bytes; any other
 ///     size leaves the archive as loaded
 void append_extra_team_frames(formats::gaf::Archive& archive, std::span<const uint8_t> palette);
+
+/// Returns a shipped team picture drawn in a later player colour.
+///
+/// Of frames 0 (blue) and 1 (red), the one with more team pixels is copied,
+/// its team pixels found as append_extra_team_frames finds them. The team
+/// entry the picture uses most becomes the palette entry nearest to the
+/// colour's `rgb` in player_colors. Every other team pixel becomes the entry
+/// nearest to that colour made darker or lighter as the pixel was against the
+/// most used one. The other pixels, the transparent ones, the size, the origin
+/// and the coverage stay as they were.
+///
+/// @param frames a sequence's shipped frames; frames 0 and 1 must be pictures
+///     of their own size without layers, raw or compressed
+/// @param palette 256 entries of four bytes, the palette the frames are drawn in
+/// @param color the colour number, shipped_player_color_count to
+///     player_color_count - 1
+/// @return the new frame; nothing when the frames, the palette or the colour
+///     do not fit, or neither frame has a team pixel
+[[nodiscard]] std::optional<formats::gaf::Frame> recolored_team_picture(
+    std::span<const formats::gaf::Frame> frames, std::span<const uint8_t> palette, std::size_t color
+);
 
 } // namespace oa::present

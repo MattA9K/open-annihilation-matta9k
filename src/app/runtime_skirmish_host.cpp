@@ -314,8 +314,9 @@ void Runtime::load_logo_textures() {
     if (!parsed.ok())
         return;
     logo_textures_ = std::move(*parsed.archive);
-    if (const auto gui_palette = read("palettes/guipal.pal"))
-        oa::ui::frontend_renderer::append_extra_player_colors(logo_textures_, *gui_palette);
+    // The logos' pixels are entries of the game palette.
+    if (const auto game_palette = read("palettes/palette.pal"))
+        oa::ui::frontend_renderer::append_extra_player_colors(logo_textures_, *game_palette);
     logo_sequence_ = gaf_sequence(logo_textures_, "32xlogos");
 }
 

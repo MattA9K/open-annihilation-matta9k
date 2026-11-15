@@ -298,7 +298,7 @@ send no pack in their presence record, or no record at all, so a joiner
 sees no GET MAP; get the pack from the Library, the map browser or a
 file instead. The host's player card says whether you have its pack:
 "✓ installed", "another release here" or "not installed"
-([network games](../../README.md#network-games-from-the-command-line)).
+([network games](https://github.com/open-annihilation/open-annihilation#network-games-from-the-command-line)).
 
 ## What 3.1c players see
 

@@ -9,6 +9,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <utility>
 
 namespace oa::present {
@@ -114,16 +115,16 @@ int shaded_channel(int channel, int weight) noexcept {
 
 /// Builds, for one new colour, the entry that replaces each team entry of a frame.
 ///
-/// Entries that are not the team's colour map to themselves.
+/// A team entry as light as `base` takes the colour itself. Entries that are
+/// not the team's colour map to themselves.
 std::array<uint8_t, palette_entries> recolor_table(
     std::span<const uint8_t> palette,
     Source source,
-    const PlayerColor& from,
+    const Rgb& base,
     const PlayerColor& to,
     uint8_t transparent
 ) {
     std::array<uint8_t, palette_entries> table{};
-    const Rgb base = palette_color(palette, from.dot);
     const int base_light = std::max(1, luminance(base));
     const Rgb target{
         static_cast<int>((to.rgb >> 16) & 0xff),
@@ -146,6 +147,29 @@ std::array<uint8_t, palette_entries> recolor_table(
     return table;
 }
 
+/// Returns whether a frame holds one palette index per pixel, raw or compressed, without layers.
+bool flat_picture(const formats::gaf::Frame& frame) noexcept {
+    return frame.layers.empty() && frame.width != 0 && frame.height != 0 &&
+           frame.pixels.size() == static_cast<std::size_t>(frame.width) * frame.height;
+}
+
+/// Returns the team entry a frame draws most of its team pixels in.
+///
+/// @return the entry; nothing when the frame has no team pixel
+std::optional<uint8_t> most_used_team_entry(
+    const formats::gaf::Frame& frame, Source source, std::span<const uint8_t> palette
+) {
+    std::array<std::size_t, palette_entries> uses{};
+    for (const uint8_t pixel : frame.pixels)
+        if (pixel != frame.transparency_index &&
+            is_team_color(source, palette_color(palette, pixel)))
+            ++uses[pixel];
+    const auto most = std::max_element(uses.begin(), uses.end());
+    if (*most == 0)
+        return std::nullopt;
+    return static_cast<uint8_t>(most - uses.begin());
+}
+
 } // namespace
 
 void append_extra_team_frames(formats::gaf::Archive& archive, std::span<const uint8_t> palette) {
@@ -166,7 +190,11 @@ void append_extra_team_frames(formats::gaf::Archive& archive, std::span<const ui
         for (std::size_t color = shipped_player_color_count; color < player_colors.size();
              ++color) {
             const auto table = recolor_table(
-                palette, source, from, player_colors[color], shown.transparency_index
+                palette,
+                source,
+                palette_color(palette, from.dot),
+                player_colors[color],
+                shown.transparency_index
             );
             formats::gaf::Frame extra = shown;
             for (uint8_t& pixel : extra.pixels)
@@ -174,6 +202,38 @@ void append_extra_team_frames(formats::gaf::Archive& archive, std::span<const ui
             frames.push_back(std::move(extra));
         }
     }
+}
+
+std::optional<formats::gaf::Frame> recolored_team_picture(
+    std::span<const formats::gaf::Frame> frames, std::span<const uint8_t> palette, std::size_t color
+) {
+    if (palette.size() != palette_bytes || frames.size() <= second_team_frame ||
+        color < static_cast<std::size_t>(shipped_player_color_count) ||
+        color >= player_colors.size())
+        return std::nullopt;
+    const formats::gaf::Frame& blue_frame = frames[first_team_frame];
+    const formats::gaf::Frame& red_frame = frames[second_team_frame];
+    if (!flat_picture(blue_frame) || !flat_picture(red_frame))
+        return std::nullopt;
+    const std::size_t blue = team_pixels(blue_frame, Source::blue_frame, palette);
+    const std::size_t red = team_pixels(red_frame, Source::red_frame, palette);
+    const bool from_blue = blue >= red;
+    const Source source = from_blue ? Source::blue_frame : Source::red_frame;
+    const formats::gaf::Frame& shown = from_blue ? blue_frame : red_frame;
+    const auto most_used = most_used_team_entry(shown, source, palette);
+    if (!most_used)
+        return std::nullopt;
+    const auto table = recolor_table(
+        palette,
+        source,
+        palette_color(palette, *most_used),
+        player_colors[color],
+        shown.transparency_index
+    );
+    formats::gaf::Frame picture = shown;
+    for (uint8_t& pixel : picture.pixels)
+        pixel = table[pixel];
+    return picture;
 }
 
 } // namespace oa::present

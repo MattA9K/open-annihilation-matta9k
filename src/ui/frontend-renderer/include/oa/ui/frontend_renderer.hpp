@@ -141,17 +141,20 @@ struct ScreenAssetNames {
 
 /// Adds menu squares for the player colours past the ten shipped frames.
 ///
-/// When 32xlogos holds exactly those ten frames, it gains one 32 by 32 square
-/// per later colour. The square is shaded from eight entries of the GUI
-/// palette: each is the entry nearest to that colour's `rgb` in player_colors
-/// made lighter or darker. The rim is the darkest, the top-left edge the
-/// brightest, and the face the colour itself. A 32xlogos with any other frame
+/// The pixels of 32xlogos are entries of the game palette, as the team
+/// textures' are. When 32xlogos holds exactly those ten frames, it gains one
+/// square per later colour: the shipped blue or red square recoloured by
+/// oa::present::recolored_team_picture. The square keeps its pattern, light
+/// and shade, and its face takes the entry nearest to that colour's `rgb` in
+/// player_colors, as the colour's units do. When neither shipped square has a
+/// team pixel, the colour gets a 32 by 32 square shaded from eight entries
+/// nearest to its `rgb` made lighter or darker. A 32xlogos with any other frame
 /// count is left as loaded, and so is every other sequence, and so is
 /// everything when the palette is not 256 entries of four bytes.
 ///
 /// @param[in,out] logos textures/logos.gaf as parsed
-/// @param gui_palette palettes/guipal.pal, 256 entries of four bytes
-void append_extra_player_colors(formats::gaf::Archive& logos, std::span<const uint8_t> gui_palette);
+/// @param palette palettes/palette.pal, 256 entries of four bytes
+void append_extra_player_colors(formats::gaf::Archive& logos, std::span<const uint8_t> palette);
 
 /// Loads a screen's GUI resources by name, all but its layout.
 ///

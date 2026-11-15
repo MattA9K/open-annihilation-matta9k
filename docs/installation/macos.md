@@ -54,7 +54,7 @@ installed on Windows and updated to 3.1 first.
 ### The free demo
 
 To try Open Annihilation without the full game, use the 1997 demo instead:
-see [Playing the demo](../../README.md#playing-the-demo).
+see [Playing the demo](https://github.com/open-annihilation/open-annihilation#playing-the-demo).
 
 ## 4. Start the game
 

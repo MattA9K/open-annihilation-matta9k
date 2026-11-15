@@ -99,7 +99,7 @@ the 3.1 update: the folder that holds `totala1.hpi`.
 - **From the original CDs:** install the game and update it to version
   3.1.
 - **The free demo:** to try Open Annihilation without the full game, see
-  [Playing the demo](../../README.md#playing-the-demo).
+  [Playing the demo](https://github.com/open-annihilation/open-annihilation#playing-the-demo).
 
 Windows opens paths of up to 259 characters unless long paths are turned
 on, which Windows 10, version 1607, and later allow: the **Enable Win32 long

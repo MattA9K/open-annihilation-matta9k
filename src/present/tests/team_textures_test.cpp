@@ -11,6 +11,7 @@
 #include <array>
 #include <cstdint>
 #include <cstdio>
+#include <span>
 #include <vector>
 
 namespace {
@@ -37,6 +38,13 @@ constexpr uint8_t first_new = 30;
 constexpr uint8_t second_new = 40;
 constexpr int shipped = oa::present::shipped_player_color_count;
 constexpr int total = oa::present::player_color_count;
+constexpr uint32_t first_new_rgb = oa::present::player_colors[shipped].rgb;
+constexpr uint32_t second_new_rgb = oa::present::player_colors[shipped + 1].rgb;
+
+/// Returns one channel of a 0xRRGGBB colour: 0 red, 1 green, 2 blue.
+constexpr int channel(uint32_t rgb, int which) {
+    return static_cast<int>((rgb >> (16 - 8 * which)) & 0xff);
+}
 
 std::vector<uint8_t> made_up_palette() {
     std::vector<uint8_t> palette(256 * 4, 0);
@@ -48,9 +56,12 @@ std::vector<uint8_t> made_up_palette() {
     set(grey, 200, 200, 200);
     set(blue, 23, 71, 231);
     set(red, 211, 43, 0);
-    // Entries near the first two new colours, 0x39FF14 and 0x2E9B57.
-    set(first_new, 57, 250, 20);
-    set(second_new, 46, 155, 87);
+    // The first two new colours themselves.
+    set(first_new, channel(first_new_rgb, 0), channel(first_new_rgb, 1), channel(first_new_rgb, 2));
+    set(second_new,
+        channel(second_new_rgb, 0),
+        channel(second_new_rgb, 1),
+        channel(second_new_rgb, 2));
     return palette;
 }
 
@@ -148,9 +159,65 @@ void test_second_call_and_bad_palette_change_nothing() {
     CHECK(archive.sequences[0].frames.size() == static_cast<std::size_t>(total));
 }
 
+void test_team_picture_keeps_its_shade() {
+    std::vector<uint8_t> palette = made_up_palette();
+    // A blue half as light as `blue`, and half the first new colour.
+    constexpr uint8_t dark_blue = 228;
+    constexpr uint8_t dark_first_new = 31;
+    const auto set = [&](std::size_t index, int r, int g, int b) {
+        palette[index * 4] = static_cast<uint8_t>(r);
+        palette[index * 4 + 1] = static_cast<uint8_t>(g);
+        palette[index * 4 + 2] = static_cast<uint8_t>(b);
+    };
+    set(dark_blue, 12, 36, 116);
+    set(dark_first_new,
+        channel(first_new_rgb, 0) / 2,
+        channel(first_new_rgb, 1) / 2,
+        channel(first_new_rgb, 2) / 2);
+    Sequence sequence = team_sequence("32xlogos", blue, grey);
+    // The face is the blue the picture uses most; a compressed frame is read too.
+    sequence.frames[0].pixels = {blue, dark_blue, transparent, blue};
+    sequence.frames[0].compressed = true;
+    sequence.frames[0].coverage = {1, 1, 0, 1};
+    const auto made = oa::present::recolored_team_picture(sequence.frames, palette, shipped);
+    CHECK(made.has_value());
+    if (made) {
+        CHECK(made->width == 2 && made->height == 2);
+        CHECK(made->origin_x == 1 && made->origin_y == 1);
+        CHECK(made->compressed && made->transparency_index == transparent);
+        CHECK(made->pixels.size() == 4);
+        CHECK(made->pixels[0] == first_new && made->pixels[3] == first_new);
+        CHECK(made->pixels[1] == dark_first_new);
+        CHECK(made->pixels[2] == transparent);
+        CHECK(made->coverage == std::vector<uint8_t>({1, 1, 0, 1}));
+    }
+    // The shipped frames are read, not changed.
+    CHECK(sequence.frames[0].pixels[0] == blue);
+}
+
+void test_team_picture_refuses_what_does_not_fit() {
+    const std::vector<uint8_t> palette = made_up_palette();
+    const Sequence plain = team_sequence("32xlogos", grey, grey);
+    CHECK(!oa::present::recolored_team_picture(plain.frames, palette, shipped));
+    const Sequence team = team_sequence("32xlogos", blue, red);
+    CHECK(!oa::present::recolored_team_picture(team.frames, palette, 0));
+    CHECK(!oa::present::recolored_team_picture(team.frames, palette, total));
+    const std::vector<uint8_t> short_palette(1020, 0);
+    CHECK(!oa::present::recolored_team_picture(team.frames, short_palette, shipped));
+    CHECK(!oa::present::recolored_team_picture(
+        std::span<const Frame>(team.frames.data(), 1), palette, shipped
+    ));
+    Sequence short_pixels = team;
+    short_pixels.frames[0].pixels.pop_back();
+    CHECK(!oa::present::recolored_team_picture(short_pixels.frames, palette, shipped));
+    CHECK(oa::present::recolored_team_picture(team.frames, palette, total - 1).has_value());
+}
+
 } // namespace
 
 int main() {
+    test_team_picture_keeps_its_shade();
+    test_team_picture_refuses_what_does_not_fit();
     test_blue_frame_is_recoloured();
     test_red_frame_is_the_source_when_frame_zero_has_no_team_pixels();
     test_other_sequences_are_left_alone();

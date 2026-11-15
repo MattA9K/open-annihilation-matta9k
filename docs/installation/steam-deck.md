@@ -13,7 +13,7 @@ Decks, SteamOS versions and Steam settings have not been checked, much of
 the gamepad scheme has still to be tried on a Deck (see
 [What needs a Deck](../controllers.md#what-needs-a-deck)), and this guide
 has no screenshots yet. If something goes wrong, or works where this guide
-says it may not, please tell us on [Discord](../../README.md#community) or
+says it may not, please tell us on [Discord](https://github.com/open-annihilation/open-annihilation#community) or
 in an [issue on GitHub](https://github.com/open-annihilation/open-annihilation/issues),
 with the game's log (see [Logs](#logs-and-reporting-a-problem)).
 
@@ -80,7 +80,7 @@ for a folder copied like this: choose it at the first start (step 7).
 ### The free demo
 
 To try Open Annihilation without the full game, see
-[Playing the demo](../../README.md#playing-the-demo).
+[Playing the demo](https://github.com/open-annihilation/open-annihilation#playing-the-demo).
 
 ## 4. Add it to Steam
 
