@@ -3,6 +3,7 @@
 
 #include "oa/sim/match_runtime.hpp"
 #include "oa/core/map_plot.h"
+#include "oa/base/game_math.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -56,17 +57,26 @@ void Match::play_sound_at(const char* name, const FixedVec3& at) {
     if (name == nullptr || name[0] == '\0' || point_sound.play == nullptr)
         return;
     auto& world = state();
-    // The map cell is a signed quotient, not a shift.
+    const auto& game = world.game;
+    // The point's whole pixels: past pixel 32768 of a wider map, where its
+    // sign bit sets, a place stays on the far side.
+    const int32_t x = base::game_math::fixed_extent_index(
+        static_cast<uint32_t>(at.x), game.map_width * OA_MAP_CELL_PIXELS, 16
+    );
+    const int32_t y = static_cast<int16_t>(at.y >> 16);
+    const int32_t z = base::game_math::fixed_extent_index(
+        static_cast<uint32_t>(at.z), game.map_height * OA_MAP_CELL_PIXELS, 16
+    );
+    // The map cell is a signed quotient, not a shift; a place on a wider map's
+    // far side is its own cell.
     constexpr int32_t cell_units = 1 << cell_shift;
-    if (oa::world_plot(&world, at.x / cell_units, at.z / cell_units) == nullptr)
+    const auto cell = [](int32_t fixed, int32_t pixel) {
+        return fixed >= 0 || pixel < 0 ? fixed / cell_units : pixel / OA_MAP_CELL_PIXELS;
+    };
+    if (oa::world_plot(&world, cell(at.x, x), cell(at.z, z)) == nullptr)
         return;
     if (!point_visible(world.game.viewpoint_player, fixed_words(at)))
         return;
-    const auto& game = world.game;
-    // The point's whole-pixel words, signed.
-    const int32_t x = static_cast<int16_t>(at.x >> 16);
-    const int32_t y = static_cast<int16_t>(at.y >> 16);
-    const int32_t z = static_cast<int16_t>(at.z >> 16);
     const auto camera_x = static_cast<int32_t>(game.camera_x);
     const auto camera_y = static_cast<int32_t>(game.camera_y);
     PointSound sound{at, point_sound_volume_near};

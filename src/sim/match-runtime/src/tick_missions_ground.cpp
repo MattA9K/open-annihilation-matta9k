@@ -122,7 +122,8 @@ uint32_t TickHost::GroundMissions::resurrect() {
         // A building rises facing as its wreck lies (units.build-rotation).
         const auto& wreck_point = record.extra.destination;
         if (const auto wreck = plot_index(
-                wreck_point[0] >> ground::cell_shift, wreck_point[2] >> ground::cell_shift
+                ground::map_cell(wreck_point[0], world().game.map_width),
+                ground::map_cell(wreck_point[2], world().game.map_height)
             ))
             if (const auto* placed = sim::feature_runtime::feature_record(
                     world(), world().plots[feature_origin(*wreck)].feature_record
@@ -138,8 +139,10 @@ uint32_t TickHost::GroundMissions::resurrect() {
             return ground::keep_waiting;
         }
         const auto& point = record.extra.destination;
-        const auto index =
-            plot_index(point[0] >> ground::cell_shift, point[2] >> ground::cell_shift);
+        const auto index = plot_index(
+            ground::map_cell(point[0], world().game.map_width),
+            ground::map_cell(point[2], world().game.map_height)
+        );
         if (!index || origin_feature_word(feature_origin(*index)) >= ground::first_reserved_feature)
             return ground::mission_failed;
         const auto origin = feature_origin(*index);

@@ -481,20 +481,20 @@ bool place_on_metal(
 ) noexcept {
     if (k.metal_spot_count == 0)
         return false;
-    const auto center_x = static_cast<int16_t>(
-        static_cast<int32_t>(
-            static_cast<uint32_t>(center.x) +
-            static_cast<uint32_t>(type.footprint_x) * 0xfff80000u + 0x80000u
-        ) >>
+    // The footprint's first cell; past pixel 32768 of a wider map, where the
+    // sign bit sets, it stays on the map's far side.
+    const auto center_x = static_cast<int16_t>(base::game_math::fixed_extent_index(
+        static_cast<uint32_t>(center.x) + static_cast<uint32_t>(type.footprint_x) * 0xfff80000u +
+            0x80000u,
+        host.map_cells_x,
         20
-    );
-    const auto center_z = static_cast<int16_t>(
-        static_cast<int32_t>(
-            static_cast<uint32_t>(center.z) +
-            static_cast<uint32_t>(type.footprint_z) * 0xfff80000u + 0x80000u
-        ) >>
+    ));
+    const auto center_z = static_cast<int16_t>(base::game_math::fixed_extent_index(
+        static_cast<uint32_t>(center.z) + static_cast<uint32_t>(type.footprint_z) * 0xfff80000u +
+            0x80000u,
+        host.map_cells_z,
         20
-    );
+    ));
     const auto reach =
         static_cast<int32_t>(static_cast<uint32_t>(radius) * static_cast<uint32_t>(radius));
     auto* heap = static_cast<base::game_math::FloatHeapPair*>(
@@ -592,24 +592,28 @@ bool place_on_grid(
             host.random(host.context, static_cast<uint32_t>(grid.step_x - fx - grid.margin));
         const auto jitter_z =
             host.random(host.context, static_cast<uint32_t>(grid.step_z - fz - grid.margin));
+        // The footprint's first cell; past pixel 32768 of a wider map, where
+        // the sign bit sets, it stays on the map's far side.
         const auto cell = [](int32_t position,
                              int32_t offset,
                              int32_t footprint,
                              int16_t step,
                              int16_t phase,
-                             uint32_t jitter) {
-            const auto raw = static_cast<int16_t>(
-                static_cast<int32_t>(
-                    static_cast<uint32_t>(position) - static_cast<uint32_t>(offset) +
-                    static_cast<uint32_t>(footprint) * 0xfff80000u + 0x80000u
-                ) >>
+                             uint32_t jitter,
+                             int32_t cells) {
+            const auto raw = static_cast<int16_t>(base::game_math::fixed_extent_index(
+                static_cast<uint32_t>(position) - static_cast<uint32_t>(offset) +
+                    static_cast<uint32_t>(footprint) * 0xfff80000u + 0x80000u,
+                cells,
                 20
-            );
+            ));
             const auto snapped = step != 0 ? (raw / step) * step : 0;
             return static_cast<int16_t>(snapped + phase + static_cast<int16_t>(jitter));
         };
-        const auto cell_x = cell(center.x, sx, fx, grid.step_x, grid.phase_x, jitter_x);
-        const auto cell_z = cell(center.z, cz, fz, grid.step_z, grid.phase_z, jitter_z);
+        const auto cell_x =
+            cell(center.x, sx, fx, grid.step_x, grid.phase_x, jitter_x, host.map_cells_x);
+        const auto cell_z =
+            cell(center.z, cz, fz, grid.step_z, grid.phase_z, jitter_z, host.map_cells_z);
         if (!host.site_clear(host.context, type_id, cell_x, cell_z))
             continue;
         int32_t metal = 0;

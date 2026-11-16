@@ -184,8 +184,8 @@ inline int32_t wrapping_sub(int32_t a, int32_t b) {
 ///        coordinate with the sign bit set
 /// @return the cell
 inline int32_t footprint_origin_cell(int32_t world, int16_t footprint, int32_t map_cells) {
-    const auto biased = std::bit_cast<uint32_t>(world) -
-                        static_cast<uint32_t>(footprint) * 0x80000u + 0x80000u;
+    const auto biased =
+        std::bit_cast<uint32_t>(world) - static_cast<uint32_t>(footprint) * 0x80000u + 0x80000u;
     return base::game_math::fixed_extent_index(biased, map_cells, 20);
 }
 
@@ -562,6 +562,8 @@ class TickHost final : public sim::simulation_state::Host,
         sim::simulation_state::Host::rules = m.rules_view();
         sim::simulation_state::Host::order_ends = {&m, &Match::report_order_end};
         sim::ground_orders::Host::rules = m.rules_view();
+        // A unit past pixel 32768 of a wider map moves through its own cells.
+        sim::unit_movement::Host::map_cells = {m.state().game.map_width, m.state().game.map_height};
     }
 
     /// Moves a queued build onto a new site. Match::relocate_queued_build.

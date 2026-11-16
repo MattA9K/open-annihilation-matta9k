@@ -132,4 +132,24 @@ int main() {
     oa::base::game_math::float_heap_make(tied, 3);
     if (tied[0].value != 3 || tied[1].value != 2 || tied[2].value != 1)
         throw std::runtime_error("right child on a tie");
+
+    // Whole pixels from a map pixel to a 16.16 coordinate: on a map within
+    // signed 16.16 the coordinate's high word less the pixel, rounded toward
+    // negative infinity.
+    using oa::base::game_math::fixed_pixels_past;
+    const auto fixed = [](int64_t pixels, int64_t fraction = 0) {
+        return static_cast<int32_t>(static_cast<uint32_t>(pixels * 65536 + fraction));
+    };
+    if (fixed_pixels_past(fixed(300), 100) != 200 || fixed_pixels_past(fixed(100), 300) != -200)
+        throw std::runtime_error("pixels past within signed 16.16");
+    if (fixed_pixels_past(fixed(-1, 0x8000), 0) != -1 ||
+        fixed_pixels_past(fixed(10, 0x8000), 10) != 0)
+        throw std::runtime_error("pixels past round toward negative infinity");
+    // Past pixel 32768 the coordinate's sign bit sets, and the distance from
+    // a pixel on either side of it is still the one between them.
+    if (fixed_pixels_past(fixed(48084), 47800) != 284 ||
+        fixed_pixels_past(fixed(32800), 32700) != 100 ||
+        fixed_pixels_past(fixed(32700), 32800) != -100 ||
+        fixed_pixels_past(fixed(48084), 30000) != 18084)
+        throw std::runtime_error("pixels past across pixel 32768");
 }

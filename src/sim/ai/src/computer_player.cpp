@@ -647,8 +647,11 @@ void run_construction(
         oa::FixedVec3 site{};
         bool placed = computer_place_build(state, host, ai, unit->position, pick, &site);
         if (captures) {
+            // The reach in 16.16, kept in 64 bits: on a map past 63 by 63 map
+            // units a third of its width and height is 32768 pixels or more,
+            // which 32 bits would wrap below every site's distance.
             const auto reach =
-                wrap_mul((host.map_cells_x * 16 - 32 + host.map_cells_z * 16 - 128) / 3, 0x10000);
+                int64_t{(host.map_cells_x * 16 - 32 + host.map_cells_z * 16 - 128) / 3} * 0x10000;
             const auto length = base::game_math::truncated_length(
                 wrap_sub(site.x, base.x), 0, wrap_sub(site.z, base.z)
             );

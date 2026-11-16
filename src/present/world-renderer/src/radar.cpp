@@ -3,6 +3,9 @@
 
 #include "oa/present/world_renderer/world_radar.hpp"
 
+#include "oa/base/game_math.hpp"
+#include "oa/core/map_plot.h"
+
 #include "oa/present/blit.hpp"
 #include "oa/present/palette_tables.hpp"
 #include "oa/present/polygon.hpp"
@@ -23,16 +26,23 @@ int32_t high_word(oa_fixed value) noexcept {
     return static_cast<int16_t>(static_cast<uint32_t>(value) >> 16);
 }
 
+// Whole map pixel of a 16.16 coordinate, past pixel 32768 of a wider map too.
+int32_t map_pixel(oa_fixed value, int32_t cells) noexcept {
+    return base::game_math::fixed_extent_index(
+        static_cast<uint32_t>(value), cells * OA_MAP_CELL_PIXELS, 16
+    );
+}
+
 // Picture column of a map position.
 int32_t radar_column(const Game& game, const FixedVec3& position) noexcept {
-    return game.radar_width * high_word(position.x) / game.map_pixel_width;
+    return game.radar_width * map_pixel(position.x, game.map_width) / game.map_pixel_width;
 }
 
 // Picture row of a map position: its z less half its height, as the
 // battlefield projection places it.
 int32_t radar_row(const Game& game, const FixedVec3& position) noexcept {
-    return (high_word(position.z) - (high_word(position.y) >> 1)) * game.radar_height /
-           game.map_pixel_height;
+    return (map_pixel(position.z, game.map_height) - (high_word(position.y) >> 1)) *
+           game.radar_height / game.map_pixel_height;
 }
 
 // Picture radius of a map-pixel distance.

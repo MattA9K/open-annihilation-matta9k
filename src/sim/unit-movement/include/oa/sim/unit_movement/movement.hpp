@@ -70,6 +70,13 @@ struct Host {
     ///
     /// @param unit moved unit
     virtual void update_spatial_membership(Unit& unit) = 0;
+
+    /// The map's width and height in footprint cells of 16 pixels
+    /// (Game.map_width, map_height). On a map past signed 16.16, wider or
+    /// taller than 32768 pixels, a position whose sign bit is set past that
+    /// pixel stays on the far side of the map. Zero, the default, reads every
+    /// position as signed, as 3.1c does.
+    std::array<int32_t, 2> map_cells{};
 };
 
 /// Returns the signed 1.13 table sine of a heading scaled by a magnitude.

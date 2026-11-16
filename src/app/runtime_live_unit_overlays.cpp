@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "oa/app/runtime.hpp"
+#include "oa/present/world_renderer/world_camera.hpp"
 #include "match_models.hpp"
 #include "oa/ui/hud/health_bar.hpp"
 #include "oa/ui/hud/shared_views.hpp"
@@ -34,7 +35,9 @@ void Runtime::draw_live_unit_overlays() {
         const auto& unit = slots[id].record;
         const auto position = draw.shown_position.value_or(unit.position);
         const auto frame = live_project_world(
-            position.x / fixed_scale, position.y / fixed_scale, position.z / fixed_scale
+            oa::present::world_renderer::map_column_place(world.game, position.x),
+            position.y / fixed_scale,
+            oa::present::world_renderer::map_row_place(world.game, position.z)
         );
         const int x = frame.x - match_layout_.left;
         const int y = frame.y - match_layout_.top + size.below_unit;

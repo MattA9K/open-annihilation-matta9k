@@ -535,13 +535,21 @@ void Runtime::set_camera_position(int32_t x, int32_t z, uint32_t flags) {
 }
 
 void Runtime::centre_view_on(int32_t x, int32_t z) {
+    // The point's whole map pixels and its place in 16.16, widened: on a map
+    // past pixel 32768, where the sign bit sets, a place on the far side
+    // stays there. On a smaller map they are its high word and itself.
+    int32_t whole_x = static_cast<int16_t>(static_cast<uint32_t>(x) >> 16);
+    int32_t whole_z = static_cast<int16_t>(static_cast<uint32_t>(z) >> 16);
+    if (match_) {
+        const auto& game = match_->state().game;
+        whole_x = oa::present::world_renderer::map_column(game, x);
+        whole_z = oa::present::world_renderer::map_row(game, z);
+    }
+    const int64_t wide_x = int64_t{whole_x} * oa::present::scene_step_one + (x & 0xffff);
+    const int64_t wide_z = int64_t{whole_z} * oa::present::scene_step_one + (z & 0xffff);
     if (!view_between_pixels_) {
-        // The whole map pixel of the point, its 16.16 high word.
-        const auto whole = [](int32_t place) {
-            return static_cast<int32_t>(static_cast<int16_t>(static_cast<uint32_t>(place) >> 16));
-        };
         set_camera_position(
-            whole(x) - visible_map_width() / 2, whole(z) - visible_map_height() / 2, 0
+            whole_x - visible_map_width() / 2, whole_z - visible_map_height() / 2, 0
         );
         return;
     }
@@ -557,9 +565,9 @@ void Runtime::centre_view_on(int32_t x, int32_t z) {
     if (!view_on_scene_grid_ || view_moved_by_card_) {
         const auto zoom = static_cast<double>(match_zoom() > 0.0F ? match_zoom() : 1.0F);
         place_held(
-            static_cast<double>(x) / oa::present::scene_step_one -
+            static_cast<double>(wide_x) / oa::present::scene_step_one -
                 static_cast<double>(match_layout_.battlefield_width()) / zoom / 2.0,
-            static_cast<double>(z) / oa::present::scene_step_one -
+            static_cast<double>(wide_z) / oa::present::scene_step_one -
                 static_cast<double>(match_layout_.battlefield_height()) / zoom / 2.0
         );
         return;
@@ -567,13 +575,14 @@ void Runtime::centre_view_on(int32_t x, int32_t z) {
     // The scene pixel the point lies in, on the pixels laid from the map's
     // corner, at the battlefield's middle: the view's place is that pixel's
     // start, which place_match_view keeps.
-    const auto place = [step](int32_t point, int32_t battlefield) {
+    const auto place = [step](int64_t point, int32_t battlefield) {
         const int64_t pixel = oa::present::scene_pixel_of(point, step);
         return static_cast<double>(pixel - battlefield / 2) *
                static_cast<double>(oa::present::scene_step_one) / static_cast<double>(step);
     };
     place_held(
-        place(x, match_layout_.battlefield_width()), place(z, match_layout_.battlefield_height())
+        place(wide_x, match_layout_.battlefield_width()),
+        place(wide_z, match_layout_.battlefield_height())
     );
 }
 

@@ -67,7 +67,10 @@ OA_GAME_DATA_TEST(main_menu_setup_centres_version) {
     const std::string program_line = main_menu_version_text();
     OA_CHECK(label->active == 1);
     OA_CHECK(program_line.starts_with("Open Annihilation v"));
-    OA_CHECK(text_of(panel, "DebugString") == program_line);
+    // Open Annihilation: Unbound's line follows after a CR; the first line is
+    // the one measured and centred.
+    OA_CHECK(main_menu_unbound_text() == "Open Annihilation: Unbound v1.0.0");
+    OA_CHECK(text_of(panel, "DebugString") == program_line + '\r' + main_menu_unbound_text());
     OA_CHECK(calls.measured == program_line);
     // The measure stand-in is one more than seven a character. The label
     // moves left by half of that, centred on its authored x.
@@ -79,7 +82,8 @@ OA_GAME_DATA_TEST(main_menu_setup_centres_version) {
     OA_CHECK(panel.dirty);
 }
 
-// A mod's own version replaces the program's line and is centred the same way.
+// A mod's own version is a third line, under the program's and Open
+// Annihilation: Unbound's; the program's line is still the one centred.
 OA_GAME_DATA_TEST(main_menu_setup_shows_a_mods_version) {
     const auto layout = load_gui("mainmenu.gui");
     if (!layout)
@@ -92,10 +96,15 @@ OA_GAME_DATA_TEST(main_menu_setup_shows_a_mods_version) {
     auto host = make_host(calls);
     host.version_text = "v9.9";
     main_menu_setup(panel, checks, host);
-    OA_CHECK(text_of(panel, "DebugString") == "v9.9");
-    OA_CHECK(calls.measured == "v9.9");
-    // Width 29: the label moves left by 29 / 2 = 14.
-    OA_CHECK(panel_control(panel, "DebugString")->x == authored_x - 14);
+    const std::string program_line = main_menu_version_text();
+    OA_CHECK(
+        text_of(panel, "DebugString") == program_line + '\r' + main_menu_unbound_text() + "\rv9.9"
+    );
+    OA_CHECK(calls.measured == program_line);
+    const int32_t width = static_cast<int32_t>(program_line.size() * 7 + 1);
+    OA_CHECK(
+        panel_control(panel, "DebugString")->x == static_cast<int16_t>(authored_x - width / 2)
+    );
 }
 
 // Game data that names no revision and has no movies, such as the Total

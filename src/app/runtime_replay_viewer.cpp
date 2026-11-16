@@ -27,6 +27,7 @@
 #include "oa/platform/files.hpp"
 #include "oa/platform/system.hpp"
 #include "oa/present/colour_vision/colour_vision.hpp"
+#include "oa/present/world_renderer/world_camera.hpp"
 #include "oa/sim/match_runtime.hpp"
 #include "oa/sim/unit_spawn/spawn.hpp"
 #include "oa/ui/hud/resource_panel.hpp"
@@ -1987,7 +1988,7 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
             const oa::Unit& unit = slots[index].record;
             if (static_cast<int>(unit.owner_index) != slot || !on_map(*match, id))
                 continue;
-            const std::array<int32_t, 2> drawn = drawn_place(*slots[index].unit);
+            const std::array<int32_t, 2> drawn = drawn_place(world.game, *slots[index].unit);
             if (drawn[0] >= left && drawn[0] < left + width && drawn[1] >= top &&
                 drawn[1] < top + height)
                 return;
@@ -1999,7 +2000,7 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
         // Placed in the picture the player's view shows: with the top bar
         // that view brings, so the whole view is on the map.
         runtime_.keep_replay_top_bar();
-        const std::array<int32_t, 2> drawn = drawn_place(*slots[commander].unit);
+        const std::array<int32_t, 2> drawn = drawn_place(world.game, *slots[commander].unit);
         place_on_map(drawn[0], drawn[1]);
         // The opening's wait is over: the player chose where to look.
         opening_pending_ = false;
@@ -2283,8 +2284,10 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
         if (unit == nullptr)
             return false;
         const oa::Game& game = match.state().game;
-        const int32_t x = static_cast<int32_t>(unit->position[0]) >> 16;
-        const int32_t z = static_cast<int32_t>(unit->position[2]) >> 16;
+        const int32_t x =
+            oa::present::world_renderer::map_column(game, static_cast<int32_t>(unit->position[0]));
+        const int32_t z =
+            oa::present::world_renderer::map_row(game, static_cast<int32_t>(unit->position[2]));
         return x >= 0 && z >= 0 && x < game.map_pixel_width && z < game.map_pixel_height &&
                (x != 0 || z != 0);
     }
@@ -2292,14 +2295,16 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
     /// The place on the map a unit is drawn: on high ground that is above
     /// its ground point, by half its height.
     ///
+    /// @param game the match, for the map's size
     /// @param unit the unit's runtime state
     /// @return across and down the map
     [[nodiscard]] static std::array<int32_t, 2>
-    drawn_place(const oa::sim::simulation_state::Unit& unit) {
+    drawn_place(const oa::Game& game, const oa::sim::simulation_state::Unit& unit) {
         const int32_t height = static_cast<int32_t>(unit.position[1]) >> 16;
         return {
-            static_cast<int32_t>(unit.position[0]) >> 16,
-            (static_cast<int32_t>(unit.position[2]) >> 16) - height / 2
+            oa::present::world_renderer::map_column(game, static_cast<int32_t>(unit.position[0])),
+            oa::present::world_renderer::map_row(game, static_cast<int32_t>(unit.position[2])) -
+                height / 2
         };
     }
 
@@ -2362,7 +2367,7 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
         const auto centre_on = [&](uint16_t id) {
             if (id == 0 || !on_map(*match, id))
                 return false;
-            const std::array<int32_t, 2> drawn = drawn_place(*slots[id].unit);
+            const std::array<int32_t, 2> drawn = drawn_place(world.game, *slots[id].unit);
             place_on_map(drawn[0], drawn[1]);
             keep();
             return true;

@@ -205,6 +205,19 @@ constexpr int32_t cell_shift = 20;
 constexpr int32_t half_cell_shift = 19;
 constexpr int64_t feature_sample_step = 0x300000;
 
+/// Returns the map cell of a signed 16.16 coordinate on an axis `cells` long.
+///
+/// On a map within signed 16.16 it is the game's arithmetic shift. Past pixel
+/// 32768 of a wider map, where the sign bit sets, the cell stays on the far
+/// side; one off the near side is negative.
+///
+/// @param fixed the coordinate
+/// @param cells the axis's length in cells (Game.map_width or map_height)
+/// @return the cell
+inline int32_t map_cell(int32_t fixed, int32_t cells) {
+    return base::game_math::fixed_extent_index(static_cast<uint32_t>(fixed), cells, cell_shift);
+}
+
 /// Returns a unit's position as a ground-order point.
 ///
 /// @param unit the unit
@@ -450,12 +463,14 @@ class TickHost::GroundMissions {
         }
         g->project_slot();
         install_goal(
-            std::make_unique<sim::ground_orders::Goal>(
-                sim::ground_orders::make_goal(
-                    order, g->geometry, point, tolerance, world().game.map_width,
-                    world().game.map_height
-                )
-            )
+            std::make_unique<sim::ground_orders::Goal>(sim::ground_orders::make_goal(
+                order,
+                g->geometry,
+                point,
+                tolerance,
+                world().game.map_width,
+                world().game.map_height
+            ))
         );
     }
 
@@ -913,8 +928,8 @@ class TickHost::GroundMissions {
     /// @return The feature's site (its FeatureDef footprint when the table has
     ///     it), or nothing off the map or without a feature.
     std::optional<ground::FeatureSite> feature_site(const sim::ground_orders::Point& point) {
-        auto cell_x = static_cast<int16_t>(point[0] >> ground::cell_shift);
-        auto cell_z = static_cast<int16_t>(point[2] >> ground::cell_shift);
+        auto cell_x = static_cast<int16_t>(ground::map_cell(point[0], world().game.map_width));
+        auto cell_z = static_cast<int16_t>(ground::map_cell(point[2], world().game.map_height));
         auto index = plot_index(cell_x, cell_z);
         if (!index)
             return std::nullopt;
@@ -1010,8 +1025,8 @@ class TickHost::GroundMissions {
             for (int64_t x = centre[0] - half; x <= centre[0] + half;
                  x += ground::feature_sample_step) {
                 const auto index = plot_index(
-                    static_cast<int32_t>(x) >> ground::cell_shift,
-                    static_cast<int32_t>(z) >> ground::cell_shift
+                    ground::map_cell(static_cast<int32_t>(x), world().game.map_width),
+                    ground::map_cell(static_cast<int32_t>(z), world().game.map_height)
                 );
                 if (!index)
                     continue;
@@ -1131,12 +1146,15 @@ class TickHost::GroundMissions {
         }
         g->project_slot();
         install_goal(
-            std::make_unique<sim::ground_orders::Goal>(
-                sim::ground_orders::make_ring_goal(
-                    order, g->geometry, point, outer, inner, world().game.map_width,
-                    world().game.map_height
-                )
-            )
+            std::make_unique<sim::ground_orders::Goal>(sim::ground_orders::make_ring_goal(
+                order,
+                g->geometry,
+                point,
+                outer,
+                inner,
+                world().game.map_width,
+                world().game.map_height
+            ))
         );
     }
 

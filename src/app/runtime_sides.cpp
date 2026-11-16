@@ -413,8 +413,9 @@ void Runtime::select_side_commander() {
     hooks.center_camera = [](void* context, const FixedVec3& position, bool) {
         Runtime& runtime = *static_cast<Finder*>(context)->runtime;
         runtime.set_camera_position(
-            oa::present::world_renderer::world_screen_x(position) - runtime.visible_map_width() / 2,
-            oa::present::world_renderer::world_screen_y(position) -
+            oa::present::world_renderer::world_screen_x(runtime.match_->state().game, position) -
+                runtime.visible_map_width() / 2,
+            oa::present::world_renderer::world_screen_y(runtime.match_->state().game, position) -
                 runtime.visible_map_height() / 2,
             runtime.match_camera_flags_
         );
@@ -539,8 +540,10 @@ void Runtime::check_deathmatch_respawn() {
         throw std::runtime_error("respawn check: no commander respawned under the deathmatch rule");
     if (selected_match_unit_ != commander->id || (commander->flags & OA_UNIT_FLAG_SELECTED) == 0)
         throw std::runtime_error("respawn check: the respawned commander is not selected");
-    const int32_t centre_x = oa::present::world_renderer::world_screen_x(commander->position);
-    const int32_t centre_z = oa::present::world_renderer::world_screen_y(commander->position);
+    const int32_t centre_x =
+        oa::present::world_renderer::world_screen_x(match_->state().game, commander->position);
+    const int32_t centre_z =
+        oa::present::world_renderer::world_screen_y(match_->state().game, commander->position);
     if (match_camera_x_ != centre_x - visible_map_width() / 2 ||
         match_camera_z_ != centre_z - visible_map_height() / 2)
         throw std::runtime_error("respawn check: the camera is not centred on the new commander");

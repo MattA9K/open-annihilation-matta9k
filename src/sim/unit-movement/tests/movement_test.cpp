@@ -140,4 +140,26 @@ int main() {
     CHECK(surface_height(below, -1, 0) == 90);
     CHECK(surface_height(equal, 4 * 65536, 4 * 65536) == 90);
     CHECK(surface_height(above, 65536, 2 * 65536) == 140);
+
+    // A map 3200 cells wide, past signed 16.16: a unit at pixel 46099 has its
+    // position's sign bit set, and with the map's size it stands in its own
+    // cell and walks into the next one.
+    const auto fixed = [](uint32_t pixels) { return std::bit_cast<Fixed>(pixels << 16); };
+    Fixture wide;
+    wide.map_cells = {3200, 3200};
+    Unit far{};
+    Movement walking{};
+    far.footprint = {2, 2};
+    write_position(far, walking, {fixed(4516), 0, fixed(46099)}, 1, wide);
+    CHECK(far.cell[0] == 281 && far.cell[1] == 2880);
+    walking.velocity = {0, 0, 16 * 65536};
+    wide.calls = 0;
+    integrate_unattached(far, walking, 10, true, wide);
+    CHECK(wide.calls == 1234 && far.cell[1] == 2881 && far.position[2] == fixed(46115));
+    // Without the map's size the position reads as signed, as 3.1c does.
+    Fixture unsized;
+    Unit signed_unit{};
+    signed_unit.footprint = {2, 2};
+    write_position(signed_unit, walking, {fixed(4516), 0, fixed(46099)}, 1, unsized);
+    CHECK(signed_unit.cell[1] == static_cast<int16_t>(2880 - 4096));
 }

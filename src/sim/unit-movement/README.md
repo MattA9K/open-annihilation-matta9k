@@ -23,6 +23,11 @@ ordering. Units simulated elsewhere reuse their movement object's previous
 collision bit; the collision query is made only for locally simulated units.
 
 Required Host operations cover collision and spatial occupancy only.
+`Host::map_cells` is the map's size in footprint cells. On a map wider or
+taller than 32768 pixels, past 63 by 63 map units, a position past that pixel
+has its signed 16.16 sign bit set; with the size given, its footprint cell is
+the one on the map's far side, and a blocked move holds the unit in its cell
+by the 16.16 differences. Left at zero, positions read as signed, as in 3.1c.
 Ownership is an explicit argument. The caller must establish that the unit is
 unattached before calling `integrate_unattached`.
 

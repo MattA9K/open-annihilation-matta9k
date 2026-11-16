@@ -239,4 +239,20 @@ fixed_extent_index(uint32_t fixed, int32_t extent, uint32_t shift) noexcept {
         return static_cast<int32_t>(logical | (~uint32_t{0} << (32u - shift)));
     return static_cast<int32_t>(logical);
 }
+
+/// Whole pixels from a map pixel to a 16.16 coordinate on the same axis.
+///
+/// The difference is taken in 16.16 and then loses its fraction toward
+/// negative infinity, as the coordinate's whole pixel less `pixel` does on a
+/// map within signed 16.16. It stays right across pixel 32768, where a
+/// coordinate's sign bit sets, for any two places less than 32768 pixels
+/// apart.
+///
+/// @param fixed signed 16.16 coordinate, as its bits
+/// @param pixel the map pixel measured from, such as the camera's
+/// @return the whole pixels from `pixel` to `fixed`; negative before it
+[[nodiscard]] inline int32_t fixed_pixels_past(int32_t fixed, int32_t pixel) noexcept {
+    const auto difference = static_cast<uint32_t>(fixed) - (static_cast<uint32_t>(pixel) << 16);
+    return static_cast<int32_t>(difference) >> 16;
+}
 } // namespace oa::base::game_math

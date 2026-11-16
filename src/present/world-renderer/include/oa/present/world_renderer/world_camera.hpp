@@ -129,16 +129,55 @@ void camera_center_on_position(Game& game, const FixedVec3& position, int32_t gl
 /// @param random rand() source for the shake
 void camera_tick(Game& game, const CameraFollow& follow, const RandomSource& random) noexcept;
 
+/// Returns the whole map pixel of a 16.16 X coordinate.
+///
+/// A column past pixel 32768 of a wider map, where the coordinate's sign bit
+/// sets, stays on the map's far side; one off the map's near side is
+/// negative. On a map within signed 16.16 it is the coordinate's high word.
+///
+/// @param game the match, for the map's width
+/// @param fixed signed 16.16 X coordinate
+/// @return the whole pixel, rounded toward negative infinity
+[[nodiscard]] int32_t map_column(const Game& game, int32_t fixed) noexcept;
+/// Returns the whole map pixel of a 16.16 Z coordinate, as map_column reads X.
+///
+/// @param game the match, for the map's height
+/// @param fixed signed 16.16 Z coordinate
+/// @return the whole pixel, rounded toward negative infinity
+[[nodiscard]] int32_t map_row(const Game& game, int32_t fixed) noexcept;
+/// Returns a 16.16 X coordinate in map pixels with its fraction, read as
+/// map_column reads its whole pixel.
+///
+/// @param game the match, for the map's width
+/// @param fixed signed 16.16 X coordinate
+/// @return the map pixels
+[[nodiscard]] float map_column_place(const Game& game, int32_t fixed) noexcept;
+/// Returns a 16.16 Z coordinate in map pixels with its fraction, read as
+/// map_row reads its whole pixel.
+///
+/// @param game the match, for the map's height
+/// @param fixed signed 16.16 Z coordinate
+/// @return the map pixels
+[[nodiscard]] float map_row_place(const Game& game, int32_t fixed) noexcept;
+
 /// Returns the map-pixel column a 16.16 world position is centred on.
 ///
+/// A column past pixel 32768 of a wider map, where the position's sign bit
+/// sets, stays on the map's far side; one off the map's near side is negative.
+///
+/// @param game the match, for the map's width
 /// @param position signed 16.16 world position
-/// @return the signed high word of X
-[[nodiscard]] int32_t world_screen_x(const FixedVec3& position) noexcept;
+/// @return the whole pixel of X
+[[nodiscard]] int32_t world_screen_x(const Game& game, const FixedVec3& position) noexcept;
 /// Returns the map-pixel row of a 16.16 world position, raised by half its height.
 ///
+/// A row past pixel 32768 of a taller map stays on the map's far side, as
+/// world_screen_x keeps a column.
+///
+/// @param game the match, for the map's height
 /// @param position signed 16.16 world position
-/// @return the signed high word of Z - Y / 2
-[[nodiscard]] int32_t world_screen_y(const FixedVec3& position) noexcept;
+/// @return the whole pixel of Z - Y / 2
+[[nodiscard]] int32_t world_screen_y(const Game& game, const FixedVec3& position) noexcept;
 
 // Platform cursor boundary used by mouse-look.
 struct CursorSink {

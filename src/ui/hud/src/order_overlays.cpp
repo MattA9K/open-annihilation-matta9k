@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "oa/ui/hud/order_overlays.hpp"
+#include "oa/base/game_math.hpp"
 
 #include "oa/present/colour_vision/colour_vision.hpp"
 #include "oa/sim/unit_movement/movement.hpp"
@@ -120,9 +121,12 @@ FixedVec3 shown_place(const OverlayContext& context, const Unit& unit) {
 ScreenPoint overlay_project(const OverlayView& view, const FixedVec3& point) noexcept {
     if (view.project != nullptr)
         return view.project(view.projection_user, point);
+    // Measured from the camera in 16.16, so a point past pixel 32768 of a
+    // wider map lands where it is drawn.
     return {
-        high16(point.x) - view.camera_x + kBattlefieldLeft,
-        high16(point.z) - (high16(point.y) >> 1) - view.camera_y + kBattlefieldTop,
+        base::game_math::fixed_pixels_past(point.x, view.camera_x) + kBattlefieldLeft,
+        base::game_math::fixed_pixels_past(point.z, view.camera_y) - (high16(point.y) >> 1) +
+            kBattlefieldTop,
     };
 }
 
@@ -149,18 +153,21 @@ void build_site_overlay_bounds(
         };
         return;
     }
+    // Measured from the camera in 16.16, so a site past pixel 32768 of a
+    // wider map lands where it is drawn.
+    using base::game_math::fixed_pixels_past;
     const int32_t lift = high16(position.y + def.bounds_min_y) >> 1;
     bounds.top = static_cast<uint32_t>(
-        high16(position.z + def.bounds_min_z) - lift - view.camera_y + kBattlefieldTop
+        fixed_pixels_past(position.z + def.bounds_min_z, view.camera_y) - lift + kBattlefieldTop
     );
     bounds.bottom = static_cast<uint32_t>(
-        high16(position.z + def.bounds_max_z) - lift - view.camera_y + kBattlefieldTop
+        fixed_pixels_past(position.z + def.bounds_max_z, view.camera_y) - lift + kBattlefieldTop
     );
     bounds.left = static_cast<uint32_t>(
-        high16(def.bounds_min_x + position.x) - view.camera_x + kBattlefieldLeft
+        fixed_pixels_past(def.bounds_min_x + position.x, view.camera_x) + kBattlefieldLeft
     );
     bounds.right = static_cast<uint32_t>(
-        high16(position.x + def.bounds_max_x) - view.camera_x + kBattlefieldLeft
+        fixed_pixels_past(position.x + def.bounds_max_x, view.camera_x) + kBattlefieldLeft
     );
 }
 

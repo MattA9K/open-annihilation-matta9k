@@ -761,7 +761,7 @@ Identity keys are written directly under `identity`.
 
 | Key | Meaning | 3.1c | Type | Scope |
 | --- | --- | --- | --- | --- |
-| `display-version` | The version text on the main menu, in place of the program's own. Left as 3.1c's `v3.1`, the menu shows "Open Annihilation" and this build's version (`v0.8.0`, with `-` and the version label on a development build) when the game data names its revision, and hides the label when it does not, as the demo does | `v3.1` | string, at most 16 | view |
+| `display-version` | The version text on the main menu, on the third line of the version label. The label's first line is "Open Annihilation" and this build's version (`v0.8.0`, with `-` and the version label on a development build), and its second "Open Annihilation: Unbound" and its version (`v1.0.0`). Left as 3.1c's `v3.1`, the label has those two lines when the game data names its revision, and is hidden when it does not, as the demo does | `v3.1` | string, at most 16 | view |
 | `network-version` | The two network version bytes, major then minor. Also the build version unit files are checked against: a unit whose `Version` is later is unavailable. | `[3, 1]` | two integers, 0 to 255 | sim |
 | `replay-network-version` | The version bytes a replay presents | `[3, 1]` | two integers, 0 to 255 | sim |
 | `settings-file` | The name of the INI file the game reads its settings from | `totala.ini` | string, at most 64 | view |

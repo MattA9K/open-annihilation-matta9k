@@ -135,8 +135,8 @@ struct Runtime::DirectorState {
         const auto& game = world.game;
         const auto camera_x = static_cast<int32_t>(game.camera_x);
         const auto camera_y = static_cast<int32_t>(game.camera_y);
-        const int32_t x = static_cast<int16_t>(record->position.x >> 16);
-        const int32_t z = static_cast<int16_t>(record->position.z >> 16);
+        const int32_t x = wr::map_column(game, record->position.x);
+        const int32_t z = wr::map_row(game, record->position.z);
         return x >= camera_x && z >= camera_y &&
                x <= camera_x + game.view_cells_width * OA_MAP_CELL_PIXELS &&
                z <= camera_y + game.view_cells_height * OA_MAP_CELL_PIXELS;

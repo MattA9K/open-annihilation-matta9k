@@ -3,6 +3,7 @@
 
 #include "oa/present/world_renderer/world_draw_order.hpp"
 
+#include "oa/base/game_math.hpp"
 #include "oa/core/unit.h"
 
 #include <algorithm>
@@ -36,23 +37,26 @@ bool feature_stands(int8_t height) noexcept {
 }
 
 int32_t unit_draw_row(int32_t position_z, int32_t camera_y) noexcept {
-    const int32_t whole = static_cast<int16_t>(static_cast<uint32_t>(position_z) >> 16);
     // A camera above the map counts its row toward negative infinity, so
     // that its rows run on from the map's as a camera's on the map do.
     const int32_t camera_row = camera_y >= 0 ? camera_y / draw_row_depth
                                              : -((draw_row_depth - 1 - camera_y) / draw_row_depth);
-    return camera_row + (whole - camera_y) / draw_row_depth;
+    // Measured from the camera in 16.16, so a row past pixel 32768 of a
+    // taller map sorts as its own.
+    return camera_row + base::game_math::fixed_pixels_past(position_z, camera_y) / draw_row_depth;
 }
 
 bool stands_on_footprint(const UnitDrawSite& unit, const UnitDrawSite& building) noexcept {
     // A building stands at its footprint's centre, so its cells reach half
     // the footprint either way of it.
-    const int32_t left =
-        whole_pixel(building.position_x) - building.footprint_x * footprint_cell_pixels / 2;
-    const int32_t top =
-        whole_pixel(building.position_z) - building.footprint_z * footprint_cell_pixels / 2;
-    const int32_t x = whole_pixel(unit.position_x);
-    const int32_t z = whole_pixel(unit.position_z);
+    // The unit's pixels from the building's centre, taken as a 16-bit
+    // difference so that a map past pixel 32768 measures them as one nearer.
+    const int32_t x =
+        static_cast<int16_t>(whole_pixel(unit.position_x) - whole_pixel(building.position_x));
+    const int32_t z =
+        static_cast<int16_t>(whole_pixel(unit.position_z) - whole_pixel(building.position_z));
+    const int32_t left = -building.footprint_x * footprint_cell_pixels / 2;
+    const int32_t top = -building.footprint_z * footprint_cell_pixels / 2;
     return x >= left && x < left + building.footprint_x * footprint_cell_pixels && z >= top &&
            z < top + building.footprint_z * footprint_cell_pixels;
 }

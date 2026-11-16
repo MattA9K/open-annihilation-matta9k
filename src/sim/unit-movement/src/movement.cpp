@@ -44,9 +44,12 @@ int16_t narrow16(uint32_t a) noexcept {
     return std::bit_cast<int16_t>(static_cast<uint16_t>(a));
 }
 
-int16_t cell_for(Fixed position, int16_t footprint) noexcept {
+// The footprint's first cell along an axis `cells` long. Past pixel 32768 of a
+// wider map, where the sign bit sets, the cell stays on the far side; with no
+// size it is the signed shift.
+int16_t cell_for(Fixed position, int16_t footprint, int32_t cells) noexcept {
     const auto biased = uint32_t(position) - uint32_t(footprint) * half_cell + half_cell;
-    return narrow16(uint32_t(bits(biased) >> 20));
+    return narrow16(uint32_t(base::game_math::fixed_extent_index(biased, cells, 20)));
 }
 } // namespace
 
@@ -143,8 +146,9 @@ void integrate_unattached(Unit& u, Movement& m, uint32_t tick, bool local_simula
     if (next == u.position && occupancy == (u.flags & occupancy_mask))
         return;
     m.last_motion_tick = tick;
+    const auto cells = host.map_cells;
     const std::array<int16_t, 2> cell{
-        cell_for(next[0], u.footprint[0]), cell_for(next[2], u.footprint[1])
+        cell_for(next[0], u.footprint[0], cells[0]), cell_for(next[2], u.footprint[1], cells[1])
     };
     if (cell == u.cell && occupancy == (u.flags & occupancy_mask)) {
         u.position = next;
@@ -169,9 +173,17 @@ void integrate_unattached(Unit& u, Movement& m, uint32_t tick, bool local_simula
                 bits((uint32_t(u.footprint[axis]) + uint32_t(u.cell[axis]) * 2u) * half_cell);
             const auto lower = bits(uint32_t(center) - cell_interior_radius);
             const auto upper = bits(uint32_t(center) + cell_interior_radius);
-            // Keep the game's upper-first signed comparisons, including wraparound.
+            // Keep the game's upper-first signed comparisons, including
+            // wraparound. On a map past signed 16.16 the comparisons are of
+            // the 16.16 differences, so a cell on either side of pixel 32768
+            // holds the unit in it.
             auto& coordinate = next[axis * 2];
-            if (coordinate > upper)
+            if (cells[axis] > 0) {
+                if (bits(uint32_t(coordinate) - uint32_t(upper)) > 0)
+                    coordinate = upper;
+                else if (bits(uint32_t(coordinate) - uint32_t(lower)) < 0)
+                    coordinate = lower;
+            } else if (coordinate > upper)
                 coordinate = upper;
             else if (coordinate < lower)
                 coordinate = lower;
@@ -190,8 +202,10 @@ void write_position(
     Unit& u, Movement&, std::array<Fixed, 3> position, uint8_t occupancy, Host& host
 ) {
     occupancy = static_cast<uint8_t>(occupancy & occupancy_mask);
+    const auto cells = host.map_cells;
     const std::array<int16_t, 2> cell{
-        cell_for(position[0], u.footprint[0]), cell_for(position[2], u.footprint[1])
+        cell_for(position[0], u.footprint[0], cells[0]),
+        cell_for(position[2], u.footprint[1], cells[1])
     };
     if (cell == u.cell && occupancy == (u.flags & occupancy_mask))
         u.position = position;

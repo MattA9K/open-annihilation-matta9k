@@ -11,6 +11,7 @@
 #include "oa/app/extension.hpp"
 #include "oa/app/runtime.hpp"
 #include "oa/formats/json.hpp"
+#include "oa/present/world_renderer/world_camera.hpp"
 #include "oa/core/feature_def.h"
 #include "oa/core/map_plot.h"
 #include "oa/core/unit.h"
@@ -534,8 +535,11 @@ std::vector<uint8_t> contact_cells(
         const uint8_t bits = picture_byte(match, world, player, slot, unit);
         if ((bits & wanted) == 0)
             continue;
-        const int32_t column = sight_cell_of(unit.position.x >> 16, across);
-        const int32_t row = sight_cell_of(unit.position.z >> 16, down);
+        const int32_t column = sight_cell_of(
+            oa::present::world_renderer::map_column(world.game, unit.position.x), across
+        );
+        const int32_t row =
+            sight_cell_of(oa::present::world_renderer::map_row(world.game, unit.position.z), down);
         cells
             [static_cast<std::size_t>(row) * static_cast<std::size_t>(across) +
              static_cast<std::size_t>(column)] = 1;
@@ -613,9 +617,9 @@ struct MatchViewAccess {
                 record.side = field_text(def.side, sizeof def.side);
             }
             record.owner = unit.owner_index;
-            record.x = unit.position.x >> 16;
+            record.x = oa::present::world_renderer::map_column(world.game, unit.position.x);
             record.y = unit.position.y >> 16;
-            record.z = unit.position.z >> 16;
+            record.z = oa::present::world_renderer::map_row(world.game, unit.position.z);
             record.health = unit.health;
             record.build = build_percent(unit.build_remaining);
             record.selected = (unit.flags & OA_UNIT_FLAG_SELECTED) != 0;
@@ -878,9 +882,9 @@ struct MatchViewAccess {
             if (!radar && !sonar)
                 continue;
             RadarContact contact;
-            contact.x = unit.position.x >> 16;
+            contact.x = oa::present::world_renderer::map_column(world.game, unit.position.x);
             contact.y = unit.position.y >> 16;
-            contact.z = unit.position.z >> 16;
+            contact.z = oa::present::world_renderer::map_row(world.game, unit.position.z);
             contact.radar = radar;
             contact.sonar = sonar;
             listed->push_back(contact);
@@ -1006,14 +1010,19 @@ uint16_t unit_number(const oa::Unit& unit, uint16_t slot) {
 /// Writes a unit's place in map pixels.
 ///
 /// @param writer the open object
+/// @param world the match, for the map's size
 /// @param unit the unit
-void write_place(json::JsonWriter& writer, const oa::Unit& unit) {
+void write_place(json::JsonWriter& writer, const oa::World& world, const oa::Unit& unit) {
     writer.key("x");
-    writer.integer(static_cast<int64_t>(unit.position.x >> 16));
+    writer.integer(
+        static_cast<int64_t>(oa::present::world_renderer::map_column(world.game, unit.position.x))
+    );
     writer.key("y");
     writer.integer(static_cast<int64_t>(unit.position.y >> 16));
     writer.key("z");
-    writer.integer(static_cast<int64_t>(unit.position.z >> 16));
+    writer.integer(
+        static_cast<int64_t>(oa::present::world_renderer::map_row(world.game, unit.position.z))
+    );
 }
 
 /// The local player the watch reports for, or nothing when it cannot.
@@ -1091,7 +1100,7 @@ void on_unit_created(void* /*context*/, const oa::World& world, uint16_t slot) {
         writer.string(type_name);
         writer.key("owner");
         writer.integer(owner);
-        write_place(writer, *unit);
+        write_place(writer, world, *unit);
     });
 }
 
@@ -1183,7 +1192,7 @@ void on_unit_died(
         writer.string(type_name);
         writer.key("owner");
         writer.integer(owner);
-        write_place(writer, unit);
+        write_place(writer, world, unit);
     });
 }
 
@@ -1253,7 +1262,7 @@ void on_seen_changed(
             writer.key("generation");
             writer.integer(static_cast<int64_t>(generation));
             if (unit != nullptr)
-                write_place(writer, *unit);
+                write_place(writer, world, *unit);
         });
     }
 }
@@ -1313,9 +1322,10 @@ void sample_contacts() {
         if (held.radar[index] != 0)
             continue;
         held.radar[index] = 1;
-        const int32_t place_x = unit.position.x >> 16;
+        const int32_t place_x =
+            oa::present::world_renderer::map_column(world.game, unit.position.x);
         const int32_t place_y = unit.position.y >> 16;
-        const int32_t place_z = unit.position.z >> 16;
+        const int32_t place_z = oa::present::world_renderer::map_row(world.game, unit.position.z);
         remember(world.game.tick, "radar_contact", [&](json::JsonWriter& writer) {
             writer.key("x");
             writer.integer(place_x);

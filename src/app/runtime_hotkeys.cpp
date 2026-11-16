@@ -3,6 +3,7 @@
 
 // Match hotkeys, selection commands and overlays.
 #include "oa/app/runtime.hpp"
+#include "oa/present/world_renderer/world_camera.hpp"
 #include "console_actions.hpp"
 #include "gui_actions.hpp"
 #include "panel_first_draw.hpp"
@@ -2115,9 +2116,14 @@ constexpr uint8_t kDragBoxInnerColor = 0;
 std::optional<std::array<int32_t, 3>> Runtime::match_pointer_ground(float x, float y) {
     if (live_renderer_active()) {
         const auto point = live_ground_point(x, y);
-        if (!point)
+        if (!point || !match_)
             return std::nullopt;
-        return std::array<int32_t, 3>{(*point)[0] >> 16, (*point)[1] >> 16, (*point)[2] >> 16};
+        const auto& game = match_->state().game;
+        return std::array<int32_t, 3>{
+            oa::present::world_renderer::map_column(game, (*point)[0]),
+            (*point)[1] >> 16,
+            oa::present::world_renderer::map_row(game, (*point)[2])
+        };
     }
     if (!match_ || !selected_tnt_)
         return std::nullopt;
@@ -2148,10 +2154,14 @@ std::optional<std::array<int32_t, 3>> Runtime::match_pointer_ground(float x, flo
         static_cast<int32_t>(selected_tnt_->attribute_height * 16U),
         past_map_edge_share() > 0.0
     );
-    const auto whole = [](int32_t fixed) {
-        return static_cast<int32_t>(static_cast<int16_t>(fixed >> 16));
+    // Past pixel 32768 of a wider map, where the sign bit sets, the corner
+    // stays on the far side.
+    const auto& game = match_->state().game;
+    return std::array<int32_t, 3>{
+        oa::present::world_renderer::map_column(game, ground.x),
+        static_cast<int32_t>(static_cast<int16_t>(ground.y >> 16)),
+        oa::present::world_renderer::map_row(game, ground.z)
     };
-    return std::array<int32_t, 3>{whole(ground.x), whole(ground.y), whole(ground.z)};
 }
 
 void Runtime::track_match_drag() {
@@ -2277,8 +2287,10 @@ void Runtime::center_camera_on_unit(uint16_t id) {
     const auto* unit = match_->world().slots[id].unit;
     if (unit == nullptr)
         return;
-    const int32_t x = static_cast<int32_t>(unit->position[0] >> 16);
-    int32_t z = static_cast<int32_t>(unit->position[2] >> 16);
+    const auto& game = match_->state().game;
+    const int32_t x =
+        oa::present::world_renderer::map_column(game, static_cast<int32_t>(unit->position[0]));
+    int32_t z = oa::present::world_renderer::map_row(game, static_cast<int32_t>(unit->position[2]));
     // Photo mode centres the place the unit is drawn. Play keeps the ground
     // point, as 3.1c does.
     if (photo_mode()) {

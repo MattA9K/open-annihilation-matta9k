@@ -1000,28 +1000,55 @@ void draw_label(
     // The label drawing switches to wrapped text only when two line heights
     // fit strictly inside the gadget. Wrapped text advances by line_height+2.
     if (line_height * 2 >= static_cast<int>(gadget.common.height) - 1) {
-        // A line wider than the label draws its modern text smaller until it
-        // fits (fitted_fnt_text_size), and is placed at that width.
-        const int32_t most_size = fitted_fnt_text_size(
-            selected_font, fields->text, std::max(0, static_cast<int>(gadget.common.width)), false
-        );
-        const int x = aligned_text_x(gadget, fields->text, selected_font, 0, 0, false, most_size);
-        // The single-line path limits the text by width only, so a label
-        // authored with no height (MAINMENU's DebugString) still draws a line.
-        Rectangle line_clip = clip;
-        line_clip.bottom = std::max(clip.bottom, gadget.common.y + line_height - 1);
-        draw_clipped_text(
-            surface,
-            selected_font,
-            fields->text,
-            x,
-            gadget.common.y,
-            line_clip,
-            active_palette,
-            light_row,
-            false,
-            most_size
-        );
+        // A CR ends the first line. Each line after it draws one line height
+        // and two pixels lower, centred under the first, as MAINMENU's
+        // DebugString shows Open Annihilation: Unbound's line under the
+        // version; a text without a CR is the one line.
+        const std::string_view text = fields->text;
+        const int32_t room = std::max(0, static_cast<int>(gadget.common.width));
+        int first_x = 0;
+        int32_t first_width = 0;
+        std::size_t start = 0;
+        for (int line = 0; start <= text.size(); ++line) {
+            const auto end = std::min(text.find('\r', start), text.size());
+            const auto shown = text.substr(start, end - start);
+            // A line wider than the label draws its modern text smaller until
+            // it fits (fitted_fnt_text_size), and is placed at that width.
+            const int32_t most_size = fitted_fnt_text_size(selected_font, shown, room, false);
+            const int32_t width = measure_fnt_game_text(selected_font, shown, false, most_size);
+            int x = 0;
+            if (line == 0) {
+                x = aligned_text_x(gadget, shown, selected_font, 0, 0, false, most_size);
+                first_x = x;
+                first_width = width;
+            } else
+                x = first_x + (first_width - width) / 2;
+            const int y = gadget.common.y + line * (line_height + 2);
+            // The single-line path limits the first line by width only, so a
+            // label authored with no height (MAINMENU's DebugString) still
+            // draws it; a later line, centred under it, may be wider.
+            Rectangle line_clip = clip;
+            if (line > 0) {
+                line_clip.left = std::min(clip.left, x);
+                line_clip.right = std::max(clip.right, x + width - 1);
+            }
+            line_clip.bottom = std::max(clip.bottom, y + line_height - 1);
+            draw_clipped_text(
+                surface,
+                selected_font,
+                shown,
+                x,
+                y,
+                line_clip,
+                active_palette,
+                light_row,
+                false,
+                most_size
+            );
+            if (end == text.size())
+                break;
+            start = end + 1;
+        }
         return;
     }
     // A CR ends a line. Each line is measured as it is drawn, the modern

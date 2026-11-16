@@ -14,6 +14,7 @@
 #include "oa/app/runtime.hpp"
 #include "oa/present/colour_vision/colour_vision.hpp"
 #include "oa/present/world_renderer.hpp"
+#include "oa/present/world_renderer/world_camera.hpp"
 #include "oa/present/world_renderer/world_radar.hpp"
 #include "oa/sim/selection/shortcuts.hpp"
 #include "oa/ui/hud/megamap.hpp"
@@ -660,7 +661,11 @@ bool Runtime::draw_megamap() {
                 visible = false;
             }
         }
-        const auto at = hud::megamap_point(layout, unit.position.x >> 16, unit.position.z >> 16);
+        const auto at = hud::megamap_point(
+            layout,
+            wr::map_column(match_->state().game, unit.position.x),
+            wr::map_row(match_->state().game, unit.position.z)
+        );
         std::size_t line = 0;
         const auto choice = hud::choose_icon(visible, unit.type_index, masks, line);
         const MegamapIcon& icon = choice == hud::IconChoice::category  ? state.entries[line].icon
@@ -872,8 +877,11 @@ bool Runtime::megamap_pointer(const SDL_Event& event, float x, float y) {
             slot.owner_index != match_local_player_ || !match_->selectable(slot.unit_index))
             continue;
         const auto& record = world.units[slot.unit_index];
-        const auto at =
-            hud::megamap_point(state.layout, record.position.x >> 16, record.position.z >> 16);
+        const auto at = hud::megamap_point(
+            state.layout,
+            wr::map_column(world.game, record.position.x),
+            wr::map_row(world.game, record.position.z)
+        );
         if (at[0] >= left && at[0] <= right && at[1] >= top && at[1] <= bottom)
             slot.unit->flags |= OA_UNIT_FLAG_SELECTED;
     }

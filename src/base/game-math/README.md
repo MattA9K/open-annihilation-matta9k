@@ -61,3 +61,16 @@ across the exponent range, ties and their neighbours), the sine and cosine of
 every angle word and the rotation of points by every angle word, and pins the
 results over fixed samples of headings, arctangents, lengths, arccosines and
 square roots by digest.
+
+## Map coordinates past pixel 32768
+
+A map position is a signed 16.16 number, so a map wider or taller than 32768
+pixels, past 63 by 63 map units, has positions whose sign bit is set on its
+far side. `fixed_extent_index(fixed, extent, shift)` reads such a coordinate
+as an index along an axis `extent` long: below the extent it is the unsigned
+index, so the far side stays on the map, and a coordinate off the near side
+stays negative. On a map within signed 16.16 it gives the arithmetic shift,
+as 3.1c does. `fixed_pixels_past(fixed, pixel)` is the whole pixels from a
+map pixel, such as the camera's, to a coordinate, taken as a 16.16
+difference, so it is right on either side of pixel 32768 for places less than
+32768 pixels apart. The `game-math` test checks it across that pixel.

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "tick_internal.hpp"
+#include "oa/base/game_math.hpp"
 #include "oa/sim/weapon_execution/interceptor.hpp"
 #include "oa/sim/weapon_execution/projectile_contact.hpp"
 #include "oa/sim/weapon_execution/projectile_pool.hpp"
@@ -305,10 +306,16 @@ void Match::detonate_area(
     auto* source = projectile_source(shot);
     const auto radius = static_cast<int32_t>(definition.areaofeffect >> 1);
     const auto pad = radius / 16 + 1;
-    const auto center_x = static_cast<int32_t>(static_cast<int16_t>(shot.position.x >> 16)) / 16;
-    const auto center_z = static_cast<int32_t>(static_cast<int16_t>(shot.position.z >> 16)) / 16;
     const auto width = static_cast<int32_t>(spatial_.terrain_width);
     const auto height = static_cast<int32_t>(spatial_.terrain_height);
+    // The cell of a whole pixel, divided toward zero; a pixel past 32768 of a
+    // wider map, where the sign bit sets, stays on the far side.
+    const auto center_cell = [](int32_t fixed, int32_t cells) {
+        return base::game_math::fixed_extent_index(static_cast<uint32_t>(fixed), cells * 16, 16) /
+               16;
+    };
+    const auto center_x = center_cell(shot.position.x, width);
+    const auto center_z = center_cell(shot.position.z, height);
     auto x0 = center_x - pad;
     auto x1 = center_x + pad;
     auto z0 = center_z - pad;

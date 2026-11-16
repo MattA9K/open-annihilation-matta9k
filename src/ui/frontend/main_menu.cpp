@@ -32,6 +32,13 @@ std::string main_menu_version_text() {
     return text;
 }
 
+std::string main_menu_unbound_text() {
+    std::string text(kMainMenuUnboundName);
+    text += " v";
+    text += kMainMenuUnboundVersion;
+    return text;
+}
+
 namespace {
 
 const char* translate(const MainMenuHost& host, const char* text) {
@@ -41,18 +48,25 @@ const char* translate(const MainMenuHost& host, const char* text) {
     return replacement != nullptr ? replacement : text;
 }
 
-// Shows the version string and centres it on the label's authored x.
+// Shows the program's version, Open Annihilation: Unbound's line under it
+// after a CR, and a mod's display version under those after another, and
+// centres the first line on the label's authored x.
 void place_version_label(Panel& panel, const MainMenuHost& host) {
     panel_set_active(panel, kMainMenuVersionControl, 1);
     auto* label = panel_control(panel, kMainMenuVersionControl);
     if (label == nullptr)
         return;
     // The program's name and a mod's display version are shown as given.
-    const std::string program_line = main_menu_version_text();
-    set_control_text(*label, host.version_text != nullptr ? host.version_text : program_line);
+    const std::string first_line = main_menu_version_text();
+    std::string text = first_line + '\r' + main_menu_unbound_text();
+    if (host.version_text != nullptr && host.version_text[0] != '\0') {
+        text.push_back('\r');
+        text += host.version_text;
+    }
+    set_control_text(*label, text);
     panel.dirty = true;
     const int32_t width =
-        host.measure_text != nullptr ? host.measure_text(host.context, label->text.data()) : 0;
+        host.measure_text != nullptr ? host.measure_text(host.context, first_line.c_str()) : 0;
     label->x = static_cast<int16_t>(label->x + width / -2);
 }
 

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "oa/sim/messages.hpp"
+#include "oa/base/game_math.hpp"
 #include "oa/base/text.hpp"
 #include "oa/base/text/line_break.hpp"
 
@@ -204,8 +205,17 @@ bool track_next_reported_unit(World& world, const Hooks& hooks) {
             if (hooks.center_camera != nullptr)
                 hooks.center_camera(
                     hooks.context,
-                    static_cast<int16_t>(static_cast<uint32_t>(unit->position.x) >> 16),
-                    static_cast<int16_t>(static_cast<uint32_t>(unit->position.z) >> 16),
+                    // A place past pixel 32768 of a wider map stays on its far side.
+                    base::game_math::fixed_extent_index(
+                        static_cast<uint32_t>(unit->position.x),
+                        world.game.map_width * OA_MAP_CELL_PIXELS,
+                        16
+                    ),
+                    base::game_math::fixed_extent_index(
+                        static_cast<uint32_t>(unit->position.z),
+                        world.game.map_height * OA_MAP_CELL_PIXELS,
+                        16
+                    ),
                     reported_unit_camera_glide
                 );
             return true;

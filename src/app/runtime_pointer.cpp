@@ -8,6 +8,7 @@
 #include "match_models.hpp"
 #include "oa/app/far_view.hpp"
 #include "oa/app/hook_call.hpp"
+#include "oa/present/world_renderer/world_camera.hpp"
 #include "oa/sim/spatial_state/spatial.hpp"
 #include "oa/sim/weapon_execution/retaliation.hpp"
 #include "oa/ui/console/game_fields.hpp"
@@ -415,13 +416,15 @@ oa::sim::selection::Hooks Runtime::selection_hooks() {
         const auto whole_pixel = [](oa_fixed coord) {
             return static_cast<int32_t>(static_cast<int16_t>(static_cast<uint32_t>(coord) >> 16));
         };
-        int32_t row = whole_pixel(position.z);
+        const auto& game = self.match_->state().game;
+        int32_t row = oa::present::world_renderer::map_row(game, position.z);
         // Photo mode centres the place the unit is drawn. Play keeps the ground
         // point, as 3.1c does.
         if (self.photo_mode())
             row -= whole_pixel(position.y) / 2;
         self.set_camera_position(
-            whole_pixel(position.x) - self.visible_map_width() / 2,
+            oa::present::world_renderer::map_column(game, position.x) -
+                self.visible_map_width() / 2,
             row - self.visible_map_height() / 2,
             0
         );

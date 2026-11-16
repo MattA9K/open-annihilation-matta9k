@@ -6,6 +6,7 @@
 // battlefield frame, dragging one of those queued build sites, and the
 // ShowRanges check.
 #include "oa/app/runtime.hpp"
+#include "oa/present/world_renderer/world_camera.hpp"
 #include "match_models.hpp"
 
 #include "oa/formats/gaf.hpp"
@@ -142,10 +143,13 @@ Runtime::OrderOverlayPass Runtime::draw_order_overlays(
     if (live_renderer_active()) {
         context.view.projection_user = this;
         context.view.project = [](void* user, const FixedVec3& point) {
-            const auto p = static_cast<Runtime*>(user)->live_project_world(
-                static_cast<int32_t>(point.x) / 65536.0F,
+            // A point past pixel 32768 of a wider map stays on the far side.
+            const auto& self = *static_cast<Runtime*>(user);
+            const auto& game = self.match_->state().game;
+            const auto p = self.live_project_world(
+                oa::present::world_renderer::map_column_place(game, point.x),
                 static_cast<int32_t>(point.y) / 65536.0F,
-                static_cast<int32_t>(point.z) / 65536.0F
+                oa::present::world_renderer::map_row_place(game, point.z)
             );
             return hud::ScreenPoint{p.x, p.y};
         };
@@ -341,10 +345,13 @@ bool Runtime::build_queue_drag_pointer(const SDL_Event& event, float x, float y)
             if (live_renderer_active()) {
                 overlay_view.projection_user = this;
                 overlay_view.project = [](void* user, const FixedVec3& point) {
-                    const auto p = static_cast<Runtime*>(user)->live_project_world(
-                        static_cast<int32_t>(point.x) / 65536.0F,
+                    // A point past pixel 32768 of a wider map stays on the far side.
+                    const auto& self = *static_cast<Runtime*>(user);
+                    const auto& game = self.match_->state().game;
+                    const auto p = self.live_project_world(
+                        oa::present::world_renderer::map_column_place(game, point.x),
                         static_cast<int32_t>(point.y) / 65536.0F,
-                        static_cast<int32_t>(point.z) / 65536.0F
+                        oa::present::world_renderer::map_row_place(game, point.z)
                     );
                     return hud::ScreenPoint{p.x, p.y};
                 };

@@ -964,8 +964,10 @@ void Runtime::run_showcase() {
         fail("the mission has no MoveUnitToRadius victory condition");
     // The goal's map pixel on the screen plane, where the radar shows it.
     const oa::FixedVec3 goal_position{goal->point[0], goal->point[1], goal->point[2]};
-    const auto goal_x = oa::present::world_renderer::world_screen_x(goal_position);
-    const auto goal_y = oa::present::world_renderer::world_screen_y(goal_position);
+    const auto goal_x =
+        oa::present::world_renderer::world_screen_x(match_->state().game, goal_position);
+    const auto goal_y =
+        oa::present::world_renderer::world_screen_y(match_->state().game, goal_position);
     report(
         "the goal is at map pixel (" + std::to_string(goal_x) + ", " + std::to_string(goal_y) + ")"
     );

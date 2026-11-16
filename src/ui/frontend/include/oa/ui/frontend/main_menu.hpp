@@ -16,6 +16,10 @@ namespace oa::ui::frontend {
 inline constexpr std::string_view kMainMenuVersionControl = "DebugString";
 // The program's name on the version label. It is not translated.
 inline constexpr std::string_view kMainMenuProgramName = "Open Annihilation";
+// The name and version of Open Annihilation: Unbound, the version label's
+// second line. Neither is translated.
+inline constexpr std::string_view kMainMenuUnboundName = "Open Annihilation: Unbound";
+inline constexpr std::string_view kMainMenuUnboundVersion = "1.0.0";
 // The buttons that play movies: the intro, and the credits over the menu art.
 inline constexpr std::string_view kMainMenuIntroControl = "INTRO";
 inline constexpr std::string_view kMainMenuCreditsControl = "Credits";
@@ -51,9 +55,9 @@ struct MainMenuHost {
     // Whether the game data names the 3.1 revision it is (gamedata/version.tdf);
     // null counts it named.
     bool (*revision_named)(void* context) = nullptr;
-    // The version label's text, such as a mod's own version. Null shows
-    // main_menu_version_text(), the program's name and this build's version.
-    // Neither text is translated.
+    // A mod's own version, shown on the version label's third line, under
+    // main_menu_version_text() and main_menu_unbound_text(). Null or empty
+    // shows those two lines alone. None of the lines is translated.
     const char* version_text = nullptr;
 };
 
@@ -64,6 +68,12 @@ struct MainMenuHost {
 ///
 /// @return the label's text
 [[nodiscard]] std::string main_menu_version_text();
+
+/// The version label's second line: Open Annihilation: Unbound's name, then
+/// "v" and its version ("Open Annihilation: Unbound v1.0.0").
+///
+/// @return the line's text
+[[nodiscard]] std::string main_menu_unbound_text();
 
 /// Sets up MAINMENU.GUI after the panel loads.
 ///

@@ -3,6 +3,7 @@
 
 // Live match camera and GPU battlefield composition.
 #include "oa/app/runtime.hpp"
+#include "oa/present/world_renderer/world_camera.hpp"
 #include "oa/app/camera_inversion.hpp"
 #include "oa/app/frame_coordinates.hpp"
 #include "bench_timers.hpp"
@@ -2364,10 +2365,11 @@ void Runtime::draw_live_selection(bool selection_only) {
                 if (marked.owner_index >= OA_PLAYER_COUNT || marked.type_index == 0)
                     return;
                 constexpr float fixed_scale = 65536.0F;
+                const auto& game = match_->state().game;
                 const auto frame = live_project_world(
-                    marked.position.x / fixed_scale,
+                    oa::present::world_renderer::map_column_place(game, marked.position.x),
                     marked.position.y / fixed_scale,
-                    marked.position.z / fixed_scale
+                    oa::present::world_renderer::map_row_place(game, marked.position.z)
                 );
                 const auto bounds = live_unit_bounds(id);
                 const int mark_x = bounds ? bounds->x1 - match_layout_.left - 13
@@ -2482,7 +2484,9 @@ void Runtime::draw_live_health_bars() {
         const auto& unit = slots[id].record;
         const auto position = draw.shown_position.value_or(unit.position);
         const auto frame = live_project_world(
-            position.x / fixed_scale, position.y / fixed_scale, position.z / fixed_scale
+            oa::present::world_renderer::map_column_place(world.game, position.x),
+            position.y / fixed_scale,
+            oa::present::world_renderer::map_row_place(world.game, position.z)
         );
         const int x = frame.x - match_layout_.left;
         const int y = frame.y - match_layout_.top + size.below_unit;

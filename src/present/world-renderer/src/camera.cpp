@@ -3,7 +3,9 @@
 
 #include "oa/present/world_renderer/world_camera.hpp"
 #include "oa/core/map_plot.h"
+#include "oa/base/game_math.hpp"
 
+#include <bit>
 #include <cstdint>
 
 namespace oa::present::world_renderer {
@@ -138,13 +140,34 @@ void camera_shake(Game& game, const RandomSource& random) noexcept {
     game.shake_remaining = remaining - 1;
 }
 
-int32_t world_screen_x(const FixedVec3& position) noexcept {
-    return static_cast<int16_t>(static_cast<uint32_t>(position.x) >> 16);
+int32_t map_column(const Game& game, int32_t fixed) noexcept {
+    return base::game_math::fixed_extent_index(
+        static_cast<uint32_t>(fixed), game.map_width * OA_MAP_CELL_PIXELS, 16
+    );
 }
 
-int32_t world_screen_y(const FixedVec3& position) noexcept {
+int32_t map_row(const Game& game, int32_t fixed) noexcept {
+    return base::game_math::fixed_extent_index(
+        static_cast<uint32_t>(fixed), game.map_height * OA_MAP_CELL_PIXELS, 16
+    );
+}
+
+float map_column_place(const Game& game, int32_t fixed) noexcept {
+    return static_cast<float>(map_column(game, fixed)) +
+           static_cast<float>(fixed & 0xffff) / 65536.0F;
+}
+
+float map_row_place(const Game& game, int32_t fixed) noexcept {
+    return static_cast<float>(map_row(game, fixed)) + static_cast<float>(fixed & 0xffff) / 65536.0F;
+}
+
+int32_t world_screen_x(const Game& game, const FixedVec3& position) noexcept {
+    return map_column(game, position.x);
+}
+
+int32_t world_screen_y(const Game& game, const FixedVec3& position) noexcept {
     const auto lifted = static_cast<uint32_t>(position.z) - static_cast<uint32_t>(position.y >> 1);
-    return static_cast<int16_t>(lifted >> 16);
+    return map_row(game, std::bit_cast<int32_t>(lifted));
 }
 
 void camera_center(Game& game, int32_t x, int32_t y, int32_t glide) noexcept {
@@ -154,8 +177,8 @@ void camera_center(Game& game, int32_t x, int32_t y, int32_t glide) noexcept {
 void camera_center_on_position(Game& game, const FixedVec3& position, int32_t glide) noexcept {
     camera_set_position(
         game,
-        world_screen_x(position) - half_view_width(game),
-        world_screen_y(position) - half_view_height(game),
+        world_screen_x(game, position) - half_view_width(game),
+        world_screen_y(game, position) - half_view_height(game),
         glide
     );
 }

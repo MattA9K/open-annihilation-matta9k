@@ -75,10 +75,11 @@ first_scene_pixel(int64_t map_pixel, uint32_t step, uint32_t phase = 0) noexcept
 /// by the scene pixels it crosses.
 ///
 /// @param point 16.16 map pixels from the map's corner, which may be below 0
+///     or, on a map past signed 16.16, at 32768 pixels or more
 /// @param step the scene's step (scene_step), at least 1
 /// @return the scene pixel
-[[nodiscard]] constexpr int64_t scene_pixel_of(int32_t point, uint32_t step) noexcept {
-    const int64_t scaled = int64_t{point} * int64_t{step};
+[[nodiscard]] constexpr int64_t scene_pixel_of(int64_t point, uint32_t step) noexcept {
+    const int64_t scaled = point * int64_t{step};
     const int64_t whole = int64_t{scene_step_one} * int64_t{scene_step_one};
     const int64_t quotient = scaled / whole;
     return quotient * whole > scaled ? quotient - 1 : quotient;

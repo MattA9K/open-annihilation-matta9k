@@ -101,8 +101,10 @@ uint32_t TickHost::GroundMissions::attack_chase() {
         return ground::mission_done;
     if (record.attack.leash != 0) {
         const auto strayed = static_cast<int32_t>(base::game_math::distance(
-            static_cast<int16_t>(s.record.position.x >> 16) - record.attack.origin[0],
-            static_cast<int16_t>(s.record.position.z >> 16) - record.attack.origin[1]
+            // A 16-bit difference, as the origin is kept: right across pixel
+            // 32768 of a wider map too.
+            static_cast<int16_t>((s.record.position.x >> 16) - record.attack.origin[0]),
+            static_cast<int16_t>((s.record.position.z >> 16) - record.attack.origin[1])
         ));
         if (record.attack.leash <= strayed)
             return ground::mission_done;

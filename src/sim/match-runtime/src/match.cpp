@@ -1330,8 +1330,9 @@ namespace {
 std::optional<std::size_t> sight_cell(
     const sim::visibility_state::PlayerSightGrid& sight, const std::array<uint32_t, 3>& position
 ) {
-    const auto x = static_cast<int32_t>(low(position[0] >> 16)) >> 5;
-    const auto z = (static_cast<int32_t>(low(position[2] >> 16)) -
+    // A place past pixel 32768 of a wider map stays on its far side.
+    const auto x = base::game_math::fixed_extent_index(position[0], sight.width << 5, 16) >> 5;
+    const auto z = (base::game_math::fixed_extent_index(position[2], sight.height << 5, 16) -
                     (static_cast<int32_t>(low(position[1] >> 16)) >> 1)) >>
                    5;
     if (static_cast<uint32_t>(x) >= static_cast<uint32_t>(sight.width) ||

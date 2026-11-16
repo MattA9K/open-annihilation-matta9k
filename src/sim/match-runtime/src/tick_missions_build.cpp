@@ -68,14 +68,15 @@ uint32_t TickHost::GroundMissions::mobile_build() {
     const auto built_z = turned ? built.footprint_x : built.footprint_z;
     switch (order.phase) {
     case 0: {
-        const auto cell_of = [](int32_t world, int16_t footprint) {
-            return static_cast<int16_t>(
-                wrapping_add(wrapping_sub(world, footprint * 0x80000), 0x80000) >>
-                ground::cell_shift
-            );
+        // The footprint's first cell; past pixel 32768 of a wider map, where
+        // the sign bit sets, it stays on the map's far side.
+        const auto cell_of = [](int32_t world, int16_t footprint, int32_t cells) {
+            return static_cast<int16_t>(ground::map_cell(
+                wrapping_add(wrapping_sub(world, footprint * 0x80000), 0x80000), cells
+            ));
         };
-        const auto cell_x = cell_of(site[0], built_x);
-        const auto cell_z = cell_of(site[2], built_z);
+        const auto cell_x = cell_of(site[0], built_x, this->world().game.map_width);
+        const auto cell_z = cell_of(site[2], built_z, this->world().game.map_height);
         site[0] = (built_x + cell_x * 2) << ground::half_cell_shift;
         site[2] = (built_z + cell_z * 2) << ground::half_cell_shift;
         blocked = 0;
@@ -364,8 +365,10 @@ uint32_t TickHost::GroundMissions::repair_unit() {
     }
     if (record.attack.leash != 0) {
         const auto strayed = static_cast<int32_t>(base::game_math::distance(
-            static_cast<int16_t>(s.record.position.x >> 16) - record.extra.anchor_x,
-            static_cast<int16_t>(s.record.position.z >> 16) - record.extra.anchor_z
+            // A 16-bit difference, as the anchor is kept: right across pixel
+            // 32768 of a wider map too.
+            static_cast<int16_t>((s.record.position.x >> 16) - record.extra.anchor_x),
+            static_cast<int16_t>((s.record.position.z >> 16) - record.extra.anchor_z)
         ));
         if (record.attack.leash <= strayed)
             return ground::mission_done;

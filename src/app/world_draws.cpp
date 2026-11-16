@@ -3,6 +3,7 @@
 
 // The battlefield's draws of one frame, drawn band by band.
 #include "world_draws.hpp"
+#include "oa/base/game_math.hpp"
 
 #include "oa/present/blit.hpp"
 #include "oa/present/display.hpp"
@@ -435,8 +436,14 @@ oa::present::world_renderer::ScreenPoint project_world_point(
     const std::array<uint32_t, 3>& position,
     HeightLift lift
 ) noexcept {
-    const auto map_x = static_cast<int32_t>(position[0]) >> 16;
-    const auto map_z = static_cast<int32_t>(position[2]) >> 16;
+    // Measured from the camera in 16.16, so a place past pixel 32768 of a
+    // wider map lands where it is drawn.
+    const auto map_x = viewport.source_x + oa::base::game_math::fixed_pixels_past(
+                                               static_cast<int32_t>(position[0]), viewport.source_x
+                                           );
+    const auto map_z = viewport.source_y + oa::base::game_math::fixed_pixels_past(
+                                               static_cast<int32_t>(position[2]), viewport.source_y
+                                           );
     const auto height = static_cast<int32_t>(position[1]) >> 16;
     auto screen = oa::present::world_renderer::map_pixel_to_screen(viewport, {map_x, map_z});
     const auto scale = viewport.scale == 0.0F ? 1.0F : viewport.scale;

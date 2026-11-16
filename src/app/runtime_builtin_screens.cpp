@@ -476,17 +476,16 @@ struct BuiltinScreens {
         menu.movies_present = [](void* context) {
             return static_cast<Runtime*>(context)->offers_movies();
         };
-        // A mod shows its own version where the profile names one, whether
-        // or not its game data names a revision. Otherwise the label is the
-        // program's name and this build's version, and game data that does
-        // not name its revision (the demo) keeps the label hidden.
-        const std::string program_line = ui::frontend::main_menu_version_text();
+        // The label names the program's version and Open Annihilation:
+        // Unbound's. A mod adds its own version under them where the profile
+        // names one, whether or not its game data names a revision.
+        // Otherwise game data that does not name its revision (the demo)
+        // keeps the label hidden.
         if (const auto* profile = runtime.options_.mod_profile.get();
             profile != nullptr &&
             profile->identity.display_version != oa::data::mod_profile::Identity{}.display_version)
             menu.version_text = profile->identity.display_version.c_str();
         else {
-            menu.version_text = program_line.c_str();
             menu.revision_named = [](void* context) {
                 return static_cast<Runtime*>(context)->assets_.file_size(
                            oa::data::defs::data_path(

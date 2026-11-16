@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "oa/sim/visibility_state.hpp"
+#include "oa/base/game_math.hpp"
 #include <bit>
 #include <algorithm>
 #include <cstdlib>
@@ -175,6 +176,31 @@ constexpr std::size_t word_limit = 0xffff;
 
 int32_t high_word(int32_t value) noexcept {
     return std::bit_cast<int16_t>(static_cast<uint16_t>(static_cast<uint32_t>(value) >> 16U));
+}
+
+// The whole map pixel of a 16.16 coordinate on an axis of `cells` sight
+// cells: past pixel 32768 of a map wider than signed 16.16, where the sign
+// bit sets, it stays on the far side.
+int32_t map_pixel(int32_t value, int32_t cells) noexcept {
+    return base::game_math::fixed_extent_index(
+        static_cast<uint32_t>(value), cells << sight_cell_shift, 16
+    );
+}
+
+// The sight cell of a 16.16 coordinate: the game's signed division, or, for a
+// place past pixel 32768 of a wider map, that place's own cell.
+int32_t sight_cell(int32_t value, int32_t cells) noexcept {
+    if (value >= 0)
+        return value / sight_cell_fixed;
+    const auto pixel = map_pixel(value, cells);
+    return pixel >= 0 ? pixel >> sight_cell_shift : value / sight_cell_fixed;
+}
+
+// The whole pixel of a 16.16 coordinate as the game reads it, or, past pixel
+// 32768 of a wider map, the far-side pixel it names.
+int32_t whole_place(int32_t value, int32_t cells) noexcept {
+    const auto pixel = map_pixel(value, cells);
+    return pixel >= 0 ? pixel : high_word(value);
 }
 
 // The lowest stamp Y: one whole unit above the sea-level height.
@@ -431,9 +457,11 @@ SightProjection project_sight_cell(const SightStamp& stamp, const SightContext& 
         return {stamp.center_x, stamp.center_z, stamp.band};
     const auto band = distance_band(stamp.sight_distance, context.masks.size());
     const auto& mask = context.masks[static_cast<std::size_t>(band)];
+    const int32_t across = context.grid != nullptr ? context.grid->width : 0;
+    const int32_t down = context.grid != nullptr ? context.grid->height : 0;
     return {
-        stamp.position_x / sight_cell_fixed - mask.offset_x,
-        stamp.position_z / sight_cell_fixed -
+        sight_cell(stamp.position_x, across) - mask.offset_x,
+        sight_cell(stamp.position_z, down) -
             high_word(stamp.position_y) / height_per_projected_row - mask.offset_z,
         band
     };
@@ -497,10 +525,12 @@ void share_mapped_cells(PlayerSightGrid& grid, uint8_t from, uint8_t to) noexcep
 void update_area_coverage(SightStamp& stamp, SightContext& context) noexcept {
     const auto rules = context.visibility_flags;
     if ((rules & altitude_sight_algorithm) != 0) {
-        const auto x = high_word(stamp.position_x) >> sight_cell_shift;
+        const int32_t across = context.grid != nullptr ? context.grid->width : 0;
+        const int32_t down = context.grid != nullptr ? context.grid->height : 0;
+        const auto x = whole_place(stamp.position_x, across) >> sight_cell_shift;
         const auto altitude =
             std::clamp(high_word(stamp.position_y) + stamp.model_height, 0, highest_altitude);
-        const auto z = (high_word(stamp.position_z) - (altitude >> 1)) >> sight_cell_shift;
+        const auto z = (whole_place(stamp.position_z, down) - (altitude >> 1)) >> sight_cell_shift;
         if (stamp.center_x == x && stamp.center_z == z &&
             std::abs(static_cast<int32_t>(stamp.band) - altitude) < altitude_restamp_distance)
             return;

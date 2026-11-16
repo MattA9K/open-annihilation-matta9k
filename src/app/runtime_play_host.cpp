@@ -32,6 +32,7 @@
 #include "oa/ui/console/game_fields.hpp"
 #include "oa/ui/console/hotkeys.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cctype>
 #include <cstddef>
@@ -923,14 +924,15 @@ struct PlayHostAccess {
     /// range is the furthest one inside it. The view's limits then hold the
     /// camera.
     ///
+    /// A map pixel held to the 16.16 words a place keeps: from -32768 to
+    /// 65535, the far side of a map past pixel 32768 setting the sign bit,
+    /// which centre_view_on reads back with the map's size.
+    ///
     /// @param place the column or the row, in map pixels
-    /// @return the place, held to a signed 16-bit map pixel
-    static int32_t map_pixel(int32_t place) {
-        if (place < -32768)
-            return -32768;
-        if (place > 32767)
-            return 32767;
-        return place;
+    /// @return the place as 16.16 bits
+    static int32_t fixed_place(int32_t place) {
+        const int32_t held = std::clamp(place, -32768, 65535);
+        return static_cast<int32_t>(static_cast<uint32_t>(held) << 16);
     }
 
     /// Centres the view on a point of the map (PlayHost::center_point).
@@ -944,8 +946,7 @@ struct PlayHostAccess {
         if (!view_may_move(app))
             return false;
         app.stop_match_tracking();
-        const int32_t step = static_cast<int32_t>(oa::present::scene_step_one);
-        app.centre_view_on(map_pixel(x) * step, map_pixel(z) * step);
+        app.centre_view_on(fixed_place(x), fixed_place(z));
         show_new_view(app, false);
         return true;
     }

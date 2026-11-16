@@ -264,6 +264,35 @@ int main() {
         world_destroy(w);
     }
     {
+        // A map 3200 cells wide, past signed 16.16: a unit at pixel 48084 has
+        // its position's sign bit set, and the camera over it lists it and a
+        // drag box around it selects it.
+        World* w = make_world();
+        w->game.map_width = 3200;
+        w->game.map_height = 3200;
+        w->units[1].position = {fx(48084), 0, fx(46099)};
+        w->game.camera_x = 47800;
+        w->game.camera_y = 45900;
+        collect_visible_units(*w, lists, h);
+        CHECK(w->game.hot_unit_count == 1 && ids[0] == 1);
+        w->game.drag_start[0] = 48000;
+        w->game.drag_start[1] = 0;
+        w->game.drag_start[2] = 46000;
+        w->game.drag_end[0] = 48200;
+        w->game.drag_end[1] = 0;
+        w->game.drag_end[2] = 46200;
+        r = Recorder{};
+        CHECK(select_units_in_box(*w, lists, false, h));
+        CHECK(selected(*w, 1) && !selected(*w, 2) && r.speech == 1);
+        // A camera just before pixel 32768 lists a unit just past it.
+        w->units[1].position = {fx(32800), 0, fx(300)};
+        w->game.camera_x = 32500;
+        w->game.camera_y = 0;
+        collect_visible_units(*w, lists, h);
+        CHECK(w->game.hot_unit_count == 1 && ids[0] == 1);
+        world_destroy(w);
+    }
+    {
         // A box test of a view's own selects as the drag box does: cleared
         // first, the visible local units visited, one unit speaking and more
         // playing the selection sound; enemy units are never tested.

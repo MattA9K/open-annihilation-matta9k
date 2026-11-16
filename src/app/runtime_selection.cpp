@@ -3,6 +3,7 @@
 
 // Match left-click handling, selection, tracking and squads.
 #include "oa/app/runtime.hpp"
+#include "oa/present/world_renderer/world_camera.hpp"
 #include "touch_state.hpp"
 #include "oa/data/defs/categories.hpp"
 #include "oa/sim/match_runtime/construction_orders.hpp"
@@ -560,8 +561,9 @@ void Runtime::select_squad(int squad, bool add, GroupViewMove move) {
         if (first == 0)
             first = slot.unit_index;
         ++count;
-        sum_x += static_cast<int16_t>(static_cast<uint32_t>(slot.record.position.x) >> 16);
-        sum_z += static_cast<int16_t>(static_cast<uint32_t>(slot.record.position.z) >> 16);
+        const auto& game = match_->state().game;
+        sum_x += oa::present::world_renderer::map_column(game, slot.record.position.x);
+        sum_z += oa::present::world_renderer::map_row(game, slot.record.position.z);
     }
     if (!any) {
         status_ = "Squad " + std::to_string(squad) + " empty";

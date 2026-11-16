@@ -363,9 +363,9 @@ void Runtime::present_director_announcements() {
         // sound with 3D sound on; a unit that is gone speaks unplaced.
         if (const oa::Unit* unit = oa::world_unit_at(&world, event->unit_index);
             unit != nullptr && unit->type_index != 0) {
-            const int32_t x = static_cast<int16_t>(unit->position.x >> 16);
+            const int32_t x = oa::present::world_renderer::map_column(game, unit->position.x);
             const int32_t y = static_cast<int16_t>(unit->position.y >> 16);
-            const int32_t z = static_cast<int16_t>(unit->position.z >> 16);
+            const int32_t z = oa::present::world_renderer::map_row(game, unit->position.z);
             const auto camera_x = static_cast<int32_t>(game.camera_x);
             const auto camera_y = static_cast<int32_t>(game.camera_y);
             sound.placed = true;

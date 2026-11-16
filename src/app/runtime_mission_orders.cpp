@@ -5,6 +5,7 @@
 // mission plays towards its victory conditions without a player.
 #include "oa/app/runtime.hpp"
 #include "oa/core/map_plot.h"
+#include "oa/present/world_renderer/world_camera.hpp"
 #include "oa/data/mission_types.hpp"
 #include "oa/sim/gameplay_input/input.hpp"
 #include "oa/sim/match_runtime.hpp"
@@ -47,11 +48,16 @@ constexpr int32_t kFactoryBatch = 2;
 constexpr std::size_t kAttackGroup = 8;
 
 /// Returns the squared map distance between two units, whole world units.
-[[nodiscard]] int64_t squared_distance(const oa::Unit& from, const oa::Unit& to) {
+///
+/// @param game the match, for the map's size
+[[nodiscard]] int64_t
+squared_distance(const oa::Game& game, const oa::Unit& from, const oa::Unit& to) {
     const auto dx =
-        static_cast<int64_t>(from.position.x >> kFixedShift) - (to.position.x >> kFixedShift);
+        static_cast<int64_t>(oa::present::world_renderer::map_column(game, from.position.x)) -
+        oa::present::world_renderer::map_column(game, to.position.x);
     const auto dz =
-        static_cast<int64_t>(from.position.z >> kFixedShift) - (to.position.z >> kFixedShift);
+        static_cast<int64_t>(oa::present::world_renderer::map_row(game, from.position.z)) -
+        oa::present::world_renderer::map_row(game, to.position.z);
     return dx * dx + dz * dz;
 }
 
@@ -285,7 +291,7 @@ void Runtime::give_mission_orders() {
                 continue;
             const bool named =
                 !destroy_type.empty() && tdf_names_equal(name_of(slot.record), destroy_type);
-            const auto distance = squared_distance(from, slot.record);
+            const auto distance = squared_distance(match_->state().game, from, slot.record);
             if ((named && !best_named) || (named == best_named && distance < best_distance)) {
                 best = slot.unit_index;
                 best_distance = distance;

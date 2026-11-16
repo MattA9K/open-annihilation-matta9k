@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "oa/sim/gameplay_input/input.hpp"
+#include "oa/base/game_math.hpp"
 #include "oa/core/map_plot.h"
 #include <algorithm>
 #include <array>
@@ -101,6 +102,13 @@ formats::objects3d::FixedVector3 terrain_intersection(
     auto sample = [&](int32_t fixed_z) {
         return std::max<int32_t>(terrain.sea_level(), terrain.height(fixed_x, fixed_z));
     };
+    // A row's whole pixel; past pixel 32768 of a taller map, where the sign
+    // bit sets, it stays on the far side.
+    const auto row_of = [map_height](int32_t fixed_z) {
+        return base::game_math::fixed_extent_index(
+            std::bit_cast<uint32_t>(fixed_z), map_height, 16
+        );
+    };
     auto near_z = std::bit_cast<int32_t>(static_cast<uint32_t>((projected_z & ~15) + 128) << 16U);
     // The last row sampled stands when no row projects in front of the point.
     auto fixed_z = near_z;
@@ -108,12 +116,12 @@ formats::objects3d::FixedVector3 terrain_intersection(
     for (int32_t offset = 128; offset >= 0; offset -= 16, near_z = wrap_sub(near_z, 0x100000)) {
         fixed_z = near_z;
         height = sample(fixed_z);
-        const auto near_projected = high(fixed_z) - (height >> 1);
+        const auto near_projected = row_of(fixed_z) - (height >> 1);
         if (near_projected > projected_z)
             continue;
         const auto far_z = wrap_add(fixed_z, 0x100000);
         const auto far_height = sample(far_z);
-        const auto far_projected = high(far_z) - (far_height >> 1);
+        const auto far_projected = row_of(far_z) - (far_height >> 1);
         if ((near_projected < far_projected && near_projected <= projected_z) ||
             projected_z <= far_projected) {
             const auto denominator = far_projected - near_projected;
@@ -157,8 +165,13 @@ formats::objects3d::FixedVector3 ground_point_on_shown_map(
 ) {
     if (shown_width <= 0 || shown_height <= 0)
         return point;
-    const int32_t column = point.x >> 16;
-    const int32_t row = (point.z >> 16) - ((point.y >> 16) >> 1);
+    // Past pixel 32768 of a wider map, where the sign bit sets, a place stays
+    // on the far side.
+    const int32_t column =
+        base::game_math::fixed_extent_index(std::bit_cast<uint32_t>(point.x), map_width, 16);
+    const int32_t row =
+        base::game_math::fixed_extent_index(std::bit_cast<uint32_t>(point.z), map_height, 16) -
+        ((point.y >> 16) >> 1);
     if (column >= 0 && column < shown_width && row >= 0 && row < shown_height)
         return point;
     return terrain_intersection(

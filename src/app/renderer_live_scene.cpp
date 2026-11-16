@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "renderer_live_scene.hpp"
+#include "oa/base/game_math.hpp"
 #include "bench_timers.hpp"
 #include "renderer_live_camera.hpp"
 #include "renderer_effect_sources.hpp"
@@ -308,6 +309,20 @@ int32_t fog_divisions(const Inputs& in) {
     if (distant && in.detail_scale <= 0.5F)
         return 2;
     return most;
+}
+
+/// A 16.16 map coordinate in map pixels, on a map past pixel 32768 as well,
+/// where its sign bit sets.
+///
+/// @param map the map, for its size along the axis
+/// @param fixed the coordinate
+/// @param across true for a column (x), false for a row (z)
+float map_pixels(const formats::tnt::Map& map, int32_t fixed, bool across) {
+    const auto cells = across ? map.attribute_width : map.attribute_height;
+    const auto whole = base::game_math::fixed_extent_index(
+        static_cast<uint32_t>(fixed), static_cast<int32_t>(cells) * cell_edge, 16
+    );
+    return static_cast<float>(whole) + static_cast<float>(fixed & 0xffff) / fixed_scale;
 }
 
 /// Samples the canonical world grid at a bounded world coordinate.
@@ -3666,8 +3681,11 @@ DrawShadow shadow_of_draw(const Inputs& in, const ModelDraw& draw) {
     shadow.source = &source;
     shadow.position = draw.shown_position.value_or(unit->position);
     const auto& position = shadow.position;
-    shadow.receiver =
-        std::max(height_at(*in.map, position.x / 65536, position.z / 65536), float(in.sea_level));
+    const auto map_whole_x =
+        static_cast<int32_t>(std::floor(map_pixels(*in.map, position.x, true)));
+    const auto map_whole_z =
+        static_cast<int32_t>(std::floor(map_pixels(*in.map, position.z, false)));
+    shadow.receiver = std::max(height_at(*in.map, map_whole_x, map_whole_z), float(in.sea_level));
     shadow.altitude = std::max(0.0F, position.y / fixed_scale - shadow.receiver);
     shadow.aircraft =
         in.new_unit_shadows && (flags & OA_UNIT_DEF_FLAG_CAN_FLY) != 0 && shadow.altitude > 0;
@@ -3727,9 +3745,10 @@ void read_shadows(
         const auto& image = source.sprite;
         const auto count = static_cast<std::size_t>(image.width) * image.height;
         const auto position = shadow.position;
-        const float shadow_x = position.x / fixed_scale + model::shadow_offset_x - image.origin_x;
-        const float shadow_y =
-            position.z / fixed_scale - draw.plan.model.ground * height_lift - image.origin_y;
+        const float shadow_x =
+            map_pixels(*in.map, position.x, true) + model::shadow_offset_x - image.origin_x;
+        const float shadow_y = map_pixels(*in.map, position.z, false) -
+                               draw.plan.model.ground * height_lift - image.origin_y;
         if (shadow_x + image.width <= std::floor(float(in.left) / cell_edge) * cell_edge ||
             shadow_y + image.height <= std::floor(float(in.top) / cell_edge) * cell_edge ||
             shadow_x >= std::ceil(float(in.right) / cell_edge) * cell_edge ||
@@ -3783,10 +3802,10 @@ void read_shadows(
             picture.width = image.width + radius * 4;
             picture.height = image.height + radius * 4;
             picture.aircraft_key = key;
-            picture.left =
-                position.x / fixed_scale + model::shadow_offset_x - (image.origin_x + padding);
-            picture.top =
-                position.z / fixed_scale - receiver * height_lift - (image.origin_y + padding);
+            picture.left = map_pixels(*in.map, position.x, true) + model::shadow_offset_x -
+                           (image.origin_x + padding);
+            picture.top = map_pixels(*in.map, position.z, false) - receiver * height_lift -
+                          (image.origin_y + padding);
             picture.soft = true;
             picture.digest = frame_material_digest(
                 scene, *in.palette, picture.width, picture.height, alpha, true
@@ -4117,8 +4136,8 @@ void plan_plots(const Inputs& in, Plots& plots) {
         const float height = unit->position.y / fixed_scale;
         if (height < in.sea_level)
             continue;
-        const float centre_x = unit->position.x / fixed_scale;
-        const float centre_y = unit->position.z / fixed_scale;
+        const float centre_x = map_pixels(*in.map, unit->position.x, true);
+        const float centre_y = map_pixels(*in.map, unit->position.z, false);
         if (fog_at(
                 in.sight,
                 static_cast<int32_t>(centre_x),
@@ -4130,7 +4149,9 @@ void plan_plots(const Inputs& in, Plots& plots) {
         const float half_depth = unit->footprint_z * cell_edge * 0.5F;
         // The base piece where the models pass draws the model.
         const auto shown = draw.shown_position.value_or(unit->position);
-        const auto footing = base_piece(draw, shown.x / fixed_scale, shown.z / fixed_scale);
+        const auto footing = base_piece(
+            draw, map_pixels(*in.map, shown.x, true), map_pixels(*in.map, shown.z, false)
+        );
         const float left = std::min(centre_x - half_width, footing.left);
         const float right = std::max(centre_x + half_width, footing.right);
         const float top = std::min(centre_y - half_depth, footing.top);
@@ -4816,9 +4837,9 @@ int64_t card_instance(
     const auto pieces = draw.model.instance->pieces();
     // Its vertices, placed as its vertices would be.
     const auto position = draw.shown_position.value_or(unit.position);
-    const float x = position.x / fixed_scale;
+    const float x = map_pixels(*in.map, position.x, true);
     const float h = position.y / fixed_scale;
-    const float z = position.z / fixed_scale;
+    const float z = map_pixels(*in.map, position.z, false);
     const std::size_t first_position = cards.positions.size();
     for (std::size_t piece = 0; piece < pieces.size(); ++piece) {
         const auto& points = piece < draw.shown_vertices.size()
@@ -4902,8 +4923,8 @@ void cast_on_card(
     const Unit& unit = *shadow.unit;
     const auto& state = *draw.model.state;
     // The model's place, as its instance's vertices are placed from it.
-    const float across = shadow.position.x / fixed_scale;
-    const float down = shadow.position.z / fixed_scale;
+    const float across = map_pixels(*in.map, shadow.position.x, true);
+    const float down = map_pixels(*in.map, shadow.position.z, false);
     const float base = shadow.position.y / fixed_scale;
     const float ground_half = static_cast<float>(draw.plan.model.ground) * height_lift;
     float opacity = 0.5F * std::min(in.draws->shadow_level, model::shadow_full_level) /
@@ -5230,20 +5251,16 @@ void models(const Inputs& in, Pass& pass, std::size_t first, std::size_t last) {
         for (std::size_t sample = 0, count = 0; sample < particles.size() && count < light_samples;
              sample += stride, ++count) {
             const auto& particle = particles[sample];
-            if (!particle.emissive ||
-                fog_at(
-                    in.sight,
-                    particle.position.x / 65536,
-                    static_cast<int32_t>(
-                        (particle.position.z - particle.position.y * 0.5F) / fixed_scale
-                    )
-                ) != Fog::seen)
+            const float across = map_pixels(*in.map, particle.position.x, true);
+            const float down = map_pixels(*in.map, particle.position.z, false);
+            const float height = particle.position.y / fixed_scale;
+            if (!particle.emissive || fog_at(
+                                          in.sight,
+                                          static_cast<int32_t>(across),
+                                          static_cast<int32_t>(down - height * 0.5F)
+                                      ) != Fog::seen)
                 continue;
-            nanolathe_lights.push_back(
-                {particle.position.x / fixed_scale,
-                 particle.position.y / fixed_scale,
-                 particle.position.z / fixed_scale}
-            );
+            nanolathe_lights.push_back({across, height, down});
         }
     }
     for (std::size_t draw_index = first; draw_index < last; ++draw_index) {
@@ -5275,9 +5292,9 @@ void models(const Inputs& in, Pass& pass, std::size_t first, std::size_t last) {
         const bool translucent =
             in.translucent_units || (unit->state_flags & model::unit_state_cloaked) != 0;
         const auto position = draw.shown_position.value_or(unit->position);
-        const float x = position.x / fixed_scale;
+        const float x = map_pixels(*in.map, position.x, true);
         const float h = position.y / fixed_scale;
-        const float z = position.z / fixed_scale;
+        const float z = map_pixels(*in.map, position.z, false);
         const auto fog =
             fog_at(in.sight, static_cast<int32_t>(x), static_cast<int32_t>(z - h * height_lift));
         if (fog == Fog::black)
@@ -5731,9 +5748,9 @@ void particles(const Inputs& in, Pass& pass, std::size_t first, std::size_t last
     for (std::size_t particle_index = first; particle_index < last; ++particle_index) {
         begin_draw(pass, particle_index);
         const auto& particle = in.draws->spatial_particles[particle_index];
-        const float x = particle.position.x / fixed_scale;
+        const float x = map_pixels(*in.map, particle.position.x, true);
         const float h = particle.position.y / fixed_scale;
-        const float z = particle.position.z / fixed_scale;
+        const float z = map_pixels(*in.map, particle.position.z, false);
         if (fog_at(in.sight, static_cast<int32_t>(x), static_cast<int32_t>(z - h * height_lift)) !=
             Fog::seen)
             continue;

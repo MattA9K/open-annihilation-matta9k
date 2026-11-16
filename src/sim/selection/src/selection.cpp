@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "oa/sim/selection.hpp"
+#include "oa/base/game_math.hpp"
 
 #include "oa/sim/simulation_state.hpp"
 
@@ -15,6 +16,14 @@ inline constexpr uint32_t occupancy_air = 1;
 // High word of a 16.16 value, sign-extended.
 int32_t whole(int32_t fixed) noexcept {
     return static_cast<int16_t>(static_cast<uint32_t>(fixed) >> 16);
+}
+
+// Whole map pixel of a 16.16 coordinate, on a map past pixel 32768 as well.
+int32_t map_pixel(const World& world, int32_t fixed, bool across) noexcept {
+    const int32_t cells = across ? world.game.map_width : world.game.map_height;
+    return base::game_math::fixed_extent_index(
+        static_cast<uint32_t>(fixed), cells * OA_MAP_CELL_PIXELS, 16
+    );
 }
 
 // Inclusive point-in-rectangle test.
@@ -95,8 +104,9 @@ void collect_visible_units(World& world, const VisibleLists& lists, const Hooks&
         const UnitDef* def = world_unit_def_of(&world, &unit);
         if (def == nullptr)
             continue;
-        const int32_t screen_x = whole(unit.position.x) - camera_x;
-        const int32_t screen_z = whole(unit.position.z) - camera_y;
+        // Measured from the camera in 16.16, so a map past pixel 32768 places it too.
+        const int32_t screen_x = base::game_math::fixed_pixels_past(unit.position.x, camera_x);
+        const int32_t screen_z = base::game_math::fixed_pixels_past(unit.position.z, camera_y);
         const int32_t unit_y = whole(unit.position.y);
         const int32_t left = whole(def->bounds_min_x) + screen_x;
         const int32_t right = whole(def->bounds_max_x) + screen_x;
@@ -105,7 +115,15 @@ void collect_visible_units(World& world, const VisibleLists& lists, const Hooks&
         const int32_t near_z = whole(def->bounds_min_z) + screen_z;
         const int32_t far_z = whole(def->bounds_max_z) + screen_z;
         if ((unit.flags & OA_UNIT_FLAG_OCCUPANCY_MASK) != occupancy_air) {
-            const MapPlot* plot = world_plot(&world, unit.position.x >> 20, unit.position.z >> 20);
+            const MapPlot* plot = world_plot(
+                &world,
+                base::game_math::fixed_extent_index(
+                    static_cast<uint32_t>(unit.position.x), game.map_width, 20
+                ),
+                base::game_math::fixed_extent_index(
+                    static_cast<uint32_t>(unit.position.z), game.map_height, 20
+                )
+            );
             if (plot != nullptr && bottom > plot->height)
                 bottom = plot->height;
         }
@@ -370,9 +388,10 @@ bool select_units_in_box(World& world, const VisibleLists& lists, bool toggle, c
         max_y = swap;
     }
     return select_units_taken(world, lists, toggle, hooks, [&](const Unit& unit) {
-        const int32_t x = whole(unit.position.x) - camera_x + view_origin_x;
-        const int32_t y =
-            whole(unit.position.z) - (whole(unit.position.y) >> 1) - camera_y + view_origin_y;
+        const int32_t x =
+            base::game_math::fixed_pixels_past(unit.position.x, camera_x) + view_origin_x;
+        const int32_t y = base::game_math::fixed_pixels_past(unit.position.z, camera_y) -
+                          (whole(unit.position.y) >> 1) + view_origin_y;
         return min_x <= x && x <= max_x && min_y <= y && y <= max_y;
     });
 }
@@ -596,8 +615,8 @@ bool select_squad(World& world, int32_t squad, bool add, const TypeMask& skip, c
             if (live && selected_now != chosen)
                 already = false;
             if (chosen) {
-                sum_x += whole(unit.position.x);
-                sum_z += whole(unit.position.z);
+                sum_x += map_pixel(world, unit.position.x, true);
+                sum_z += map_pixel(world, unit.position.z, false);
                 ++members;
             }
             return true;
