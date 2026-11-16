@@ -23,10 +23,18 @@ on:
       tag:
         description: The tag to build and attach the packages to, such as v1.0.0
         required: true
+      reuse_run:
+        description: >-
+          An earlier run of this workflow whose Linux and macOS packages (and
+          host oa-tool) to reuse, building only Windows; empty builds all three
+        required: false
+        default: ''
 permissions:
   contents: write
+  actions: read
 env:
   TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  REUSE_RUN: ${{ inputs.reuse_run || '' }}
   OA_PACKAGER_NAME: the Open Annihilation Unbound releases on GitHub
   # SDL's X11, Wayland and audio back ends, and zlib, as build.yml installs them.
   LINUX_PACKAGES: >-
@@ -36,6 +44,7 @@ env:
 jobs:
   linux:
     name: Linux x86_64
+    if: ${{ !inputs.reuse_run }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -95,6 +104,7 @@ jobs:
   windows:
     name: Windows x64
     needs: linux
+    if: ${{ !cancelled() && (needs.linux.result == 'success' || needs.linux.result == 'skipped') }}
     runs-on: ubuntu-24.04
     # The cross-compiler tools/windows/Dockerfile names: mingw-w64 with POSIX threads.
     container: debian:trixie-slim
@@ -108,6 +118,12 @@ jobs:
             binutils-mingw-w64-x86-64 mingw-w64-tools ninja-build zip
           update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix
           update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
+          # windres hands the preprocessor its options through a shell, which
+          # reads FreeType's FT_CONFIG_MODULES_H=<freetype_modules.h> as a
+          # redirection; with --use-temp-file it starts it without one.
+          printf '#!/bin/sh\nexec /usr/bin/x86_64-w64-mingw32-windres --use-temp-file "$@"\n' \
+            > /usr/local/bin/x86_64-w64-mingw32-windres
+          chmod +x /usr/local/bin/x86_64-w64-mingw32-windres
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.TAG }}
@@ -115,6 +131,8 @@ jobs:
         with:
           name: host-oa-tool
           path: host
+          run-id: ${{ inputs.reuse_run || github.run_id }}
+          github-token: ${{ github.token }}
       # build_windows.sh builds the dependencies and configures the tree; the
       # second configure adds the release's settings to its cache.
       - name: Configure
@@ -144,6 +162,7 @@ jobs:
 
   macos:
     name: macOS universal
+    if: ${{ !inputs.reuse_run }}
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -177,12 +196,18 @@ jobs:
   release:
     name: Draft release
     needs: [linux, windows, macos]
+    if: >-
+      ${{ !cancelled() && needs.windows.result == 'success' &&
+      (needs.linux.result == 'success' || needs.linux.result == 'skipped') &&
+      (needs.macos.result == 'success' || needs.macos.result == 'skipped') }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/download-artifact@v4
         with:
           name: linux-x86_64
           path: packages
+          run-id: ${{ inputs.reuse_run || github.run_id }}
+          github-token: ${{ github.token }}
       - uses: actions/download-artifact@v4
         with:
           name: windows-x64
@@ -191,6 +216,8 @@ jobs:
         with:
           name: macos-universal
           path: packages
+          run-id: ${{ inputs.reuse_run || github.run_id }}
+          github-token: ${{ github.token }}
       - name: Draft the release
         env:
           GH_TOKEN: ${{ github.token }}
