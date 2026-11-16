@@ -1,0 +1,210 @@
+# SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
+# SPDX-License-Identifier: GPL-3.0-only
+
+# The release packages of Open Annihilation: Unbound, built when a tag such
+# as v1.0.0 is pushed (or by hand for a tag that exists), and attached to a
+# draft GitHub release of that tag for the maintainer to try and publish:
+#
+#   open-annihilation-unbound-TAG-linux-x86_64.zip   Ubuntu 24.04's glibc 2.39 or later
+#   open-annihilation-unbound-TAG-windows-x64.zip    cross-built with mingw-w64
+#   open-annihilation-unbound-TAG-macos-universal.zip/.pkg   unsigned
+#
+# Every package is a Release build without tests or the game's self-checks,
+# and without oa-update (OA_SELF_UPDATE=OFF): the game never replaces itself
+# with an Open Annihilation release, and names these releases as what
+# updates it. The engine keeps its own version, which the main menu shows
+# above Open Annihilation: Unbound's.
+name: Release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The tag to build and attach the packages to, such as v1.0.0
+        required: true
+permissions:
+  contents: write
+env:
+  TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  OA_PACKAGER_NAME: the Open Annihilation Unbound releases on GitHub
+  # SDL's X11, Wayland and audio back ends, and zlib, as build.yml installs them.
+  LINUX_PACKAGES: >-
+    zlib1g-dev libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev
+    libxfixes-dev libxss-dev libxtst-dev libasound2-dev libpulse-dev libwayland-dev
+    libxkbcommon-dev libegl1-mesa-dev libgl1-mesa-dev libdbus-1-dev ninja-build zip
+jobs:
+  linux:
+    name: Linux x86_64
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Development packages
+        run: sudo apt-get update && sudo apt-get install -y $LINUX_PACKAGES
+      - name: Pinned dependencies
+        run: |
+          python tools/bootstrap_sdl.py
+          python tools/bootstrap_text_fonts.py
+          python tools/bootstrap_page_fonts.py --deps local/deps
+          python tools/bootstrap_accesskit.py
+      # Every program and every file the build puts beside the game lands in
+      # bin, which is the package.
+      - name: Configure
+        run: >-
+          cmake -S . -B build-release -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=OFF -DOA_SELF_CHECKS=OFF -DOA_SELF_UPDATE=OFF
+          "-DOA_PACKAGER_NAME=$OA_PACKAGER_NAME"
+          -DOA_BUILD_PLATFORM=ON -DOA_BUILD_INTRO_PLAYER=ON -DOA_REQUIRE_GAME=ON
+          -DOA_GAME_DIR= -DOA_DEMO_INSTALLER=
+          "-DCMAKE_PREFIX_PATH=$PWD/local/deps/sdl-install"
+          "-DCMAKE_RUNTIME_OUTPUT_DIRECTORY=$PWD/build-release/bin"
+      - name: Build
+        run: cmake --build build-release --target oa-game oa-tool --parallel 4
+      - name: The game starts
+        env:
+          SDL_VIDEO_DRIVER: dummy
+          SDL_AUDIO_DRIVER: dummy
+        run: |
+          build-release/bin/open-annihilation --help | grep "usage: open-annihilation"
+      - name: Package
+        run: |
+          name="open-annihilation-unbound-$TAG-linux-x86_64"
+          mkdir -p "dist/$name"
+          cp -a build-release/bin/. "dist/$name/"
+          strip "dist/$name/open-annihilation" "dist/$name/oa-tool"
+          (cd dist && zip -r -y -q "$name.zip" "$name")
+          find "dist/$name" -maxdepth 2 | sort
+          sha256sum "dist/$name.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-x86_64
+          path: dist/*.zip
+      # The Windows cross build packs Classic with this host's oa-tool.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: host-oa-tool
+          path: build-release/bin/oa-tool
+
+  windows:
+    name: Windows x64
+    needs: linux
+    runs-on: ubuntu-24.04
+    # The cross-compiler tools/windows/Dockerfile names: mingw-w64 with POSIX threads.
+    container: debian:trixie-slim
+    steps:
+      - name: Cross-compiler and tools
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            ca-certificates cmake curl gcc git libc6-dev make pkg-config python3 python3-venv \
+            xz-utils g++-mingw-w64-x86-64-posix gcc-mingw-w64-x86-64-posix \
+            binutils-mingw-w64-x86-64 mingw-w64-tools ninja-build zip
+          update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix
+          update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: host-oa-tool
+          path: host
+      # build_windows.sh builds the dependencies and configures the tree; the
+      # second configure adds the release's settings to its cache.
+      - name: Configure
+        run: |
+          chmod +x host/oa-tool
+          export OA_HOST_OA_TOOL="$PWD/host/oa-tool" OA_WINDOWS_CCACHE=0
+          bash tools/build_windows.sh --no-tests --jobs 4 --target help
+          cmake -B build-windows -DOA_SELF_CHECKS=OFF -DOA_SELF_UPDATE=OFF \
+            "-DOA_PACKAGER_NAME=$OA_PACKAGER_NAME" -DOA_GAME_DIR= -DOA_DEMO_INSTALLER= \
+            "-DCMAKE_RUNTIME_OUTPUT_DIRECTORY=$PWD/build-windows/bin"
+      - name: Build
+        run: cmake --build build-windows --target oa-game oa-tool --parallel 4
+      - name: Package
+        run: |
+          name="open-annihilation-unbound-$TAG-windows-x64"
+          mkdir -p "dist/$name"
+          cp -a build-windows/bin/. "dist/$name/"
+          x86_64-w64-mingw32-strip "dist/$name/open-annihilation.exe" "dist/$name/oa-tool.exe"
+          (cd dist && zip -r -q "$name.zip" "$name")
+          find "dist/$name" -maxdepth 2 | sort
+          sha256sum "dist/$name.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64
+          path: dist/*.zip
+
+  macos:
+    name: macOS universal
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Tools
+        run: brew install ninja
+      # Signed ad hoc and not notarized: Gatekeeper asks before it opens it.
+      - name: Build and package
+        run: bash tools/release_macos.sh --unsigned --no-self-update --jobs 4 --out "$PWD/out"
+      - name: Name the packages
+        run: |
+          mkdir -p dist
+          for file in out/open-annihilation-v*-macos-universal.zip out/open-annihilation-v*-macos-universal.pkg; do
+            cp "$file" "dist/open-annihilation-unbound-$TAG-macos-universal.${file##*.}"
+          done
+          shasum -a 256 dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-universal
+          path: dist/*
+
+  release:
+    name: Draft release
+    needs: [linux, windows, macos]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-x86_64
+          path: packages
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-x64
+          path: packages
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-universal
+          path: packages
+      - name: Draft the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -la packages
+          cat > notes.md <<NOTES
+          Open Annihilation: Unbound $TAG, built from Open Annihilation 0.9.1.
+
+          - Maps larger than 63x63, such as 100x100: units, building, movement,
+            selection, sight and the computer players work across the whole map.
+          - TNT maps with more than 65,536 tile images, so one map can mix many tilesets.
+          - 20 team colours to pick from.
+
+          Unsigned builds: macOS asks before it opens the game, and Windows may
+          show a SmartScreen warning. The Linux build needs glibc 2.39 or later
+          (Ubuntu 24.04, Debian 13, Fedora 40 or newer). You need your own Total
+          Annihilation 3.1 game data.
+          NOTES
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" packages/* --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" packages/* --draft --verify-tag \
+              --title "Open Annihilation: Unbound $TAG" --notes-file notes.md \
+              --repo "$GITHUB_REPOSITORY"
+          fi

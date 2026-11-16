@@ -13,6 +13,20 @@ those packages with
 [packaging/windows/open-annihilation.nsi](../../packaging/windows/open-annihilation.nsi)
 ([The Windows installers](#the-windows-installers)).
 
+## Open Annihilation: Unbound releases
+
+[.github/workflows/release.yml](../../.github/workflows/release.yml) builds
+the packages of an Open Annihilation: Unbound release when a tag such as
+`v1.0.0` is pushed, or by hand for a tag that exists, and attaches them to a
+draft GitHub release of that tag: a Linux x86_64 zip built on Ubuntu 24.04,
+a Windows x64 zip cross-built with mingw-w64 by `tools/build_windows.sh`,
+and the macOS zip and installer package `tools/release_macos.sh --unsigned`
+makes. Each is a Release build without tests, the game's self-checks or
+oa-update (`OA_SELF_UPDATE=OFF`, and `--no-self-update` for the macOS
+script), so the game never replaces itself with an Open Annihilation
+release; `OA_PACKAGER_NAME` names the Unbound releases as what updates it.
+The maintainer tries the packages and then publishes the draft.
+
 ## What it makes
 
 The script writes two files and a folder in the folder `--out` names (by default

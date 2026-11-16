@@ -23,6 +23,7 @@ version=""
 jobs=6
 app=""
 unsigned=0
+self_update=1
 check_only=0
 allow_changes=0
 game_dir=""
@@ -33,7 +34,8 @@ usage() {
     cat <<'USAGE'
 Usage: tools/release_macos.sh [--version vX.Y.Z] [--out DIR] [--build-dir DIR]
                               [--deps DIR] [--jobs N] [--allow-local-changes]
-                              [--app BUNDLE] [--unsigned] [--check-only]
+                              [--app BUNDLE] [--unsigned] [--no-self-update]
+                              [--check-only]
                               [--game-dir DIR [--save FILE]] [--previous-zip ZIP]
 
 Builds the macOS release of Open Annihilation and writes, in DIR:
@@ -73,6 +75,9 @@ then both are checked. Nothing is installed.
                          never for release
   --unsigned             sign ad hoc and leave the installer package unsigned,
                          whatever the environment says
+  --no-self-update       build without oa-update (OA_SELF_UPDATE=OFF): the
+                         game never replaces itself, and names the
+                         OA_PACKAGER_NAME of the environment as who updates it
   --check-only           check the resources of --app against --build-dir's
                          cache and --deps, and exit before signing
   --game-dir DIR         start the packaged game headless over this 3.1c
@@ -120,6 +125,7 @@ while [[ $# -gt 0 ]]; do
         --save) require_value "$@"; save_file="$(absolute "$2")"; shift 2 ;;
         --previous-zip) require_value "$@"; previous_zip="$(absolute "$2")"; shift 2 ;;
         --unsigned) unsigned=1; shift ;;
+        --no-self-update) self_update=0; shift ;;
         --check-only) check_only=1; shift ;;
         --allow-local-changes) allow_changes=1; shift ;;
         *) printf 'release_macos.sh: unknown option: %s\n' "$1" >&2; usage >&2; exit 2 ;;
@@ -302,10 +308,14 @@ if [[ -z "$app" ]]; then
         -DOA_REQUIRE_TEXT_SHAPING=ON "-DOA_TEXT_FONTS_DIR=$text_fonts" \
         "-DOA_ACCESSKIT_DIR=$deps_dir/accesskit-c-0.23.2" \
         "-DOA_FONTS_DIR=$deps_dir/fonts" \
-        "-DZLIB_INCLUDE_DIR=$prefix/zlib/include" "-DZLIB_LIBRARY=$prefix/zlib/lib/libz.a"
+        "-DZLIB_INCLUDE_DIR=$prefix/zlib/include" "-DZLIB_LIBRARY=$prefix/zlib/lib/libz.a" \
+        "-DOA_SELF_UPDATE=$( ((self_update)) && echo ON || echo OFF)" \
+        "-DOA_PACKAGER_NAME=${OA_PACKAGER_NAME:-}"
 
     step "build"
-    cmake --build "$build_dir" --parallel "$jobs" --target oa-game --target oa-update
+    build_targets=(--target oa-game)
+    if ((self_update)); then build_targets+=(--target oa-update); fi
+    cmake --build "$build_dir" --parallel "$jobs" "${build_targets[@]}"
     app="$build_dir/open-annihilation.app"
     release_build=1
 else
@@ -315,9 +325,15 @@ fi
 [[ -f "$app/Contents/Info.plist" ]] || fail "no application bundle at $app"
 app_executable="$(plist_value "$app" CFBundleExecutable)"
 [[ -x "$app/Contents/MacOS/$app_executable" ]] || fail "no executable in $app"
-[[ -x "$app/Contents/MacOS/oa-update" ]] || fail "no oa-update in $app"
+# The helper oa-update stands beside the executable unless the build leaves
+# it out (--no-self-update).
+helpers=()
+if ((self_update)); then
+    [[ -x "$app/Contents/MacOS/oa-update" ]] || fail "no oa-update in $app"
+    helpers=(oa-update)
+fi
 macos_names="$(ls -A "$app/Contents/MacOS" | LC_ALL=C sort | tr '\n' ' ')"
-expected_macos="$(printf '%s\n' "$app_executable" oa-update | LC_ALL=C sort | tr '\n' ' ')"
+expected_macos="$(printf '%s\n' "$app_executable" ${helpers[@]+"${helpers[@]}"} | LC_ALL=C sort | tr '\n' ' ')"
 [[ "$macos_names" == "$expected_macos" ]] \
     || fail "Contents/MacOS holds $macos_names, not $expected_macos"
 # The packages name the application as its Info.plist does, Open
@@ -345,12 +361,14 @@ if [[ "$release_build" == 1 ]]; then
             found && $1 == "minos" && minos == "" {minos = $2} END {print minos}')"
         [[ "$minos" == "$macos_minimum" ]] || fail "the $arch game needs macOS $minos, not $macos_minimum"
     done
-    helper="$app/Contents/MacOS/oa-update"
-    for arch in "${architectures[@]}"; do
-        lipo "$helper" -verify_arch "$arch" || fail "oa-update has no $arch code"
-        if otool -arch "$arch" -L "$helper" | tail -n +2 | grep -Ev '^[[:space:]]+(/usr/lib/|/System/Library/)'; then
-            fail "the $arch helper needs a library outside the system (above)"
-        fi
+    for helper_name in ${helpers[@]+"${helpers[@]}"}; do
+        helper="$app/Contents/MacOS/$helper_name"
+        for arch in "${architectures[@]}"; do
+            lipo "$helper" -verify_arch "$arch" || fail "$helper_name has no $arch code"
+            if otool -arch "$arch" -L "$helper" | tail -n +2 | grep -Ev '^[[:space:]]+(/usr/lib/|/System/Library/)'; then
+                fail "the $arch helper needs a library outside the system (above)"
+            fi
+        done
     done
     [[ "$(plist_value "$app" LSMinimumSystemVersion)" == "$macos_minimum" ]] \
         || fail "the Info.plist's LSMinimumSystemVersion is not $macos_minimum"
@@ -384,14 +402,12 @@ echo "$staged_app"
 # UUID is the packaged one's).
 step "strip"
 mkdir -p "$symbols_dir"
-cp "$staged_app/Contents/MacOS/$app_executable" "$symbols_dir/$app_executable"
-cp "$staged_app/Contents/MacOS/oa-update" "$symbols_dir/oa-update"
-strip "$staged_app/Contents/MacOS/$app_executable"
-strip "$staged_app/Contents/MacOS/oa-update"
-echo "$symbols_dir/$app_executable: $(wc -c <"$symbols_dir/$app_executable" | tr -d ' ') bytes," \
-    "$(wc -c <"$staged_app/Contents/MacOS/$app_executable" | tr -d ' ') stripped"
-echo "$symbols_dir/oa-update: $(wc -c <"$symbols_dir/oa-update" | tr -d ' ') bytes," \
-    "$(wc -c <"$staged_app/Contents/MacOS/oa-update" | tr -d ' ') stripped"
+for program in "$app_executable" ${helpers[@]+"${helpers[@]}"}; do
+    cp "$staged_app/Contents/MacOS/$program" "$symbols_dir/$program"
+    strip "$staged_app/Contents/MacOS/$program"
+    echo "$symbols_dir/$program: $(wc -c <"$symbols_dir/$program" | tr -d ' ') bytes," \
+        "$(wc -c <"$staged_app/Contents/MacOS/$program" | tr -d ' ') stripped"
+done
 
 # Code inside the bundle besides its executable is signed before what holds
 # it: every Mach-O file, then every nested bundle, each deepest first, then
