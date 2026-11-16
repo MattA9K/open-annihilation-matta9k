@@ -147,7 +147,11 @@ void release_navigation(SearchController& controller, Navigation& navigation) no
 /// @param map_pixels_x map width in whole pixels; zero sign-extends a sign-bit coordinate
 /// @param map_pixels_z map height in whole pixels; zero sign-extends a sign-bit coordinate
 void install_goal(
-    UnitView u, Goal* goal, uint32_t tick, Host& host, int32_t map_pixels_x = 0,
+    UnitView u,
+    Goal* goal,
+    uint32_t tick,
+    Host& host,
+    int32_t map_pixels_x = 0,
     int32_t map_pixels_z = 0
 );
 /// Installs a search result, or reports a failed search on the goal's order.

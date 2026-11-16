@@ -152,12 +152,9 @@ initialize_numeric(oa::World& w, oa::Unit& u, const Request& r, Host& h, const S
     // that keeps a cell on a map past signed 16.16 and a cell just off the
     // near side negative. Each grid coordinate then narrows.
     const auto cell_of = [](uint32_t position, int16_t footprint, int32_t map_cells) {
-        const auto adjusted = position -
-                              static_cast<uint32_t>(static_cast<int32_t>(footprint)) * 0x80000u +
-                              0x80000u;
-        return static_cast<uint32_t>(
-            base::game_math::fixed_extent_index(adjusted, map_cells, 20)
-        );
+        const auto adjusted =
+            position - static_cast<uint32_t>(static_cast<int32_t>(footprint)) * 0x80000u + 0x80000u;
+        return static_cast<uint32_t>(base::game_math::fixed_extent_index(adjusted, map_cells, 20));
     };
     const auto grid_x = cell_of(r.position[0], footprint_x, w.game.map_width);
     const auto grid_z = cell_of(r.position[2], footprint_z, w.game.map_height);
@@ -557,10 +554,8 @@ int32_t average_plot_height(
     int32_t map_height
 ) {
     // Division by 16 truncates toward zero, including a cell just off the near side.
-    const auto cell_x =
-        base::game_math::fixed_extent_index(position[0], map_width * 16, 16) / 16;
-    const auto cell_z =
-        base::game_math::fixed_extent_index(position[2], map_height * 16, 16) / 16;
+    const auto cell_x = base::game_math::fixed_extent_index(position[0], map_width * 16, 16) / 16;
+    const auto cell_z = base::game_math::fixed_extent_index(position[2], map_height * 16, 16) / 16;
     const auto index =
         sim::spatial_state::plot_index_at(cell_x, cell_z, plots, map_width, map_height);
     if (!index)

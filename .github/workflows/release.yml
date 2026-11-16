@@ -46,12 +46,14 @@ jobs:
           python-version: '3.12'
       - name: Development packages
         run: sudo apt-get update && sudo apt-get install -y $LINUX_PACKAGES
+      # Each download is tried three times: a mirror can drop a connection.
       - name: Pinned dependencies
         run: |
-          python tools/bootstrap_sdl.py
-          python tools/bootstrap_text_fonts.py
-          python tools/bootstrap_page_fonts.py --deps local/deps
-          python tools/bootstrap_accesskit.py
+          retry() { for try in 1 2 3; do "$@" && return 0; echo "try $try failed"; sleep 30; done; return 1; }
+          retry python tools/bootstrap_sdl.py
+          retry python tools/bootstrap_text_fonts.py
+          retry python tools/bootstrap_page_fonts.py --deps local/deps
+          retry python tools/bootstrap_accesskit.py
       # Every program and every file the build puts beside the game lands in
       # bin, which is the package.
       - name: Configure
@@ -119,7 +121,8 @@ jobs:
         run: |
           chmod +x host/oa-tool
           export OA_HOST_OA_TOOL="$PWD/host/oa-tool" OA_WINDOWS_CCACHE=0
-          bash tools/build_windows.sh --no-tests --jobs 4 --target help
+          retry() { for try in 1 2 3; do "$@" && return 0; echo "try $try failed"; sleep 30; done; return 1; }
+          retry bash tools/build_windows.sh --no-tests --jobs 4 --target help
           cmake -B build-windows -DOA_SELF_CHECKS=OFF -DOA_SELF_UPDATE=OFF \
             "-DOA_PACKAGER_NAME=$OA_PACKAGER_NAME" -DOA_GAME_DIR= -DOA_DEMO_INSTALLER= \
             "-DCMAKE_RUNTIME_OUTPUT_DIRECTORY=$PWD/build-windows/bin"
@@ -141,7 +144,7 @@ jobs:
 
   macos:
     name: macOS universal
-    runs-on: macos-14
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
         with:
@@ -153,7 +156,12 @@ jobs:
         run: brew install ninja
       # Signed ad hoc and not notarized: Gatekeeper asks before it opens it.
       - name: Build and package
-        run: bash tools/release_macos.sh --unsigned --no-self-update --jobs 4 --out "$PWD/out"
+        run: |
+          for try in 1 2 3; do
+            bash tools/release_macos.sh --unsigned --no-self-update --jobs 4 --out "$PWD/out" && exit 0
+            echo "try $try failed"; sleep 30
+          done
+          exit 1
       - name: Name the packages
         run: |
           mkdir -p dist

@@ -138,9 +138,8 @@ void install_goal(
                 const auto unit_distance = norm(
                     sub(u.geometry.position[0], target[0]), sub(u.geometry.position[2], target[2])
                 );
-                const auto tail_distance = norm(
-                    sub(from_pixel(end[0]), target[0]), sub(from_pixel(end[1]), target[2])
-                );
+                const auto tail_distance =
+                    norm(sub(from_pixel(end[0]), target[0]), sub(from_pixel(end[1]), target[2]));
                 if (mul(tail_distance, 2) < unit_distance)
                     n.flags |= route_bit;
             }
@@ -268,7 +267,11 @@ uint32_t move_ground(
         std::unique_ptr<Goal> next;
         if ((u.geometry.type.flags & aircraft_type) == 0)
             next = std::make_unique<Goal>(make_goal(
-                order, u.geometry, extra.destination, add(extra.tolerance, 4), map_cells_x,
+                order,
+                u.geometry,
+                extra.destination,
+                add(extra.tolerance, 4),
+                map_cells_x,
                 map_cells_z
             ));
         if (u.state.object_present) {

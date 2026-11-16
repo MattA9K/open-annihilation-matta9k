@@ -79,9 +79,7 @@ int main() {
         // Pixel 34456 is on an 80 by 80 map and is still that pixel's cell.
         oa::sim::unit_movement::Unit wide;
         wide.footprint = {1, 1};
-        const Point far{
-            static_cast<Fixed>(34456u << 16), 0, static_cast<Fixed>(34456u << 16)
-        };
+        const Point far{static_cast<Fixed>(34456u << 16), 0, static_cast<Fixed>(34456u << 16)};
         const auto far_goal = make_goal(order, wide, far, 16, 2560, 2560);
         CHECK(far_goal.cell[0] == 2153 && far_goal.cell[1] == 2153);
         const Point off{static_cast<Fixed>(static_cast<uint32_t>(-30) << 16), 0, 0};
