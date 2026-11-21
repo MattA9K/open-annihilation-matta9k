@@ -189,8 +189,11 @@ a text as the player sees it, so no name changes with the language:
 A part of a control that takes a press of its own is listed after it with
 one word more: a switch's halves `.off` and `.on`, a strip's levels and an
 open drop-down's items by their values, a row of buttons' buttons by their
-words. A click at a part's centre presses that part; a click at a switch's
-centre would land on the line between Off and On.
+words. A click at a part's centre presses that part. A click anywhere on a
+switch flips it, either half and its centre alike, so a click on a half
+sets that half's value only while the switch shows the other: a program
+that sets a value clicks the half that is not checked, and leaves a
+checked one alone.
 
 | Control | Name | Kind, and what it reports |
 |---|---|---|
@@ -222,7 +225,7 @@ centre would land on the line between Off and On.
 | File types, on System on iOS | `oa.settings.file-types` | label |
 | Language's MORE IN THE LIBRARY… (main menu only) | `oa.settings.more-in-library` | button |
 | Downloads' Registries in the Library… (main menu only) | `oa.settings.registries-in-library` | button; opens the Library on its Registries tab |
-| Developer's own controls | `oa.settings.developer-mode.off`/`.on`, `oa.settings.frame-stats.off`/`.on`, `oa.settings.kit-gallery.show` (SHOW, which opens the UI kit gallery), `oa.settings.active-only.off`/`.on`, `oa.settings.restore-profile-values` | as above |
+| Developer's own controls | `oa.settings.developer-mode.off`/`.on`, `oa.settings.frame-stats.off`/`.on`, `oa.settings.frame-graph.2`/`.5`/`.10`/`.30` (Performance graph's spans), `oa.settings.kit-gallery.show` (SHOW, which opens the UI kit gallery), `oa.settings.active-only.off`/`.on`, `oa.settings.restore-profile-values` | as above |
 | Developer's list | `oa.settings.hack-area.<area>`, `oa.settings.hack.<hack>` (its header, with its switch's `.off`/`.on`), `oa.settings.hack.<hack>.<parameter>` (a switch's with `.off`/`.on`) | the headers check boxes, a hack's checked while it is on; a parameter's switch as above, its slider a slider |
 | The title bar's close mark | `oa.settings.close-x` | button, its text "Close", at the top right. It asks for the same close as Cancel |
 | The footer | `oa.settings.restore-defaults`, `oa.settings.cancel`, `oa.settings.ok` | button |

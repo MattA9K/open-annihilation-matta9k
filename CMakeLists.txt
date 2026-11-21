@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 cmake_minimum_required(VERSION 3.24)
-project(open_annihilation VERSION 0.9.1 LANGUAGES C CXX)
+project(open_annihilation VERSION 0.9.2 LANGUAGES C CXX)
 # The version's label. A build of a tree whose label is not empty is a
 # development build. The label is empty for a release, and for a build the
 # maintainer reviews as one; the commit after a release sets it back to "dev"
@@ -787,7 +787,9 @@ if(OA_BUILD_PLATFORM)
     # rest and turned, a depth-sorted unit, units whose polygons cross or
     # lie each over the next, drawn with holes, a lit building and its bright
     # page, a cloaked unit, a unit under construction, units under water
-    # of both sides, carried units, shadows into the target and straight
+    # of both sides, polygons of the image key clearing what lies under
+    # them, each one's region found once and a piece apart from it kept
+    # whole, carried units, shadows into the target and straight
     # into the frame, the game's own shadows each drawn with its model (New
     # unit shadows off), shadows lighter at zoom 0.5 and none at a quarter on
     # both sides, a projectile, a debris piece and a fragment, a
@@ -839,16 +841,20 @@ if(OA_BUILD_PLATFORM)
       ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=missing"
       ENVIRONMENT_MODIFICATION "SDL_FRAMEBUFFER_ACCELERATION=unset:")
     # Window-size textures beyond the renderer's texture limit, as tiles with
-    # gutters, on SDL's software renderer over a surface: tiles under a
-    # limit of 1024 read back as one texture with no limit does, uploaded,
-    # updated, blended and drawn in part. Then the accelerated tier's drawing
-    # on the card, on the same renderer: the battlefield's scene magnified
-    # and the interface scaled, read back against that renderer's own
-    # LINEAR, modelled on the processor, within 2 levels; NEAREST exact at
+    # gutters, on SDL's software renderer over a surface: tiles under a limit
+    # of 1024 read back as one texture with no limit does, uploaded, updated,
+    # blended and drawn in part, and rectangles updated over a picture as one
+    # upload of the picture they make. Then the accelerated tier's drawing on
+    # the card, on the same renderer: the battlefield's scene magnified and
+    # the interface scaled, read back against that renderer's own LINEAR,
+    # modelled on the processor, within 2 levels; NEAREST exact at
     # whole-number scales; PIXELART as NEAREST, as that renderer gives it;
     # scenes and prescale targets in tiles with their gutters, drawing as
     # one texture does; the overlay over a picture; no prescale target
-    # made or drawn again needlessly; and the menus' frame under each way of
+    # made or drawn again needlessly; new textures read back cleared, and
+    # the column and row past an upload's corner and past a prescale
+    # target's enlarged source, one larger source drawn into it before,
+    # hold the picture's edge; and the menus' frame under each way of
     # Menu scaling, its rectangle whole, centred and where it is drawn, and
     # the pointer mapped onto it there.
     add_executable(oa-app-scaled-world-test src/app/scaled_world_test.cpp)
@@ -2153,7 +2159,11 @@ if(OA_BUILD_PLATFORM)
       # every other step leaves it Off, so every frame compared is drawn on
       # the processor. Screen size offers Desktop and the 4K monitor's sizes,
       # opens on the window's own, and applies 1280x720 when OK is pressed,
-      # in the menus and in a game, which keeps its tick and world.
+      # in the menus and in a game, which keeps its tick and world. In a
+      # game the OA layer, drawn again only where it changed through hover
+      # changes, screens opening and closing over one another, a new window
+      # size, Interface size and gamma, holds the layer composed whole, and
+      # the pointer's queued moves reach a modal screen as one.
       set(oa_engine_settings_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/engine-settings")
       file(MAKE_DIRECTORY "${oa_engine_settings_dir}")
       add_test(NAME native-engine-settings COMMAND oa-game --game-dir "${OA_GAME_DIR}"
@@ -2583,7 +2593,9 @@ if(OA_BUILD_PLATFORM)
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
         FIXTURES_REQUIRED key-editor-clean)
       # The playback bar over a short recorded skirmish, at 640x480, 1280x720
-      # and 1920x1080, and the players' stats at the top right there and on a
+      # and 1920x1080, the arrow over it and the match's cursor on the
+      # battlefield beyond it and where it was once it hides,
+      # and the players' stats at the top right there and on a
       # phone; the in-game menu's Save Game, offered in the skirmish and
       # greyed in its replay; the camera a player's view moves onto their
       # commander. Each run starts from a clean folder.
@@ -4578,7 +4590,11 @@ endforeach()
       # The selected commander's pointer moved over several kinds of tree,
       # another reclaimable feature and a wreck through SDL input shows
       # Reclaim wherever its ground point is on their footprints and Move on
-      # the open ground around them. Under the fog a tree on mapped ground
+      # the open ground around them. Over the first tree, Settings opened over
+      # the in-game menu and a screen of the OA layer that is not modal each
+      # show the arrow, the OA Settings button too, the cursor beside that
+      # screen stays the match's, and Reclaim shows again once each closes.
+      # Under the fog a tree on mapped ground
       # shows Reclaim and a click there gives a Reclaim, which the commander
       # carries out; a tree on ground never mapped shows Move and takes a Move.
       # A construction kbot's and a flying construction aircraft's Reclaim of
@@ -4888,7 +4904,10 @@ endforeach()
         WORKING_DIRECTORY "${oa_key_table_tags_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # Latched Shift and Space, then sticky Ctrl and Alt, on a skirmish,
-      # with a layout that lists those two holds.
+      # with a layout that lists those two holds; the pointer over QUEUE's
+      # chip shows the arrow, and the order cursor under it and where it
+      # lay once it goes; a click on the chip gives no order and changes no
+      # selection, and one just under it orders.
       set(oa_key_latches_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/key-latches")
       file(MAKE_DIRECTORY "${oa_key_latches_dir}")
       file(WRITE "${oa_key_latches_dir}/oakeys.yaml"
@@ -4921,7 +4940,8 @@ endforeach()
         WORKING_DIRECTORY "${oa_hold_confirm_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # The order wheel a held mouse button opens, on a skirmish: the cursor
-      # follows the mouse while it is open, and one click ends it. Touch
+      # follows the mouse while it is open, and one click ends it; a hold over
+      # the keys overlay, Settings or a modal screen opens none. Touch
       # controls and the pad HUD stay off. The setting starts off.
       set(oa_order_wheel_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/order-wheel")
       file(MAKE_DIRECTORY "${oa_order_wheel_dir}")
@@ -5436,6 +5456,21 @@ endforeach()
           --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
           --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
         set_tests_properties(native-air-pads PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        # Ten damaged stealth fighters all waiting for one Core repair pad go
+        # to two pads placed beside it later, where they are repaired.
+        add_test(NAME native-air-pad-choice COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_air_pad_choice.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-air-pad-choice PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        # An advanced construction kbot guarding an advanced kbot lab helps it
+        # build each of three Mortys, though its StartBuilding for one of them
+        # finds all its script threads busy, and goes back to guarding the lab.
+        add_test(NAME native-guard-assist COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_guard_assist.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-guard-assist PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
         # Gunships past the map's edge: at View past the map's edge 50% a
         # click where one is drawn selects it, and a box dragged from past
         # the edge selects them with the aircraft near it on the map; at Off

@@ -24,6 +24,7 @@
 #include <cstdint>
 #include <iostream>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -45,6 +46,30 @@ SDL_MouseID event_mouse_id(const SDL_Event& event) noexcept {
 } // namespace
 
 namespace {
+
+/// The actions the match's own wheel handling answers: the zoom, the
+/// megamap's wheel, and the build tools' rotate and spacing.
+constexpr std::string_view kWheelOwnActions[] = {
+    "camera.zoom-in",
+    "camera.zoom-out",
+    "megamap.open-wheel",
+    "megamap.close-wheel",
+    "build.rotate-wheel",
+    "build.spacing-up",
+    "build.spacing-down",
+};
+
+/// Tells whether the match's own wheel handling answers an action.
+///
+/// @param action the action id
+/// @return true for the zoom, the megamap's wheel and the build tools' wheel
+bool wheel_own_action(std::string_view action) {
+    for (const std::string_view own : kWheelOwnActions) {
+        if (own == action)
+            return true;
+    }
+    return false;
+}
 
 /// Tells whether typed text is the character of the quick key that answered a panel.
 ///
@@ -197,13 +222,18 @@ void Runtime::handle_sdl_event(SDL_Event& event, bool& running) {
     if (event.type == SDL_EVENT_MOUSE_WHEEL && middle_pan_take(event))
         return;
     if (event.type == SDL_EVENT_MOUSE_WHEEL && screen_ == Screen::match) {
-        // ui.megamap takes the wheel, which acts only with the Mouse wheel
-        // zoom setting off (megamap_on). Photo mode does not open the
+        // A turn the bindings give another action is that action's.
+        if (take_wheel_actions())
+            return;
+        // ui.megamap takes the wheel while the Mouse wheel zoom setting is
+        // off (megamap_takes_wheel), and over the open megamap whatever the
+        // setting is, where the turn that closes it closes it; its open
+        // turn answers only with the setting off. Photo mode does not open the
         // megamap: the wheel zooms when that setting is on, and does
         // nothing when it is off. The open and close actions name the
         // direction. The wheel is still taken when neither fired, so it
-        // does not zoom the battlefield.
-        if (megamap_on() && !photo_mode()) {
+        // does not zoom the battlefield, nor the one the megamap hides.
+        if ((megamap_takes_wheel() || megamap_shown()) && !photo_mode()) {
             if (sdl_.renderer != nullptr && !convert_event_to_frame(sdl_.renderer, event))
                 return;
             // One notch is one press. The wheel event opens or closes once.
@@ -340,6 +370,10 @@ void Runtime::handle_sdl_event(SDL_Event& event, bool& running) {
         // An open unit info panel takes a press on it, and the release that
         // ends it, before anything under it; the side column takes none.
         if (unit_info_pointer(event, x, y))
+            return;
+        // A key-latch chip takes a press on it, and that press's release,
+        // before the panels and the battlefield it lies over.
+        if (key_latch_chip_pointer(event, x, y))
             return;
         // The commander placement (setup.commander-warp) takes the pointer
         // first; ui.resource-panel's panel floats over the battlefield and
@@ -1445,6 +1479,34 @@ bool Runtime::answer_menu_keys(const SDL_KeyboardEvent& key) {
     }
     // Any other key may be the quick key of one of the panel's buttons.
     return frontend_has_keyboard() && press_frontend_gui_action(key);
+}
+
+bool Runtime::take_wheel_actions() {
+    namespace keys = oa::ui::key_bindings;
+    // Copied: an action may change the page, and a new page clears the events.
+    const std::span<const keys::ActionEvent> fired = match_action_events();
+    const std::vector<keys::ActionEvent> events(fired.begin(), fired.end());
+    // The dispatcher keeps a winner for each target, so the zoom's chord can
+    // answer beside another action's. The chord naming more modifiers takes
+    // the turn; a tie goes to the other action, which the player bound.
+    int own_rank = -1;
+    int other_rank = -1;
+    for (const keys::ActionEvent& fed : events) {
+        if (fed.phase != keys::Phase::pressed || fed.chord.kind != keys::TriggerKind::wheel)
+            continue;
+        int& best = wheel_own_action(fed.action) ? own_rank : other_rank;
+        best = std::max(best, keys::rank(fed.chord));
+    }
+    if (other_rank < 0 || own_rank > other_rank)
+        return false;
+    for (const keys::ActionEvent& fed : events) {
+        if (fed.phase != keys::Phase::pressed || fed.chord.kind != keys::TriggerKind::wheel ||
+            wheel_own_action(fed.action))
+            continue;
+        // One press for each notch the dispatcher reported, as a key's.
+        press_match_action(fed.action);
+    }
+    return true;
 }
 
 bool Runtime::answer_menu_list_wheel(float wheel_y) {

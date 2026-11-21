@@ -9730,6 +9730,14 @@
 	it=In pausa durante la partita;
 	}
 
+[Performance graph]
+	{
+	de=Leistungsdiagramm;
+	fr=Graphique de performance;
+	es=Gráfico de rendimiento;
+	it=Grafico delle prestazioni;
+	}
+
 [Pick the folder that holds totala1.hpi: {places}. It is checked, then copied in.]
 	{
 	de=Wähl den Ordner, der totala1.hpi enthält: {places}. Er wird geprüft, dann hineinkopiert.;
@@ -11840,6 +11848,14 @@
 	fr=The Boneyards a besoin de by.ccx et du dossier Boneyards.;
 	es=The Boneyards necesita by.ccx y la carpeta Boneyards.;
 	it=The Boneyards ha bisogno di by.ccx e della cartella Boneyards.;
+	}
+
+[Confirm your email address first: check your inbox for the Core Prime email.]
+	{
+	de=Bestätige zuerst deine E-Mail-Adresse: Sieh im Posteingang nach der E-Mail von Core Prime.;
+	fr=Confirme d'abord ton adresse e-mail: cherche l'e-mail de Core Prime dans ta boîte de réception.;
+	es=Confirma primero tu dirección de correo: busca el correo de Core Prime en tu bandeja de entrada.;
+	it=Conferma prima il tuo indirizzo e-mail: cerca l'e-mail di Core Prime nella posta in arrivo.;
 	}
 
 [The Boneyards needs {registry}'s install ID turned on. Turn it on and continue?]
@@ -18472,6 +18488,14 @@
 	fr=Combien de temps dure un maintien : maintenir pour confirmer, et les touches liées à un maintien.;
 	es=Cuánto dura una pulsación larga: mantener para confirmar, y las teclas ligadas a un mantenimiento.;
 	it=Quanto dura una pressione: tieni premuto per confermare, e i tasti legati a una pressione.;
+	}
+
+[How many seconds of frames the graph shows.]
+	{
+	de=Wie viele Sekunden an Bildern das Diagramm zeigt.;
+	fr=Les secondes d'images que montre le graphique.;
+	es=Cuántos segundos de fotogramas muestra el gráfico.;
+	it=Quanti secondi di fotogrammi mostra il grafico.;
 	}
 
 [How soon a held camera, speed or page key repeats, and how fast.]

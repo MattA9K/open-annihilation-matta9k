@@ -61,6 +61,7 @@
 #include "oa/ui/engine_settings/notice.hpp"
 #include "oa/ui/engine_settings/prompt.hpp"
 #include "oa/ui/kit/canvas.hpp"
+#include "oa/ui/kit/components.hpp"
 #include "oa/ui/kit/input.hpp"
 #include "oa/ui/kit/text.hpp"
 #include "oa/ui/paint/painter.hpp"
@@ -550,6 +551,18 @@ Point centre(const renderer::SourceRect& rect) {
     return {rect.x + rect.width / 2, rect.y + rect.height / 2};
 }
 
+/// Returns the middle of a switch's knob, as the kit draws it: at its
+/// track's right while On and its left while Off.
+///
+/// @param area the switch
+/// @param on true while it is On
+/// @return the knob's middle
+Point knob_of(const renderer::SourceRect& area, bool on) {
+    const renderer::SourceRect track = kit::switch_track(area);
+    const int32_t radius = track.height / 2;
+    return {on ? track.x + track.width - radius : track.x + radius, track.y + radius};
+}
+
 /// Tells whether two rectangles are the same.
 bool same_entry(const renderer::SourceRect& a, const renderer::SourceRect& b) {
     return a.x == b.x && a.y == b.y && a.width == b.width && a.height == b.height;
@@ -848,11 +861,12 @@ void each_section_shows_its_rows() {
     CHECK(settings::page_settings(Page::user_interface)[5] == Setting::reset_window_positions);
     CHECK(settings::page_settings(Page::user_interface)[6] == Setting::escape_opens_menu);
     CHECK(settings::page_settings(Page::user_interface)[7] == Setting::look);
-    CHECK(settings::page_settings(Page::developer).size() == 4);
+    CHECK(settings::page_settings(Page::developer).size() == 5);
     CHECK(settings::page_settings(Page::developer)[0] == Setting::developer_mode);
     CHECK(settings::page_settings(Page::developer)[1] == Setting::frame_stats);
-    CHECK(settings::page_settings(Page::developer)[2] == Setting::kit_gallery);
-    CHECK(settings::page_settings(Page::developer)[3] == Setting::update_channel);
+    CHECK(settings::page_settings(Page::developer)[2] == Setting::frame_graph);
+    CHECK(settings::page_settings(Page::developer)[3] == Setting::kit_gallery);
+    CHECK(settings::page_settings(Page::developer)[4] == Setting::update_channel);
     // Graphics' twenty-two rows are taller than the view, by 1047 rows.
     const auto graphics = geometry::place_rows(Page::graphics, {});
     CHECK(graphics.rows.size() == 22);
@@ -1075,22 +1089,28 @@ void accessibility_choose_opens_latchable_and_edit_keys_stays_on_all() {
     CHECK(!sticky.opened.sticky_modifiers);
 }
 
-void switches_take_a_click_on_either_half_and_keys() {
+void switches_flip_on_a_click_anywhere_and_take_keys() {
     settings::Dialog dialog = opened(Page::controls);
     const auto rows = geometry::place_rows(Page::controls, {});
     // EDIT KEYS… is the first row's button. Show keys on buttons is the
-    // switch under it, Off until a click on its On half.
+    // switch under it, Off until a click on it. A click anywhere on the
+    // switch flips it: on its knob, at the track's left while Off and its
+    // right while On, and at either end of the switch.
     CHECK(click(dialog, centre(rows.rows[0].control_area)) == DialogAction::edit_keys);
     const auto& keys = rows.rows[1].control_area;
-    const Point off{keys.x + 4, keys.y + keys.height / 2};
-    const Point on{keys.x + keys.width - 4, keys.y + keys.height / 2};
+    const Point left{keys.x + 4, keys.y + keys.height / 2};
+    const Point right{keys.x + keys.width - 4, keys.y + keys.height / 2};
     CHECK(!dialog.chosen.show_keys_on_buttons);
-    CHECK(click(dialog, on) == DialogAction::changed);
+    CHECK(click(dialog, knob_of(keys, false)) == DialogAction::changed);
     CHECK(dialog.chosen.show_keys_on_buttons);
-    CHECK(click(dialog, on) == DialogAction::redraw);
-    CHECK(dialog.chosen.show_keys_on_buttons);
-    CHECK(click(dialog, off) == DialogAction::changed);
+    CHECK(click(dialog, knob_of(keys, true)) == DialogAction::changed);
     CHECK(!dialog.chosen.show_keys_on_buttons);
+    for (const Point end : {right, left}) {
+        CHECK(click(dialog, end) == DialogAction::changed);
+        CHECK(dialog.chosen.show_keys_on_buttons);
+        CHECK(click(dialog, end) == DialogAction::changed);
+        CHECK(!dialog.chosen.show_keys_on_buttons);
+    }
 
     // Keys: the first moves the focus to Key layout; Space opens the editor.
     // Down reaches Show keys on buttons, then the wheel, then the limits.
@@ -1243,26 +1263,29 @@ void language_and_text_shows_a_language_five_switches_and_a_size() {
     for (const auto& row : geometry::open_rows(dialog).rows.rows)
         CHECK(row.lock == Lock::none);
 
-    // A click on each switch's Off half sets it Off, and its On half On;
-    // the text style follows at once.
-    const auto off_of = [](const renderer::SourceRect& area) {
+    // A click on a switch flips it, at either end and on its knob; the text
+    // style follows at once.
+    const auto left_end = [](const renderer::SourceRect& area) {
         return Point{area.x + 4, area.y + area.height / 2};
     };
-    const auto on_of = [](const renderer::SourceRect& area) {
+    const auto right_end = [](const renderer::SourceRect& area) {
         return Point{area.x + area.width - 4, area.y + area.height / 2};
     };
     CHECK(settings::text_style(dialog.chosen) == oa::present::TextStyle{});
-    CHECK(click(dialog, off_of(placed.rows[1].control_area)) == DialogAction::changed);
+    CHECK(click(dialog, left_end(placed.rows[1].control_area)) == DialogAction::changed);
     CHECK(!dialog.chosen.modern_fonts && !settings::text_style(dialog.chosen).modern_fonts);
     dialog.scroll[static_cast<std::size_t>(Page::language)] = 129;
     const auto scrolled = geometry::open_rows(dialog).rows.rows;
-    CHECK(click(dialog, off_of(scrolled[3].control_area)) == DialogAction::changed);
+    CHECK(click(dialog, left_end(scrolled[3].control_area)) == DialogAction::changed);
     CHECK(!settings::text_style(dialog.chosen).outline);
-    CHECK(click(dialog, off_of(scrolled[4].control_area)) == DialogAction::changed);
+    CHECK(click(dialog, knob_of(scrolled[4].control_area, true)) == DialogAction::changed);
     CHECK(!settings::text_style(dialog.chosen).shadow);
-    CHECK(click(dialog, on_of(scrolled[5].control_area)) == DialogAction::changed);
+    CHECK(click(dialog, right_end(scrolled[5].control_area)) == DialogAction::changed);
     CHECK(settings::text_style(dialog.chosen).background);
-    CHECK(click(dialog, on_of(scrolled[5].control_area)) == DialogAction::redraw);
+    CHECK(click(dialog, right_end(scrolled[5].control_area)) == DialogAction::changed);
+    CHECK(!settings::text_style(dialog.chosen).background);
+    CHECK(click(dialog, knob_of(scrolled[5].control_area, false)) == DialogAction::changed);
+    CHECK(settings::text_style(dialog.chosen).background);
     dialog.scroll[static_cast<std::size_t>(Page::language)] = 0;
     const oa::present::TextStyle plain_text{
         .modern_fonts = false,
@@ -3147,13 +3170,13 @@ void control_numbers_put_the_rows_after_every_fixed_control() {
     CHECK(settings::ok_control == 17);
     CHECK(settings::scroll_bar_control == 18);
     CHECK(settings::first_row_control == 19);
-    // Developer's four rows come first, Enable Developer Mode, Show
-    // performance statistics, UI kit gallery and Update channel, then its
-    // footer's switch and button, then its list's rows.
+    // Developer's five rows come first, Enable Developer Mode, Show
+    // performance statistics, Performance graph, UI kit gallery and Update
+    // channel, then its footer's switch and button, then its list's rows.
     CHECK(settings::developer_mode_control == 19);
-    CHECK(settings::active_only_control == 23);
-    CHECK(settings::restore_profile_control == 24);
-    CHECK(settings::first_hack_list_control == 25);
+    CHECK(settings::active_only_control == 24);
+    CHECK(settings::restore_profile_control == 25);
+    CHECK(settings::first_hack_list_control == 26);
 
     // Every row's number comes after every fixed control's, and each is its own.
     Scrolling all(nine_rows());
@@ -4133,15 +4156,16 @@ void every_switch_reads_and_sets_through_one_table() {
     CHECK(geometry::level_at(strip_area, strip, 0) == 0);
     CHECK(geometry::level_at(strip_area, strip, 900) == 2);
 
-    // Vertical sync's switch takes a click on either half and the keys;
-    // Hardware acceleration's strip a click on each level.
+    // Vertical sync's switch flips on a click anywhere on it, its knob
+    // included, and takes the keys; Hardware acceleration's strip a click on
+    // each level.
     settings::Dialog dialog = graphics_page();
     dialog.scroll[static_cast<std::size_t>(Page::graphics)] = 80;
     const auto rows = geometry::open_rows(dialog).rows.rows;
-    const auto on_half = [](const renderer::SourceRect& area) {
+    const auto right_end = [](const renderer::SourceRect& area) {
         return Point{area.x + area.width - 4, area.y + area.height / 2};
     };
-    const auto off_half = [](const renderer::SourceRect& area) {
+    const auto left_end = [](const renderer::SourceRect& area) {
         return Point{area.x + 4, area.y + area.height / 2};
     };
     const auto level_centre = [](const renderer::SourceRect& area, int32_t level) {
@@ -4151,9 +4175,18 @@ void every_switch_reads_and_sets_through_one_table() {
             area.y + area.height / 2
         };
     };
-    CHECK(click(dialog, on_half(rows[4].control_area)) == DialogAction::changed);
+    CHECK(!dialog.chosen.vertical_sync);
+    CHECK(click(dialog, knob_of(rows[4].control_area, false)) == DialogAction::changed);
     CHECK(dialog.chosen.vertical_sync);
-    CHECK(click(dialog, off_half(rows[4].control_area)) == DialogAction::changed);
+    CHECK(click(dialog, knob_of(rows[4].control_area, true)) == DialogAction::changed);
+    CHECK(!dialog.chosen.vertical_sync);
+    CHECK(click(dialog, right_end(rows[4].control_area)) == DialogAction::changed);
+    CHECK(dialog.chosen.vertical_sync);
+    CHECK(click(dialog, right_end(rows[4].control_area)) == DialogAction::changed);
+    CHECK(!dialog.chosen.vertical_sync);
+    CHECK(click(dialog, left_end(rows[4].control_area)) == DialogAction::changed);
+    CHECK(dialog.chosen.vertical_sync);
+    CHECK(click(dialog, left_end(rows[4].control_area)) == DialogAction::changed);
     CHECK(!dialog.chosen.vertical_sync);
     CHECK(dialog.forget_renderer_failures == 0);
 
@@ -5357,10 +5390,12 @@ geometry::ListRow parameter_row(
     });
 }
 
-/// Returns the point of a switch's half.
+/// Returns a point near one end of a switch: the On side or the Off side.
+/// A press anywhere on a switch flips it, so the tests press the side of
+/// the value they ask for while the switch shows the other.
 ///
 /// @param area the switch
-/// @param on true for its On half
+/// @param on true for its right end, the On side
 /// @return the point
 Point switch_half(const renderer::SourceRect& area, bool on) {
     return {on ? area.x + area.width - 4 : area.x + 4, area.y + area.height / 2};
@@ -5472,22 +5507,23 @@ void developer_mode_lists_every_hack_by_area_closed_at_first() {
             CHECK(same_rect(part.rect, open.area.well));
         }
     CHECK(bars == 1);
-    // At Compact the section's parts keep their places: its four rows at
-    // its top, closer than a section's, Enable Developer Mode first, then UI
-    // kit gallery, whose hint takes two lines, and Update channel last;
-    // then, scrolling with them, the list from the line under them, and
-    // Show Active Only and Restore profile values under the list's last row.
+    // At Compact the section's parts keep their places: its five rows at
+    // its top, closer than a section's, Enable Developer Mode first, then
+    // Show performance statistics, Performance graph, UI kit gallery, whose
+    // hint takes two lines, and Update channel last; then, scrolling with
+    // them, the list from the line under them, and Show Active Only and
+    // Restore profile values under the list's last row.
     const settings::Dialog compact =
         developer_dialog(false, {}, {}, oa::ui::kit::SizeClass::compact);
     const auto whole = geometry::open_rows(compact);
     const auto rows = whole.rows.rows;
-    CHECK(rows.size() == 4);
+    CHECK(rows.size() == 5);
     CHECK(rows[0].setting == Setting::developer_mode && rows[1].setting == Setting::frame_stats);
-    CHECK(rows[2].setting == Setting::kit_gallery && rows[3].setting == Setting::update_channel);
+    CHECK(rows[2].setting == Setting::frame_graph && rows[3].setting == Setting::kit_gallery);
+    CHECK(rows[4].setting == Setting::update_channel);
     CHECK(rows[0].control == settings::developer_mode_control);
-    CHECK(rows[1].control == settings::first_row_control + 1);
-    CHECK(rows[2].control == settings::first_row_control + 2);
-    CHECK(rows[3].control == settings::first_row_control + 3);
+    for (std::size_t row = 1; row < rows.size(); ++row)
+        CHECK(rows[row].control == settings::first_row_control + static_cast<int32_t>(row));
     // Enable Developer Mode's hint is one character over Compact's budget, so
     // that row is one line taller and the rows under it sit that much lower.
     const int32_t mode_extra =
@@ -5498,10 +5534,12 @@ void developer_mode_lists_every_hack_by_area_closed_at_first() {
     CHECK(
         rows[0].top == geometry::first_row_top && rows[1].top == 93 + mode_extra &&
         rows[2].top == 132 + mode_extra &&
-        rows[3].top ==
-            132 + mode_extra + geometry::developer_row_height + geometry::hint_line_height
+        rows[3].top == 132 + mode_extra + geometry::developer_row_height &&
+        rows[4].top ==
+            132 + mode_extra + 2 * geometry::developer_row_height + geometry::hint_line_height
     );
-    CHECK(rows[3].height == geometry::developer_row_height && rows[3].hint_lines == 1);
+    CHECK(rows[2].height == geometry::developer_row_height && rows[2].hint_lines == 1);
+    CHECK(rows[4].height == geometry::developer_row_height && rows[4].hint_lines == 1);
     CHECK(same_rect(rows[0].control_area, {415, 59, 52, 16}));
     CHECK(same_rect(rows[1].control_area, {415, 98 + mode_extra, 52, 16}));
     CHECK(rows[1].hint_lines >= 1);
@@ -5576,7 +5614,7 @@ uint64_t parts_digest(const std::vector<settings::LayoutPart>& parts) {
     return digest;
 }
 
-/// UI kit gallery, Developer's third row: its label, its hint (two lines at
+/// UI kit gallery, Developer's fourth row: its label, its hint (two lines at
 /// Compact, one at Regular and Large) and SHOW, which asks for the gallery;
 /// the list under the rows moved down by exactly that row's height at every
 /// class; and every other section's Compact parts as they were before the
@@ -5586,8 +5624,8 @@ void the_kit_gallery_row_moves_only_developers_list() {
     settings::Dialog dialog = opened(Page::developer);
     const auto parts = settings::dialog_layout(dialog);
     const auto placed = geometry::open_rows(dialog);
-    const auto& gallery_row = placed.rows.rows[2];
-    const int32_t show_control = settings::first_row_control + 2;
+    const auto& gallery_row = placed.rows.rows[3];
+    const int32_t show_control = settings::first_row_control + 3;
     const auto* label = find_part(parts, "UI kit gallery", settings::no_control);
     CHECK(label != nullptr && same_rect(label->rect, gallery_row.label));
     const auto gallery_lines = geometry::break_lines(
@@ -5622,10 +5660,11 @@ void the_kit_gallery_row_moves_only_developers_list() {
         );
         CHECK(lines.size() == (size_class == oa::ui::kit::SizeClass::compact ? 2U : 1U));
     }
-    // The list's first part lies exactly the row's height lower than it
+    // The list's first part lies exactly the rows' heights lower than it
     // did with two rows, when the line over the list was at 132 at Compact,
-    // at every class: 51 at Compact, where the hint takes two lines, 39 at
-    // the others.
+    // at every class: the gallery's 51 at Compact, where its hint takes two
+    // lines, 39 at the others, and 39 for each of Performance graph and
+    // Update channel.
     constexpr int32_t kTwoRowsRule = 132;
     for (const auto size_class :
          {oa::ui::kit::SizeClass::compact,
@@ -5634,8 +5673,11 @@ void the_kit_gallery_row_moves_only_developers_list() {
         settings::Dialog sized_dialog = opened(Page::developer);
         sized_dialog.size_class = size_class;
         const auto open = geometry::open_rows(sized_dialog);
-        CHECK(open.rows.rows.size() == 4);
-        const auto& gallery = open.rows.rows[2];
+        CHECK(open.rows.rows.size() == 5);
+        // Performance graph's row, of one hint line at every class, comes
+        // where the gallery's came with two rows over it.
+        const auto& graph = open.rows.rows[2];
+        const auto& gallery = open.rows.rows[3];
         const int32_t row_height =
             geometry::developer_row_height +
             (size_class == oa::ui::kit::SizeClass::compact ? geometry::hint_line_height : 0);
@@ -5651,15 +5693,17 @@ void the_kit_gallery_row_moves_only_developers_list() {
         // Under a taller header, the class's rows start lower.
         const int32_t two_rows_rule =
             kTwoRowsRule + geometry::sizes_of(size_class).first_row_top - geometry::first_row_top;
-        CHECK(gallery.setting == Setting::kit_gallery && gallery.top == two_rows_rule + mode_extra);
+        CHECK(graph.setting == Setting::frame_graph && graph.top == two_rows_rule + mode_extra);
+        CHECK(graph.height == geometry::developer_row_height);
+        CHECK(gallery.setting == Setting::kit_gallery && gallery.top == graph.top + graph.height);
         CHECK(gallery.height == row_height);
         // Update channel's row, of one hint line at every class, comes
         // under the gallery's and moves the list down by its own height.
-        const auto& channel = open.rows.rows[3];
+        const auto& channel = open.rows.rows[4];
         CHECK(channel.setting == Setting::update_channel);
         CHECK(channel.top == gallery.top + gallery.height);
         CHECK(channel.height == geometry::developer_row_height);
-        const int32_t rows_height = row_height + geometry::developer_row_height;
+        const int32_t rows_height = row_height + 2 * geometry::developer_row_height;
         CHECK(
             !open.list.rows.empty() &&
             open.list.rows[0].top == two_rows_rule + 1 + rows_height + mode_extra
@@ -5676,7 +5720,7 @@ void the_kit_gallery_row_moves_only_developers_list() {
     CHECK(click(dialog, centre(show->rect)) == DialogAction::show_gallery);
     CHECK(dialog.chosen == dialog.opened);
     settings::Dialog keyed = opened(Page::developer);
-    for (int presses = 0; presses < 3; ++presses)
+    for (int presses = 0; presses < 4; ++presses)
         CHECK(settings::dialog_key(keyed, DialogKey::tab) == DialogAction::redraw);
     CHECK(keyed.focused == show_control);
     CHECK(settings::dialog_key(keyed, DialogKey::space) == DialogAction::show_gallery);
@@ -5751,16 +5795,15 @@ void areas_and_hacks_open_and_close() {
             CHECK(row.kind != geometry::ListRowKind::scope);
     dialog.developer.areas_open[area_index("ui")] = 0;
     // The keys: the focus goes to Enable Developer Mode, Show performance
-    // statistics, UI kit gallery's SHOW, Update channel, then the list's
-    // headers; Left closes an open area, Right opens it, Space flips it.
+    // statistics, Performance graph, UI kit gallery's SHOW, Update channel,
+    // then the list's headers; Left closes an open area, Right opens it,
+    // Space flips it.
     CHECK(settings::dialog_key(dialog, DialogKey::tab) == DialogAction::redraw);
     CHECK(dialog.focused == settings::developer_mode_control);
-    CHECK(settings::dialog_key(dialog, DialogKey::tab) == DialogAction::redraw);
-    CHECK(dialog.focused == settings::first_row_control + 1);
-    CHECK(settings::dialog_key(dialog, DialogKey::tab) == DialogAction::redraw);
-    CHECK(dialog.focused == settings::first_row_control + 2);
-    CHECK(settings::dialog_key(dialog, DialogKey::tab) == DialogAction::redraw);
-    CHECK(dialog.focused == settings::first_row_control + 3);
+    for (int32_t row = 1; row < settings::developer_row_count; ++row) {
+        CHECK(settings::dialog_key(dialog, DialogKey::tab) == DialogAction::redraw);
+        CHECK(dialog.focused == settings::first_row_control + row);
+    }
     CHECK(settings::dialog_key(dialog, DialogKey::tab) == DialogAction::redraw);
     CHECK(dialog.focused == settings::first_hack_list_control);
     CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::none);
@@ -6021,7 +6064,7 @@ void every_kind_of_parameter_has_its_control() {
     for (const auto& override : on)
         open_hack(dialog, override.hack);
 
-    // A boolean: a switch, set by its halves.
+    // A boolean: a switch, which a press flips.
     auto kickout = parameter_row(dialog, "orders.build-site-kickout", 1);
     CHECK(kickout.kind == geometry::ListRowKind::toggle && kickout.on && kickout.text == "kickout");
     CHECK(click(dialog, switch_half(kickout.control_area, false)) == DialogAction::changed);
@@ -6128,6 +6171,41 @@ void every_kind_of_parameter_has_its_control() {
     }
 }
 
+/// A press on a switch's knob flips it, each way, as a press anywhere on
+/// it does: Show Active Only, a hack's header and a parameter's switch. The
+/// knob lies at the track's right while On and its left while Off.
+void a_press_on_a_switch_knob_flips_it() {
+    settings::Dialog dialog =
+        developer_dialog(true, {profiles::HackOverride{"orders.build-site-kickout", true, {}}});
+    CHECK(!dialog.developer.active_only);
+    const auto active_only = [&] { return geometry::open_rows(dialog).active_only_switch; };
+    CHECK(click(dialog, knob_of(active_only(), false)) == DialogAction::redraw);
+    CHECK(dialog.developer.active_only);
+    CHECK(click(dialog, knob_of(active_only(), true)) == DialogAction::redraw);
+    CHECK(!dialog.developer.active_only);
+
+    open_hack(dialog, "ai.patrol-group-size");
+    auto header = hack_header(dialog, "ai.patrol-group-size");
+    CHECK(!header.on && !header.locked);
+    CHECK(click(dialog, knob_of(header.toggle, false)) == DialogAction::changed);
+    header = hack_header(dialog, "ai.patrol-group-size");
+    CHECK(header.on);
+    CHECK(click(dialog, knob_of(header.toggle, true)) == DialogAction::changed);
+    CHECK(!hack_header(dialog, "ai.patrol-group-size").on);
+
+    open_hack(dialog, "orders.build-site-kickout");
+    auto kickout = parameter_row(dialog, "orders.build-site-kickout", 1);
+    CHECK(kickout.kind == geometry::ListRowKind::toggle && kickout.on);
+    CHECK(click(dialog, knob_of(kickout.control_area, true)) == DialogAction::changed);
+    CHECK(
+        override_value(chosen_override(dialog, "orders.build-site-kickout"), "kickout") == "false"
+    );
+    kickout = parameter_row(dialog, "orders.build-site-kickout", 1);
+    CHECK(!kickout.on);
+    CHECK(click(dialog, knob_of(kickout.control_area, false)) == DialogAction::changed);
+    CHECK(parameter_row(dialog, "orders.build-site-kickout", 1).on);
+}
+
 void restore_profile_values_and_show_active_only() {
     settings::Dialog dialog = developer_dialog(
         true,
@@ -6229,7 +6307,7 @@ void developer_scrolls_as_one_at_compact() {
     dialog.focused = settings::developer_mode_control;
     dialog.focus_shown = true;
     const int32_t areas = static_cast<int32_t>(settings::developer_areas().size());
-    for (int32_t step = 0; step < 3 + areas + 2; ++step) {
+    for (int32_t step = 0; step < settings::developer_row_count - 1 + areas + 2; ++step) {
         CHECK(settings::dialog_key(dialog, DialogKey::down) == DialogAction::redraw);
         const auto open = geometry::open_rows(dialog);
         if (const geometry::ListRow* row = geometry::list_row(open.list, dialog.focused))
@@ -6249,10 +6327,10 @@ void developer_scrolls_as_one_at_compact() {
     dialog.focus_shown = true;
     static_cast<void>(settings::dialog_key(dialog, DialogKey::home));
     CHECK(settings::dialog_key(dialog, DialogKey::up) == DialogAction::redraw);
-    CHECK(dialog.focused == settings::first_row_control + 3);
+    CHECK(dialog.focused == settings::first_row_control + 4);
     {
         const auto open = geometry::open_rows(dialog);
-        const auto& channel = open.rows.rows[3];
+        const auto& channel = open.rows.rows[4];
         CHECK(channel.top >= open.area.view.y);
     }
 
@@ -7396,6 +7474,12 @@ void fonts_load_and_every_text_fits_its_place() {
             hud.scroll[static_cast<std::size_t>(Page::user_interface)] = 0;
             every_text_fits(hud);
         }
+        // Performance graph at each span, on Developer with its hint.
+        for (const auto span : settings::frame_graph_spans) {
+            settings::Dialog graph = opened(Page::developer);
+            graph.chosen.frame_graph = span;
+            every_text_fits(graph);
+        }
     }
 
     // A section that scrolls: every text it lists fits its place at every
@@ -7437,6 +7521,13 @@ void fonts_load_and_every_text_fits_its_place() {
         static_cast<int32_t>(oa::formats::fnt::measure_text(fonts.regular.font, "Vertical sync")) <=
         93
     );
+    // Performance graph's captions fit its levels with three clear columns
+    // each side.
+    for (std::size_t level = 0; level < settings::frame_graph_spans.size(); ++level) {
+        const std::string caption = geometry::strip_caption(Setting::frame_graph, level);
+        std::cout << "'" << caption << "' is " << small_width(caption) << " columns\n";
+        CHECK(small_width(caption) + 2 * 3 <= geometry::frame_graph_level_width);
+    }
     for (const std::string_view text :
          {"Not in use: the game cannot save its files.",
           "Not in use: it needs at least 2 GB of memory.",
@@ -8178,8 +8269,8 @@ void manage_asks_the_host_and_the_backups_switch_changes_at_once() {
     CHECK(dialog.pressed == settings::no_control);
     static_cast<void>(settings::dialog_pointer_up(dialog, location.x + 4, location.y + 4));
 
-    // The switch, Off at first, turns on by either half and by the keys, and
-    // each change asks the host to put it in effect at once.
+    // The switch, Off at first, flips on a click at either end and by the
+    // keys, and each change asks the host to put it in effect at once.
     CHECK(!dialog.chosen.game_files_backed_up);
     CHECK(click(dialog, {backups.x + backups.width - 4, backups.y + 4}) == DialogAction::changed);
     CHECK(dialog.chosen.game_files_backed_up);
@@ -9351,7 +9442,7 @@ void window_frame_shows_and_changes() {
     CHECK(dialog.chosen == dialog.opened);
 }
 
-/// Update channel, Developer's fourth row: Stable and Testing with its hint,
+/// Update channel, Developer's fifth row: Stable and Testing with its hint,
 /// taking a change while Developer Mode is off; a press, Left and Right set
 /// it, Restore defaults gives Stable and Cancel what the dialog opened with.
 void update_channel_shows_and_changes() {
@@ -9363,7 +9454,7 @@ void update_channel_shows_and_changes() {
 
     settings::Dialog dialog = opened(Page::developer);
     CHECK(!dialog.chosen.developer_mode);
-    const int32_t control = settings::first_row_control + 3;
+    const int32_t control = settings::first_row_control + 4;
     auto parts = settings::dialog_layout(dialog);
     for (const std::string_view text :
          {"Update channel",
@@ -9391,6 +9482,59 @@ void update_channel_shows_and_changes() {
 
     CHECK(click(dialog, centre(geometry::restore_button)) == DialogAction::changed);
     CHECK(dialog.chosen.update_channel == settings::UpdateChannel::stable);
+    CHECK(settings::dialog_key(dialog, DialogKey::escape) == DialogAction::cancelled);
+    CHECK(dialog.chosen == dialog.opened);
+}
+
+/// Performance graph, Developer's third row: 2 s, 5 s, 10 s and 30 s with
+/// its hint, 2 s at first, taking a change while Developer Mode is off; a
+/// press, Left and Right set it, Restore defaults gives 2 s and Cancel what
+/// the dialog opened with.
+void frame_graph_shows_and_changes() {
+    CHECK(geometry::kind_of(Setting::frame_graph) == geometry::RowKind::levels);
+    CHECK(geometry::strip_of(Setting::frame_graph).levels == 4);
+    CHECK(
+        geometry::strip_of(Setting::frame_graph).level_width == geometry::frame_graph_level_width
+    );
+    CHECK(geometry::strip_caption(Setting::frame_graph, 0) == "2 s");
+    CHECK(geometry::strip_caption(Setting::frame_graph, 1) == "5 s");
+    CHECK(geometry::strip_caption(Setting::frame_graph, 2) == "10 s");
+    CHECK(geometry::strip_caption(Setting::frame_graph, 3) == "30 s");
+    CHECK(settings::EngineSettings{}.frame_graph == settings::FrameGraphSpan::seconds_2);
+
+    settings::Dialog dialog = opened(Page::developer);
+    CHECK(!dialog.chosen.developer_mode);
+    const int32_t control = settings::first_row_control + 2;
+    auto parts = settings::dialog_layout(dialog);
+    for (const std::string_view text :
+         {"Performance graph",
+          "2 s",
+          "5 s",
+          "10 s",
+          "30 s",
+          "How many seconds of frames the graph shows."})
+        CHECK(find_part(parts, text, settings::no_control) != nullptr);
+    const auto* ten = find_part(parts, "10 s", settings::no_control);
+    CHECK(ten != nullptr && ten->control == control);
+    if (ten != nullptr)
+        CHECK(click(dialog, centre(ten->rect)) == DialogAction::changed);
+    CHECK(dialog.chosen.frame_graph == settings::FrameGraphSpan::seconds_10);
+    CHECK(!dialog.chosen.developer_mode);
+    // Its strip is settings.frame-graph to automation.
+    const auto list = geometry::dialog_list(dialog, nullptr);
+    CHECK(std::any_of(list.controls.begin(), list.controls.end(), [](const auto& shown) {
+        return shown.name == "settings.frame-graph";
+    }));
+    dialog.focused = control;
+    dialog.focus_shown = true;
+    CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
+    CHECK(dialog.chosen.frame_graph == settings::FrameGraphSpan::seconds_30);
+    CHECK(settings::dialog_key(dialog, DialogKey::left) == DialogAction::changed);
+    CHECK(settings::dialog_key(dialog, DialogKey::left) == DialogAction::changed);
+    CHECK(dialog.chosen.frame_graph == settings::FrameGraphSpan::seconds_5);
+
+    CHECK(click(dialog, centre(geometry::restore_button)) == DialogAction::changed);
+    CHECK(dialog.chosen.frame_graph == settings::FrameGraphSpan::seconds_2);
     CHECK(settings::dialog_key(dialog, DialogKey::escape) == DialogAction::cancelled);
     CHECK(dialog.chosen == dialog.opened);
 }
@@ -11125,9 +11269,9 @@ void the_arrows_move_by_geometry() {
             {row, row + 1, row + 2, row + 3, row + 4, row + 5, row + 6, row + 7}
         )
     );
-    // Developer, Developer Mode off: its four rows, every area of its list,
+    // Developer, Developer Mode off: its five rows, every area of its list,
     // then Show Active Only.
-    std::vector<int32_t> developer{row, row + 1, row + 2, row + 3};
+    std::vector<int32_t> developer{row, row + 1, row + 2, row + 3, row + 4};
     for (std::size_t area = 0; area < settings::developer_areas().size(); ++area)
         developer.push_back(settings::first_hack_list_control + static_cast<int32_t>(area));
     developer.push_back(settings::active_only_control);
@@ -13015,7 +13159,7 @@ int main(int argc, char** argv) {
         every_control_is_pressed_where_it_is_drawn();
         accessibility_choose_opens_latchable_and_edit_keys_stays_on_all();
         colour_and_speech_rows_follow_the_choice();
-        switches_take_a_click_on_either_half_and_keys();
+        switches_flip_on_a_click_anywhere_and_take_keys();
         language_and_text_shows_a_language_five_switches_and_a_size();
         language_drop_down_names_each_language_in_itself();
         language_drop_down_opens_marks_and_chooses();
@@ -13080,11 +13224,13 @@ int main(int argc, char** argv) {
         developer_mode_lists_every_hack_by_area_closed_at_first();
         the_kit_gallery_row_moves_only_developers_list();
         update_channel_shows_and_changes();
+        frame_graph_shows_and_changes();
         areas_and_hacks_open_and_close();
         hacks_show_their_titles_alphabetically();
         developer_mode_off_shows_the_profile_and_takes_no_change();
         hacks_turn_on_and_off_and_their_overrides_follow_the_profile();
         every_kind_of_parameter_has_its_control();
+        a_press_on_a_switch_knob_flips_it();
         restore_profile_values_and_show_active_only();
         restore_defaults_turns_developer_mode_off_and_keeps_the_overrides();
         the_list_scrolls_and_shows_the_focused_row();

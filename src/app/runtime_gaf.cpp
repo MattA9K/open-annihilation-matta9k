@@ -500,9 +500,12 @@ uint8_t Runtime::pick_match_cursor() {
 
 std::optional<uint8_t> Runtime::shown_match_cursor() {
     // Over a HUD button, while the order wheel a mouse button opened is up,
-    // and in photo mode, the cursor is the arrow: a click gives the
-    // battlefield no order. Photo mode's pointer reads nothing of the match.
-    if (hovered_ || !match_ || order_wheel_mouse_open() || photo_mode())
+    // in photo mode, over the OA layer's screens and over a key-latch chip,
+    // the cursor is the arrow: a click gives the battlefield no order.
+    // Photo mode's pointer reads nothing of the match, and the battlefield
+    // under an OA screen or a chip, which take its clicks, is not picked.
+    if (hovered_ || !match_ || order_wheel_mouse_open() || photo_mode() ||
+        oa_layer().covers_pointer(pointer_x_, pointer_y_) || pointer_over_key_latch_chip())
         return static_cast<uint8_t>(input::OrderCursor::normal);
     auto& world = match_->state();
     world.game.local_player_index = match_local_player_;

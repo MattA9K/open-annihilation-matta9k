@@ -2008,6 +2008,7 @@ void Runtime::draw_key_badges() {
 
 void Runtime::draw_key_latch_chips() {
     key_latch_chips_drawn_.clear();
+    key_latch_chip_places_.clear();
     // While the keys overlay is open the chips sit in its On line.
     if (oa_layer().find(oa::ui::key_editor::name_keys_overlay) != nullptr)
         return;
@@ -2105,12 +2106,66 @@ void Runtime::draw_key_latch_chips() {
     }
     for (const Placed& item : row) {
         key_latch_chips_drawn_.push_back(item.text);
+        key_latch_chip_places_.push_back(
+            {area.x + origin * scale,
+             area.y + row_top * scale,
+             item.width * scale,
+             chip_height * scale}
+        );
         kit::ChipLook look;
         look.text = item.text;
         look.state = item.filled ? kit::ChipState::playing : kit::ChipState::installed;
         kit::draw_chip(canvas, {origin, row_top, item.width, chip_height}, look);
         origin += item.width + gap;
     }
+}
+
+bool Runtime::pointer_over_key_latch_chip() const {
+    return key_latch_chip_at(pointer_x_, pointer_y_);
+}
+
+bool Runtime::key_latch_chip_at(float x, float y) const {
+    return std::any_of(
+        key_latch_chip_places_.begin(),
+        key_latch_chip_places_.end(),
+        [x, y](const oa::ui::display_layout::Rect& chip) {
+            return x >= static_cast<float>(chip.x) && y >= static_cast<float>(chip.y) &&
+                   x < static_cast<float>(chip.x + chip.width) &&
+                   y < static_cast<float>(chip.y + chip.height);
+        }
+    );
+}
+
+bool Runtime::key_latch_chip_pointer(const SDL_Event& event, float x, float y) {
+    const bool pressed = event.type == SDL_EVENT_MOUSE_BUTTON_DOWN;
+    if (!pressed && event.type != SDL_EVENT_MOUSE_BUTTON_UP)
+        return false;
+    const uint8_t button = event.button.button;
+    const auto bit = static_cast<uint16_t>(button < 16U ? 1U << button : 0U);
+    if (screen_ != Screen::match || match_ == nullptr) {
+        key_latch_chip_buttons_ = 0;
+        return false;
+    }
+    if (!pressed) {
+        // The release of a press a chip took is the chip's wherever it comes
+        // up: a drag from a chip draws no box, and a left order, given on the
+        // release, is not given.
+        if (bit == 0 || (key_latch_chip_buttons_ & bit) == 0)
+            return false;
+        key_latch_chip_buttons_ = static_cast<uint16_t>(key_latch_chip_buttons_ & ~bit);
+        return true;
+    }
+    key_latch_chip_buttons_ = static_cast<uint16_t>(key_latch_chip_buttons_ & ~bit);
+    // A HUD button or a placed region over the chip takes the press, and a
+    // running middle-click pan ends on it, as anywhere.
+    if (bit == 0 || hovered_ || placed_hud_covers(x, y) ||
+        middle_pan_.phase != middle_pan::Phase::idle || !key_latch_chip_at(x, y))
+        return false;
+    // The chip only shows a latch, as the keys overlay's On line does, so
+    // its click does nothing more: the latch's own key lets it go, and a
+    // click that only missed the ground beside the chip keeps the latch.
+    key_latch_chip_buttons_ = static_cast<uint16_t>(key_latch_chip_buttons_ | bit);
+    return true;
 }
 
 namespace {

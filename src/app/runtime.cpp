@@ -24,6 +24,7 @@
 #include "oa/base/float_precision.hpp"
 #include "oa/data/defs/version.hpp"
 #include "oa/formats/hpi.hpp"
+#include "oa/audio/sound_output.hpp"
 #include "oa/media/intro_player.hpp"
 #include "oa/platform/app_loop.hpp"
 #include "oa/platform/preferences.hpp"
@@ -60,6 +61,18 @@
 namespace oa::app {
 
 namespace {
+
+/// Tells whether a queued event moves the pointer on from a move held
+/// before it, so that the two are taken as one: a move of the same mouse
+/// over the same window with the same buttons held.
+///
+/// @param held the move held
+/// @param next the event queued after it
+/// @return true when the event is such a move
+bool moves_on_from(const SDL_MouseMotionEvent& held, const SDL_Event& next) noexcept {
+    return next.type == SDL_EVENT_MOUSE_MOTION && next.motion.which == held.which &&
+           next.motion.windowID == held.windowID && next.motion.state == held.state;
+}
 
 /// The window a movie plays in, so Alt+Enter and a lost device are handled.
 struct IntroWindow {
@@ -1396,10 +1409,36 @@ void Runtime::run_frame(bool& running) {
     // A screen reader's press or key is queued before this frame's poll, as
     // ui.click and ui.key are, so this frame takes it.
     take_screen_reader_actions();
+    // While a modal screen of the OA layer takes every input, the pointer's
+    // moves queued one after another are taken as one move, to where the
+    // last ends and as far as they went together: the screen finds what
+    // lies under the pointer for each move it takes, and only where the
+    // pointer ends shows. Every other event, and every move with no modal
+    // screen up, is dispatched as it comes, in order.
     SDL_Event event{};
-    while (SDL_PollEvent(&event))
-        if (!bench_ignores_event(event))
-            dispatch_event(event, running);
+    std::optional<SDL_Event> held_move;
+    while (SDL_PollEvent(&event)) {
+        if (bench_ignores_event(event))
+            continue;
+        if (held_move && moves_on_from(held_move->motion, event)) {
+            event.motion.xrel += held_move->motion.xrel;
+            event.motion.yrel += held_move->motion.yrel;
+            held_move = event;
+            continue;
+        }
+        if (held_move) {
+            dispatch_event(*held_move, running);
+            held_move.reset();
+        }
+        if (event.type == SDL_EVENT_MOUSE_MOTION && oa_layer_ != nullptr &&
+            oa_layer_->modal_shown(screen_ == Screen::match)) {
+            held_move = event;
+            continue;
+        }
+        dispatch_event(event, running);
+    }
+    if (held_move)
+        dispatch_event(*held_move, running);
     // Holds finish on the frame's clock, after this frame's events.
     advance_input_actions(running);
     // A hold to confirm fires while the press is still down, on this clock.
@@ -1416,6 +1455,10 @@ void Runtime::run_frame(bool& running) {
     const auto now_ms = static_cast<uint32_t>(SDL_GetTicks());
     if (oa::platform::finished_stream_sweep_due(now_ms, last_stream_sweep_ms_)) {
         audio_player_.collect_finished();
+        // The sound device opened, and how late it asked for sound, for a
+        // report of clicks or crackling.
+        if (const std::string log = oa::audio::sound_output().take_log(); !log.empty())
+            std::cerr << log;
         last_stream_sweep_ms_ = now_ms;
     }
     oa::platform::log_files::maintain();

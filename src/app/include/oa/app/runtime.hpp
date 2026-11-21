@@ -746,6 +746,9 @@ class Runtime final : public menu::Host,
     /// Writes the install plan and starts oa-update, or records that start.
     ///
     /// A helper that cannot start leaves the package ready and says why.
+    /// Nothing is handed over while the release is held, while a helper is at
+    /// work, or after a helper another copy of the game started has run since
+    /// this run read the receipt (hand_off_stopped).
     void hand_off_update();
 
     /// Tells whether ROLL BACK asked to put the kept version back.
@@ -4014,7 +4017,9 @@ class Runtime final : public menu::Host,
     /// Reports whether this press may be held back for the order wheel.
     ///
     /// Playing a seat, on the battlefield, and not on a panel, the minimap, a
-    /// placed HUD region, or while placing, the megamap or the whiteboard holds
+    /// placed HUD region, a key-latch chip or where the OA layer covers the
+    /// pointer (OaLayer::covers_pointer: over a screen, or anywhere while a
+    /// modal one shows), or while placing, the megamap or the whiteboard holds
     /// the pointer.
     ///
     /// @param x canvas column
@@ -4337,6 +4342,14 @@ class Runtime final : public menu::Host,
     /// A later mod load reads them again. [runtime_gui_actions.cpp]
     void gather_gui_quick_keys();
 
+    /// Reads the GUI quick keys and the units' Category words of the mod the
+    /// match plays, unless they are read already.
+    ///
+    /// The layout in use is loaded first, as resolution loads it, so keys a
+    /// changed profile drops are read again here. The match load calls it,
+    /// so the match's first resolution reads no file. [runtime_gui_actions.cpp]
+    void gather_key_mod_data();
+
     /// The mod data resolution reads: one gui key per gathered button, the
     /// category letters the loaded units use, and every gathered Category word.
     ///
@@ -4357,16 +4370,6 @@ class Runtime final : public menu::Host,
     ///
     /// @return the letters, or empty when no loaded unit uses one
     [[nodiscard]] std::string loaded_category_letters() const;
-
-    /// Gives the shown file's gui actions the play and panel contexts, and a
-    /// unit info file's actions the unit-info context only.
-    ///
-    /// [runtime_gui_actions.cpp]
-    ///
-    /// @param[in,out] resolved the bindings just resolved
-    /// @param shown the stem of the panel on screen, or empty
-    void
-    apply_shown_gui_file(oa::ui::key_bindings::Resolved& resolved, std::string_view shown) const;
 
     /// The order file stem of the side being played, or of the first side outside a match.
     ///
@@ -4543,14 +4546,34 @@ class Runtime final : public menu::Host,
 
     /// The signed wheel amount `camera.zoom-in` and `camera.zoom-out` give one turn.
     ///
-    /// The magnitude is the turn's, including a fraction. The sign follows those roles, so the
-    /// stock bindings pass the turn through, and Invert mouse zoom then turns it round
-    /// (camera_inversion::wheel_zoom). The classic view and the turned one both zoom by it.
+    /// Only a turn one of their own wheel chords answers zooms
+    /// (zoom_chord_answers), with the modifier keys and sticky modifiers held
+    /// now; any other gives 0, as the other actions answer only their own
+    /// chords. The magnitude is the turn's, including a fraction. The sign
+    /// follows those roles, so the stock bindings pass every turn through, and
+    /// Invert mouse zoom then turns it round (camera_inversion::wheel_zoom).
+    /// The classic view and the turned one both zoom by it.
     /// [runtime_pointer_roles.cpp]
     ///
     /// @param turn the wheel's y, as the event gave it
-    /// @return the amount to zoom by; positive zooms in
+    /// @return the amount to zoom by; positive zooms in, 0 zooms not at all
     [[nodiscard]] float pointer_zoom_amount(float turn);
+
+    /// Tells whether a zoom role's own wheel chords answer a turn.
+    ///
+    /// A chord answers a turn its way while every modifier it names is held;
+    /// others held as well do not stop it, as with the other pointer roles,
+    /// so the stock WheelUp and WheelDown answer every turn. Once the
+    /// bindings are resolved, a role that kept no wheel chord is unbound and
+    /// answers none; until then the stock chords stand in.
+    /// [runtime_pointer_roles.cpp]
+    ///
+    /// @param action `camera.zoom-in` or `camera.zoom-out`
+    /// @param turn 1 for a turn up, -1 for a turn down
+    /// @param modifiers the binding modifier bits held
+    /// @return true when one of its chords answers the turn
+    [[nodiscard]] bool
+    zoom_chord_answers(std::string_view action, int8_t turn, uint8_t modifiers) const;
 
     /// The camera drag this button starts for the modifiers held now.
     ///
@@ -5484,12 +5507,18 @@ class Runtime final : public menu::Host,
     /// Writes the local player, the unit under the pointer, the armed order and
     /// the ground point into the Game block first, and stores the cursor cell.
     ///
-    /// @return a cursor table index: the normal cursor over a gadget or without a
-    ///     match, the build cursor while build placement owns the pointer
+    /// @return a cursor table index: the normal cursor over a gadget, over the
+    ///     OA layer's screens or a key-latch chip, or without a match, the
+    ///     build cursor while build placement owns the pointer
     uint8_t pick_match_cursor();
 
     /// Picks the cursor the match pointer shows, as pick_match_cursor does,
     /// writing the same into the Game block.
+    ///
+    /// Over the OA layer's screens (OaLayer::covers_pointer) and the key-latch
+    /// chips (pointer_over_key_latch_chip), as over a HUD button, it is the
+    /// arrow and nothing is written: the battlefield under them is not picked,
+    /// since they take its clicks.
     ///
     /// With ui.click-snap, RECLAIM over open ground where a click would snap
     /// onto a feature (snapped_reclaim_point) shows the cursor the click
@@ -8687,6 +8716,18 @@ class Runtime final : public menu::Host,
     /// Queues "Updated to {version}" once, when this start was newer than
     /// --updated-from and the main menu has settled.
     void offer_updated_notice();
+
+    /// Tells whether this quit must not hand the ready release to the helper
+    /// (update::hand_off_stop), and says why on the error stream.
+    ///
+    /// Stopped, the schedule is taken back as the receipt screen takes it
+    /// back: a held release keeps waiting for Try again, a release another
+    /// copy's helper could not install is held from now on, and one it
+    /// installed is spent. A helper still at work keeps the schedule.
+    ///
+    /// @param updates the data folder's updates directory
+    /// @return true when nothing is handed over
+    [[nodiscard]] bool hand_off_stopped(const std::filesystem::path& updates);
 
     /// Applies --rolled-back-from to the preferences and the state, once.
     ///
@@ -13799,11 +13840,12 @@ class Runtime final : public menu::Host,
     void trace_window(std::string_view reason);
 
     /// Makes a streaming texture of a pixel format and size, recreating it
-    /// when the format or the size changed. An alpha format is drawn with no
-    /// blending, as an opaque layer.
+    /// when the format or the size changed. A new texture is cleared
+    /// (clear_streaming_texture). An alpha format is drawn with no blending,
+    /// as an opaque layer.
     ///
-    /// Throws PresentError when SDL cannot create it; the texture is then
-    /// null and its size 0x0, so that the next frame makes it again.
+    /// Throws PresentError when SDL cannot create or clear it; the texture is
+    /// then null and its size 0x0, so that the next frame makes it again.
     ///
     /// @param[in,out] texture current texture, or null; the texture of that
     ///     format and size
@@ -15448,6 +15490,17 @@ class Runtime final : public menu::Host,
     /// @param key the key pressed
     /// @return true when a menu action took the key
     bool answer_menu_keys(const SDL_KeyboardEvent& key);
+
+    /// Presses the actions the bindings gave this turn of the wheel in a match,
+    /// other than the zoom, the megamap's wheel and the build tools' wheel.
+    ///
+    /// Each notch presses the action once, as its key would. A turn they take
+    /// neither zooms nor opens or closes the megamap. When the zoom's or the
+    /// megamap's own chord answered the turn too, the chord naming more
+    /// modifiers takes it. [runtime_events.cpp]
+    ///
+    /// @return true when the turn pressed such an action
+    bool take_wheel_actions();
 
     /// Steps a menu list for the wheel.
     ///
@@ -17353,20 +17406,26 @@ class Runtime final : public menu::Host,
     /// @param change the switch
     void switch_watched_view(oa::ui::hud::ViewSwitch change);
 
-    /// Tells whether ui.megamap acts for this player: a match runs under it
-    /// and the Mouse wheel zoom setting is off. With the setting on, the
-    /// wheel's zoom takes the megamap's place: Tab and the wheel open no
-    /// megamap and the minimap keeps the game's own picture.
+    /// Tells whether ui.megamap acts for this player: a match runs under it.
+    /// Its toggle and its jump answer whatever the Mouse wheel zoom setting
+    /// is; the wheel opens it only as megamap_takes_wheel says.
     [[nodiscard]] bool megamap_on() const;
+
+    /// Tells whether ui.megamap takes the wheel on the battlefield: the hack
+    /// acts (megamap_on) and the Mouse wheel zoom setting is off. Then the
+    /// wheel rolled toward the player opens the megamap and the minimap
+    /// shows the enhanced picture; with the setting on the wheel zooms the
+    /// battlefield and the minimap keeps the game's own picture.
+    [[nodiscard]] bool megamap_takes_wheel() const;
 
     /// Tells whether the megamap covers the battlefield: ui.megamap acts
     /// (megamap_on) and the megamap is open.
     [[nodiscard]] bool megamap_shown() const;
 
     /// Puts ui.megamap in step with the Mouse wheel zoom setting changed in a
-    /// running match: with the setting on, an open megamap closes; either way
-    /// the minimap takes the picture the hack now asks for
-    /// (enhance_radar_picture) and is filled and composed again.
+    /// running match: an open megamap stays open, and the minimap takes the
+    /// picture the hack now asks for (enhance_radar_picture) and is filled
+    /// and composed again.
     void megamap_wheel_zoom_changed();
 
     /// Reads one megamap icon from the game folder's icon folder, cut to
@@ -17448,10 +17507,12 @@ class Runtime final : public menu::Host,
     bool take_megamap_toggle(const SDL_KeyboardEvent& key);
 
     /// Takes the wheel for ui.megamap: rolled toward the player it opens the
-    /// megamap; rolled away it closes it, the battlefield's view placed so
-    /// that the map point under the pointer stays under it, held within the
-    /// view's limits (set_camera_position). Off the map's picture the view
-    /// stays where it was.
+    /// megamap while the hack takes the wheel (megamap_takes_wheel); rolled
+    /// away it closes the open megamap, whatever the Mouse wheel zoom
+    /// setting, the battlefield's view placed so that the map point under
+    /// the pointer stays under it, held within the view's limits
+    /// (set_camera_position). Off the map's picture the view stays where it
+    /// was.
     ///
     /// @param amount the wheel's roll, negative toward the player
     /// @param x pointer column on the canvas
@@ -17564,9 +17625,10 @@ class Runtime final : public menu::Host,
     uint8_t megamap_cursor_at(float x, float y);
 
     /// Redraws the radar's terrain picture at its own size from the map's
-    /// minimap (ui.megamap enhanced-minimap) while the hack acts
-    /// (megamap_on); while it does not, puts back the game's own picture,
-    /// which the first call keeps (RadarState::game_picture).
+    /// minimap (ui.megamap enhanced-minimap) while the hack takes the wheel
+    /// (megamap_takes_wheel); while it does not, as while the Mouse wheel
+    /// zoom setting is on, puts back the game's own picture, which the first
+    /// call keeps (RadarState::game_picture).
     void enhance_radar_picture();
 
     /// Tells whether ui.whiteboard takes the pointer: a match runs under it,
@@ -22713,8 +22775,41 @@ class Runtime final : public menu::Host,
 
     /// Draws those chips centred on the battlefield, 6 points under its top,
     /// or where the player put them with Arrange overlays
-    /// (OaLayer::overlay_shown). [runtime_hud.cpp]
+    /// (OaLayer::overlay_shown), and keeps where each lies
+    /// (key_latch_chip_places_). [runtime_hud.cpp]
     void draw_key_latch_chips();
+
+    /// Tells whether the pointer is over a key-latch chip the last frame drew
+    /// on the battlefield (draw_key_latch_chips), where it shows the arrow as
+    /// over the OA layer's screens. [runtime_hud.cpp]
+    ///
+    /// @return true over a chip
+    [[nodiscard]] bool pointer_over_key_latch_chip() const;
+
+    /// Tells whether a point lies on a key-latch chip the last frame drew.
+    /// [runtime_hud.cpp]
+    ///
+    /// @param x canvas column
+    /// @param y canvas row
+    /// @return true on a chip
+    [[nodiscard]] bool key_latch_chip_at(float x, float y) const;
+
+    /// Gives the key-latch chips the clicks on them, as the OA layer's screens
+    /// take theirs in a match.
+    ///
+    /// A press of any button on a chip is the chip's: it gives the
+    /// battlefield under it no order, selection, box or pan, and does nothing
+    /// else, since a chip only shows a latch. Its release is the chip's
+    /// wherever it comes up. A press the HUD, a placed HUD region or a
+    /// running middle-click pan holds first is left to them, and so is the
+    /// release of a press made elsewhere, so a box dragged from the
+    /// battlefield ends over a chip. [runtime_hud.cpp]
+    ///
+    /// @param event a mouse event, in canvas coordinates
+    /// @param x canvas column
+    /// @param y canvas row
+    /// @return true when a chip took the event
+    bool key_latch_chip_pointer(const SDL_Event& event, float x, float y);
 
     /// What the hold ring and its card draw from the press that is running.
     struct HoldConfirmDraw {
@@ -24036,16 +24131,19 @@ class Runtime final : public menu::Host,
     /// quarter (frame_stats_panel::place_panel). It darkens the battlefield
     /// under it and has a black outline and a raised edge in the GUI
     /// palette's light and dark edge colours. On it, the table
-    /// frame_stats_table describes: the title in the text's white, the
-    /// column names in a mid gray over a rule, labels and the units count in
-    /// a light gray, and each time in a green, the health bar's yellow or
-    /// its red as it graded within the frame's allowance, within a tick or
-    /// over a tick when it was taken (time_severity), a time over a tick on
-    /// a red cell too. Under the table, a graph of the last two seconds of
-    /// frames (frame_pacing::FrameHistory), the newest at the right, each
-    /// column's bar as high as its longest frame and in that frame's
-    /// grade's colour, over a gray line at a tick and a fainter dotted one
-    /// at the frame's allowance.
+    /// frame_stats_table describes: the title in the text's white, with
+    /// the graph's span after it in a mid gray where the player chose a
+    /// longer one, the column names in a mid gray over a rule, labels and
+    /// the units count in a light gray, and each time in a green, the
+    /// health bar's yellow or its red as it graded within the frame's
+    /// allowance, within a tick or over a tick when it was taken
+    /// (time_severity), a time over a tick on a red cell too. Under the
+    /// table, a graph of the last two seconds of frames, or of the span
+    /// Settings › Developer › Performance graph chooses
+    /// (frame_pacing::FrameHistory), the newest at the right, each column's
+    /// bar as high as its longest frame and in that frame's grade's colour,
+    /// over a gray line at a tick and a fainter dotted one at the frame's
+    /// allowance.
     void draw_frame_stats();
 
     /// Checks "+stats" through the chat line: it needs no passphrase, echoes
@@ -24060,8 +24158,11 @@ class Runtime final : public menu::Host,
     /// newest at the right, covering the lines at a tick and at the frame's
     /// allowance where it reaches them; the table shows each grade's colour,
     /// ends the frame row's times at their columns' right edges and puts a
-    /// red cell behind a time over a tick. Typed again, it takes the overlay
-    /// away, leaving the frame as it was.
+    /// red cell behind a time over a tick. The same frames over the longest
+    /// span of the graph leave the panel, its columns and its graph where
+    /// they were, and add the span after the title, which the default span
+    /// leaves out. Typed again, it takes the overlay away, leaving the frame
+    /// as it was.
     ///
     /// @param enter_line types a line into the chat line and submits it
     void check_console_stats(const std::function<void(const char*)>& enter_line);
@@ -24550,7 +24651,8 @@ class Runtime final : public menu::Host,
     // The key bindings' dispatcher; null until the first event or frame that feeds it.
     mutable std::unique_ptr<KeyBindingsState, void (*)(KeyBindingsState*) noexcept>
         key_bindings_state_{nullptr, destroy_key_bindings_state};
-    /// GUI quick keys of the mod in use. Empty until the first resolution.
+    /// GUI quick keys of the mod in use. Empty until a match load or the first
+    /// resolution reads them.
     std::vector<GuiQuickKey> gui_quick_keys_{};
     /// Set once the mod's GUI files have been read. Cleared when the mod changes.
     bool gui_quick_keys_gathered_{};
@@ -24628,6 +24730,13 @@ class Runtime final : public menu::Host,
     uint64_t key_latch_seen_next_{1};
     /// The chip texts last drawn, including an overflow chip. Empty when none show.
     std::vector<std::string> key_latch_chips_drawn_{};
+    /// Where the chips last drawn lie, one a chip, in match canvas pixels.
+    /// Empty when none show.
+    std::vector<oa::ui::display_layout::Rect> key_latch_chip_places_{};
+    /// The buttons whose press a key-latch chip took, one bit a button
+    /// (1 << the SDL button), so that their releases are the chips' too. A
+    /// new press of a button clears its bit: its release was lost.
+    uint16_t key_latch_chip_buttons_{0};
     /// The key of the press being handled, so a hold can tell which key lets it go.
     uint16_t hold_key_scancode_{0};
     /// The button release just seen started a hold, so that release activates nothing.

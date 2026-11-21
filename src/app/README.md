@@ -555,7 +555,12 @@ latched the closing key and drew a backdrop.
   the extensions' overlays, under the frontend's message boxes) hands the
   layer every input. The key that closed a screen comes first: its presses
   do nothing until it is released. Then the top modal screen that shows
-  takes every input, and nothing under it sees any. With none, each screen
+  takes every input, and nothing under it sees any. While one shows, the
+  pointer's moves a frame finds queued one after another are dispatched as
+  one move, to where the last ends and as far as they went together
+  (`Runtime::run_frame`), since the screen finds what lies under the
+  pointer for each move it takes; with no modal screen every move is
+  dispatched as it comes. With none, each screen
   that shows sees the input from the top, and the first that answers other
   than `pass` takes it; what none takes goes on to the overlays and the
   screen under the layer, and in a match first to the in-game OA button.
@@ -674,11 +679,70 @@ latched the closing key and drew a backdrop.
   at 150%, never drawn at 1× and enlarged, and copied into the layer pixel
   for pixel; the OA Settings button's face, at its source size, and on a
   phone the fitted Settings, drawn at a whole scale, are fitted to their
-  places by the nearest pixel (`stamp`). The layer is drawn again only when what it shows changes
-  (`refresh_match`), and the composed frame and the window take the same
-  layer: it goes over the composed frame (`compose_match`) and is presented
-  after the match's other layers and before the frontend dialogs' and the
-  cursor (`present`).
+  places by the nearest pixel (`stamp`). The layer is drawn again only
+  when what it shows changes (`refresh_match`), and then only what changed.
+  A screen whose revision covers what it draws (`revision_covers_drawing`;
+  in a match Settings too, whose tick moves its revision for every change
+  it takes from outside its input) keeps its drawing while its revision
+  and what it is drawn from hold (`MatchPiece`, the `DrawingInputs` the
+  front end keys its drawings by); every other screen, such as the replay
+  bar with its clock, is drawn again each time the layer is. The layer
+  keeps its pixels between frames and is composed again only where a
+  drawing differs from the one it replaces, the smallest rectangle holding
+  each pixel that differs (`changed_part`), where a screen came, went or
+  moved, and where the button's face or place changed: there the backdrop
+  or clear, the button and the screens are laid again from the bottom
+  (`compose_match_part`), so that every pixel is the one composing the
+  whole layer anew gives. A new size, the backdrop coming or going,
+  screens that change their order and `redraw` compose the whole layer and
+  `redraw` draws every screen anew. Only the part composed again since the
+  last upload goes to the texture, at the display gamma
+  (`upload_match_part`, `TiledTexture::update_rect`); a new texture or gamma
+  takes the whole layer. So a hover change costs about what drawing the
+  screen that changed costs, not the window: the gallery, which covers the
+  window, is still drawn whole. `OaLayer::check_match_redraws`, under
+  `native-engine-settings`, holds the layer to the one composed whole
+  through hover changes, screens over one another, a new window size,
+  Interface size and gamma. The composed frame and the window take the
+  same layer: it goes over the composed frame (`compose_match`) and is
+  presented after the match's other layers and before the frontend
+  dialogs' and the cursor (`present`). The pointer over the layer shows
+  the arrow, as over a HUD button, not the order cursor of the unit or
+  feature under it (`covers_pointer`, which `Runtime::shown_match_cursor`
+  asks before it picks the battlefield): anywhere while a modal screen
+  such as Settings shows, inside the place of any other screen that shows
+  where that screen covers it (`LayerScreen::covers_point`: the whole
+  place, but for the replay bar, whose place is the battlefield, only its
+  bar, cards and menus), and over the OA Settings button. With no screen
+  and no button the cursor is the match's as before. Where the layer
+  covers the pointer the order wheel a held button opens does not wait on
+  a press either (`Runtime::order_wheel_press_eligible`), so the screen
+  takes it: a hold over the keys overlay, over Settings, or anywhere while
+  a modal screen shows over a match that plays on opens no wheel, as
+  `native-order-wheel` holds, and beside the keys overlay it opens one.
+  The key-latch chips
+  the match draws over the battlefield with no OA screen open show the
+  arrow too (`Runtime::pointer_over_key_latch_chip`, over the places
+  `draw_key_latch_chips` keeps), and the battlefield under them is not
+  picked: they take its clicks as the screens do
+  (`Runtime::key_latch_chip_pointer`, before the panels and the
+  battlefield). A press of any button on a chip is the chip's, and so is
+  its release wherever it comes up, so it gives no order, selection, box
+  or pan, and the order wheel does not wait on it
+  (`order_wheel_press_eligible`). The click does nothing more: a chip only
+  shows a latch, as the keys overlay's On line does, and the latch's own
+  key lets it go. The bindings still see the click first, as they see one
+  on a screen, so it uses up a modifier made sticky for the next key or
+  click, as any click does; a locked one stays. A press the HUD, a placed
+  HUD region or a running middle-click pan holds is theirs, and the
+  release of a press made elsewhere goes on, so a box dragged from the
+  battlefield ends over a chip. `native-reclaim-cursor` holds the arrow
+  over Settings and over a screen that is not modal, a tree under each,
+  `native-replay-viewer` over the replay bar and off it, and
+  `native-key-latches` over QUEUE's chip, under it and where it lay;
+  `native-key-latches` also clicks the chip with each button on both
+  interfaces, drags from it and presses it with the order wheel on, none
+  of which orders or selects, and clicks just under it, which orders.
 - **The in-game OA Settings button.** The in-game menu has one OA button,
   under Resume, as wide as it from its left edge (`match_button_rect`, 96
   by 24 source pixels at (14, 455), placed in the column at its own scale,
@@ -1908,7 +1972,20 @@ prompts, Settings › Updates and the headers name one state with one size.
   installer on the macOS installer route, Close the game on a Steam Deck)
   and Install when I quit (`when-i-quit`, marked). A quit installs only a
   release scheduled for it, or `--update-and-quit`
-  (`Runtime::hand_off_requested`); quitting otherwise never installs.
+  (`Runtime::hand_off_requested`); quitting otherwise never installs. Nor
+  does a quit hand a release over (`Runtime::hand_off_stopped`,
+  `update::hand_off_stop`) while the release is held, while a helper's
+  receipt is running and under ten minutes old, or when the receipt is not
+  the one this run read at its start or showed at the menu: a helper that
+  another copy of the game started has run since. That copy may have
+  scheduled the same release, and its helper may have left the files
+  half-moved; a second hand-off would try the same files again. The copy
+  closes as usual and starts nothing. Its schedule is taken back as the
+  recovery screen takes it back: a release that helper could not install
+  is held, and one it installed is spent; a helper still at work keeps it.
+  The next start shows that helper's receipt once, as it shows any. A
+  journal or a setup's marker that came with the receipt this run read is
+  left for the next helper, which puts it back before it moves anything.
 - **The recovery screen** (`update-receipt`) shows a receipt the helper
   left that did not end well, once, at the first settled menu: the
   outcome's words as its lead, a callout, What happened with each step
@@ -2017,6 +2094,25 @@ prompts, Settings › Updates and the headers name one state with one size.
   digest, a meteor strike and the camera network play shares take the
   camera held on the map as the game holds it (`on_map_camera`), so a
   view past the map's edges reaches none of them.
+  A turn the bindings give an action other than the zoom, the megamap's
+  wheel or the build tools' wheel, such as Alt and the wheel bound to Speed
+  up, presses that action once a notch as its key would, and neither zooms
+  nor opens the megamap (`take_wheel_actions`). Where the zoom's or the
+  megamap's own chord answers the same turn for its own target, the chord
+  that names more modifiers takes the turn.
+  The zoom answers only a turn its own wheel chords answer
+  (`zoom_chord_answers`): a chord answers a turn its way while the
+  modifiers it names are held, others held too or not, as the pointer
+  roles' chords do, so the stock WheelUp and WheelDown zoom on every turn
+  as before, with Ctrl or any other modifier held; Zoom in and Zoom out on
+  Alt and the wheel leave the plain wheel doing nothing, and a zoom the
+  player unbound zooms on no turn. The megamap's wheel and the build
+  tools' rotate and spacing already answered only their own chords: with
+  Mouse wheel zoom off the megamap takes every turn and opens or closes
+  only on its chords, and over the open megamap it does so with the
+  setting on too, so no turn zooms the battlefield it hides; the build
+  tools pass on a turn their chords do not answer. The megamap's toggle on
+  a turn is one of those other actions (`handle_match_action`).
   The wheel and a trackpad set the zoom's target (`handle_match_zoom`,
   `wheel_zoom_target`) by the amount `pointer_zoom_amount` gives a turn,
   the wheel's bindings turned round by Invert mouse zoom
@@ -2288,6 +2384,16 @@ prompts, Settings › Updates and the headers name one state with one size.
   its largest within the prescale budget, then LINEAR; the prescale target is split into tiles with
   gutters beyond the renderer's texture limit, as the scene is, and each of
   the scene's tiles is drawn into each of its tiles (`PrescaleTarget`).
+  Every new streaming texture is cleared before it is drawn
+  (`clear_streaming_texture`, in `ensure_streaming_texture` and
+  `TiledTexture`), and what LINEAR reads just past a picture in a texture
+  or a target larger than it is the picture's edge: an upload of the
+  scene's corner writes the column and row past it from the corner's last
+  column and row, and a draw into a prescale target does the same past the
+  enlarged source, as a texture of the picture's own size gives back there.
+  So a target the HUD's layer keeps at its largest, or a scene texture
+  larger than the frame's scene, shows neither the card's earlier memory
+  nor a larger picture drawn into it before.
   The nearest picture of the scene is kept as
   the base the painters after the fog paint over; what they changed goes up
   as an overlay, transparent elsewhere, in the 32-row bands that hold it now
@@ -2617,7 +2723,12 @@ prompts, Settings › Updates and the headers name one state with one size.
   drawn as the image leaves it, clear: it draws nothing and cuts what it
   covers out of the polygons of the unit's picture drawn before it, as a
   model's walls of the key hide its pieces sunk below the ground (drawn
-  flat, it is a colour); texture frames go on
+  flat, it is a colour), what it clears found once a draw whatever the
+  polygons under it and a piece apart from it kept whole
+  (`cut_under_clearing`, `cut_away`), so that a large factory's walls of
+  the key are not cut again for every polygon under them and its pieces
+  are not cut along lines that miss them;
+  texture frames go on
   sprite pages on first sight in two variants, the image key transparent
   as in a cached image or a colour as in a flat draw; shadows go into a
   transparent shadow target the battlefield's size, every silhouette
@@ -3106,7 +3217,15 @@ prompts, Settings › Updates and the headers name one state with one size.
   frame a column at 120 frames a second, a 33 ms idle frame four columns
   wide, and a hitch as wide as it lasted, each bar in its frame's grade's
   colour, capped in white past the graph's 40 ms, over a gray line at a
-  tick and a fainter dotted one at the frame's allowance.
+  tick and a fainter dotted one at the frame's allowance. Settings ›
+  Developer › Performance graph (`EngineSettings::frame_graph`) chooses 5,
+  10 or 30 seconds in place of the two: the graph keeps its 240 columns,
+  each a slice of 1/240 of the span holding the longest frame that covers
+  it, so a slow frame stays on the graph that much longer and is never
+  lost among the frames that share its column; the title names the span,
+  as "graph 10 s", after it in the notes' gray, and the panel keeps its
+  size and place. A change applies at once and starts the graph afresh
+  (`set_frame_history_seconds`).
   `frame_stats_panel` lays the panel out in the match label font for the
   widest texts the table shows (`frame_stats_widest_table`, which keeps no
   room for the rows that run on), so nothing in it moves from frame to
@@ -3121,17 +3240,20 @@ prompts, Settings › Updates and the headers name one state with one size.
   640x480 to 3840x2160, that every column of the graph has its frame's
   height and colour over two seconds of late and slow frames, the lines,
   the colours, alignment and red cells of the table, that the last row
-  names the window and the frame drawn, that nothing moves,
+  names the window and the frame drawn, that nothing moves, also over the
+  graph's longest span, which the title names,
   and that nothing outside the battlefield's bottom right quarter changes. 3.1c
   has no command that shows these times; its frame rate shows as "FRATE:"
   on the debug keys' line (F11 after the developer passphrase), with
   "[Release]" and "MODE DEBUG INFO ON" or "OFF", which
   `draw_debug_status_line` draws as 3.1c does and the console check
   checks. `app-frame-pacing` tests the pacing, the fraction, the figures,
-  the history and the grades over a fake clock, among them a frame for each
+  the history over each span, a slow frame kept in its columns until the
+  span has passed it, and the grades over a fake clock, among them a frame for each
   tick at 30 a second from any start, each shown whole, and how faster and
   slower game speeds show at that rate, and
-  `app-frame-stats-panel` the panel's rows, columns, notes and graph, its
+  `app-frame-stats-panel` the panel's rows, columns, notes and graph, the
+  span after the title leaving the panel as it was, its
   place and scale, the bars and lines and each grade's colour. `--frame-rate FPS` with `--match-ticks` plays
   the headless skirmish frame by frame on a clock of its own, moving the
   camera and stepping the clock as the loop does and drawing each frame as
@@ -3517,6 +3639,13 @@ prompts, Settings › Updates and the headers name one state with one size.
   (`report_unplayed_sound`, `audio::game_audio::known_missing_sound`); a
   sound whose file was not found is not looked for again in the run
   (`sound_found_missing`).
+- Every tenth of a second, as it collects the effects that have finished,
+  the frame writes to stderr what the sound output has to say
+  (`audio::SoundOutput::take_log`): the device it opened, with its driver,
+  name, rate, channels, sample format and the frames it takes at a time,
+  and, at most once a minute, how many of the device's requests for sound
+  came late, how long it went without sound at worst and how long a mix
+  took, for a report of clicks or crackling.
 - `runtime_unit_speech_check.cpp`: `--check-unit-speech`
   (`native-unit-speech`): the commander clicked says its select line, and
   clicked onto open ground its order line, in a skirmish and in a second
@@ -3975,7 +4104,8 @@ prompts, Settings › Updates and the headers name one state with one size.
 - `scaled_world.hpp`, `scaled_world.cpp`: `TiledTexture`, a streaming
   texture made as one texture within the renderer's limit and as tiles
   with one-texel gutters beyond it, for the standard tier's window-size
-  layers and the accelerated tier's scene and overlay; `PresentError` and
+  layers and the accelerated tier's scene and overlay, updated whole, by
+  runs of rows or by a rectangle (`update_rect`); `PresentError` and
   `AccelerationError`; and the accelerated tier's drawing on the card
   (`PrescaleTarget`, `draw_scaled_world`, `sharp_draw`, `probe_pixelart`);
   and a screen of one frame, letterboxed or in whole steps as Menu scaling
@@ -3984,8 +4114,10 @@ prompts, Settings › Updates and the headers name one state with one size.
   maps the pointer onto such a frame where it is drawn, on whole pixels
   where SDL reckons half of one. `app-scaled-world-software` checks on
   SDL's software renderer that tiles read back as one texture does, the
-  card's drawing against that renderer's own filters, and the frame's
-  rectangle and the pointer's mapping under each way of Menu scaling.
+  card's drawing against that renderer's own filters, that new textures
+  read back cleared and the column and row past an upload and a prescale
+  draw hold the picture's edge, and the frame's rectangle and the
+  pointer's mapping under each way of Menu scaling.
 - `render_policy.hpp`, `render_policy.cpp` (`oa-app-render-policy`): the
   decisions of hardware-accelerated presentation as pure functions, with
   no SDL, no files and no clock, of which the game uses so far the walk of
@@ -4369,6 +4501,12 @@ saves, recordings and network games are unaffected.
   `advance_input_actions` runs once a frame. Losing the window's focus
   releases every held action and role, and a keymap change rebuilds the
   keyboard map. The action events are kept and nothing acts on them yet.
+  `ensure_key_bindings` keeps what resolution returned: a new side panel page
+  or new menus on screen change nothing it reads, so they start again from
+  that resolution and only move the `gui.` actions' contexts
+  (`bindings_for_screen`). A match load reads the mod's GUI quick keys and
+  its units' Category words with the units (`gather_key_mod_data`), so the
+  match's first resolution reads no file.
 - `runtime_touch_hud.cpp` draws the controls into a layer of their own,
   composed over the CPU frame (`compose_touch_layer`) and presented in every
   tier (`present_touch_layer`), with the primitives of `oa-ui-paint`
@@ -5469,8 +5607,10 @@ tidal line and the shared camera rectangles, and switches a watcher's view;
 `runtime_whiteboard.cpp` takes the whiteboard's pointer, keys and text and
 makes and applies its batches (`take_whiteboard_batch`,
 `receive_whiteboard_batch`); `runtime_megamap.cpp` opens, draws and clicks
-the megamap and redraws the enhanced minimap, while the Mouse wheel zoom
-setting is off (`megamap_on`, `megamap_wheel_zoom_changed`), its clicks
+the megamap whatever the Mouse wheel zoom setting is (`megamap_on`), and,
+only while that setting is off, opens it with the wheel on the battlefield
+and redraws the enhanced minimap (`megamap_takes_wheel`,
+`megamap_wheel_zoom_changed`), its clicks
 acting as the battlefield's do in the chosen interface type, a drop of the
 selection closing the unit info panel, and a panel over it, such as the exit
 menu, taking its own; a press takes the icon last drawn under it
@@ -5522,8 +5662,9 @@ alone is laid on the battlefield (`note_full_world_covered`,
 the battlefield whole again. `native-render-tiers-visual-rules` runs the
 render tiers check under a profile that turns the visual rules on and checks these overlays
 in the standard and accelerated tiers, and in the Full tier after its own
-cases (`check_visual_rule_overlays`), with the megamap opening only while
-the Mouse wheel zoom setting is off and closing when it is turned on.
+cases (`check_visual_rule_overlays`), with Tab opening and closing the
+megamap whatever the Mouse wheel zoom setting is, the wheel opening it only
+while the setting is off, and turning the setting on leaving it open.
 
 ## Mutators at the start of a match
 
